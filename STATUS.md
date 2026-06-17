@@ -99,6 +99,11 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 3.1 added Ironclad starter deck constructor with 5 `Strike_R`, 4 `Defend_R`, 1 `Bash`, and A0 base HP 80.
+- Task 3.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -128,7 +133,7 @@ Milestone 3: Full Starter Deck and Core Combat Mechanics.
 
 ## Next Task
 
-Task 3.1: Ironclad Starter Deck Constructor.
+Task 3.2: Burning Blood.
 
 ## Known Risks
 

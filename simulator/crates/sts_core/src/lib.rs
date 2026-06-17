@@ -19,6 +19,8 @@ pub use combat::{
     legal_combat_actions, validate_combat_action, CardPiles, CombatPhase, CombatState,
     CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState, PlayerState,
 };
+pub use content::character::IRONCLAD_A0_BASE_HP;
+pub use content::deck::ironclad_starter_deck;
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};
 pub use power::MonsterPowers;
