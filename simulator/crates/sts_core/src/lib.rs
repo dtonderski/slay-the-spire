@@ -3,11 +3,12 @@
 
 pub mod card;
 pub mod combat;
+pub mod content;
 pub mod error;
 pub mod ids;
 pub mod snapshot;
 
-pub use card::CardInstance;
+pub use card::{CardDefinition, CardInstance, CardType, CardValues, TargetRequirement};
 pub use combat::{CardPiles, CombatPhase, CombatState, MonsterState, PlayerState};
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};

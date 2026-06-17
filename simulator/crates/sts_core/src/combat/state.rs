@@ -1,6 +1,7 @@
 use crate::{
     card::CardInstance,
-    ids::{CardId, ContentId, MonsterId},
+    content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+    ids::{CardId, MonsterId},
     SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -48,10 +49,6 @@ pub enum CombatPhase {
 impl CombatState {
     #[must_use]
     pub fn initial_fixture() -> Self {
-        let strike = ContentId::new(1);
-        let defend = ContentId::new(2);
-        let bash = ContentId::new(3);
-
         Self {
             player: PlayerState {
                 hp: 80,
@@ -66,11 +63,11 @@ impl CombatState {
             }],
             piles: CardPiles {
                 hand: vec![
-                    CardInstance::new(CardId::new(1), strike),
-                    CardInstance::new(CardId::new(2), defend),
-                    CardInstance::new(CardId::new(3), bash),
+                    CardInstance::new(CardId::new(1), STRIKE_R_ID),
+                    CardInstance::new(CardId::new(2), DEFEND_R_ID),
+                    CardInstance::new(CardId::new(3), BASH_ID),
                 ],
-                draw_pile: vec![CardInstance::new(CardId::new(4), strike)],
+                draw_pile: vec![CardInstance::new(CardId::new(4), STRIKE_R_ID)],
                 discard_pile: Vec::new(),
                 exhaust_pile: Vec::new(),
             },

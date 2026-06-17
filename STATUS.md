@@ -34,8 +34,13 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 1.2 added static starter card definitions for Strike_R, Defend_R, and Bash.
+- Task 1.2 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - No simulator implementation yet.
-- Basic ID/error, snapshot, and combat state tests exist.
+- Basic ID/error, snapshot, combat state, and starter card content tests exist.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -65,7 +70,7 @@ Milestone 0: Project Skeleton and Test Harness.
 
 ## Next Task
 
-Task 1.2: Add Starter Card Definitions: Strike, Defend, Bash.
+Task 1.3: Generate Legal Combat Actions.
 
 ## Known Risks
 
