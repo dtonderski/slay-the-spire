@@ -1,4 +1,7 @@
-use crate::ids::{CardId, MonsterId};
+use crate::{
+    combat::damage::DamageInfo,
+    ids::{CardId, MonsterId},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,8 +22,7 @@ pub enum InternalAction {
         amount: i32,
     },
     DealDamage {
-        target: MonsterId,
-        amount: i32,
+        info: DamageInfo,
     },
     GainBlock {
         amount: i32,

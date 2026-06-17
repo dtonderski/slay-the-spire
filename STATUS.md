@@ -81,6 +81,12 @@
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
 - Existing milestone 1 tests pass after queue introduction.
+- Task 2.2 added structured `DamageInfo` with card source, target, and amount in damage event logs.
+- Task 2.2 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- Block and HP math is unchanged after `DamageInfo`.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -110,7 +116,7 @@ Milestone 2: Minimal Combat Engine.
 
 ## Next Task
 
-Task 2.2: Add DamageInfo.
+Task 2.3: Add Draw and Shuffle.
 
 ## Known Risks
 

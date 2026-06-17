@@ -1,6 +1,9 @@
 use crate::{
     action::{CardPile, CombatAction, InternalAction},
-    combat::{damage::deal_unmodified_damage_to_monster, validate_combat_action, CombatPhase},
+    combat::{
+        damage::{deal_damage_info_to_monster, DamageInfo, DamageSource},
+        validate_combat_action, CombatPhase,
+    },
     content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     ids::{CardId, MonsterId},
     CardInstance, CombatState, MonsterState, SimError, SimResult,
@@ -57,7 +60,13 @@ fn strike_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<Intern
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: 1 },
-        InternalAction::DealDamage { target, amount: 6 },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: 6,
+            },
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -83,7 +92,13 @@ fn bash_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<Internal
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: 2 },
-        InternalAction::DealDamage { target, amount: 8 },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: 8,
+            },
+        },
         InternalAction::ApplyVulnerable { target, amount: 2 },
         InternalAction::MoveCard {
             card_id,
@@ -124,9 +139,9 @@ fn apply_internal_action(state: &mut CombatState, action: InternalAction) -> Sim
             state.player.energy -= amount;
             Ok(())
         }
-        InternalAction::DealDamage { target, amount } => {
-            let monster = living_monster_mut(state, target)?;
-            deal_unmodified_damage_to_monster(monster, amount);
+        InternalAction::DealDamage { info } => {
+            let monster = living_monster_mut(state, info.target)?;
+            deal_damage_info_to_monster(monster, info);
             Ok(())
         }
         InternalAction::GainBlock { amount } => {
@@ -358,8 +373,11 @@ mod tests {
                 InternalAction::PlayCard { card_id: strike_id },
                 InternalAction::SpendEnergy { amount: 1 },
                 InternalAction::DealDamage {
-                    target: MonsterId::new(1),
-                    amount: 6,
+                    info: DamageInfo {
+                        source: DamageSource::Card(strike_id),
+                        target: MonsterId::new(1),
+                        amount: 6,
+                    },
                 },
                 InternalAction::MoveCard {
                     card_id: strike_id,
@@ -391,6 +409,23 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn bash_damage_event_log_includes_source_target_and_amount() {
+        let state = CombatState::initial_fixture();
+        let bash_id = hand_card_id(&state, BASH_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, bash_action(&state)).expect("Bash applies");
+
+        assert!(transition.event_log.contains(&InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(bash_id),
+                target: MonsterId::new(1),
+                amount: 8,
+            },
+        }));
     }
 
     fn strike_action(state: &CombatState) -> CombatAction {
