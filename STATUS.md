@@ -87,6 +87,12 @@
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
 - Block and HP math is unchanged after `DamageInfo`.
+- Task 2.3 added draw-N support, deterministic placeholder discard shuffling, and logged shuffle RNG draws.
+- Task 2.3 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- Placeholder shuffle is deterministic and logged, but not claimed game-compatible.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -116,7 +122,7 @@ Milestone 2: Minimal Combat Engine.
 
 ## Next Task
 
-Task 2.3: Add Draw and Shuffle.
+Task 2.4: Add Save-File/RNG Research Gate.
 
 ## Known Risks
 
