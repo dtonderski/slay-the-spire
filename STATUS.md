@@ -44,8 +44,13 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
-- No simulator implementation yet.
-- Basic ID/error, snapshot, combat state, starter card content, and legal action tests exist.
+- Task 1.4 added Strike transition support with energy spend, hand-to-discard movement, damage through block, and win phase detection.
+- Task 1.4 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- Minimal simulator implementation exists through Strike-only combat transitions.
+- Basic ID/error, snapshot, combat state, starter card content, legal action, damage, and Strike transition tests exist.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -75,7 +80,7 @@ Milestone 0: Project Skeleton and Test Harness.
 
 ## Next Task
 
-Task 1.4: Apply Strike.
+Task 1.5: Apply Defend.
 
 ## Known Risks
 
