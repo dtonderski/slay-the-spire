@@ -73,7 +73,7 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
-- Milestone 1 golden replay final hash: `904776775d52e82e`.
+- Milestone 1 golden replay final hash: `41828f2228ff30ec`.
 - Read `sts_lightspeed` action/card queue notes in `RESEARCH.md` before task 2.1.
 - Task 2.1 added an explicit local internal action queue and ordered event log for card transitions.
 - Task 2.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
@@ -109,6 +109,11 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 3.3 added vulnerable attack damage multiplier and end-of-monster-turn decrement.
+- Task 3.3 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -138,7 +143,7 @@ Milestone 3: Full Starter Deck and Core Combat Mechanics.
 
 ## Next Task
 
-Task 3.3: Vulnerable Damage Multiplier.
+Task 3.4: Weak and Strength.
 
 ## Known Risks
 

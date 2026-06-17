@@ -11,7 +11,8 @@ const PLAYER_TURN_ENERGY: i32 = 3;
 /// 1. Ending the player turn discards the remaining hand.
 /// 2. The monster turn consumes current player block before HP.
 /// 3. Player block clears after the monster turn, before the next hand is drawn.
-/// 4. The next player turn refills energy and draws from the draw pile without shuffle.
+/// 4. Monster vulnerable decrements by 1 at end of monster turn.
+/// 5. The next player turn refills energy and draws from the draw pile without shuffle.
 pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
 
@@ -52,6 +53,13 @@ fn run_monster_turn(state: &mut CombatState) {
     if total_damage > 0 {
         deal_damage_to_player(state, total_damage);
     }
+
+    for monster in &mut state.monsters {
+        if monster.alive && monster.powers.vulnerable > 0 {
+            monster.powers.vulnerable -= 1;
+        }
+    }
+
     state.player.block = 0;
 }
 
@@ -80,7 +88,12 @@ fn prepare_next_intents(state: &mut CombatState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{content::cards::STRIKE_R_ID, CombatAction};
+    use crate::{
+        apply_combat_action,
+        content::cards::{BASH_ID, STRIKE_R_ID},
+        ids::CardId,
+        CombatAction,
+    };
 
     #[test]
     fn end_turn_is_legal() {
@@ -174,5 +187,36 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.phase, CombatPhase::Lost);
+    }
+
+    #[test]
+    fn vulnerable_decrements_at_end_of_monster_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].hp = 100;
+        state = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+        assert_eq!(state.monsters[0].powers.vulnerable, 2);
+
+        state = end_player_turn(&state);
+        assert_eq!(state.monsters[0].powers.vulnerable, 1);
+
+        state = end_player_turn(&state);
+        assert_eq!(state.monsters[0].powers.vulnerable, 0);
+    }
+
+    fn bash_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BASH_ID),
+            target: Some(state.monsters[0].id),
+        }
+    }
+
+    fn hand_card_id(state: &CombatState, content_id: crate::ContentId) -> CardId {
+        state
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == content_id)
+            .expect("card is in hand")
+            .id
     }
 }

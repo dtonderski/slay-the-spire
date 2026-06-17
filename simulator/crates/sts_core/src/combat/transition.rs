@@ -362,6 +362,18 @@ mod tests {
     }
 
     #[test]
+    fn bash_then_strike_deals_expected_damage_with_vulnerable() {
+        let state = CombatState::initial_fixture();
+        let after_bash = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+        let after_strike =
+            apply_combat_action(&after_bash, strike_action(&after_bash)).expect("Strike applies");
+
+        assert_eq!(after_bash.monsters[0].hp, state.monsters[0].hp - 8);
+        assert_eq!(after_bash.monsters[0].powers.vulnerable, 2);
+        assert_eq!(after_strike.monsters[0].hp, after_bash.monsters[0].hp - 9);
+    }
+
+    #[test]
     fn strike_event_log_records_ordered_internal_actions() {
         let state = CombatState::initial_fixture();
         let strike_id = hand_strike_id(&state);

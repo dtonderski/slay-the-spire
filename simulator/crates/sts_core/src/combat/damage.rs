@@ -1,6 +1,7 @@
 use crate::{
     combat::MonsterState,
     ids::{CardId, MonsterId},
+    power::attack_damage_with_vulnerable,
 };
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +28,8 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
 }
 
 pub fn deal_damage_info_to_monster(monster: &mut MonsterState, info: DamageInfo) {
-    deal_unmodified_damage_to_monster(monster, info.amount);
+    let amount = attack_damage_with_vulnerable(info.amount, monster.powers.vulnerable);
+    deal_unmodified_damage_to_monster(monster, amount);
 }
 
 #[cfg(test)]
