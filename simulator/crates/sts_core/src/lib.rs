@@ -6,6 +6,7 @@ pub mod combat;
 pub mod content;
 pub mod error;
 pub mod ids;
+pub mod power;
 pub mod snapshot;
 
 pub mod action;
@@ -18,4 +19,5 @@ pub use combat::{
 };
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};
+pub use power::MonsterPowers;
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

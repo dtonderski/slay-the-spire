@@ -49,13 +49,19 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
-- Minimal simulator implementation exists through Strike and Defend combat transitions.
+- Minimal simulator implementation exists through Strike, Defend, and Bash combat transitions.
 - Task 1.5 added Defend transition support with energy spend, hand-to-discard movement, and player block gain.
 - Task 1.5 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
 - Basic ID/error, snapshot, combat state, starter card content, legal action, damage, Strike transition, and Defend transition tests exist.
+- Task 1.6 added Bash transition support and minimal monster Vulnerable state.
+- Task 1.6 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- Bash transition and minimal Vulnerable tests exist.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -85,7 +91,7 @@ Milestone 0: Project Skeleton and Test Harness.
 
 ## Next Task
 
-Task 1.6: Apply Bash and Minimal Vulnerable.
+Task 1.7: End Turn Against Fixed Simple Monster.
 
 ## Known Risks
 

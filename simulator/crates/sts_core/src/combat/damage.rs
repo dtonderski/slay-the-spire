@@ -22,6 +22,7 @@ mod tests {
             hp: 10,
             block: 4,
             alive: true,
+            powers: Default::default(),
         };
 
         deal_unmodified_damage_to_monster(&mut monster, 6);

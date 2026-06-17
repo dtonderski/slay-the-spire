@@ -1,7 +1,7 @@
 use crate::{
     action::CombatAction,
     combat::{damage::deal_unmodified_damage_to_monster, validate_combat_action, CombatPhase},
-    content::cards::{get_card_definition, DEFEND_R_ID, STRIKE_R_ID},
+    content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     ids::{CardId, MonsterId},
     CardInstance, CombatState, SimError, SimResult,
 };
@@ -33,6 +33,7 @@ fn apply_play_card(
             target.expect("validated Strike has a target"),
         ),
         DEFEND_R_ID => apply_defend(state, card_id),
+        BASH_ID => apply_bash(state, card_id, target.expect("validated Bash has a target")),
         _ => Err(SimError::IllegalAction(
             "card transition is not implemented",
         )),
@@ -75,6 +76,31 @@ fn apply_defend(state: &CombatState, card_id: CardId) -> SimResult<CombatState> 
     Ok(next)
 }
 
+fn apply_bash(state: &CombatState, card_id: CardId, target: MonsterId) -> SimResult<CombatState> {
+    let mut next = state.clone();
+    let card = remove_card_from_hand(&mut next, card_id)?;
+
+    next.player.energy -= 2;
+
+    let monster = next
+        .monsters
+        .iter_mut()
+        .find(|monster| monster.id == target && monster.alive)
+        .ok_or(SimError::IllegalAction("target is not a living monster"))?;
+
+    deal_unmodified_damage_to_monster(monster, 8);
+    monster.powers.vulnerable += 2;
+    next.piles.discard_pile.push(card);
+
+    if next.monsters.iter().all(|monster| !monster.alive) {
+        next.phase = CombatPhase::Won;
+    } else {
+        next.phase = CombatPhase::WaitingForPlayer;
+    }
+
+    Ok(next)
+}
+
 fn find_hand_card(state: &CombatState, card_id: CardId) -> SimResult<CardInstance> {
     state
         .piles
@@ -99,7 +125,7 @@ fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{DEFEND_R_ID, STRIKE_R_ID};
+    use crate::content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID};
 
     #[test]
     fn strike_decreases_monster_hp_by_six() {
@@ -198,6 +224,51 @@ mod tests {
             .any(|card| card.id == defend_id));
     }
 
+    #[test]
+    fn bash_decreases_monster_hp_by_eight() {
+        let state = CombatState::initial_fixture();
+
+        let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+    }
+
+    #[test]
+    fn bash_adds_two_vulnerable_to_monster() {
+        let state = CombatState::initial_fixture();
+
+        let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+    }
+
+    #[test]
+    fn bash_decreases_energy_by_two_and_moves_to_discard() {
+        let state = CombatState::initial_fixture();
+        let bash_id = hand_card_id(&state, BASH_ID);
+
+        let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(!next.piles.hand.iter().any(|card| card.id == bash_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == bash_id));
+    }
+
+    #[test]
+    fn bash_is_illegal_with_less_than_two_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+
+        assert_eq!(
+            apply_combat_action(&state, bash_action(&state)),
+            Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
     fn strike_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_strike_id(state),
@@ -213,6 +284,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DEFEND_R_ID),
             target: None,
+        }
+    }
+
+    fn bash_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BASH_ID),
+            target: Some(MonsterId::new(1)),
         }
     }
 

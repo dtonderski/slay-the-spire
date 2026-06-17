@@ -2,6 +2,7 @@ use crate::{
     card::CardInstance,
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     ids::{CardId, MonsterId},
+    power::MonsterPowers,
     SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,7 @@ pub struct MonsterState {
     pub hp: i32,
     pub block: i32,
     pub alive: bool,
+    pub powers: MonsterPowers,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +62,7 @@ impl CombatState {
                 hp: 40,
                 block: 0,
                 alive: true,
+                powers: MonsterPowers::default(),
             }],
             piles: CardPiles {
                 hand: vec![
