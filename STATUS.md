@@ -19,8 +19,13 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 0.2 added typed IDs and structured simulator errors.
+- Task 0.2 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - No simulator implementation yet.
-- No simulator tests yet.
+- Basic ID/error tests exist.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -50,7 +55,7 @@ Milestone 0: Project Skeleton and Test Harness.
 
 ## Next Task
 
-Task 0.2: Add Basic Types for IDs and Errors.
+Task 0.3: Add Snapshot Hash Placeholder.
 
 ## Known Risks
 
