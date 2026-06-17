@@ -93,6 +93,7 @@
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
 - Placeholder shuffle is deterministic and logged, but not claimed game-compatible.
+- Task 2.4 documented the save-file/RNG research gate in `RESEARCH.md` and `VERIFICATION.md`.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -122,7 +123,7 @@ Milestone 2: Minimal Combat Engine.
 
 ## Next Task
 
-Task 2.4: Add Save-File/RNG Research Gate.
+Task 2.5: Add Turn Structure.
 
 ## Known Risks
 

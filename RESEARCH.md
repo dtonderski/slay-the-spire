@@ -220,3 +220,17 @@ Design lessons:
 6. The simulator should support both omniscient state for replay/debug and visible state for agents that should not exploit hidden information.
 7. Immediate-effect combat engines are attractive for RL speed but are the wrong default for long-term Slay the Spire parity.
 
+## Save-File/RNG Research Gate
+
+Task 2.4 finding:
+
+- The existing 0.0 notes identify these real save-file RNG counter fields as parity-relevant: `potion_seed_count`, `relic_seed_count`, `event_seed_count`, `monster_seed_count`, `merchant_seed_count`, `card_random_seed_count`, `card_seed_count`, and `treasure_seed_count`.
+- These fields matter because mid-run replay needs per-stream advancement counters, not just base seeds.
+- The 0.0 `sts_lightspeed` notes say its save loading restores RNG streams from those same seed counters, matching the field list above.
+- The public `gamerpuppy/sts_lightspeed` README describes the project as RNG-accurate, save-file loading capable, and able to search while knowing the game's RNG state. That supports treating its save/RNG handling as high-priority prior art, but it is not source-level proof of the exact field mapping.
+- Decision: save import should move earlier than broad map/reward/shop RNG parity work, but after local snapshot/replay and RNG stream structure are stable.
+- Gate before implementation: inspect exact `sts_lightspeed` save-loading source files and real decrypted save examples. Record source file/function names and confirm whether each listed counter maps to a named simulator RNG stream.
+
+Current limitation:
+
+- No full save importer, decryption tooling, or broad RNG parity claim exists in this repo.

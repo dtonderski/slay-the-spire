@@ -282,6 +282,19 @@ Priority order:
 
 Do not chase rare interactions before the current milestone is proven.
 
+## Save-File/RNG Gate
+
+Task 2.4 decision:
+
+- Save files are likely the earliest practical source for hidden RNG stream counters needed by mid-run replay.
+- The RNG counter fields currently tracked from prior notes are `potion_seed_count`, `relic_seed_count`, `event_seed_count`, `monster_seed_count`, `merchant_seed_count`, `card_random_seed_count`, `card_seed_count`, and `treasure_seed_count`.
+- `sts_lightspeed` should be used as a comparison target for save-file counter mapping, but not as final authority without source-file/function-level inspection and real-game save samples.
+- Save import should move earlier than map/reward/shop parity work, after snapshot/replay and local RNG stream structure are stable.
+
+Verification requirement before save import:
+
+- For each RNG stream, document the real save field, the local simulator stream name, the draw counter interpretation, and at least one test fixture showing restore-then-draw behavior.
+
 ## Verification Gates
 
 Before claiming a task complete:
