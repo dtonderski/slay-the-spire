@@ -1,0 +1,68 @@
+# Status
+
+## What Exists
+
+- Research and design documentation:
+  - `README.md`
+  - `RESEARCH.md`
+  - `DESIGN.md`
+  - `VERIFICATION.md`
+  - `TASKS.md`
+  - `AGENT_RULES.md`
+  - `STATUS.md`
+- Rust simulator workspace skeleton:
+  - `simulator/Cargo.toml`
+  - `simulator/crates/sts_core/Cargo.toml`
+  - `simulator/crates/sts_core/src/lib.rs`
+- Rust tooling installed via `rustup`.
+- Task 0.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- No simulator implementation yet.
+- No simulator tests yet.
+- Git repository initialized for the project.
+
+## What Is Not Implemented
+
+- state model
+- action model
+- transition engine
+- RNG system
+- combat
+- cards
+- monsters
+- relics
+- potions
+- map
+- rewards
+- shops
+- rest sites
+- events
+- ascensions
+- replay verifier
+- RL API
+- Python bindings
+
+## Current Milestone
+
+Milestone 0: Project Skeleton and Test Harness.
+
+## Next Task
+
+Task 0.2: Add Basic Types for IDs and Errors.
+
+## Known Risks
+
+- Exact Slay the Spire RNG parity is the hardest part and requires controlled comparison against the real game.
+- `sts_lightspeed` is strong prior art and must be studied before implementing parity-sensitive systems, but it is still a reimplementation rather than the real-game authority.
+- CommunicationMod provides a practical verification route, but may not expose every hidden internal field.
+- Save files may expose RNG counters needed for mid-run replay parity.
+- Wiki/community references are useful for bootstrap values but cannot prove subtle ordering, RNG, or edge-case behavior.
+- Scope creep is likely unless future sessions follow `TASKS.md` and `AGENT_RULES.md`.
+- Starting RL training before parity milestones would risk optimizing against simulator bugs.
+- The default MSVC Rust toolchain cannot currently link tests because Visual Studio C++ Build Tools failed to install with installer error `8006`; use `stable-x86_64-pc-windows-gnu` for local verification unless MSVC Build Tools are repaired later.
+
+## Last Updated
+
+2026-06-18.
