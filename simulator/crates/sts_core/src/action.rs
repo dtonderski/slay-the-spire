@@ -31,6 +31,10 @@ pub enum InternalAction {
         target: MonsterId,
         amount: i32,
     },
+    AddCardToPile {
+        content_id: crate::ContentId,
+        to: CardPile,
+    },
     MoveCard {
         card_id: CardId,
         from: CardPile,

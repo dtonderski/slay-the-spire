@@ -1,12 +1,14 @@
 use crate::{
     action::{CardPile, CombatAction, InternalAction},
+    card::CardDefinition,
     combat::{
         apply_burning_blood,
         damage::{deal_damage_info_to_monster, DamageInfo, DamageSource},
         validate_combat_action, CombatPhase,
     },
-    content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
-    ids::{CardId, MonsterId},
+    content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, SLIMED_ID, STRIKE_R_ID},
+    ids::{CardId, ContentId, MonsterId},
+    power::calculate_block,
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
 use std::collections::VecDeque;
@@ -47,14 +49,33 @@ fn apply_play_card(
 
     let queue = match definition.id {
         STRIKE_R_ID => strike_queue(card_id, target.expect("validated Strike has a target")),
-        DEFEND_R_ID => defend_queue(card_id),
+        DEFEND_R_ID => defend_queue(card_id, definition),
         BASH_ID => bash_queue(card_id, target.expect("validated Bash has a target")),
+        SLIMED_ID => slimed_queue(card_id, target.expect("validated Slimed has a target")),
+        _ if definition.values.damage.is_some()
+            && definition.target == crate::TargetRequirement::Enemy =>
+        {
+            generic_attack_queue(
+                card_id,
+                target.expect("validated attack has a target"),
+                definition,
+            )
+        }
+        _ if definition.values.block.is_some() => generic_skill_queue(card_id, definition),
         _ => Err(SimError::IllegalAction(
             "card transition is not implemented",
         ))?,
     };
 
     process_internal_queue(state, queue?)
+}
+
+fn card_move_destination(definition: &CardDefinition) -> CardPile {
+    if definition.keywords.exhaust {
+        CardPile::ExhaustPile
+    } else {
+        CardPile::DiscardPile
+    }
 }
 
 fn strike_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
@@ -76,7 +97,35 @@ fn strike_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<Intern
     ]))
 }
 
-fn defend_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+fn generic_attack_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn defend_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: 1 },
@@ -84,6 +133,49 @@ fn defend_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn generic_skill_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: definition.values.block.unwrap_or(0),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn slimed_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: 0,
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        },
+        InternalAction::AddCardToPile {
+            content_id: SLIMED_ID,
             to: CardPile::DiscardPile,
         },
     ]))
@@ -148,7 +240,8 @@ fn apply_internal_action(state: &mut CombatState, action: InternalAction) -> Sim
             Ok(())
         }
         InternalAction::GainBlock { amount } => {
-            state.player.block += amount;
+            let gained = calculate_block(amount, state.player.powers);
+            state.player.block += gained;
             Ok(())
         }
         InternalAction::ApplyVulnerable { target, amount } => {
@@ -157,6 +250,21 @@ fn apply_internal_action(state: &mut CombatState, action: InternalAction) -> Sim
             Ok(())
         }
         InternalAction::MoveCard { card_id, from, to } => move_card(state, card_id, from, to),
+        InternalAction::AddCardToPile { content_id, to } => {
+            add_card_to_pile(state, content_id, to);
+            Ok(())
+        }
+    }
+}
+
+fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) {
+    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let card = CardInstance::new(next_id, content_id);
+    match to {
+        CardPile::DiscardPile => state.piles.discard_pile.push(card),
+        CardPile::DrawPile => state.piles.draw_pile.push(card),
+        CardPile::Hand => state.piles.hand.push(card),
+        CardPile::ExhaustPile => state.piles.exhaust_pile.push(card),
     }
 }
 
@@ -209,16 +317,20 @@ fn move_card(
             state.piles.discard_pile.push(card);
             Ok(())
         }
-        CardPile::Hand | CardPile::DrawPile | CardPile::ExhaustPile => Err(
-            SimError::IllegalAction("card move destination is not implemented"),
-        ),
+        CardPile::ExhaustPile => {
+            state.piles.exhaust_pile.push(card);
+            Ok(())
+        }
+        CardPile::Hand | CardPile::DrawPile => Err(SimError::IllegalAction(
+            "card move destination is not implemented",
+        )),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID};
+    use crate::content::cards::{BASH_ID, DEFEND_R_ID, SLIMED_ID, STRIKE_R_ID};
 
     #[test]
     fn strike_decreases_monster_hp_by_six() {
@@ -372,6 +484,52 @@ mod tests {
         assert_eq!(after_bash.monsters[0].hp, state.monsters[0].hp - 8);
         assert_eq!(after_bash.monsters[0].powers.vulnerable, 2);
         assert_eq!(after_strike.monsters[0].hp, after_bash.monsters[0].hp - 9);
+    }
+
+    #[test]
+    fn defend_with_dexterity_gains_extra_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dexterity = 2;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.player.block, 7);
+    }
+
+    #[test]
+    fn defend_with_frail_gains_reduced_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.frail = 1;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.player.block, 3);
+    }
+
+    #[test]
+    fn slimed_exhausts_and_adds_slimed_to_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SLIMED_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Slimed applies");
+
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == SLIMED_ID));
     }
 
     #[test]

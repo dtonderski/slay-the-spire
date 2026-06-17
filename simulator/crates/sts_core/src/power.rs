@@ -4,11 +4,17 @@ use serde::{Deserialize, Serialize};
 pub struct PlayerPowers {
     pub strength: i32,
     pub weak: i32,
+    pub dexterity: i32,
+    pub frail: i32,
+    pub ritual: i32,
+    pub metallicize: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct MonsterPowers {
     pub vulnerable: i32,
+    pub strength: i32,
+    pub ritual: i32,
 }
 
 /// Slay the Spire-style vulnerable bonus: attack damage is increased by 50%, floored.
@@ -37,6 +43,17 @@ pub fn calculate_attack_damage(base: i32, player: PlayerPowers, target_vulnerabl
     attack_damage_with_vulnerable(with_weak, target_vulnerable)
 }
 
+/// Block from cards: add dexterity, then apply frail reduction (25%, floored).
+#[must_use]
+pub fn calculate_block(base: i32, player: PlayerPowers) -> i32 {
+    let with_dexterity = base + player.dexterity;
+    if player.frail > 0 {
+        with_dexterity * 3 / 4
+    } else {
+        with_dexterity
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,7 +69,7 @@ mod tests {
     fn strength_modifies_attack_damage() {
         let player = PlayerPowers {
             strength: 2,
-            weak: 0,
+            ..Default::default()
         };
 
         assert_eq!(calculate_attack_damage(6, player, 0), 8);
@@ -61,8 +78,8 @@ mod tests {
     #[test]
     fn weak_modifies_outgoing_attack_damage_with_floor() {
         let player = PlayerPowers {
-            strength: 0,
             weak: 1,
+            ..Default::default()
         };
 
         assert_eq!(calculate_attack_damage(6, player, 0), 4);
@@ -74,9 +91,54 @@ mod tests {
         let player = PlayerPowers {
             strength: 1,
             weak: 1,
+            ..Default::default()
         };
 
         assert_eq!(calculate_attack_damage(7, player, 0), 6);
         assert_eq!(calculate_attack_damage(7, player, 2), 9);
+    }
+
+    #[test]
+    fn dexterity_increases_block_from_cards() {
+        let player = PlayerPowers {
+            dexterity: 2,
+            ..Default::default()
+        };
+
+        assert_eq!(calculate_block(5, player), 7);
+    }
+
+    #[test]
+    fn player_powers_with_dexterity_round_trip_through_json() {
+        let powers = PlayerPowers {
+            dexterity: 3,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&powers).expect("powers serialize");
+        let restored: PlayerPowers = serde_json::from_str(&json).expect("powers deserialize");
+
+        assert_eq!(restored, powers);
+    }
+
+    #[test]
+    fn frail_reduces_block_from_cards_with_floor() {
+        let player = PlayerPowers {
+            frail: 1,
+            ..Default::default()
+        };
+
+        assert_eq!(calculate_block(5, player), 3);
+        assert_eq!(calculate_block(7, player), 5);
+    }
+
+    #[test]
+    fn dexterity_and_frail_apply_in_order() {
+        let player = PlayerPowers {
+            dexterity: 2,
+            frail: 1,
+            ..Default::default()
+        };
+
+        assert_eq!(calculate_block(5, player), 5);
     }
 }

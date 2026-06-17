@@ -102,7 +102,7 @@ mod tests {
             info,
             PlayerPowers {
                 strength: 2,
-                weak: 0,
+                ..Default::default()
             },
         );
 
@@ -129,8 +129,8 @@ mod tests {
             &mut monster,
             info,
             PlayerPowers {
-                strength: 0,
                 weak: 1,
+                ..Default::default()
             },
         );
 

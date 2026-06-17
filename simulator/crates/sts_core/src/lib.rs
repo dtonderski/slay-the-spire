@@ -13,7 +13,9 @@ pub mod snapshot;
 pub mod action;
 
 pub use action::{CardPile, CombatAction, InternalAction};
-pub use card::{CardDefinition, CardInstance, CardType, CardValues, TargetRequirement};
+pub use card::{
+    CardDefinition, CardInstance, CardKeywords, CardType, CardValues, TargetRequirement,
+};
 pub use combat::{
     apply_burning_blood, apply_combat_action, apply_combat_action_with_events, draw_cards,
     end_player_turn, legal_combat_actions, validate_combat_action, CardPiles, CombatPhase,

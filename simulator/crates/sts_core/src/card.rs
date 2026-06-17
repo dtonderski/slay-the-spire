@@ -1,6 +1,21 @@
 use crate::ids::{CardId, ContentId};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CardKeywords {
+    pub ethereal: bool,
+    pub exhaust: bool,
+    pub retain: bool,
+    pub unplayable: bool,
+}
+
+pub const CARD_KEYWORDS_NONE: CardKeywords = CardKeywords {
+    ethereal: false,
+    exhaust: false,
+    retain: false,
+    unplayable: false,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardDefinition {
     pub id: ContentId,
@@ -10,6 +25,7 @@ pub struct CardDefinition {
     pub card_type: CardType,
     pub target: TargetRequirement,
     pub values: CardValues,
+    pub keywords: CardKeywords,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,6 +33,7 @@ pub enum CardType {
     Attack,
     Skill,
     Power,
+    Status,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

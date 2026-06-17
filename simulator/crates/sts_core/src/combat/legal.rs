@@ -16,6 +16,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         };
 
+        if definition.keywords.unplayable {
+            continue;
+        }
+
         if !is_affordable(state, definition) {
             continue;
         }

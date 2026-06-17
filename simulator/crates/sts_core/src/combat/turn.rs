@@ -1,4 +1,8 @@
 use crate::{
+    combat::hand::resolve_end_of_turn_hand,
+    combat::turn_powers::{
+        apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers, monster_attack_damage,
+    },
     combat::{CombatPhase, CombatState, MonsterIntent},
     content::monsters::FIXED_SIMPLE_MONSTER,
 };
@@ -16,7 +20,8 @@ const PLAYER_TURN_ENERGY: i32 = 3;
 pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
 
-    discard_hand(&mut next);
+    resolve_end_of_turn_hand(&mut next);
+    apply_end_of_player_turn_powers(&mut next);
     next.phase = CombatPhase::MonsterTurn;
     run_monster_turn(&mut next);
 
@@ -36,17 +41,13 @@ pub fn start_player_turn(state: &mut CombatState) {
     state.phase = CombatPhase::WaitingForPlayer;
 }
 
-fn discard_hand(state: &mut CombatState) {
-    state.piles.discard_pile.append(&mut state.piles.hand);
-}
-
 fn run_monster_turn(state: &mut CombatState) {
     let total_damage: i32 = state
         .monsters
         .iter()
         .filter(|monster| monster.alive)
         .map(|monster| match monster.intent {
-            MonsterIntent::Attack { damage } => damage,
+            MonsterIntent::Attack { damage } => monster_attack_damage(monster, damage),
         })
         .sum();
 
@@ -55,8 +56,11 @@ fn run_monster_turn(state: &mut CombatState) {
     }
 
     for monster in &mut state.monsters {
-        if monster.alive && monster.powers.vulnerable > 0 {
-            monster.powers.vulnerable -= 1;
+        if monster.alive {
+            if monster.powers.vulnerable > 0 {
+                monster.powers.vulnerable -= 1;
+            }
+            apply_end_of_monster_turn_powers(monster);
         }
     }
 
@@ -94,6 +98,18 @@ mod tests {
         ids::CardId,
         CombatAction,
     };
+
+    #[test]
+    fn metallicize_grants_block_before_monster_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.metallicize = 4;
+        state.player.hp = 30;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 28);
+    }
 
     #[test]
     fn end_turn_is_legal() {

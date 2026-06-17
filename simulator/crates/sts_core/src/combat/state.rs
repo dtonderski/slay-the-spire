@@ -112,6 +112,13 @@ impl CombatState {
 }
 
 impl CardPiles {
+    pub fn max_card_instance_id(&self) -> u64 {
+        self.all_cards()
+            .map(|card| card.id.get())
+            .max()
+            .unwrap_or(0)
+    }
+
     fn all_cards(&self) -> impl Iterator<Item = &CardInstance> {
         self.hand
             .iter()
