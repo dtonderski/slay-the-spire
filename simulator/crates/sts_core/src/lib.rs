@@ -17,7 +17,7 @@ pub use card::{CardDefinition, CardInstance, CardType, CardValues, TargetRequire
 pub use combat::{
     apply_combat_action, apply_combat_action_with_events, draw_cards, end_player_turn,
     legal_combat_actions, validate_combat_action, CardPiles, CombatPhase, CombatState,
-    CombatTransition, DamageInfo, DamageSource, MonsterState, PlayerState,
+    CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState, PlayerState,
 };
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};

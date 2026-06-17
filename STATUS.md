@@ -73,7 +73,7 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
-- Milestone 1 golden replay final hash: `1de8822065abacde`.
+- Milestone 1 golden replay final hash: `b1e1baefe37e3ee7`.
 - Read `sts_lightspeed` action/card queue notes in `RESEARCH.md` before task 2.1.
 - Task 2.1 added an explicit local internal action queue and ordered event log for card transitions.
 - Task 2.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
@@ -94,6 +94,11 @@
   - `cargo +stable-x86_64-pc-windows-gnu test`
 - Placeholder shuffle is deterministic and logged, but not claimed game-compatible.
 - Task 2.4 documented the save-file/RNG research gate in `RESEARCH.md` and `VERIFICATION.md`.
+- Task 2.5 added explicit simplified start-player-turn and monster-turn structure plus fixed next-intent placeholder.
+- Task 2.5 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -119,11 +124,11 @@
 
 ## Current Milestone
 
-Milestone 2: Minimal Combat Engine.
+Milestone 3: Full Starter Deck and Core Combat Mechanics.
 
 ## Next Task
 
-Task 2.5: Add Turn Structure.
+Task 3.1: Ironclad Starter Deck Constructor.
 
 ## Known Risks
 

@@ -30,6 +30,7 @@ pub struct MonsterState {
     pub block: i32,
     pub alive: bool,
     pub powers: MonsterPowers,
+    pub intent: MonsterIntent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +49,11 @@ pub enum CombatPhase {
     Lost,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MonsterIntent {
+    Attack { damage: i32 },
+}
+
 impl CombatState {
     #[must_use]
     pub fn initial_fixture() -> Self {
@@ -63,6 +69,7 @@ impl CombatState {
                 block: 0,
                 alive: true,
                 powers: MonsterPowers::default(),
+                intent: MonsterIntent::Attack { damage: 6 },
             }],
             piles: CardPiles {
                 hand: vec![

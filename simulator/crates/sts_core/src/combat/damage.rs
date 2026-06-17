@@ -43,6 +43,7 @@ mod tests {
             block: 4,
             alive: true,
             powers: Default::default(),
+            intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
         deal_unmodified_damage_to_monster(&mut monster, 6);
@@ -60,6 +61,7 @@ mod tests {
             block: 4,
             alive: true,
             powers: Default::default(),
+            intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
             source: DamageSource::Card(CardId::new(1)),

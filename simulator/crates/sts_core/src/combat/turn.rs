@@ -1,33 +1,56 @@
 use crate::{
-    combat::{CombatPhase, CombatState},
+    combat::{CombatPhase, CombatState, MonsterIntent},
     content::monsters::FIXED_SIMPLE_MONSTER,
 };
 
 const HAND_SIZE: usize = 5;
+const PLAYER_TURN_ENERGY: i32 = 3;
 
+/// Simplified milestone timing:
+///
+/// 1. Ending the player turn discards the remaining hand.
+/// 2. The monster turn consumes current player block before HP.
+/// 3. Player block clears after the monster turn, before the next hand is drawn.
+/// 4. The next player turn refills energy and draws from the draw pile without shuffle.
 pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
 
     discard_hand(&mut next);
-    run_fixed_monster_turn(&mut next);
+    next.phase = CombatPhase::MonsterTurn;
+    run_monster_turn(&mut next);
 
     if next.player.hp <= 0 {
         next.phase = CombatPhase::Lost;
         return next;
     }
 
-    draw_next_hand_without_shuffle(&mut next);
-    next.phase = CombatPhase::WaitingForPlayer;
+    start_player_turn(&mut next);
     next
+}
+
+pub fn start_player_turn(state: &mut CombatState) {
+    state.player.energy = PLAYER_TURN_ENERGY;
+    draw_next_hand_without_shuffle(state);
+    prepare_next_intents(state);
+    state.phase = CombatPhase::WaitingForPlayer;
 }
 
 fn discard_hand(state: &mut CombatState) {
     state.piles.discard_pile.append(&mut state.piles.hand);
 }
 
-fn run_fixed_monster_turn(state: &mut CombatState) {
-    if state.monsters.iter().any(|monster| monster.alive) {
-        deal_damage_to_player(state, FIXED_SIMPLE_MONSTER.attack_damage);
+fn run_monster_turn(state: &mut CombatState) {
+    let total_damage: i32 = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| match monster.intent {
+            MonsterIntent::Attack { damage } => damage,
+        })
+        .sum();
+
+    if total_damage > 0 {
+        deal_damage_to_player(state, total_damage);
     }
     state.player.block = 0;
 }
@@ -41,6 +64,16 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
 fn draw_next_hand_without_shuffle(state: &mut CombatState) {
     while state.piles.hand.len() < HAND_SIZE && !state.piles.draw_pile.is_empty() {
         state.piles.hand.push(state.piles.draw_pile.remove(0));
+    }
+}
+
+fn prepare_next_intents(state: &mut CombatState) {
+    for monster in &mut state.monsters {
+        if monster.alive {
+            monster.intent = MonsterIntent::Attack {
+                damage: FIXED_SIMPLE_MONSTER.attack_damage,
+            };
+        }
     }
 }
 
@@ -82,6 +115,31 @@ mod tests {
 
         assert_eq!(next.player.hp, 18);
         assert_eq!(next.player.block, 0);
+    }
+
+    #[test]
+    fn end_turn_enters_next_player_turn_with_refilled_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 0;
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(next.player.energy, PLAYER_TURN_ENERGY);
+    }
+
+    #[test]
+    fn next_intent_placeholder_is_fixed_attack() {
+        let state = CombatState::initial_fixture();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(
+            next.monsters[0].intent,
+            MonsterIntent::Attack {
+                damage: FIXED_SIMPLE_MONSTER.attack_damage,
+            }
+        );
     }
 
     #[test]
