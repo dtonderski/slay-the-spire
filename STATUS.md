@@ -68,6 +68,12 @@
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
 - Simplified EndTurn tests exist.
+- Task 1.8 added a milestone 1 golden replay integration test and manual corpus trace.
+- Task 1.8 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- Milestone 1 golden replay final hash: `1de8822065abacde`.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -93,11 +99,11 @@
 
 ## Current Milestone
 
-Milestone 0: Project Skeleton and Test Harness.
+Milestone 2: Minimal Combat Engine.
 
 ## Next Task
 
-Task 1.8: End-to-End Milestone 1 Golden Replay.
+Task 2.1: Add Explicit Internal Action Queue.
 
 ## Known Risks
 

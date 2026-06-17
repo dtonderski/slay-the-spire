@@ -1,0 +1,1 @@
+{"name":"milestone1_manual_win","fixture":"CombatState::initial_fixture with fixed monster hp set to 14","actions":[{"PlayCard":{"card_id":3,"target":1}},{"PlayCard":{"card_id":1,"target":1}}],"rng_draws":0}
