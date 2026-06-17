@@ -11,9 +11,7 @@ pub fn apply_combat_action(state: &CombatState, action: CombatAction) -> SimResu
 
     match action {
         CombatAction::PlayCard { card_id, target } => apply_play_card(state, card_id, target),
-        CombatAction::EndTurn => Err(SimError::IllegalAction(
-            "EndTurn transition is not implemented",
-        )),
+        CombatAction::EndTurn => Ok(crate::combat::end_player_turn(state)),
     }
 }
 

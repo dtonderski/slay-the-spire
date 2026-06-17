@@ -14,8 +14,8 @@ pub mod action;
 pub use action::CombatAction;
 pub use card::{CardDefinition, CardInstance, CardType, CardValues, TargetRequirement};
 pub use combat::{
-    apply_combat_action, legal_combat_actions, validate_combat_action, CardPiles, CombatPhase,
-    CombatState, MonsterState, PlayerState,
+    apply_combat_action, end_player_turn, legal_combat_actions, validate_combat_action, CardPiles,
+    CombatPhase, CombatState, MonsterState, PlayerState,
 };
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};
