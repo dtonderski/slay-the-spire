@@ -24,6 +24,6 @@ pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::ironclad_starter_deck;
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};
-pub use power::MonsterPowers;
+pub use power::{MonsterPowers, PlayerPowers};
 pub use rng::{RngDraw, RngStream, SimulatorRng};
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

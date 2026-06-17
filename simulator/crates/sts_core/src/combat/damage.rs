@@ -1,7 +1,7 @@
 use crate::{
     combat::MonsterState,
     ids::{CardId, MonsterId},
-    power::attack_damage_with_vulnerable,
+    power::{calculate_attack_damage, PlayerPowers},
 };
 use serde::{Deserialize, Serialize};
 
@@ -27,8 +27,12 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     }
 }
 
-pub fn deal_damage_info_to_monster(monster: &mut MonsterState, info: DamageInfo) {
-    let amount = attack_damage_with_vulnerable(info.amount, monster.powers.vulnerable);
+pub fn deal_damage_info_to_monster(
+    monster: &mut MonsterState,
+    info: DamageInfo,
+    player: PlayerPowers,
+) {
+    let amount = calculate_attack_damage(info.amount, player, monster.powers.vulnerable);
     deal_unmodified_damage_to_monster(monster, amount);
 }
 
@@ -71,9 +75,65 @@ mod tests {
             amount: 6,
         };
 
-        deal_damage_info_to_monster(&mut monster, info);
+        deal_damage_info_to_monster(&mut monster, info, PlayerPowers::default());
 
         assert_eq!(monster.block, 0);
         assert_eq!(monster.hp, 8);
+    }
+
+    #[test]
+    fn strength_increases_dealt_attack_damage() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            powers: Default::default(),
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+        let info = DamageInfo {
+            source: DamageSource::Card(CardId::new(1)),
+            target: MonsterId::new(1),
+            amount: 6,
+        };
+
+        deal_damage_info_to_monster(
+            &mut monster,
+            info,
+            PlayerPowers {
+                strength: 2,
+                weak: 0,
+            },
+        );
+
+        assert_eq!(monster.hp, 12);
+    }
+
+    #[test]
+    fn weak_reduces_dealt_attack_damage_with_floor() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            powers: Default::default(),
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+        let info = DamageInfo {
+            source: DamageSource::Card(CardId::new(1)),
+            target: MonsterId::new(1),
+            amount: 7,
+        };
+
+        deal_damage_info_to_monster(
+            &mut monster,
+            info,
+            PlayerPowers {
+                strength: 0,
+                weak: 1,
+            },
+        );
+
+        assert_eq!(monster.hp, 15);
     }
 }

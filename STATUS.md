@@ -73,7 +73,7 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
-- Milestone 1 golden replay final hash: `41828f2228ff30ec`.
+- Milestone 1 golden replay final hash: `cf66bc76e24c8447`.
 - Read `sts_lightspeed` action/card queue notes in `RESEARCH.md` before task 2.1.
 - Task 2.1 added an explicit local internal action queue and ordered event log for card transitions.
 - Task 2.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
@@ -114,6 +114,11 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 3.4 added player strength and weak attack modifiers with floored rounding.
+- Task 3.4 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -139,11 +144,11 @@
 
 ## Current Milestone
 
-Milestone 3: Full Starter Deck and Core Combat Mechanics.
+Milestone 4: Powers and Statuses.
 
 ## Next Task
 
-Task 3.4: Weak and Strength.
+Task 4.1: Dexterity (first power/status family in Milestone 4).
 
 ## Known Risks
 

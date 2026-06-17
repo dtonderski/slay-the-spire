@@ -142,8 +142,9 @@ fn apply_internal_action(state: &mut CombatState, action: InternalAction) -> Sim
             Ok(())
         }
         InternalAction::DealDamage { info } => {
+            let player_powers = state.player.powers;
             let monster = living_monster_mut(state, info.target)?;
-            deal_damage_info_to_monster(monster, info);
+            deal_damage_info_to_monster(monster, info, player_powers);
             Ok(())
         }
         InternalAction::GainBlock { amount } => {

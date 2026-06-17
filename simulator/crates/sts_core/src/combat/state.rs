@@ -3,7 +3,7 @@ use crate::{
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, MonsterId},
-    power::MonsterPowers,
+    power::{MonsterPowers, PlayerPowers},
     SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ pub struct PlayerState {
     pub max_hp: i32,
     pub block: i32,
     pub energy: i32,
+    pub powers: PlayerPowers,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +66,7 @@ impl CombatState {
                 max_hp: IRONCLAD_A0_BASE_HP,
                 block: 0,
                 energy: 3,
+                powers: PlayerPowers::default(),
             },
             monsters: vec![MonsterState {
                 id: MonsterId::new(1),
