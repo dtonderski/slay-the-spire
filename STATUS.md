@@ -39,8 +39,13 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 1.3 added legal combat action generation and validation for starter hand cards plus EndTurn.
+- Task 1.3 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - No simulator implementation yet.
-- Basic ID/error, snapshot, combat state, and starter card content tests exist.
+- Basic ID/error, snapshot, combat state, starter card content, and legal action tests exist.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -70,7 +75,7 @@ Milestone 0: Project Skeleton and Test Harness.
 
 ## Next Task
 
-Task 1.3: Generate Legal Combat Actions.
+Task 1.4: Apply Strike.
 
 ## Known Risks
 

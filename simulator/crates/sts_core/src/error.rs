@@ -4,6 +4,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SimError {
     InvalidAction(ActionId),
+    IllegalAction(&'static str),
     UnknownCard(CardId),
     UnknownMonster(MonsterId),
     UnknownContent(ContentId),
@@ -14,6 +15,7 @@ impl fmt::Display for SimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidAction(id) => write!(f, "invalid action: {id}"),
+            Self::IllegalAction(message) => write!(f, "illegal action: {message}"),
             Self::UnknownCard(id) => write!(f, "unknown card: {id}"),
             Self::UnknownMonster(id) => write!(f, "unknown monster: {id}"),
             Self::UnknownContent(id) => write!(f, "unknown content: {id}"),
