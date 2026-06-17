@@ -29,8 +29,13 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 1.1 added minimal serializable combat state, card instances, combat phase, and an initial fixture.
+- Task 1.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
 - No simulator implementation yet.
-- Basic ID/error and snapshot tests exist.
+- Basic ID/error, snapshot, and combat state tests exist.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -60,7 +65,7 @@ Milestone 0: Project Skeleton and Test Harness.
 
 ## Next Task
 
-Task 1.1: Define Minimal Combat State.
+Task 1.2: Add Starter Card Definitions: Strike, Defend, Bash.
 
 ## Known Risks
 

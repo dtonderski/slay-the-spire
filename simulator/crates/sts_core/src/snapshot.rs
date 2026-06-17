@@ -5,9 +5,9 @@ use std::fmt;
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Snapshot {
+pub struct Snapshot<T = PlaceholderState> {
     pub schema_version: u32,
-    pub state: PlaceholderState,
+    pub state: T,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,7 +16,7 @@ pub struct PlaceholderState {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SnapshotHash(u64);
 
-impl Snapshot {
+impl Snapshot<PlaceholderState> {
     #[must_use]
     pub const fn placeholder() -> Self {
         Self {
@@ -24,7 +24,12 @@ impl Snapshot {
             state: PlaceholderState {},
         }
     }
+}
 
+impl<T> Snapshot<T>
+where
+    T: Serialize,
+{
     pub fn canonical_json(&self) -> SimResult<String> {
         serde_json::to_string(self)
             .map_err(|_| SimError::InvalidState("snapshot serialization failed"))
