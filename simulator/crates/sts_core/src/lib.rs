@@ -11,11 +11,12 @@ pub mod snapshot;
 
 pub mod action;
 
-pub use action::CombatAction;
+pub use action::{CardPile, CombatAction, InternalAction};
 pub use card::{CardDefinition, CardInstance, CardType, CardValues, TargetRequirement};
 pub use combat::{
-    apply_combat_action, end_player_turn, legal_combat_actions, validate_combat_action, CardPiles,
-    CombatPhase, CombatState, MonsterState, PlayerState,
+    apply_combat_action, apply_combat_action_with_events, end_player_turn, legal_combat_actions,
+    validate_combat_action, CardPiles, CombatPhase, CombatState, CombatTransition, MonsterState,
+    PlayerState,
 };
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};

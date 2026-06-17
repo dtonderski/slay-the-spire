@@ -1,17 +1,34 @@
 use crate::{
-    action::CombatAction,
+    action::{CardPile, CombatAction, InternalAction},
     combat::{damage::deal_unmodified_damage_to_monster, validate_combat_action, CombatPhase},
     content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     ids::{CardId, MonsterId},
-    CardInstance, CombatState, SimError, SimResult,
+    CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
+use std::collections::VecDeque;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CombatTransition {
+    pub state: CombatState,
+    pub event_log: Vec<InternalAction>,
+}
 
 pub fn apply_combat_action(state: &CombatState, action: CombatAction) -> SimResult<CombatState> {
+    Ok(apply_combat_action_with_events(state, action)?.state)
+}
+
+pub fn apply_combat_action_with_events(
+    state: &CombatState,
+    action: CombatAction,
+) -> SimResult<CombatTransition> {
     validate_combat_action(state, action)?;
 
     match action {
         CombatAction::PlayCard { card_id, target } => apply_play_card(state, card_id, target),
-        CombatAction::EndTurn => Ok(crate::combat::end_player_turn(state)),
+        CombatAction::EndTurn => Ok(CombatTransition {
+            state: crate::combat::end_player_turn(state),
+            event_log: Vec::new(),
+        }),
     }
 }
 
@@ -19,39 +36,74 @@ fn apply_play_card(
     state: &CombatState,
     card_id: CardId,
     target: Option<MonsterId>,
-) -> SimResult<CombatState> {
+) -> SimResult<CombatTransition> {
     let card = find_hand_card(state, card_id)?;
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
 
-    match definition.id {
-        STRIKE_R_ID => apply_strike(
-            state,
-            card_id,
-            target.expect("validated Strike has a target"),
-        ),
-        DEFEND_R_ID => apply_defend(state, card_id),
-        BASH_ID => apply_bash(state, card_id, target.expect("validated Bash has a target")),
+    let queue = match definition.id {
+        STRIKE_R_ID => strike_queue(card_id, target.expect("validated Strike has a target")),
+        DEFEND_R_ID => defend_queue(card_id),
+        BASH_ID => bash_queue(card_id, target.expect("validated Bash has a target")),
         _ => Err(SimError::IllegalAction(
             "card transition is not implemented",
-        )),
-    }
+        ))?,
+    };
+
+    process_internal_queue(state, queue?)
 }
 
-fn apply_strike(state: &CombatState, card_id: CardId, target: MonsterId) -> SimResult<CombatState> {
+fn strike_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::DealDamage { target, amount: 6 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn defend_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::GainBlock { amount: 5 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn bash_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 2 },
+        InternalAction::DealDamage { target, amount: 8 },
+        InternalAction::ApplyVulnerable { target, amount: 2 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn process_internal_queue(
+    state: &CombatState,
+    mut queue: VecDeque<InternalAction>,
+) -> SimResult<CombatTransition> {
     let mut next = state.clone();
-    let card = remove_card_from_hand(&mut next, card_id)?;
+    let mut event_log = Vec::new();
 
-    next.player.energy -= 1;
-
-    let monster = next
-        .monsters
-        .iter_mut()
-        .find(|monster| monster.id == target && monster.alive)
-        .ok_or(SimError::IllegalAction("target is not a living monster"))?;
-
-    deal_unmodified_damage_to_monster(monster, 6);
-    next.piles.discard_pile.push(card);
+    while let Some(internal_action) = queue.pop_front() {
+        apply_internal_action(&mut next, internal_action)?;
+        event_log.push(internal_action);
+    }
 
     if next.monsters.iter().all(|monster| !monster.alive) {
         next.phase = CombatPhase::Won;
@@ -59,44 +111,43 @@ fn apply_strike(state: &CombatState, card_id: CardId, target: MonsterId) -> SimR
         next.phase = CombatPhase::WaitingForPlayer;
     }
 
-    Ok(next)
+    Ok(CombatTransition {
+        state: next,
+        event_log,
+    })
 }
 
-fn apply_defend(state: &CombatState, card_id: CardId) -> SimResult<CombatState> {
-    let mut next = state.clone();
-    let card = remove_card_from_hand(&mut next, card_id)?;
-
-    next.player.energy -= 1;
-    next.player.block += 5;
-    next.piles.discard_pile.push(card);
-    next.phase = CombatPhase::WaitingForPlayer;
-
-    Ok(next)
+fn apply_internal_action(state: &mut CombatState, action: InternalAction) -> SimResult<()> {
+    match action {
+        InternalAction::PlayCard { .. } => Ok(()),
+        InternalAction::SpendEnergy { amount } => {
+            state.player.energy -= amount;
+            Ok(())
+        }
+        InternalAction::DealDamage { target, amount } => {
+            let monster = living_monster_mut(state, target)?;
+            deal_unmodified_damage_to_monster(monster, amount);
+            Ok(())
+        }
+        InternalAction::GainBlock { amount } => {
+            state.player.block += amount;
+            Ok(())
+        }
+        InternalAction::ApplyVulnerable { target, amount } => {
+            let monster = living_monster_mut(state, target)?;
+            monster.powers.vulnerable += amount;
+            Ok(())
+        }
+        InternalAction::MoveCard { card_id, from, to } => move_card(state, card_id, from, to),
+    }
 }
 
-fn apply_bash(state: &CombatState, card_id: CardId, target: MonsterId) -> SimResult<CombatState> {
-    let mut next = state.clone();
-    let card = remove_card_from_hand(&mut next, card_id)?;
-
-    next.player.energy -= 2;
-
-    let monster = next
+fn living_monster_mut(state: &mut CombatState, target: MonsterId) -> SimResult<&mut MonsterState> {
+    state
         .monsters
         .iter_mut()
         .find(|monster| monster.id == target && monster.alive)
-        .ok_or(SimError::IllegalAction("target is not a living monster"))?;
-
-    deal_unmodified_damage_to_monster(monster, 8);
-    monster.powers.vulnerable += 2;
-    next.piles.discard_pile.push(card);
-
-    if next.monsters.iter().all(|monster| !monster.alive) {
-        next.phase = CombatPhase::Won;
-    } else {
-        next.phase = CombatPhase::WaitingForPlayer;
-    }
-
-    Ok(next)
+        .ok_or(SimError::IllegalAction("target is not a living monster"))
 }
 
 fn find_hand_card(state: &CombatState, card_id: CardId) -> SimResult<CardInstance> {
@@ -118,6 +169,32 @@ fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<
         .ok_or(SimError::UnknownCard(card_id))?;
 
     Ok(state.piles.hand.remove(index))
+}
+
+fn move_card(
+    state: &mut CombatState,
+    card_id: CardId,
+    from: CardPile,
+    to: CardPile,
+) -> SimResult<()> {
+    let card = match from {
+        CardPile::Hand => remove_card_from_hand(state, card_id)?,
+        CardPile::DrawPile | CardPile::DiscardPile | CardPile::ExhaustPile => {
+            return Err(SimError::IllegalAction(
+                "card move source is not implemented",
+            ));
+        }
+    };
+
+    match to {
+        CardPile::DiscardPile => {
+            state.piles.discard_pile.push(card);
+            Ok(())
+        }
+        CardPile::Hand | CardPile::DrawPile | CardPile::ExhaustPile => Err(
+            SimError::IllegalAction("card move destination is not implemented"),
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -264,6 +341,55 @@ mod tests {
         assert_eq!(
             apply_combat_action(&state, bash_action(&state)),
             Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn strike_event_log_records_ordered_internal_actions() {
+        let state = CombatState::initial_fixture();
+        let strike_id = hand_strike_id(&state);
+
+        let transition =
+            apply_combat_action_with_events(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: strike_id },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamage {
+                    target: MonsterId::new(1),
+                    amount: 6,
+                },
+                InternalAction::MoveCard {
+                    card_id: strike_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn defend_event_log_records_gain_block() {
+        let state = CombatState::initial_fixture();
+        let defend_id = hand_card_id(&state, DEFEND_R_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: defend_id },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::GainBlock { amount: 5 },
+                InternalAction::MoveCard {
+                    card_id: defend_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
         );
     }
 
