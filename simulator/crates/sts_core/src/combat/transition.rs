@@ -1,7 +1,7 @@
 use crate::{
     action::CombatAction,
     combat::{damage::deal_unmodified_damage_to_monster, validate_combat_action, CombatPhase},
-    content::cards::{get_card_definition, STRIKE_R_ID},
+    content::cards::{get_card_definition, DEFEND_R_ID, STRIKE_R_ID},
     ids::{CardId, MonsterId},
     CardInstance, CombatState, SimError, SimResult,
 };
@@ -26,17 +26,17 @@ fn apply_play_card(
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
 
-    if definition.id != STRIKE_R_ID {
-        return Err(SimError::IllegalAction(
+    match definition.id {
+        STRIKE_R_ID => apply_strike(
+            state,
+            card_id,
+            target.expect("validated Strike has a target"),
+        ),
+        DEFEND_R_ID => apply_defend(state, card_id),
+        _ => Err(SimError::IllegalAction(
             "card transition is not implemented",
-        ));
+        )),
     }
-
-    apply_strike(
-        state,
-        card_id,
-        target.expect("validated Strike has a target"),
-    )
 }
 
 fn apply_strike(state: &CombatState, card_id: CardId, target: MonsterId) -> SimResult<CombatState> {
@@ -59,6 +59,18 @@ fn apply_strike(state: &CombatState, card_id: CardId, target: MonsterId) -> SimR
     } else {
         next.phase = CombatPhase::WaitingForPlayer;
     }
+
+    Ok(next)
+}
+
+fn apply_defend(state: &CombatState, card_id: CardId) -> SimResult<CombatState> {
+    let mut next = state.clone();
+    let card = remove_card_from_hand(&mut next, card_id)?;
+
+    next.player.energy -= 1;
+    next.player.block += 5;
+    next.piles.discard_pile.push(card);
+    next.phase = CombatPhase::WaitingForPlayer;
 
     Ok(next)
 }
@@ -87,7 +99,7 @@ fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::STRIKE_R_ID;
+    use crate::content::cards::{DEFEND_R_ID, STRIKE_R_ID};
 
     #[test]
     fn strike_decreases_monster_hp_by_six() {
@@ -153,6 +165,39 @@ mod tests {
         assert_eq!(state.snapshot().hash().expect("state hashes after"), before);
     }
 
+    #[test]
+    fn defend_increases_player_block_by_five() {
+        let state = CombatState::initial_fixture();
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.player.block, state.player.block + 5);
+    }
+
+    #[test]
+    fn defend_decreases_energy_by_one() {
+        let state = CombatState::initial_fixture();
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+    }
+
+    #[test]
+    fn defend_moves_card_from_hand_to_discard() {
+        let state = CombatState::initial_fixture();
+        let defend_id = hand_card_id(&state, DEFEND_R_ID);
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == defend_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == defend_id));
+    }
+
     fn strike_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_strike_id(state),
@@ -161,12 +206,23 @@ mod tests {
     }
 
     fn hand_strike_id(state: &CombatState) -> CardId {
+        hand_card_id(state, STRIKE_R_ID)
+    }
+
+    fn defend_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DEFEND_R_ID),
+            target: None,
+        }
+    }
+
+    fn hand_card_id(state: &CombatState, content_id: crate::ContentId) -> CardId {
         state
             .piles
             .hand
             .iter()
-            .find(|card| card.content_id == STRIKE_R_ID)
-            .expect("Strike is in hand")
+            .find(|card| card.content_id == content_id)
+            .expect("card is in hand")
             .id
     }
 }

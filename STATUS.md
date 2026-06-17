@@ -49,8 +49,13 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
-- Minimal simulator implementation exists through Strike-only combat transitions.
-- Basic ID/error, snapshot, combat state, starter card content, legal action, damage, and Strike transition tests exist.
+- Minimal simulator implementation exists through Strike and Defend combat transitions.
+- Task 1.5 added Defend transition support with energy spend, hand-to-discard movement, and player block gain.
+- Task 1.5 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- Basic ID/error, snapshot, combat state, starter card content, legal action, damage, Strike transition, and Defend transition tests exist.
 - Git repository initialized for the project.
 
 ## What Is Not Implemented
@@ -80,7 +85,7 @@ Milestone 0: Project Skeleton and Test Harness.
 
 ## Next Task
 
-Task 1.5: Apply Defend.
+Task 1.6: Apply Bash and Minimal Vulnerable.
 
 ## Known Risks
 
