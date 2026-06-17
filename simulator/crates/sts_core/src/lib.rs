@@ -15,11 +15,12 @@ pub mod action;
 pub use action::{CardPile, CombatAction, InternalAction};
 pub use card::{CardDefinition, CardInstance, CardType, CardValues, TargetRequirement};
 pub use combat::{
-    apply_combat_action, apply_combat_action_with_events, draw_cards, end_player_turn,
-    legal_combat_actions, validate_combat_action, CardPiles, CombatPhase, CombatState,
-    CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState, PlayerState,
+    apply_burning_blood, apply_combat_action, apply_combat_action_with_events, draw_cards,
+    end_player_turn, legal_combat_actions, validate_combat_action, CardPiles, CombatPhase,
+    CombatState, CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState,
+    PlayerState,
 };
-pub use content::character::IRONCLAD_A0_BASE_HP;
+pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::ironclad_starter_deck;
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MonsterId};

@@ -1,3 +1,4 @@
+pub mod burning_blood;
 pub mod damage;
 pub mod draw;
 pub mod legal;
@@ -5,6 +6,7 @@ pub mod state;
 pub mod transition;
 pub mod turn;
 
+pub use burning_blood::apply_burning_blood;
 pub use damage::{DamageInfo, DamageSource};
 pub use draw::draw_cards;
 pub use legal::{legal_combat_actions, validate_combat_action};

@@ -1,6 +1,7 @@
 use crate::{
     action::{CardPile, CombatAction, InternalAction},
     combat::{
+        apply_burning_blood,
         damage::{deal_damage_info_to_monster, DamageInfo, DamageSource},
         validate_combat_action, CombatPhase,
     },
@@ -122,6 +123,7 @@ fn process_internal_queue(
 
     if next.monsters.iter().all(|monster| !monster.alive) {
         next.phase = CombatPhase::Won;
+        apply_burning_blood(&mut next);
     } else {
         next.phase = CombatPhase::WaitingForPlayer;
     }

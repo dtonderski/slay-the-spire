@@ -73,7 +73,7 @@
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
-- Milestone 1 golden replay final hash: `b1e1baefe37e3ee7`.
+- Milestone 1 golden replay final hash: `904776775d52e82e`.
 - Read `sts_lightspeed` action/card queue notes in `RESEARCH.md` before task 2.1.
 - Task 2.1 added an explicit local internal action queue and ordered event log for card transitions.
 - Task 2.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
@@ -101,6 +101,11 @@
   - `cargo +stable-x86_64-pc-windows-gnu test`
 - Task 3.1 added Ironclad starter deck constructor with 5 `Strike_R`, 4 `Defend_R`, 1 `Bash`, and A0 base HP 80.
 - Task 3.1 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
+  - `cargo +stable-x86_64-pc-windows-gnu fmt`
+  - `cargo +stable-x86_64-pc-windows-gnu clippy`
+  - `cargo +stable-x86_64-pc-windows-gnu test`
+- Task 3.2 added Burning Blood heal on combat victory, capped by max HP.
+- Task 3.2 verification passed from `simulator/` with `stable-x86_64-pc-windows-gnu`:
   - `cargo +stable-x86_64-pc-windows-gnu fmt`
   - `cargo +stable-x86_64-pc-windows-gnu clippy`
   - `cargo +stable-x86_64-pc-windows-gnu test`
@@ -133,7 +138,7 @@ Milestone 3: Full Starter Deck and Core Combat Mechanics.
 
 ## Next Task
 
-Task 3.2: Burning Blood.
+Task 3.3: Vulnerable Damage Multiplier.
 
 ## Known Risks
 

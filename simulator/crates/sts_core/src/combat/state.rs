@@ -1,6 +1,7 @@
 use crate::{
     card::CardInstance,
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+    content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, MonsterId},
     power::MonsterPowers,
     SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
@@ -19,6 +20,7 @@ pub struct CombatState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerState {
     pub hp: i32,
+    pub max_hp: i32,
     pub block: i32,
     pub energy: i32,
 }
@@ -59,7 +61,8 @@ impl CombatState {
     pub fn initial_fixture() -> Self {
         Self {
             player: PlayerState {
-                hp: 80,
+                hp: IRONCLAD_A0_BASE_HP,
+                max_hp: IRONCLAD_A0_BASE_HP,
                 block: 0,
                 energy: 3,
             },
