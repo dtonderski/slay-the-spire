@@ -136,9 +136,12 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
     assert_eq!(seed_start.start_command.character, "IRONCLAD");
     assert_eq!(seed_start.start_command.ascension, 0);
     assert_eq!(seed_start.start_command.external_seed, "VERIFY01");
-    assert_eq!(seed_start.first_boundary.path, "$.actions[step=16].command");
-    assert_eq!(seed_start.first_boundary.category, "unsupported_reward_rng");
-    assert!(seed_start.first_boundary.reason.contains("reward"));
+    assert_eq!(seed_start.first_boundary.path, "$.actions[step=19].command");
+    assert_eq!(
+        seed_start.first_boundary.category,
+        "unsupported_post_reward_map"
+    );
+    assert!(seed_start.first_boundary.reason.contains("Milestone 18"));
 
     let labels: Vec<_> = report
         .verified
@@ -160,6 +163,9 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         "captured Cultist second end turn and shuffle",
         "captured Cultist final Bash",
         "captured Cultist lethal Strike",
+        "captured gold reward",
+        "captured card reward choices",
+        "captured Twin Strike pickup",
     ] {
         assert!(
             labels.contains(&expected),

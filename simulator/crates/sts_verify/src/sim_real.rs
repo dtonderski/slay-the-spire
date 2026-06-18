@@ -253,6 +253,7 @@ fn verify_seed_start_transitions(
 ) -> SeedStartBoundary {
     let mut phase = SeedStartPhase::BeforeStart;
     let mut combat_step = 0usize;
+    let mut reward_step = 0usize;
     let mut relics = vec!["Burning Blood".to_owned()];
 
     for (_, action, post) in transitions {
@@ -445,10 +446,42 @@ fn verify_seed_start_transitions(
                 }
             }
             SeedStartPhase::Reward => {
+                match seed_start_reward_expected(reward_step, &action.command) {
+                    Some(expected) => {
+                        compare_subset(
+                            report,
+                            action,
+                            expected.label,
+                            seed_start_reward_observed_subset(&post.message),
+                            expected.state,
+                        );
+                        reward_step += 1;
+                        if expected.ends_reward {
+                            phase = SeedStartPhase::Proceed;
+                        }
+                    }
+                    None => {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_reward_path".to_owned(),
+                            reason: format!(
+                                "seed-start verifier expected the captured reward command at local reward step {reward_step}; alternate reward paths require broad reward RNG and reward-screen parity"
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return boundary;
+                    }
+                }
+            }
+            SeedStartPhase::Proceed => {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_reward_rng".to_owned(),
-                    reason: "seed-start verifier has passed the captured Cultist combat and stops before reward replay because gold, card reward, potion, and reward-screen RNG are not implemented".to_owned(),
+                    category: "unsupported_post_reward_map".to_owned(),
+                    reason: "seed-start verifier has passed captured reward pickup and stops before reward-to-map proceed because post-combat map continuation is Milestone 18 scope".to_owned(),
                 };
                 report.unsupported.push(UnsupportedTransition {
                     action_step: action.step,
@@ -478,8 +511,8 @@ fn verify_seed_start_transitions(
 
     SeedStartBoundary {
         path: "$.actions".to_owned(),
-        category: "missing_reward_boundary".to_owned(),
-        reason: "trace ended before seed-start verifier reached the expected reward boundary"
+        category: "missing_post_reward_boundary".to_owned(),
+        reason: "trace ended before seed-start verifier reached the expected post-reward boundary"
             .to_owned(),
     }
 }
@@ -493,6 +526,7 @@ enum SeedStartPhase {
     Map,
     Combat,
     Reward,
+    Proceed,
 }
 
 fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, SimRealError>> {
@@ -576,6 +610,12 @@ struct CapturedCombatExpectation {
     label: &'static str,
     state: Value,
     ends_combat: bool,
+}
+
+struct CapturedRewardExpectation {
+    label: &'static str,
+    state: Value,
+    ends_reward: bool,
 }
 
 fn seed_start_cultist_combat_expected(
@@ -760,6 +800,14 @@ fn seed_start_cultist_combat_expected(
                 "max_hp": 80,
                 "deck_ids": ironclad_starter_deck_keys(),
                 "relic_ids": ["Burning Blood", "Toy Ornithopter"],
+                "choices": ["gold", "card"],
+                "reward_types": ["GOLD", "CARD"],
+                "gold_offer": 14,
+                "unobservable": {
+                    "reward_gold_rng_draws": true,
+                    "card_reward_rng_draws": true,
+                    "reward_screen_internal_ids": true,
+                },
             }),
             ends_combat: true,
         },
@@ -828,6 +876,14 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
             "max_hp": int(game, "max_hp"),
             "deck_ids": deck_keys_from_value(game.get("deck")),
             "relic_ids": relic_keys_from_value(game.get("relics")),
+            "choices": choice_list_from_value(game.get("choice_list")),
+            "reward_types": reward_types_from_value(game.get("screen_state").and_then(|state| state.get("rewards"))),
+            "gold_offer": reward_gold_offer(game),
+            "unobservable": {
+                "reward_gold_rng_draws": true,
+                "card_reward_rng_draws": true,
+                "reward_screen_internal_ids": true,
+            },
         });
     }
 
@@ -852,6 +908,145 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
             "card_uuids": true,
         },
     })
+}
+
+fn seed_start_reward_expected(
+    reward_step: usize,
+    command: &str,
+) -> Option<CapturedRewardExpectation> {
+    let expected_command = match reward_step {
+        0 => "CHOOSE 0",
+        1 => "CHOOSE 0",
+        2 => "CHOOSE 0",
+        _ => return None,
+    };
+    if !command.eq_ignore_ascii_case(expected_command) {
+        return None;
+    }
+
+    let expectation = match reward_step {
+        0 => CapturedRewardExpectation {
+            label: "captured gold reward",
+            state: json!({
+                "screen_type": "COMBAT_REWARD",
+                "floor": 1,
+                "gold": 113,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": ironclad_starter_deck_keys(),
+                "relic_ids": ["Burning Blood", "Toy Ornithopter"],
+                "choices": ["card"],
+                "reward_types": ["CARD"],
+                "unobservable": {
+                    "reward_gold_rng_draws": true,
+                    "reward_screen_internal_ids": true,
+                },
+            }),
+            ends_reward: false,
+        },
+        1 => CapturedRewardExpectation {
+            label: "captured card reward choices",
+            state: json!({
+                "screen_type": "CARD_REWARD",
+                "floor": 1,
+                "gold": 113,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": ironclad_starter_deck_keys(),
+                "relic_ids": ["Burning Blood", "Toy Ornithopter"],
+                "choices": ["twin strike", "heavy blade", "intimidate"],
+                "card_reward_ids": ["Twin Strike", "Heavy Blade", "Intimidate"],
+                "unobservable": {
+                    "card_reward_rng_draws": true,
+                    "card_reward_uuids": true,
+                },
+            }),
+            ends_reward: false,
+        },
+        2 => CapturedRewardExpectation {
+            label: "captured Twin Strike pickup",
+            state: json!({
+                "screen_type": "COMBAT_REWARD",
+                "floor": 1,
+                "gold": 113,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": ironclad_deck_with_twin_strike_keys(),
+                "relic_ids": ["Burning Blood", "Toy Ornithopter"],
+                "choices": [],
+                "reward_types": [],
+                "unobservable": {
+                    "picked_card_uuid": true,
+                },
+            }),
+            ends_reward: true,
+        },
+        _ => return None,
+    };
+    Some(expectation)
+}
+
+fn seed_start_reward_observed_subset(message: &Value) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    let screen_type = game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let mut out = json!({
+        "screen_type": screen_type,
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": int(game, "gold"),
+        "current_hp": int(game, "current_hp"),
+        "max_hp": int(game, "max_hp"),
+        "deck_ids": deck_keys_from_value(game.get("deck")),
+        "relic_ids": relic_keys_from_value(game.get("relics")),
+        "choices": choice_list_from_value(game.get("choice_list")),
+    });
+
+    if let Value::Object(map) = &mut out {
+        match screen_type {
+            "CARD_REWARD" => {
+                insert(
+                    map,
+                    "card_reward_ids",
+                    card_reward_ids_from_value(
+                        game.get("screen_state")
+                            .and_then(|state| state.get("cards")),
+                    ),
+                );
+                insert(
+                    map,
+                    "unobservable",
+                    json!({
+                        "card_reward_rng_draws": true,
+                        "card_reward_uuids": true,
+                    }),
+                );
+            }
+            "COMBAT_REWARD" => {
+                let reward_types = reward_types_from_value(
+                    game.get("screen_state")
+                        .and_then(|state| state.get("rewards")),
+                );
+                insert(map, "reward_types", reward_types.clone());
+                let unobservable = if reward_types.is_empty() {
+                    json!({
+                        "picked_card_uuid": true,
+                    })
+                } else {
+                    json!({
+                        "reward_gold_rng_draws": true,
+                        "reward_screen_internal_ids": true,
+                    })
+                };
+                insert(map, "unobservable", unobservable);
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 fn seed_start_monsters_from_value(value: Option<&Value>) -> Vec<Value> {
@@ -908,6 +1103,37 @@ fn ironclad_starter_deck_keys() -> Vec<&'static str> {
         "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
         "Defend_R", "Defend_R", "Bash",
     ]
+}
+
+fn ironclad_deck_with_twin_strike_keys() -> Vec<&'static str> {
+    let mut deck = ironclad_starter_deck_keys();
+    deck.push("Twin Strike");
+    deck
+}
+
+fn reward_types_from_value(value: Option<&Value>) -> Vec<String> {
+    let Some(rewards) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    rewards
+        .iter()
+        .filter_map(|reward| {
+            reward
+                .get("reward_type")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<String> {
+    let Some(cards) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    cards
+        .iter()
+        .filter_map(|card| card.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect()
 }
 
 fn relic_keys_from_value(value: Option<&Value>) -> Vec<String> {
@@ -980,14 +1206,14 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "cardRewardRng".to_owned(),
             save_counter: Some("card_seed_count".to_owned()),
-            status: "placeholder".to_owned(),
-            reason: "reward card choices use local placeholder rarity/pool behavior".to_owned(),
+            status: "captured_branch".to_owned(),
+            reason: "captured reward choices Twin Strike, Heavy Blade, and Intimidate are verified for this trace; broad card reward RNG remains placeholder".to_owned(),
         },
         RngBoundary {
             stream: "rewardGoldRng".to_owned(),
             save_counter: None,
-            status: "unwired".to_owned(),
-            reason: "combat reward gold amount is restored from observation in Milestone 12, not generated from seed".to_owned(),
+            status: "captured_value".to_owned(),
+            reason: "captured 14 gold reward is verified for this trace; broad combat reward gold RNG is not game-compatible".to_owned(),
         },
         RngBoundary {
             stream: "relicRng".to_owned(),

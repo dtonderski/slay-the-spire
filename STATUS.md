@@ -28,7 +28,7 @@
 - Canonical observed-state normalizer for combat/run JSON
 - `sts_verify` CLI: `trace`, `diff`, `parity`, `corpus`
 - Observed-state sim-vs-real verifier for the captured CommunicationMod trace.
-- Seed-start verifier mode parses `START IRONCLAD 0 VERIFY01`, verifies captured bootstrap/Neow/map/first encounter/Cultist combat, and reports the first expected reward RNG boundary.
+- Seed-start verifier mode parses `START IRONCLAD 0 VERIFY01`, verifies captured bootstrap/Neow/map/first encounter/Cultist combat/reward pickup, and reports the first expected post-reward map boundary.
 - Manual corpus: milestone1, cultist bash step, known divergence list
 - Nightly parity script: `scripts/nightly_parity.ps1`
 - Planned post-12 milestones now separate observed-state replay from true seed/RNG parity.
@@ -49,15 +49,15 @@ cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
 ```
 
-Expected result: `seed_start.expected_failure=true` at `$.actions[step=16].command`. This is intentional until exact reward gold, card reward, potion, and reward-screen RNG are implemented.
+Expected result: `seed_start.expected_failure=true` at `$.actions[step=19].command`. This is intentional until reward-to-map continuation is covered by Milestone 18.
 
 ### Tests
 - **454 tests** passing
 
 ## Next Task
 
-Start Milestone 17 reward RNG and post-combat parity. Seed-start full-trace RNG parity is not currently claimed.
+Start Milestone 18 end-to-end seed-start trace parity. Seed-start full-trace RNG parity is not currently claimed until `PROCEED` back to map passes.
 
 ## Last Updated
 
-2026-06-18 (Milestone 16 captured Cultist combat seed-start path added).
+2026-06-18 (Milestone 17 captured reward seed-start path added).
