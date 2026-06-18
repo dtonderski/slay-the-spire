@@ -2,42 +2,38 @@
 
 ## What Exists
 
-- Research and design documentation (`README.md`, `RESEARCH.md`, `DESIGN.md`, `VERIFICATION.md`, `TASKS.md`, `AGENT_RULES.md`, `STATUS.md`).
-- Rust simulator workspace under `simulator/` with `sts_core` crate.
-- Typed IDs, errors, snapshots, deterministic RNG placeholder, combat state, legal actions, internal action queue.
-- Ironclad starter cards (Strike_R, Defend_R, Bash) with damage, block, vulnerable, end-turn flow.
-- Starter deck constructor (5/4/1), Burning Blood, strength/weak/vulnerable combat math.
-- Milestone 4 powers/statuses: dexterity, frail, ritual, metallicize, wound, dazed, burn, slimed, ethereal, exhaust, retain.
-- Card keywords (`ethereal`, `exhaust`, `retain`, `unplayable`) and status card definitions.
-- End-of-turn hand resolution (burn damage, ethereal exhaust, retain).
-- End-of-turn power hooks (ritual, metallicize, weak/frail decrement, monster ritual/strength).
-- Generic attack/skill play queues for card definitions with standard damage/block values.
-- Milestone 1 golden replay final hash: `7640a497d20aa951`.
-- 86 tests passing (`cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`).
+- Rust simulator workspace (`simulator/sts_core`) with combat engine, action queue, snapshots, RNG placeholder.
+- Ironclad starter deck, Burning Blood, strength/weak/vulnerable/dexterity/frail combat math.
+- Milestone 4 complete: ritual, metallicize, status cards (wound/dazed/burn/slimed), card keywords (ethereal/exhaust/retain).
+- Milestone 5 in progress:
+  - Simple attacks: Anger, Cleave, Twin Strike (+ upgrades)
+  - Simple skills: Shrug It Off, True Grit
+- Milestone 6 started: Cultist monster (50 HP, ritual then attack pattern).
+- `TargetRequirement::AllEnemies`, `InternalAction::DealDamageAll`, `InternalAction::DrawCards`.
+- Monster definitions with per-monster intent/move selection.
+- Milestone 1 golden replay hash: `077e7df619d1e8c5`.
+- **129 tests** passing with `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`.
 
 ## What Is Not Implemented
 
-- Most Ironclad cards beyond starter set
-- Real Act 1 monsters (Cultist, Jaw Worm, etc.) beyond fixed dummy
+- Remaining Ironclad cards (draw/energy, exhaust package, strength package, complex cards)
+- Most Act 1 monsters beyond Cultist
 - Rewards, map, shops, rest sites, events
-- Relics (beyond Burning Blood innate), potions
-- Ascensions, save import, CommunicationMod parity
-- RL API, Python bindings, `sts_verify` crate
+- Relics (beyond Burning Blood), potions, ascensions
+- Save import, CommunicationMod parity, RL API, Python bindings
 
 ## Current Milestone
 
-Milestone 5: More Ironclad Cards.
+Milestone 5: More Ironclad Cards (batch 3+: draw/energy cards next).
 
 ## Next Task
 
-Milestone 5 batch 1: Simple attacks (Anger, Cleave, Twin Strike).
+Milestone 5 batch 3: Pommel Strike, Battle Trance, Seeing Red.
 
 ## Known Risks
 
-- Exact Slay the Spire RNG parity requires controlled comparison against the real game.
-- `sts_lightspeed` is prior art, not authority.
-- CommunicationMod may not expose every hidden field.
-- Use `stable-x86_64-pc-windows-gnu` for local verification (MSVC link broken).
+- Exact RNG parity requires real-game traces.
+- Use `stable-x86_64-pc-windows-gnu` toolchain (MSVC link broken).
 
 ## Last Updated
 

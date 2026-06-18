@@ -39,7 +39,7 @@ pub fn deal_damage_info_to_monster(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MonsterId;
+    use crate::{content::monsters::FIXED_SIMPLE_MONSTER_ID, MonsterId};
 
     #[test]
     fn damage_consumes_block_before_hp() {
@@ -49,6 +49,8 @@ mod tests {
             block: 4,
             alive: true,
             powers: Default::default(),
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -67,6 +69,8 @@ mod tests {
             block: 4,
             alive: true,
             powers: Default::default(),
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -89,6 +93,8 @@ mod tests {
             block: 0,
             alive: true,
             powers: Default::default(),
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -117,6 +123,8 @@ mod tests {
             block: 0,
             alive: true,
             powers: Default::default(),
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {

@@ -24,6 +24,10 @@ pub enum InternalAction {
     DealDamage {
         info: DamageInfo,
     },
+    DealDamageAll {
+        source: CardId,
+        amount: i32,
+    },
     GainBlock {
         amount: i32,
     },
@@ -39,6 +43,9 @@ pub enum InternalAction {
         card_id: CardId,
         from: CardPile,
         to: CardPile,
+    },
+    DrawCards {
+        count: usize,
     },
 }
 

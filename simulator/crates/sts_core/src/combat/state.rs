@@ -2,9 +2,10 @@ use crate::{
     card::CardInstance,
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
+    content::monsters::{monster_state, CULTIST_A0, FIXED_SIMPLE_MONSTER},
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
-    SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -33,6 +34,9 @@ pub struct MonsterState {
     pub block: i32,
     pub alive: bool,
     pub powers: MonsterPowers,
+    pub content_id: ContentId,
+    #[serde(default)]
+    pub moves_executed: u32,
     pub intent: MonsterIntent,
 }
 
@@ -55,6 +59,7 @@ pub enum CombatPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MonsterIntent {
     Attack { damage: i32 },
+    Ritual { amount: i32 },
 }
 
 impl CombatState {
@@ -68,14 +73,7 @@ impl CombatState {
                 energy: 3,
                 powers: PlayerPowers::default(),
             },
-            monsters: vec![MonsterState {
-                id: MonsterId::new(1),
-                hp: 40,
-                block: 0,
-                alive: true,
-                powers: MonsterPowers::default(),
-                intent: MonsterIntent::Attack { damage: 6 },
-            }],
+            monsters: vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
             piles: CardPiles {
                 hand: vec![
                     CardInstance::new(CardId::new(1), STRIKE_R_ID),
@@ -88,6 +86,13 @@ impl CombatState {
             },
             phase: CombatPhase::WaitingForPlayer,
         }
+    }
+
+    #[must_use]
+    pub fn cultist_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&CULTIST_A0, MonsterId::new(1))];
+        state
     }
 
     #[must_use]

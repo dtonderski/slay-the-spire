@@ -1,10 +1,8 @@
 use crate::{
     combat::hand::resolve_end_of_turn_hand,
-    combat::turn_powers::{
-        apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers, monster_attack_damage,
-    },
-    combat::{CombatPhase, CombatState, MonsterIntent},
-    content::monsters::FIXED_SIMPLE_MONSTER,
+    combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
+    combat::{CombatPhase, CombatState},
+    content::monsters::{apply_monster_intent, prepare_monster_intent},
 };
 
 const HAND_SIZE: usize = 5;
@@ -44,11 +42,9 @@ pub fn start_player_turn(state: &mut CombatState) {
 fn run_monster_turn(state: &mut CombatState) {
     let total_damage: i32 = state
         .monsters
-        .iter()
+        .iter_mut()
         .filter(|monster| monster.alive)
-        .map(|monster| match monster.intent {
-            MonsterIntent::Attack { damage } => monster_attack_damage(monster, damage),
-        })
+        .map(apply_monster_intent)
         .sum();
 
     if total_damage > 0 {
@@ -82,9 +78,7 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
 fn prepare_next_intents(state: &mut CombatState) {
     for monster in &mut state.monsters {
         if monster.alive {
-            monster.intent = MonsterIntent::Attack {
-                damage: FIXED_SIMPLE_MONSTER.attack_damage,
-            };
+            monster.intent = prepare_monster_intent(monster);
         }
     }
 }
@@ -94,7 +88,9 @@ mod tests {
     use super::*;
     use crate::{
         apply_combat_action,
+        combat::MonsterIntent,
         content::cards::{BASH_ID, STRIKE_R_ID},
+        content::monsters::FIXED_SIMPLE_MONSTER,
         ids::CardId,
         CombatAction,
     };

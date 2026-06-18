@@ -33,6 +33,14 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
                     }),
                 );
             }
+            TargetRequirement::AllEnemies => {
+                if has_living_monster(state) {
+                    actions.push(CombatAction::PlayCard {
+                        card_id: card.id,
+                        target: None,
+                    });
+                }
+            }
             TargetRequirement::None => {
                 actions.push(CombatAction::PlayCard {
                     card_id: card.id,
@@ -67,6 +75,16 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 (TargetRequirement::Enemy, None) => {
                     Err(SimError::IllegalAction("targeted card requires a target"))
                 }
+                (TargetRequirement::AllEnemies, None) => {
+                    if has_living_monster(state) {
+                        Ok(())
+                    } else {
+                        Err(SimError::IllegalAction("no living monsters to hit"))
+                    }
+                }
+                (TargetRequirement::AllEnemies, Some(_)) => Err(SimError::IllegalAction(
+                    "all-enemies card cannot have a target",
+                )),
                 (TargetRequirement::None, Some(_)) => Err(SimError::IllegalAction(
                     "non-targeted card cannot have a target",
                 )),
@@ -109,10 +127,20 @@ fn is_living_monster(state: &CombatState, monster_id: MonsterId) -> bool {
         .any(|monster| monster.id == monster_id && monster.alive)
 }
 
+fn has_living_monster(state: &CombatState) -> bool {
+    state.monsters.iter().any(|monster| monster.alive)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID};
+    use crate::{
+        content::cards::{
+            ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DEFEND_R_ID,
+            SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        },
+        CardInstance,
+    };
 
     #[test]
     fn strike_is_legal_with_living_monster_target() {
@@ -216,6 +244,190 @@ mod tests {
         let _actions = legal_combat_actions(&state);
 
         assert_eq!(state.snapshot().hash().expect("state hashes after"), before);
+    }
+
+    #[test]
+    fn anger_is_legal_at_zero_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 0;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), ANGER_ID)];
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn cleave_is_legal_without_target() {
+        let state = hand_with_card(CLEAVE_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn cleave_rejects_target() {
+        let state = hand_with_card(CLEAVE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "all-enemies card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn cleave_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(CLEAVE_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn twin_strike_is_legal_with_target() {
+        let state = hand_with_card(TWIN_STRIKE_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn twin_strike_rejects_missing_target() {
+        let state = hand_with_card(TWIN_STRIKE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn anger_plus_is_legal_at_zero_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 0;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), ANGER_PLUS_ID)];
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn cleave_plus_is_legal_without_target() {
+        let state = hand_with_card(CLEAVE_PLUS_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn twin_strike_plus_is_legal_with_target() {
+        let state = hand_with_card(TWIN_STRIKE_PLUS_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn shrug_it_off_is_legal_without_target() {
+        let state = hand_with_card(SHRUG_IT_OFF_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn shrug_it_off_rejects_target() {
+        let state = hand_with_card(SHRUG_IT_OFF_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn true_grit_is_legal_without_target() {
+        let state = hand_with_card(TRUE_GRIT_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn true_grit_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(TRUE_GRIT_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    fn hand_with_card(content_id: crate::ContentId) -> CombatState {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), content_id)];
+        state
     }
 
     fn hand_card_id(state: &CombatState, content_id: crate::ContentId) -> CardId {

@@ -1,2 +1,4 @@
 target/
 Cargo.lock
+tools/communication/session/
+.tmp/

@@ -39,6 +39,7 @@ pub enum CardType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TargetRequirement {
     Enemy,
+    AllEnemies,
     None,
 }
 

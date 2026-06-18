@@ -64,6 +64,7 @@ mod tests {
     use crate::{
         content::cards::{DAZED_ID, ETHEREAL_STRIKE_ID, RETAIN_DEFEND_ID, WOUND_ID},
         ids::CardId,
+        CardInstance,
     };
 
     #[test]

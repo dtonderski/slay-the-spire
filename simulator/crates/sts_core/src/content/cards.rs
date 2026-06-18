@@ -14,6 +14,14 @@ pub const BURN_ID: ContentId = ContentId::new(6);
 pub const SLIMED_ID: ContentId = ContentId::new(7);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
 pub const RETAIN_DEFEND_ID: ContentId = ContentId::new(9);
+pub const ANGER_ID: ContentId = ContentId::new(10);
+pub const CLEAVE_ID: ContentId = ContentId::new(11);
+pub const TWIN_STRIKE_ID: ContentId = ContentId::new(12);
+pub const ANGER_PLUS_ID: ContentId = ContentId::new(13);
+pub const CLEAVE_PLUS_ID: ContentId = ContentId::new(14);
+pub const TWIN_STRIKE_PLUS_ID: ContentId = ContentId::new(15);
+pub const SHRUG_IT_OFF_ID: ContentId = ContentId::new(16);
+pub const TRUE_GRIT_ID: ContentId = ContentId::new(17);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
     id: STRIKE_R_ID,
@@ -183,10 +191,139 @@ pub const RETAIN_DEFEND: CardDefinition = CardDefinition {
     },
 };
 
+pub const ANGER: CardDefinition = CardDefinition {
+    id: ANGER_ID,
+    key: "Anger",
+    name: "Anger",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const CLEAVE: CardDefinition = CardDefinition {
+    id: CLEAVE_ID,
+    key: "Cleave",
+    name: "Cleave",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const TWIN_STRIKE: CardDefinition = CardDefinition {
+    id: TWIN_STRIKE_ID,
+    key: "Twin Strike",
+    name: "Twin Strike",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(5),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const ANGER_PLUS: CardDefinition = CardDefinition {
+    id: ANGER_PLUS_ID,
+    key: "Anger+",
+    name: "Anger+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const CLEAVE_PLUS: CardDefinition = CardDefinition {
+    id: CLEAVE_PLUS_ID,
+    key: "Cleave+",
+    name: "Cleave+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(9),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const TWIN_STRIKE_PLUS: CardDefinition = CardDefinition {
+    id: TWIN_STRIKE_PLUS_ID,
+    key: "Twin Strike+",
+    name: "Twin Strike+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const SHRUG_IT_OFF: CardDefinition = CardDefinition {
+    id: SHRUG_IT_OFF_ID,
+    key: "Shrug It Off",
+    name: "Shrug It Off",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(8),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const TRUE_GRIT: CardDefinition = CardDefinition {
+    id: TRUE_GRIT_ID,
+    key: "True Grit",
+    name: "True Grit",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(7),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 4] = [WOUND, DAZED, BURN, SLIMED];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
-pub const ALL_CARDS: [CardDefinition; 9] = [
+pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 6] = [
+    ANGER,
+    CLEAVE,
+    TWIN_STRIKE,
+    ANGER_PLUS,
+    CLEAVE_PLUS,
+    TWIN_STRIKE_PLUS,
+];
+pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 2] = [SHRUG_IT_OFF, TRUE_GRIT];
+pub const ALL_CARDS: [CardDefinition; 17] = [
     STRIKE_R,
     DEFEND_R,
     BASH,
@@ -196,6 +333,14 @@ pub const ALL_CARDS: [CardDefinition; 9] = [
     SLIMED,
     ETHEREAL_STRIKE,
     RETAIN_DEFEND,
+    ANGER,
+    CLEAVE,
+    TWIN_STRIKE,
+    ANGER_PLUS,
+    CLEAVE_PLUS,
+    TWIN_STRIKE_PLUS,
+    SHRUG_IT_OFF,
+    TRUE_GRIT,
 ];
 
 #[must_use]
@@ -230,5 +375,60 @@ mod tests {
         assert_eq!(BASH.card_type, CardType::Attack);
         assert_eq!(BASH.values.damage, Some(8));
         assert_eq!(BASH.values.vulnerable, Some(2));
+    }
+
+    #[test]
+    fn anger_has_expected_values() {
+        assert_eq!(ANGER.cost, 0);
+        assert_eq!(ANGER.target, TargetRequirement::Enemy);
+        assert_eq!(ANGER.card_type, CardType::Attack);
+        assert_eq!(ANGER.values.damage, Some(6));
+    }
+
+    #[test]
+    fn cleave_has_expected_values() {
+        assert_eq!(CLEAVE.cost, 1);
+        assert_eq!(CLEAVE.target, TargetRequirement::AllEnemies);
+        assert_eq!(CLEAVE.card_type, CardType::Attack);
+        assert_eq!(CLEAVE.values.damage, Some(8));
+    }
+
+    #[test]
+    fn twin_strike_has_expected_values() {
+        assert_eq!(TWIN_STRIKE.cost, 1);
+        assert_eq!(TWIN_STRIKE.target, TargetRequirement::Enemy);
+        assert_eq!(TWIN_STRIKE.card_type, CardType::Attack);
+        assert_eq!(TWIN_STRIKE.values.damage, Some(5));
+    }
+
+    #[test]
+    fn anger_plus_deals_one_more_damage() {
+        assert_eq!(ANGER_PLUS.values.damage, Some(7));
+    }
+
+    #[test]
+    fn cleave_plus_deals_one_more_damage() {
+        assert_eq!(CLEAVE_PLUS.values.damage, Some(9));
+    }
+
+    #[test]
+    fn twin_strike_plus_deals_one_more_damage() {
+        assert_eq!(TWIN_STRIKE_PLUS.values.damage, Some(6));
+    }
+
+    #[test]
+    fn shrug_it_off_has_expected_values() {
+        assert_eq!(SHRUG_IT_OFF.cost, 1);
+        assert_eq!(SHRUG_IT_OFF.target, TargetRequirement::None);
+        assert_eq!(SHRUG_IT_OFF.card_type, CardType::Skill);
+        assert_eq!(SHRUG_IT_OFF.values.block, Some(8));
+    }
+
+    #[test]
+    fn true_grit_has_expected_values() {
+        assert_eq!(TRUE_GRIT.cost, 1);
+        assert_eq!(TRUE_GRIT.target, TargetRequirement::None);
+        assert_eq!(TRUE_GRIT.card_type, CardType::Skill);
+        assert_eq!(TRUE_GRIT.values.block, Some(7));
     }
 }
