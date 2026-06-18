@@ -4,6 +4,7 @@
 pub mod diff;
 pub mod importer;
 pub mod normalize;
+pub mod sim_real;
 pub mod trace;
 
 pub use diff::canonical_diff;
@@ -11,6 +12,12 @@ pub use importer::{observations_from_trace, ImportedTraceStep};
 pub use normalize::{
     normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
     CanonicalMonsterObservation, CanonicalRunObservation,
+};
+pub use sim_real::{
+    verify_communication_mod_trace, verify_communication_mod_trace_with_mode,
+    verify_seed_start_communication_mod_trace, RngBoundary, SeedStartBoundary, SeedStartReport,
+    SimRealError, SimRealReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition,
+    VerificationMode, VerifiedTransition,
 };
 pub use trace::{
     import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,

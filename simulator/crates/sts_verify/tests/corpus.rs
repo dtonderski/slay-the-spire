@@ -1,5 +1,7 @@
 use sts_verify::{
-    canonical_diff, corpus_path, load_corpus_file, observations_from_trace, ManualFixture,
+    canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
+    verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ManualFixture,
+    VerificationMode,
 };
 
 #[test]
@@ -64,4 +66,139 @@ fn communication_mod_trace_imports_actions_if_present() {
         .filter(|line| matches!(line, sts_verify::TraceLine::Action(_)))
         .count();
     assert!(actions >= 1);
+}
+
+#[test]
+fn captured_communication_mod_trace_verifies_supported_sim_real_scope() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T06-04-49-264Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_communication_mod_trace(&content).expect("verify trace");
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:#?}",
+        report.unexpected_diffs
+    );
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+
+    for expected in [
+        "Bash",
+        "Strike_R",
+        "Defend_R",
+        "end turn",
+        "combat victory + Burning Blood",
+        "gold reward",
+        "Twin Strike reward",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified label {expected}; labels: {labels:?}"
+        );
+    }
+
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .any(|entry| entry.reason.contains("seed-start run creation")),
+        "seed-start parity gap should be explicit"
+    );
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .any(|entry| entry.reason.contains("reward RNG parity")),
+        "reward RNG parity gap should be explicit"
+    );
+}
+
+#[test]
+fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T06-04-49-264Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(report.unexpected_diffs.is_empty());
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(seed_start.expected_failure);
+    assert_eq!(seed_start.start_command.action_step, 2);
+    assert_eq!(seed_start.start_command.character, "IRONCLAD");
+    assert_eq!(seed_start.start_command.ascension, 0);
+    assert_eq!(seed_start.start_command.external_seed, "VERIFY01");
+    assert_eq!(seed_start.first_boundary.path, "$.actions[step=16].command");
+    assert_eq!(seed_start.first_boundary.category, "unsupported_reward_rng");
+    assert!(seed_start.first_boundary.reason.contains("reward"));
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "seed-start bootstrap",
+        "Neow talk",
+        "Neow common relic",
+        "Neow leave",
+        "map first monster node",
+        "captured Cultist Bash",
+        "captured Cultist Strike after Bash",
+        "captured Cultist first end turn",
+        "captured Cultist second-turn Strike one",
+        "captured Cultist second-turn Strike two",
+        "captured Cultist Defend",
+        "captured Cultist second end turn and shuffle",
+        "captured Cultist final Bash",
+        "captured Cultist lethal Strike",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified seed-start label {expected}; labels: {labels:?}"
+        );
+    }
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .any(|entry| entry.reason.contains("unchosen Neow branches")),
+        "unchosen Neow branches should be classified"
+    );
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .any(|entry| entry.reason.contains("Toy Ornithopter")),
+        "Toy Ornithopter inert scope should be classified"
+    );
+
+    for stream in [
+        "seed_conversion",
+        "neowRng",
+        "mapRng",
+        "monsterRng",
+        "monsterHpRng",
+        "shuffleRng",
+        "cardRewardRng",
+        "rewardGoldRng",
+        "relicRng",
+        "potionRng",
+    ] {
+        assert!(
+            seed_start
+                .rng_boundaries
+                .iter()
+                .any(|boundary| boundary.stream == stream),
+            "missing RNG boundary for {stream}"
+        );
+    }
 }
