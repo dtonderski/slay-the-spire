@@ -1,4 +1,4 @@
 [workspace]
-members = ["crates/sts_core"]
+members = ["crates/sts_core", "crates/sts_verify"]
 resolver = "2"
 

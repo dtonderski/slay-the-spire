@@ -17,7 +17,7 @@
 - Master deck, HP sync, **gold** (99 start)
 - **Reward screen**: 3 fixed cards + 20 gold; skip / take card / take gold
 - **Map**: 7-node fixed graph (combat/rest/shop/boss), floor tracking
-- **Rest**: heal 30% max HP
+- **Rest**: heal 30% max HP; **smith** upgrades deck cards (e.g. Strike_R → Strike_R+)
 - **Shop**: buy fixed Anger for 50 gold
 - **Relics**: Vajra (+1 strength at combat start)
 
@@ -27,13 +27,13 @@
 
 ### Tests
 - milestone1 golden replay, milestone6 monsters, milestone7 rewards, milestone8 map, milestone9 rest+shop, milestone10 relics
-- **271 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
+- **279 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
 
 ## What Is Not Implemented
 
 - Remaining Ironclad cards (Havoc, Warcry, Searing Blow, etc.)
 - Green Louse, Slimes, Lagavulin, Sentries, Act 1 bosses
-- Card remove/upgrade at rest, reward RNG, map generation
+- Card remove at rest, reward RNG, map generation
 - Most relics/potions, events, ascensions
 - CommunicationMod parity, RL API, Python bindings
 
@@ -43,7 +43,7 @@ Milestones 5–10 in progress (cards, monsters, rewards, map, shop, relics).
 
 ## Next Task
 
-More Act 1 monsters, card upgrade at rest site, ascension config (A0 baseline done implicitly).
+More Act 1 monsters (Green Louse, Slimes), ascension config.
 
 ## Last Updated
 
