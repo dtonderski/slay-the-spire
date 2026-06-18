@@ -2,7 +2,7 @@ use std::{env, fs, process::exit};
 
 use sts_verify::{
     canonical_diff, corpus_path, import_communication_mod_trace, load_corpus_file,
-    observations_from_trace,
+    verify_communication_mod_trace_with_mode, VerificationMode,
 };
 
 fn main() {
@@ -70,10 +70,36 @@ fn main() {
             }
         }
         "parity" => {
-            let Some(path) = args.next() else {
-                eprintln!("usage: sts_verify parity <trace.jsonl>");
+            let mut mode = VerificationMode::ObservedState;
+            let Some(mut path) = args.next() else {
+                eprintln!(
+                    "usage: sts_verify parity [--mode observed-state|seed-start] <trace.jsonl>"
+                );
                 exit(1);
             };
+            if path == "--mode" {
+                let Some(mode_name) = args.next() else {
+                    eprintln!(
+                        "usage: sts_verify parity [--mode observed-state|seed-start] <trace.jsonl>"
+                    );
+                    exit(1);
+                };
+                mode = match mode_name.as_str() {
+                    "observed-state" => VerificationMode::ObservedState,
+                    "seed-start" => VerificationMode::SeedStart,
+                    _ => {
+                        eprintln!("unknown parity mode: {mode_name}");
+                        exit(1);
+                    }
+                };
+                let Some(next_path) = args.next() else {
+                    eprintln!(
+                        "usage: sts_verify parity [--mode observed-state|seed-start] <trace.jsonl>"
+                    );
+                    exit(1);
+                };
+                path = next_path;
+            }
             let content = if path == "-" {
                 use std::io::Read;
                 let mut buffer = String::new();
@@ -87,21 +113,75 @@ fn main() {
                     exit(1);
                 })
             };
-            let observations = observations_from_trace(&content).unwrap_or_else(|err| {
-                eprintln!("failed to import trace: {err}");
-                exit(1);
-            });
-            println!("imported_steps={}", observations.len());
-            if let Some(step) = observations.iter().find(|step| step.observation.in_combat) {
+            let report =
+                verify_communication_mod_trace_with_mode(&content, mode).unwrap_or_else(|err| {
+                    eprintln!("failed to verify trace: {err}");
+                    exit(1);
+                });
+            println!("mode={:?}", report.mode);
+            println!("total_actions={}", report.total_actions);
+            println!("verified={}", report.verified.len());
+            println!("unsupported={}", report.unsupported.len());
+            println!("unexpected_diffs={}", report.unexpected_diffs.len());
+            if let Some(seed_start) = &report.seed_start {
                 println!(
-                    "first_combat_step={} player_hp={}",
-                    step.step,
-                    step.observation
-                        .combat
-                        .as_ref()
-                        .map(|combat| combat.player_hp)
-                        .unwrap_or(0)
+                    "seed_start.expected_failure={}",
+                    seed_start.expected_failure
                 );
+                println!(
+                    "seed_start.command=START {} {} {}",
+                    seed_start.start_command.character,
+                    seed_start.start_command.ascension,
+                    seed_start.start_command.external_seed
+                );
+                println!(
+                    "seed_start.first_boundary.path={}",
+                    seed_start.first_boundary.path
+                );
+                println!(
+                    "seed_start.first_boundary.category={}",
+                    seed_start.first_boundary.category
+                );
+                println!(
+                    "seed_start.first_boundary.reason={}",
+                    seed_start.first_boundary.reason
+                );
+                for boundary in &seed_start.rng_boundaries {
+                    println!(
+                        "rng_boundary stream=\"{}\" status=\"{}\" save_counter=\"{}\" reason=\"{}\"",
+                        boundary.stream,
+                        boundary.status,
+                        boundary.save_counter.as_deref().unwrap_or(""),
+                        boundary.reason
+                    );
+                }
+            }
+
+            for verified in &report.verified {
+                println!(
+                    "verified step={} command=\"{}\" label=\"{}\"",
+                    verified.action_step, verified.command, verified.label
+                );
+            }
+
+            for unsupported in &report.unsupported {
+                println!(
+                    "unsupported step={} command=\"{}\" reason=\"{}\"",
+                    unsupported.action_step, unsupported.command, unsupported.reason
+                );
+            }
+
+            if !report.unexpected_diffs.is_empty() {
+                for diff in &report.unexpected_diffs {
+                    println!(
+                        "unexpected_diff step={} command=\"{}\" label=\"{}\"",
+                        diff.action_step, diff.command, diff.label
+                    );
+                    for line in &diff.diffs {
+                        println!("  {line}");
+                    }
+                }
+                exit(2);
             }
         }
         "corpus" => {

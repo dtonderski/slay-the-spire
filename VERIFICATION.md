@@ -27,6 +27,42 @@ Build a verifier that can:
 
 For early work, manual captured JSON fixtures are enough. Automation comes later.
 
+Current Milestone 12 observed-state replay command:
+
+```powershell
+cd simulator
+cargo run -p sts_verify -- parity ..\verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
+```
+
+This mode restores simulator state from each observed real pre-state, applies the matching CommunicationMod action, and compares a supported canonical post-state subset. It verifies the captured trace's supported combat/reward mechanics: Bash, Strike, Defend, end turn, Cultist attack/ritual behavior where currently modeled, Burning Blood heal, gold reward pickup, and Twin Strike pickup.
+
+It does not verify seed-start RNG parity. The report must classify these as unsupported until later milestones implement them:
+
+- `START IRONCLAD 0 VERIFY01` seed/bootstrap parity
+- Neow option/reward RNG
+- map generation and node RNG
+- encounter selection and monster HP RNG
+- exact reward gold/card RNG
+- unmodeled reward cards such as Heavy Blade and Intimidate
+
+Current seed-start harness command:
+
+```powershell
+cd simulator
+cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
+```
+
+This mode parses the real `START IRONCLAD 0 VERIFY01` command, verifies the captured Ironclad A0 bootstrap, selected Neow path, first map choice, first Cultist encounter entry, and captured Cultist combat through lethal Strike without restoring from observed pre-state. It reports an expected failure at `$.actions[step=16].command`, the first reward command. It stops there because exact reward gold, card reward, potion, and reward-screen RNG are not implemented yet.
+
+The seed-start report includes named RNG boundaries for the captured trace: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, and potion streams. Save-counter names are included where current research identifies likely real save fields. Captured branches are modeled narrowly: talk, choose random common relic, obtain Toy Ornithopter as an inert relic for this trace, leave Neow, choose the first monster map node, enter a 49-HP Cultist encounter, verify the captured opening hand, verify both captured `END` transitions including the first discard-to-draw shuffle order, and verify the captured kill.
+
+Seed conversion status:
+
+- External seed string captured: `VERIFY01`.
+- Exact numeric seed conversion: unimplemented; the harness carries `VERIFY01` as an opaque captured seed for the current branch.
+- Current evidence in this repo: `RESEARCH.md` and `DESIGN.md` identify `sts_lightspeed` and target-version source inspection as required evidence before implementing conversion.
+- The harness must keep reporting exact seed conversion as an RNG boundary until source-level evidence and tests are added.
+
 Also inspect [silentcoder99/sts_lightspeed](https://github.com/silentcoder99/sts_lightspeed), whose repository description says it integrates `sts_lightspeed` with CommunicationMod. If it contains reusable trace ideas, document them before building our own bridge.
 
 ## Differential Prior-Art Comparison

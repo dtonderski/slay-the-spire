@@ -672,8 +672,160 @@ Tasks:
 - real-vs-sim diff CLI
 - first milestone 1 real-game trace, if possible
 - first Cultist trace
+- observed-state sim replay for supported combat/reward transitions
+- explicit unsupported/unobservable classifications in verifier output
 - first full Act 1 trace
 - minimized divergence corpus
 - nightly parity runner
 
 Do not claim seeded-run parity until exact real-game traces pass from seed plus action trace.
+
+## Milestone 13: Seed and RNG Parity Harness
+
+This milestone is the boundary between observed-state replay and true seed-start parity. It should create failing, actionable tests before trying to make the simulator match the real game.
+
+Tasks:
+
+- parse and store the external seed string used by CommunicationMod `START`, such as `VERIFY01`
+- document the real-game seed conversion algorithm and source evidence
+- add simulator RNG stream names/counters for the streams needed by the captured trace
+- add a seed-start verifier mode that starts from seed/config plus action trace, not from observed pre-state
+- add the first expected-failing comparison against `trace-2026-06-18T06-04-49-264Z.jsonl`
+- report the first divergence with stable paths and stream/counter context
+- classify every RNG-consuming system not yet wired
+
+Acceptance tests:
+
+- the verifier can run in `observed-state` mode and `seed-start` mode
+- `observed-state` mode passes its supported fields
+- `seed-start` mode fails at the first known unsupported RNG boundary with a stable, documented reason
+- legal action generation, serialization, hashing, and observation normalization consume no RNG
+
+Do not implement:
+
+- Neow rewards
+- map generation
+- encounter generation
+- reward generation fixes
+- broad game-version compatibility
+
+## Milestone 14: Neow and Run Bootstrap Parity
+
+Tasks:
+
+- initialize Ironclad A0 from real seed/config
+- model starter relic state separately from ordinary relic pool state
+- add Neow screen/options for the captured trace
+- implement the selected Neow branch used by `VERIFY01`
+- add Toy Ornithopter or explicitly model it as an unsupported inert relic if it has no effect on the current trace segment
+- verify the trace through leaving Neow without restoring from observed state
+
+Acceptance tests:
+
+- `START IRONCLAD 0 VERIFY01` creates the same character, ascension, HP, gold, starter deck, and initial screen class as the real trace
+- Neow choices in the captured trace produce the same visible post-Neow state
+- unsupported Neow branches are classified by name
+
+Do not implement:
+
+- all Neow rewards
+- all boss swaps
+- all relic effects
+- map generation beyond the next milestone
+
+## Milestone 15: Map and Encounter RNG Parity
+
+Tasks:
+
+- implement or port exact Act 1 map generation for the target game version
+- verify the captured map choices for `VERIFY01`
+- implement normal encounter selection for the first floor
+- implement exact monster HP roll for the first encounter
+- verify that the first floor is Cultist with the observed HP and initial intent
+
+Acceptance tests:
+
+- the simulator produces the same first map choices as the captured trace
+- choosing the same map node enters the same room type
+- the first encounter matches the captured monster roster, HP, block, powers, and visible intent
+- divergence output identifies map RNG, encounter RNG, or monster HP RNG separately
+
+Do not implement:
+
+- full Act path parity
+- elite/boss encounter rules beyond what the trace reaches
+- reward RNG
+
+## Milestone 16: Combat Draw, Shuffle, and Monster AI RNG Parity
+
+Status: captured-path implementation complete for `trace-2026-06-18T06-04-49-264Z.jsonl`. Seed-start mode verifies the captured opening hand, all captured Cultist `PLAY` commands by visible card content/order, both captured `END` transitions, visible Cultist powers/intent, the first discard-to-draw shuffle order, and the lethal transition to `COMBAT_REWARD`. Broad game-compatible shuffle RNG and alternate monster AI paths remain out of scope; the next expected seed-start boundary is reward RNG at `$.actions[step=16].command`.
+
+Tasks:
+
+- implement real-game-compatible opening hand draw order from the seed-started run
+- implement discard-to-draw shuffle behavior and RNG consumption
+- verify hand/draw/discard ordering for the captured Cultist fight
+- align Cultist A0 behavior with the target game version, including Ritual amount and move progression
+- add simulator RNG logs for every draw/shuffle and monster AI RNG consumer
+
+Acceptance tests:
+
+- the captured first hand matches from seed-start mode
+- every `PLAY` command in the Cultist segment maps to the same card instance/card content without observed-state restoration
+- both captured `END` transitions match player HP/block/energy, monster powers, visible intent, and pile sizes/order where observable
+- any remaining hidden state is tagged `unobservable` with a named indirect test plan
+
+Do not implement:
+
+- all monster AI RNG
+- all card-specific RNG
+- reward/shop RNG
+
+## Milestone 17: Reward RNG and Post-Combat Parity
+
+Tasks:
+
+- implement combat reward gold amount RNG for the target version
+- implement reward card pool generation for the captured run
+- add missing reward card content needed by the captured trace, including Heavy Blade and Intimidate if the reward screen remains under exact comparison
+- verify the captured gold offer and card reward choices from seed-start mode
+- verify taking gold and picking Twin Strike without restoring reward state from observation
+
+Acceptance tests:
+
+- the reward screen after killing Cultist matches visible gold/card/potion/relic offers under the chosen comparison scope
+- gold pickup changes gold by the captured amount
+- card reward choices match order and content for the captured trace
+- Twin Strike pickup mutates the deck exactly as observed
+- unsupported reward fields are named and justified
+
+Do not implement:
+
+- shop generation
+- all reward pools
+- all relic rewards
+- all potion rewards
+
+## Milestone 18: End-to-End Seed-Start Trace Parity
+
+Tasks:
+
+- replay `trace-2026-06-18T06-04-49-264Z.jsonl` from seed plus actions through return to map
+- fail on any unclassified real-vs-sim divergence
+- keep observed-state replay as a diagnostic fallback, not as the main parity claim
+- add the captured trace to the required regression corpus
+- add minimized divergence traces for every bug found while reaching parity
+
+Acceptance tests:
+
+- seed-start verifier passes the captured trace through return to map
+- observed-state verifier still passes supported transition checks
+- CLI output distinguishes `verified`, `unsupported`, `unobservable`, and `unexpected_diff`
+- nightly parity runner includes the captured trace
+- `STATUS.md` documents exactly what seed-start parity covers
+
+Do not implement:
+
+- claims about full Act 1 or arbitrary seeds
+- full-run outcome parity
+- RL training integration
