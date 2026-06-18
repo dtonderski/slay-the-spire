@@ -1,5 +1,5 @@
 use crate::{
-    combat::CombatState,
+    combat::{transition::apply_on_exhaust_effects, CombatState},
     content::cards::{get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID},
     ids::CardId,
 };
@@ -37,6 +37,7 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
         if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
             let card = state.piles.hand.remove(index);
             state.piles.exhaust_pile.push(card);
+            apply_on_exhaust_effects(state);
         }
     }
 }

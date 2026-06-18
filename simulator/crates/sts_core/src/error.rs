@@ -1,4 +1,4 @@
-use crate::ids::{ActionId, CardId, ContentId, MonsterId};
+use crate::ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,6 +8,7 @@ pub enum SimError {
     UnknownCard(CardId),
     UnknownMonster(MonsterId),
     UnknownContent(ContentId),
+    UnknownMapNode(MapNodeId),
     InvalidState(&'static str),
 }
 
@@ -19,6 +20,7 @@ impl fmt::Display for SimError {
             Self::UnknownCard(id) => write!(f, "unknown card: {id}"),
             Self::UnknownMonster(id) => write!(f, "unknown monster: {id}"),
             Self::UnknownContent(id) => write!(f, "unknown content: {id}"),
+            Self::UnknownMapNode(id) => write!(f, "unknown map node: {id}"),
             Self::InvalidState(message) => write!(f, "invalid state: {message}"),
         }
     }

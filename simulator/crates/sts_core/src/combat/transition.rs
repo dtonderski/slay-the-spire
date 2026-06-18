@@ -7,8 +7,10 @@ use crate::{
         validate_combat_action, CombatPhase,
     },
     content::cards::{
-        get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-        DEFEND_R_ID, SHRUG_IT_OFF_ID, SLIMED_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
+        BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
+        DEFEND_R_ID, FEEL_NO_PAIN_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID,
     },
     ids::{CardId, ContentId, MonsterId},
@@ -70,6 +72,16 @@ fn apply_play_card(
         ),
         SHRUG_IT_OFF_ID => shrug_it_off_queue(card_id),
         TRUE_GRIT_ID => true_grit_queue(state, card_id),
+        BURNING_PACT_ID => burning_pact_queue(state, card_id),
+        FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
+        DARK_EMBRACE_ID => dark_embrace_queue(card_id),
+        POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID => pommel_strike_queue(
+            card_id,
+            target.expect("validated Pommel Strike has a target"),
+            definition,
+        ),
+        BATTLE_TRANCE_ID | BATTLE_TRANCE_PLUS_ID => battle_trance_queue(card_id, definition),
+        SEEING_RED_ID | SEEING_RED_PLUS_ID => seeing_red_queue(card_id, definition),
         _ if definition.values.damage.is_some()
             && definition.target == crate::TargetRequirement::Enemy =>
         {
@@ -316,14 +328,18 @@ fn shrug_it_off_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
     ]))
 }
 
-fn true_grit_exhaust_target(state: &CombatState, true_grit_id: CardId) -> Option<CardId> {
+fn lowest_other_hand_card(state: &CombatState, exclude_id: CardId) -> Option<CardId> {
     state
         .piles
         .hand
         .iter()
-        .filter(|card| card.id != true_grit_id)
+        .filter(|card| card.id != exclude_id)
         .min_by_key(|card| card.id.get())
         .map(|card| card.id)
+}
+
+fn true_grit_exhaust_target(state: &CombatState, true_grit_id: CardId) -> Option<CardId> {
+    lowest_other_hand_card(state, true_grit_id)
 }
 
 fn true_grit_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
@@ -350,6 +366,129 @@ fn true_grit_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<I
     Ok(queue)
 }
 
+fn burning_pact_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+    ]);
+
+    if let Some(exhaust_target) = lowest_other_hand_card(state, card_id) {
+        queue.push_back(InternalAction::MoveCard {
+            card_id: exhaust_target,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        });
+    }
+
+    queue.push_back(InternalAction::DrawCards { count: 2 });
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+
+    Ok(queue)
+}
+
+fn feel_no_pain_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::GainFeelNoPain { amount: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn dark_embrace_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::GainDarkEmbrace { amount: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn pommel_strike_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+        InternalAction::DrawCards { count: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn battle_trance_draw_count(definition: &CardDefinition) -> usize {
+    if definition.id == BATTLE_TRANCE_PLUS_ID {
+        3
+    } else {
+        2
+    }
+}
+
+fn battle_trance_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DrawCards {
+            count: battle_trance_draw_count(definition),
+        },
+        InternalAction::SetCannotDraw,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn seeing_red_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainEnergy { amount: 2 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
 fn process_internal_queue(
     state: &CombatState,
     mut queue: VecDeque<InternalAction>,
@@ -358,8 +497,11 @@ fn process_internal_queue(
     let mut event_log = Vec::new();
 
     while let Some(internal_action) = queue.pop_front() {
-        apply_internal_action(&mut next, internal_action)?;
+        let follow_ups = apply_internal_action(&mut next, internal_action)?;
         event_log.push(internal_action);
+        for follow_up in follow_ups {
+            queue.push_back(follow_up);
+        }
     }
 
     if next.monsters.iter().all(|monster| !monster.alive) {
@@ -375,18 +517,21 @@ fn process_internal_queue(
     })
 }
 
-fn apply_internal_action(state: &mut CombatState, action: InternalAction) -> SimResult<()> {
+fn apply_internal_action(
+    state: &mut CombatState,
+    action: InternalAction,
+) -> SimResult<Vec<InternalAction>> {
     match action {
-        InternalAction::PlayCard { .. } => Ok(()),
+        InternalAction::PlayCard { .. } => Ok(Vec::new()),
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;
-            Ok(())
+            Ok(Vec::new())
         }
         InternalAction::DealDamage { info } => {
             let player_powers = state.player.powers;
             let monster = living_monster_mut(state, info.target)?;
             deal_damage_info_to_monster(monster, info, player_powers);
-            Ok(())
+            Ok(Vec::new())
         }
         InternalAction::DealDamageAll { source, amount } => {
             let player_powers = state.player.powers;
@@ -408,29 +553,72 @@ fn apply_internal_action(state: &mut CombatState, action: InternalAction) -> Sim
                     player_powers,
                 );
             }
-            Ok(())
+            Ok(Vec::new())
         }
         InternalAction::GainBlock { amount } => {
             let gained = calculate_block(amount, state.player.powers);
             state.player.block += gained;
-            Ok(())
+            Ok(Vec::new())
         }
         InternalAction::ApplyVulnerable { target, amount } => {
             let monster = living_monster_mut(state, target)?;
             monster.powers.vulnerable += amount;
-            Ok(())
+            Ok(Vec::new())
         }
-        InternalAction::MoveCard { card_id, from, to } => move_card(state, card_id, from, to),
+        InternalAction::MoveCard { card_id, from, to } => {
+            move_card(state, card_id, from, to)?;
+            if to == CardPile::ExhaustPile {
+                Ok(vec![InternalAction::CardExhausted { card_id }])
+            } else {
+                Ok(Vec::new())
+            }
+        }
         InternalAction::AddCardToPile { content_id, to } => {
             add_card_to_pile(state, content_id, to);
-            Ok(())
+            Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
-            let mut rng = SimulatorRng::new(0);
-            crate::combat::draw::draw_cards(state, count, &mut rng);
-            Ok(())
+            player_draw_cards(state, count);
+            Ok(Vec::new())
+        }
+        InternalAction::GainEnergy { amount } => {
+            state.player.energy += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::SetCannotDraw => {
+            state.player.cannot_draw = true;
+            Ok(Vec::new())
+        }
+        InternalAction::GainFeelNoPain { amount } => {
+            state.player.powers.feel_no_pain += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainDarkEmbrace { amount } => {
+            state.player.powers.dark_embrace += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::CardExhausted { .. } => {
+            apply_on_exhaust_effects(state);
+            Ok(Vec::new())
         }
     }
+}
+
+pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState) {
+    if state.player.powers.feel_no_pain > 0 {
+        state.player.block += 3 * state.player.powers.feel_no_pain;
+    }
+    if state.player.powers.dark_embrace > 0 {
+        player_draw_cards(state, state.player.powers.dark_embrace as usize);
+    }
+}
+
+fn player_draw_cards(state: &mut CombatState, count: usize) {
+    if state.player.cannot_draw {
+        return;
+    }
+    let mut rng = SimulatorRng::new(0);
+    crate::combat::draw::draw_cards(state, count, &mut rng);
 }
 
 fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) {
@@ -507,8 +695,10 @@ fn move_card(
 mod tests {
     use super::*;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DEFEND_R_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, FEEL_NO_PAIN_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
 
     #[test]
@@ -1079,6 +1269,395 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.id == CardId::new(25)));
+    }
+
+    #[test]
+    fn burning_pact_exhausts_lowest_other_hand_card_and_draws_two() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(40), STRIKE_R_ID),
+            CardInstance::new(CardId::new(41), DEFEND_R_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Burning Pact applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(25)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(40)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(41)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+    }
+
+    #[test]
+    fn burning_pact_with_only_itself_in_hand_draws_two_without_exhaust() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(25), BURNING_PACT_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(40), STRIKE_R_ID),
+            CardInstance::new(CardId::new(41), DEFEND_R_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Burning Pact applies");
+
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert_eq!(next.piles.hand.len(), 2);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(25)));
+    }
+
+    #[test]
+    fn feel_no_pain_grants_power_and_moves_to_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), FEEL_NO_PAIN_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Feel No Pain applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.powers.feel_no_pain, 1);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn feel_no_pain_grants_block_when_card_exhausted() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.feel_no_pain = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Burning Pact applies");
+
+        assert_eq!(next.player.block, 3);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn dark_embrace_grants_power_and_moves_to_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DARK_EMBRACE_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Dark Embrace applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.powers.dark_embrace, 1);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn dark_embrace_draws_when_card_exhausted() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(40), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Burning Pact applies");
+
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(40)));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn card_exhausted_event_log_records_on_exhaust_hook() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("True Grit applies");
+
+        assert!(transition
+            .event_log
+            .contains(&InternalAction::CardExhausted {
+                card_id: CardId::new(20),
+            }));
+    }
+
+    #[test]
+    fn pommel_strike_deals_nine_damage_draws_one_and_moves_to_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), POMMEL_STRIKE_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Pommel Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn pommel_strike_plus_deals_twelve_damage() {
+        let state = hand_only(POMMEL_STRIKE_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Pommel Strike+ applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+    }
+
+    #[test]
+    fn battle_trance_draws_two_sets_cannot_draw_and_moves_to_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), BATTLE_TRANCE_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Battle Trance applies");
+
+        assert_eq!(next.player.energy, state.player.energy);
+        assert!(next.player.cannot_draw);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(31)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn battle_trance_plus_draws_three_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), BATTLE_TRANCE_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Battle Trance+ applies");
+
+        assert_eq!(next.piles.hand.len(), 3);
+        assert!(next.player.cannot_draw);
+    }
+
+    #[test]
+    fn seeing_red_spends_one_and_gains_two_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SEEING_RED_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Seeing Red applies");
+
+        assert_eq!(next.player.energy, state.player.energy + 1);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn seeing_red_plus_gains_two_energy_without_spending() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SEEING_RED_PLUS_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Seeing Red+ applies");
+
+        assert_eq!(next.player.energy, 3);
+    }
+
+    #[test]
+    fn battle_trance_blocks_later_draw_from_shrug_it_off() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), BATTLE_TRANCE_ID),
+            CardInstance::new(CardId::new(25), SHRUG_IT_OFF_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+
+        let after_trance = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Battle Trance applies");
+        let after_shrug = apply_combat_action(
+            &after_trance,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Shrug It Off applies");
+
+        assert_eq!(after_shrug.player.block, 8);
+        assert_eq!(after_shrug.piles.hand.len(), 2);
+        assert!(!after_shrug
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(32)));
     }
 
     fn hand_only(content_id: crate::ContentId) -> CombatState {

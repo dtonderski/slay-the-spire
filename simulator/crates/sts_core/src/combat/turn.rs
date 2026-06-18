@@ -34,6 +34,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 
 pub fn start_player_turn(state: &mut CombatState) {
     state.player.energy = PLAYER_TURN_ENERGY;
+    state.player.cannot_draw = false;
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
@@ -151,6 +152,17 @@ mod tests {
 
         assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
         assert_eq!(next.player.energy, PLAYER_TURN_ENERGY);
+    }
+
+    #[test]
+    fn cannot_draw_clears_at_start_of_next_player_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.cannot_draw = true;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert!(!next.player.cannot_draw);
     }
 
     #[test]

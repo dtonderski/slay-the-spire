@@ -8,6 +8,8 @@ pub struct PlayerPowers {
     pub frail: i32,
     pub ritual: i32,
     pub metallicize: i32,
+    pub feel_no_pain: i32,
+    pub dark_embrace: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

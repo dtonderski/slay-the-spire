@@ -32,6 +32,7 @@ id_type!(CardId, "card");
 id_type!(MonsterId, "monster");
 id_type!(ActionId, "action");
 id_type!(ContentId, "content");
+id_type!(MapNodeId, "map_node");
 
 #[cfg(test)]
 mod tests {

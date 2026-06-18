@@ -136,8 +136,11 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DEFEND_R_ID,
-            SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+            ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
+            BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
+            FEEL_NO_PAIN_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID,
+            SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+            TWIN_STRIKE_PLUS_ID,
         },
         CardInstance,
     };
@@ -418,6 +421,134 @@ mod tests {
 
         assert!(
             !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn burning_pact_is_legal_without_target() {
+        let state = hand_with_card(BURNING_PACT_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn feel_no_pain_is_legal_without_target() {
+        let state = hand_with_card(FEEL_NO_PAIN_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn dark_embrace_is_legal_without_target() {
+        let state = hand_with_card(DARK_EMBRACE_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn pommel_strike_is_legal_with_target() {
+        let state = hand_with_card(POMMEL_STRIKE_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn pommel_strike_rejects_missing_target() {
+        let state = hand_with_card(POMMEL_STRIKE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn battle_trance_is_legal_at_zero_energy() {
+        let mut state = hand_with_card(BATTLE_TRANCE_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn seeing_red_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(SEEING_RED_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn seeing_red_plus_is_legal_at_zero_energy() {
+        let mut state = hand_with_card(SEEING_RED_PLUS_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn pommel_strike_plus_is_legal_with_target() {
+        let state = hand_with_card(POMMEL_STRIKE_PLUS_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn battle_trance_plus_is_legal_at_zero_energy() {
+        let mut state = hand_with_card(BATTLE_TRANCE_PLUS_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: CardId::new(20),
                 target: None,
             })

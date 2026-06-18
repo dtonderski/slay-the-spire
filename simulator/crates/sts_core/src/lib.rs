@@ -11,6 +11,8 @@ pub mod rng;
 pub mod snapshot;
 
 pub mod action;
+pub mod map;
+pub mod run;
 
 pub use action::{CardPile, CombatAction, InternalAction};
 pub use card::{
@@ -25,7 +27,15 @@ pub use combat::{
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::ironclad_starter_deck;
 pub use error::{SimError, SimResult};
-pub use ids::{ActionId, CardId, ContentId, MonsterId};
+pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
+pub use map::{
+    apply_map_action, legal_map_actions, milestone8_fixture, milestone8_map, reachable_nodes,
+    validate_map_action, FixedMap, MapAction, MapNode, MapRunState, RoomKind,
+};
 pub use power::{MonsterPowers, PlayerPowers};
 pub use rng::{RngDraw, RngStream, SimulatorRng};
+pub use run::{
+    apply_combat_action_on_run, apply_run_action, enter_reward_screen, fixed_card_reward_choices,
+    RewardScreen, RunAction, RunPhase, RunState,
+};
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

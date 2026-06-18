@@ -47,6 +47,19 @@ pub enum InternalAction {
     DrawCards {
         count: usize,
     },
+    GainEnergy {
+        amount: i32,
+    },
+    SetCannotDraw,
+    GainFeelNoPain {
+        amount: i32,
+    },
+    GainDarkEmbrace {
+        amount: i32,
+    },
+    CardExhausted {
+        card_id: CardId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
