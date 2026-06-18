@@ -6,7 +6,6 @@ use crate::{
 };
 
 const HAND_SIZE: usize = 5;
-const PLAYER_TURN_ENERGY: i32 = 3;
 
 /// Simplified milestone timing:
 ///
@@ -33,7 +32,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 }
 
 pub fn start_player_turn(state: &mut CombatState) {
-    state.player.energy = PLAYER_TURN_ENERGY;
+    state.player.energy = state.player.max_energy;
     state.player.cannot_draw = false;
     state.player.temp_strength = 0;
     draw_next_hand_without_shuffle(state);
@@ -160,7 +159,7 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
-        assert_eq!(next.player.energy, PLAYER_TURN_ENERGY);
+        assert_eq!(next.player.energy, crate::combat::state::BASE_PLAYER_ENERGY);
     }
 
     #[test]

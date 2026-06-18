@@ -1,16 +1,21 @@
 use crate::{
     card::CardInstance,
+    combat::state::BASE_PLAYER_ENERGY,
     combat::CombatState,
     content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, ContentId, MonsterId},
     map::{milestone8_fixture, MapRunState},
     potion::{Potion, MAX_POTIONS},
-    relic::{apply_start_of_combat_relics, Relic, STRAWBERRY_MAX_HP},
+    relic::{apply_start_of_combat_relics, Relic, COFFEE_DRIPPER_ENERGY, STRAWBERRY_MAX_HP},
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
 
 pub const STARTING_GOLD: i32 = 99;
+
+fn default_energy_per_turn() -> i32 {
+    BASE_PLAYER_ENERGY
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunState {
@@ -19,6 +24,8 @@ pub struct RunState {
     pub player_hp: i32,
     pub player_max_hp: i32,
     pub gold: i32,
+    #[serde(default = "default_energy_per_turn")]
+    pub energy_per_turn: i32,
     pub map: Option<MapRunState>,
     pub combat: Option<CombatState>,
     pub reward: Option<RewardScreen>,
@@ -75,6 +82,8 @@ impl RunState {
         let mut combat = base;
         combat.player.hp = self.player_hp;
         combat.player.max_hp = self.player_max_hp;
+        combat.player.max_energy = self.energy_per_turn;
+        combat.player.energy = self.energy_per_turn;
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
     }
@@ -93,6 +102,7 @@ impl RunState {
             player_hp: IRONCLAD_A0_BASE_HP,
             player_max_hp: IRONCLAD_A0_BASE_HP,
             gold: STARTING_GOLD,
+            energy_per_turn: BASE_PLAYER_ENERGY,
             map: None,
             combat: None,
             reward: None,
@@ -118,6 +128,7 @@ impl RunState {
             player_hp: IRONCLAD_A0_BASE_HP,
             player_max_hp: IRONCLAD_A0_BASE_HP,
             gold: STARTING_GOLD,
+            energy_per_turn: BASE_PLAYER_ENERGY,
             map: Some(milestone8_fixture()),
             combat: None,
             reward: None,
@@ -145,6 +156,9 @@ impl RunState {
             Relic::Strawberry => {
                 self.player_max_hp += STRAWBERRY_MAX_HP;
                 self.player_hp += STRAWBERRY_MAX_HP;
+            }
+            Relic::CoffeeDripper => {
+                self.energy_per_turn += COFFEE_DRIPPER_ENERGY;
             }
             Relic::Vajra | Relic::OddlySmoothStone => {}
         }

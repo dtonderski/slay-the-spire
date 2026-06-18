@@ -24,7 +24,7 @@ pub use combat::{
     apply_burning_blood, apply_combat_action, apply_combat_action_with_events, draw_cards,
     end_player_turn, legal_combat_actions, validate_combat_action, CardPiles, CombatPhase,
     CombatState, CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState,
-    PlayerState,
+    PlayerState, BASE_PLAYER_ENERGY,
 };
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::ironclad_starter_deck;
@@ -38,8 +38,9 @@ pub use map::{
 pub use potion::{Potion, FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS};
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
-    apply_start_of_combat_relics, Relic, ODDLY_SMOOTH_STONE_DEXTERITY, ODDLY_SMOOTH_STONE_ID,
-    STRAWBERRY_ID, STRAWBERRY_MAX_HP, VAJRA_ID, VAJRA_STRENGTH,
+    apply_start_of_combat_relics, Relic, COFFEE_DRIPPER_ENERGY, COFFEE_DRIPPER_ID,
+    ODDLY_SMOOTH_STONE_DEXTERITY, ODDLY_SMOOTH_STONE_ID, STRAWBERRY_ID, STRAWBERRY_MAX_HP,
+    VAJRA_ID, VAJRA_STRENGTH,
 };
 pub use rng::{RngDraw, RngStream, SimulatorRng};
 pub use run::{

@@ -639,6 +639,7 @@ mod tests {
             max_hp: 80,
             block: 0,
             energy: 3,
+            max_energy: 3,
             powers: PlayerPowers::default(),
             cannot_draw: false,
             temp_strength: 0,

@@ -1,5 +1,5 @@
 use crate::{
-    content::cards::upgrade_content_id, RestAction, RunPhase, RunState, SimError, SimResult,
+    content::cards::upgrade_content_id, Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
 
 pub const REST_HEAL_PERCENT: i32 = 30;
@@ -15,7 +15,10 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
         return Vec::new();
     }
 
-    let mut actions = vec![RestAction::Heal];
+    let mut actions = Vec::new();
+    if !run.relics.contains(&Relic::CoffeeDripper) {
+        actions.push(RestAction::Heal);
+    }
     for card in &run.deck {
         actions.push(RestAction::RemoveCard { card_id: card.id });
         if upgrade_content_id(card.content_id).is_some() {
@@ -31,6 +34,9 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
     }
 
     match action {
+        RestAction::Heal if run.relics.contains(&Relic::CoffeeDripper) => {
+            Err(SimError::IllegalAction("heal is not available"))
+        }
         RestAction::Heal if legal_rest_actions(run).contains(&action) => Ok(()),
         RestAction::Heal => Err(SimError::IllegalAction("heal is not available")),
         RestAction::Smith { card_id } => {
