@@ -810,6 +810,8 @@ Do not implement:
 
 ## Milestone 18: End-to-End Seed-Start Trace Parity
 
+Status: complete for `trace-2026-06-18T06-04-49-264Z.jsonl`. Seed-start mode verifies the captured trace from `START IRONCLAD 0 VERIFY01` through return to map, reports `seed_start.expected_failure=false`, and keeps broader RNG/general-seed limits named in the RNG boundary report.
+
 Tasks:
 
 - replay `trace-2026-06-18T06-04-49-264Z.jsonl` from seed plus actions through return to map

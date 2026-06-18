@@ -131,17 +131,14 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(seed_start.expected_failure);
+    assert!(!seed_start.expected_failure);
     assert_eq!(seed_start.start_command.action_step, 2);
     assert_eq!(seed_start.start_command.character, "IRONCLAD");
     assert_eq!(seed_start.start_command.ascension, 0);
     assert_eq!(seed_start.start_command.external_seed, "VERIFY01");
-    assert_eq!(seed_start.first_boundary.path, "$.actions[step=19].command");
-    assert_eq!(
-        seed_start.first_boundary.category,
-        "unsupported_post_reward_map"
-    );
-    assert!(seed_start.first_boundary.reason.contains("Milestone 18"));
+    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.category, "none");
+    assert!(seed_start.first_boundary.reason.contains("return-to-map"));
 
     let labels: Vec<_> = report
         .verified
@@ -166,6 +163,7 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         "captured gold reward",
         "captured card reward choices",
         "captured Twin Strike pickup",
+        "captured return to map",
     ] {
         assert!(
             labels.contains(&expected),

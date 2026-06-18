@@ -36,7 +36,7 @@ cargo run -p sts_verify -- parity ..\verification\corpus\communication_mod\trace
 
 This mode restores simulator state from each observed real pre-state, applies the matching CommunicationMod action, and compares a supported canonical post-state subset. It verifies the captured trace's supported combat/reward mechanics: Bash, Strike, Defend, end turn, Cultist attack/ritual behavior where currently modeled, Burning Blood heal, gold reward pickup, and Twin Strike pickup.
 
-It does not verify seed-start RNG parity. The report must classify these as unsupported until later milestones implement them:
+Observed-state mode does not verify seed-start RNG parity. Use seed-start mode for the captured `VERIFY01` trace. Broad game-compatible RNG remains bounded to the captured branches and must stay classified until later work implements it generally:
 
 - `START IRONCLAD 0 VERIFY01` seed/bootstrap parity
 - Neow option/reward RNG
@@ -52,9 +52,9 @@ cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
 ```
 
-This mode parses the real `START IRONCLAD 0 VERIFY01` command, verifies the captured Ironclad A0 bootstrap, selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, captured reward offer, gold pickup, card reward choices, and Twin Strike pickup without restoring from observed pre-state. It reports an expected failure at `$.actions[step=19].command`, the post-reward `PROCEED` command. It stops there because reward-to-map continuation is Milestone 18 scope.
+This mode parses the real `START IRONCLAD 0 VERIFY01` command and verifies the captured Ironclad A0 trace through return to map without restoring from observed pre-state. It verifies the selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, captured reward offer, gold pickup, card reward choices, Twin Strike pickup, and post-reward `PROCEED`. For the captured trace, it reports `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
 
-The seed-start report includes named RNG boundaries for the captured trace: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, and potion streams. Save-counter names are included where current research identifies likely real save fields. Captured branches are modeled narrowly: talk, choose random common relic, obtain Toy Ornithopter as an inert relic for this trace, leave Neow, choose the first monster map node, enter a 49-HP Cultist encounter, verify the captured opening hand, verify both captured `END` transitions including the first discard-to-draw shuffle order, verify the captured kill, verify the 14-gold reward offer, verify card reward choices `Twin Strike`, `Heavy Blade`, and `Intimidate`, and verify adding `Twin Strike` to the deck.
+The seed-start report includes named RNG boundaries for the captured trace: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, and potion streams. Save-counter names are included where current research identifies likely real save fields. Captured branches are modeled narrowly: talk, choose random common relic, obtain Toy Ornithopter as an inert relic for this trace, leave Neow, choose the first monster map node, enter a 49-HP Cultist encounter, verify the captured opening hand, verify both captured `END` transitions including the first discard-to-draw shuffle order, verify the captured kill, verify the 14-gold reward offer, verify card reward choices `Twin Strike`, `Heavy Blade`, and `Intimidate`, verify adding `Twin Strike` to the deck, and verify returning to the captured map node.
 
 Seed conversion status:
 
