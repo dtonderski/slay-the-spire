@@ -11,9 +11,13 @@ const commandPath = path.join(sessionDir, "next_command.txt");
 const statePath = path.join(sessionDir, "current_state.json");
 const summaryPath = path.join(sessionDir, "summary.json");
 const statusPath = path.join(sessionDir, "status.json");
+const autoStateMs = Number.parseInt(process.env.TRACE_AUTO_STATE_MS ?? "1000", 10);
 
 fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(sessionDir, { recursive: true });
+if (fs.existsSync(commandPath)) {
+  fs.unlinkSync(commandPath);
+}
 
 const tracePath = path.join(
   outDir,
@@ -103,19 +107,17 @@ function publishState(message) {
 }
 
 async function waitForCommand(message) {
-  if (fs.existsSync(commandPath)) {
-    fs.unlinkSync(commandPath);
-  }
-
   const summary = publishState(message);
   writeJson(statusPath, {
     step,
     status: "waiting",
     trace_path: tracePath,
     command_path: commandPath,
+    auto_state_ms: autoStateMs,
     summary,
   });
 
+  const started = Date.now();
   while (true) {
     if (fs.existsSync(commandPath)) {
       const command = fs.readFileSync(commandPath, "utf8").trim();
@@ -123,6 +125,9 @@ async function waitForCommand(message) {
       if (command) {
         return command;
       }
+    }
+    if (Number.isFinite(autoStateMs) && autoStateMs > 0 && Date.now() - started >= autoStateMs) {
+      return "state";
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -187,6 +192,7 @@ writeJson(statusPath, {
 });
 
 process.stderr.write(`Bridge ready. Trace: ${tracePath}\n`);
+process.stderr.write(`Auto-state polling: ${autoStateMs > 0 ? `${autoStateMs}ms` : "disabled"}\n`);
 process.stdout.write("ready\n");
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
