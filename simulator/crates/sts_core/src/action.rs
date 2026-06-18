@@ -70,6 +70,15 @@ pub enum InternalAction {
     CardExhausted {
         card_id: CardId,
     },
+    PlayTopDrawCard {
+        target: Option<MonsterId>,
+    },
+    PutHandCardOnTopOfDraw {
+        card_id: CardId,
+    },
+    CopyHandCardToHand {
+        card_id: CardId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

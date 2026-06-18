@@ -1,6 +1,6 @@
 use crate::{
     action::{CardPile, CombatAction, InternalAction},
-    card::{CardDefinition, CardType},
+    card::{CardDefinition, CardType, TargetRequirement},
     combat::{
         apply_burning_blood,
         damage::{deal_damage_info_to_monster, reflect_spikes_to_player, DamageInfo, DamageSource},
@@ -9,10 +9,12 @@ use crate::{
     content::cards::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        DEFEND_R_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
+        HAVOC_ID, HAVOC_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     content::monsters::{check_slime_boss_split, get_monster_definition, wake_lagavulin_on_damage},
     ids::{CardId, ContentId, MonsterId},
@@ -88,6 +90,14 @@ fn apply_play_card(
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
         SPOT_WEAKNESS_ID | SPOT_WEAKNESS_PLUS_ID => spot_weakness_queue(state, card_id, definition),
         WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
+        HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
+        WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
+        DUAL_WIELD_ID | DUAL_WIELD_PLUS_ID => dual_wield_queue(state, card_id, definition),
+        SEARING_BLOW_ID | SEARING_BLOW_PLUS_ID => generic_attack_queue(
+            card_id,
+            target.expect("validated Searing Blow has a target"),
+            definition,
+        ),
         _ if definition.values.damage.is_some()
             && definition.target == crate::TargetRequirement::Enemy =>
         {
@@ -319,6 +329,139 @@ fn whirlwind_queue(
     });
 
     Ok(queue)
+}
+
+fn havoc_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+    target: Option<MonsterId>,
+) -> SimResult<VecDeque<InternalAction>> {
+    if state.piles.draw_pile.is_empty() {
+        return Err(SimError::IllegalAction("Havoc requires a draw pile card"));
+    }
+
+    let top_definition = top_draw_card_definition(state)
+        .ok_or(SimError::IllegalAction("Havoc requires a draw pile card"))?;
+    validate_havoc_target(top_definition, target)?;
+
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::PlayTopDrawCard { target },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn warcry_draw_count(definition: &CardDefinition) -> usize {
+    if definition.id == WARCRY_PLUS_ID {
+        2
+    } else {
+        1
+    }
+}
+
+fn warcry_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DrawCards {
+            count: warcry_draw_count(definition),
+        },
+    ]);
+
+    if let Some(put_back) = lowest_other_hand_card(state, card_id) {
+        queue.push_back(InternalAction::PutHandCardOnTopOfDraw { card_id: put_back });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::ExhaustPile,
+    });
+
+    Ok(queue)
+}
+
+fn lowest_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> Option<CardId> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != exclude_id)
+        .filter(|card| {
+            get_card_definition(card.content_id).is_some_and(|definition| {
+                definition.card_type == CardType::Attack || definition.card_type == CardType::Power
+            })
+        })
+        .min_by_key(|card| card.id.get())
+        .map(|card| card.id)
+}
+
+fn dual_wield_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let copy_target = lowest_attack_or_power_in_hand(state, card_id).ok_or(
+        SimError::IllegalAction("Dual Wield requires an attack or power"),
+    )?;
+
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::CopyHandCardToHand {
+            card_id: copy_target,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        },
+    ]))
+}
+
+#[must_use]
+pub fn top_draw_card_definition(state: &CombatState) -> Option<&'static CardDefinition> {
+    state
+        .piles
+        .draw_pile
+        .first()
+        .and_then(|card| get_card_definition(card.content_id))
+}
+
+fn validate_havoc_target(
+    top_definition: &CardDefinition,
+    target: Option<MonsterId>,
+) -> SimResult<()> {
+    match top_definition.target {
+        TargetRequirement::Enemy if target.is_some() => Ok(()),
+        TargetRequirement::Enemy => {
+            Err(SimError::IllegalAction("Havoc top card requires a target"))
+        }
+        TargetRequirement::AllEnemies if target.is_none() => Ok(()),
+        TargetRequirement::AllEnemies => Err(SimError::IllegalAction(
+            "Havoc top card cannot have a target",
+        )),
+        TargetRequirement::None if target.is_none() => Ok(()),
+        TargetRequirement::None => Err(SimError::IllegalAction(
+            "Havoc top card cannot have a target",
+        )),
+    }
 }
 
 fn twin_strike_queue(
@@ -781,6 +924,21 @@ fn apply_internal_action(
             apply_on_exhaust_effects(state);
             Ok(Vec::new())
         }
+        InternalAction::PlayTopDrawCard { target } => apply_play_top_draw_card(state, target),
+        InternalAction::PutHandCardOnTopOfDraw { card_id } => {
+            let card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
+            state.piles.draw_pile.insert(0, card);
+            Ok(Vec::new())
+        }
+        InternalAction::CopyHandCardToHand { card_id } => {
+            let card = find_hand_card(state, card_id)?;
+            let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+            state
+                .piles
+                .hand
+                .push(CardInstance::new(next_id, card.content_id));
+            Ok(Vec::new())
+        }
     }
 }
 
@@ -825,8 +983,13 @@ fn apply_enrage_on_skill_play(state: &mut CombatState, card_id: CardId) -> SimRe
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
 
-    if definition.card_type != CardType::Skill {
-        return Ok(());
+    apply_enrage_on_card_type(state, definition.card_type);
+    Ok(())
+}
+
+fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
+    if card_type != CardType::Skill {
+        return;
     }
 
     for monster in &state.monsters {
@@ -839,8 +1002,108 @@ fn apply_enrage_on_skill_play(state: &mut CombatState, card_id: CardId) -> SimRe
             }
         }
     }
+}
 
-    Ok(())
+fn apply_play_top_draw_card(
+    state: &mut CombatState,
+    target: Option<MonsterId>,
+) -> SimResult<Vec<InternalAction>> {
+    if state.piles.draw_pile.is_empty() {
+        return Err(SimError::IllegalAction("draw pile is empty"));
+    }
+
+    let card = state.piles.draw_pile.remove(0);
+    let card_id = card.id;
+    let definition =
+        get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
+
+    validate_havoc_target(definition, target)?;
+    apply_enrage_on_card_type(state, definition.card_type);
+
+    let mut follow_ups = Vec::new();
+
+    match definition.id {
+        STRIKE_R_ID
+        | STRIKE_R_PLUS_ID
+        | ANGER_ID
+        | ANGER_PLUS_ID
+        | POMMEL_STRIKE_ID
+        | POMMEL_STRIKE_PLUS_ID
+        | SEARING_BLOW_ID
+        | SEARING_BLOW_PLUS_ID
+        | BASH_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: definition.values.damage.unwrap_or(0),
+                },
+            });
+        }
+        TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            let damage = definition.values.damage.unwrap_or(0);
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: damage,
+                },
+            });
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: damage,
+                },
+            });
+        }
+        CLEAVE_ID | CLEAVE_PLUS_ID => {
+            follow_ups.push(InternalAction::DealDamageAll {
+                source: card_id,
+                amount: definition.values.damage.unwrap_or(0),
+            });
+        }
+        DEFEND_R_ID => {
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
+        }
+        SHRUG_IT_OFF_ID => {
+            follow_ups.push(InternalAction::GainBlock { amount: 8 });
+            follow_ups.push(InternalAction::DrawCards { count: 1 });
+        }
+        _ if definition.values.block.is_some() => {
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
+        }
+        _ => {}
+    }
+
+    state.piles.exhaust_pile.push(card);
+    follow_ups.push(InternalAction::CardExhausted { card_id });
+
+    Ok(follow_ups)
+}
+
+fn remove_card_from_pile(
+    state: &mut CombatState,
+    card_id: CardId,
+    pile: CardPile,
+) -> SimResult<CardInstance> {
+    let cards = match pile {
+        CardPile::Hand => &mut state.piles.hand,
+        CardPile::DrawPile => &mut state.piles.draw_pile,
+        CardPile::DiscardPile => &mut state.piles.discard_pile,
+        CardPile::ExhaustPile => &mut state.piles.exhaust_pile,
+    };
+    let index = cards
+        .iter()
+        .position(|card| card.id == card_id)
+        .ok_or(SimError::UnknownCard(card_id))?;
+    Ok(cards.remove(index))
 }
 
 fn find_hand_card(state: &CombatState, card_id: CardId) -> SimResult<CardInstance> {
@@ -899,11 +1162,11 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
-        CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, FEEL_NO_PAIN_ID, FLEX_ID,
-        FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
+        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     };
 
     #[test]
@@ -2141,6 +2404,130 @@ mod tests {
         .expect("second Defend applies");
 
         assert_eq!(after_second.player.powers.weak, 4);
+    }
+
+    #[test]
+    fn havoc_plays_top_strike_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.hand.clear();
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(20), HAVOC_ID));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Havoc applies");
+
+        assert_eq!(next.monsters[0].hp, 34);
+        assert!(next.piles.draw_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, STRIKE_R_ID);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == HAVOC_ID));
+    }
+
+    #[test]
+    fn warcry_draws_puts_card_on_draw_pile_and_exhausts() {
+        let mut state = hand_only(WARCRY_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), WARCRY_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Warcry applies");
+
+        assert_eq!(next.piles.draw_pile[0].content_id, DEFEND_R_ID);
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, WARCRY_ID);
+    }
+
+    #[test]
+    fn warcry_plus_draws_two_cards() {
+        let mut state = hand_only(WARCRY_PLUS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), WARCRY_PLUS_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Warcry+ applies");
+
+        assert_eq!(next.piles.hand.len(), 2);
+        assert_eq!(next.piles.draw_pile[0].content_id, DEFEND_R_ID);
+    }
+
+    #[test]
+    fn dual_wield_copies_attack_to_hand_and_exhausts() {
+        let mut state = hand_only(DUAL_WIELD_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DUAL_WIELD_ID),
+            CardInstance::new(CardId::new(21), ANGER_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Dual Wield applies");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .filter(|card| card.content_id == ANGER_ID)
+                .count(),
+            2
+        );
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DUAL_WIELD_ID);
+    }
+
+    #[test]
+    fn searing_blow_deals_twelve_damage() {
+        let state = hand_only(SEARING_BLOW_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Searing Blow applies");
+
+        assert_eq!(next.monsters[0].hp, 28);
     }
 
     fn hand_only(content_id: crate::ContentId) -> CombatState {

@@ -1,8 +1,11 @@
 use crate::{
     action::CombatAction,
-    card::{CardDefinition, TargetRequirement},
-    combat::CombatState,
-    content::cards::{get_card_definition, WHIRLWIND_ID, WHIRLWIND_PLUS_ID},
+    card::{CardDefinition, CardType, TargetRequirement},
+    combat::{transition::top_draw_card_definition, CombatState},
+    content::cards::{
+        get_card_definition, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+    },
     ids::{CardId, MonsterId},
     SimError, SimResult,
 };
@@ -21,6 +24,21 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         }
 
         if !is_affordable(state, definition) {
+            continue;
+        }
+
+        if definition.id == HAVOC_ID || definition.id == HAVOC_PLUS_ID {
+            push_havoc_actions(&mut actions, state, card.id);
+            continue;
+        }
+
+        if definition.id == DUAL_WIELD_ID || definition.id == DUAL_WIELD_PLUS_ID {
+            if has_attack_or_power_in_hand(state, card.id) {
+                actions.push(CombatAction::PlayCard {
+                    card_id: card.id,
+                    target: None,
+                });
+            }
             continue;
         }
 
@@ -59,6 +77,29 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
         CombatAction::EndTurn => Ok(()),
         CombatAction::PlayCard { card_id, target } => {
             let definition = card_definition_for_hand_card(state, card_id)?;
+
+            if definition.id == HAVOC_ID || definition.id == HAVOC_PLUS_ID {
+                if state.piles.draw_pile.is_empty() {
+                    return Err(SimError::IllegalAction("Havoc requires a draw pile card"));
+                }
+                let top_definition = top_draw_card_definition(state)
+                    .ok_or(SimError::IllegalAction("Havoc requires a draw pile card"))?;
+                return validate_havoc_play(top_definition, target);
+            }
+
+            if definition.id == DUAL_WIELD_ID || definition.id == DUAL_WIELD_PLUS_ID {
+                if target.is_some() {
+                    return Err(SimError::IllegalAction(
+                        "non-targeted card cannot have a target",
+                    ));
+                }
+                if !has_attack_or_power_in_hand(state, card_id) {
+                    return Err(SimError::IllegalAction(
+                        "Dual Wield requires an attack or power",
+                    ));
+                }
+                return Ok(());
+            }
 
             if !is_affordable(state, definition) {
                 return Err(SimError::IllegalAction("card is unaffordable"));
@@ -138,6 +179,70 @@ fn has_living_monster(state: &CombatState) -> bool {
     state.monsters.iter().any(|monster| monster.alive)
 }
 
+fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool {
+    state.piles.hand.iter().any(|card| {
+        card.id != exclude_id
+            && get_card_definition(card.content_id).is_some_and(|definition| {
+                definition.card_type == CardType::Attack || definition.card_type == CardType::Power
+            })
+    })
+}
+
+fn push_havoc_actions(actions: &mut Vec<CombatAction>, state: &CombatState, card_id: CardId) {
+    let Some(top_definition) = top_draw_card_definition(state) else {
+        return;
+    };
+
+    match top_definition.target {
+        TargetRequirement::Enemy => {
+            actions.extend(
+                living_monster_ids(state).map(|target| CombatAction::PlayCard {
+                    card_id,
+                    target: Some(target),
+                }),
+            );
+        }
+        TargetRequirement::AllEnemies => {
+            if has_living_monster(state) {
+                actions.push(CombatAction::PlayCard {
+                    card_id,
+                    target: None,
+                });
+            }
+        }
+        TargetRequirement::None => {
+            actions.push(CombatAction::PlayCard {
+                card_id,
+                target: None,
+            });
+        }
+    }
+}
+
+fn validate_havoc_play(
+    top_definition: &CardDefinition,
+    target: Option<MonsterId>,
+) -> SimResult<()> {
+    match top_definition.target {
+        TargetRequirement::Enemy => {
+            if target.is_some() {
+                Ok(())
+            } else {
+                Err(SimError::IllegalAction("Havoc top card requires a target"))
+            }
+        }
+        TargetRequirement::AllEnemies | TargetRequirement::None => {
+            if target.is_none() {
+                Ok(())
+            } else {
+                Err(SimError::IllegalAction(
+                    "Havoc top card cannot have a target",
+                ))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,10 +250,11 @@ mod tests {
         content::cards::{
             ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
             BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
-            FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
-            POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID,
-            SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-            TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+            DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID,
+            INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID,
+            SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+            SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+            WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         },
         CardInstance,
     };
@@ -709,6 +815,54 @@ mod tests {
             !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: CardId::new(20),
                 target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn havoc_is_illegal_with_empty_draw_pile() {
+        let mut state = hand_with_card(HAVOC_ID);
+        state.piles.draw_pile.clear();
+
+        assert!(!legal_combat_actions(&state)
+            .iter()
+            .any(|action| matches!(action, CombatAction::PlayCard { card_id, .. } if *card_id == CardId::new(20))));
+    }
+
+    #[test]
+    fn havoc_is_legal_when_top_of_draw_is_strike() {
+        let mut state = hand_with_card(HAVOC_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn dual_wield_is_illegal_without_attack_or_power() {
+        let mut state = hand_with_card(DUAL_WIELD_ID);
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DUAL_WIELD_ID)];
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn searing_blow_is_legal_with_target() {
+        let state = hand_with_card(SEARING_BLOW_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
             })
         );
     }

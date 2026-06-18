@@ -40,6 +40,14 @@ pub const SPOT_WEAKNESS_PLUS_ID: ContentId = ContentId::new(32);
 pub const WHIRLWIND_ID: ContentId = ContentId::new(33);
 pub const WHIRLWIND_PLUS_ID: ContentId = ContentId::new(34);
 pub const STRIKE_R_PLUS_ID: ContentId = ContentId::new(35);
+pub const HAVOC_ID: ContentId = ContentId::new(36);
+pub const HAVOC_PLUS_ID: ContentId = ContentId::new(37);
+pub const WARCRY_ID: ContentId = ContentId::new(38);
+pub const WARCRY_PLUS_ID: ContentId = ContentId::new(39);
+pub const DUAL_WIELD_ID: ContentId = ContentId::new(40);
+pub const DUAL_WIELD_PLUS_ID: ContentId = ContentId::new(41);
+pub const SEARING_BLOW_ID: ContentId = ContentId::new(42);
+pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
     id: STRIKE_R_ID,
@@ -599,6 +607,146 @@ pub const WHIRLWIND_PLUS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const HAVOC: CardDefinition = CardDefinition {
+    id: HAVOC_ID,
+    key: "Havoc",
+    name: "Havoc",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const HAVOC_PLUS: CardDefinition = CardDefinition {
+    id: HAVOC_PLUS_ID,
+    key: "Havoc+",
+    name: "Havoc+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const WARCRY: CardDefinition = CardDefinition {
+    id: WARCRY_ID,
+    key: "Warcry",
+    name: "Warcry",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const WARCRY_PLUS: CardDefinition = CardDefinition {
+    id: WARCRY_PLUS_ID,
+    key: "Warcry+",
+    name: "Warcry+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const DUAL_WIELD: CardDefinition = CardDefinition {
+    id: DUAL_WIELD_ID,
+    key: "Dual Wield",
+    name: "Dual Wield",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const DUAL_WIELD_PLUS: CardDefinition = CardDefinition {
+    id: DUAL_WIELD_PLUS_ID,
+    key: "Dual Wield+",
+    name: "Dual Wield+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const SEARING_BLOW: CardDefinition = CardDefinition {
+    id: SEARING_BLOW_ID,
+    key: "Searing Blow",
+    name: "Searing Blow",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(12),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const SEARING_BLOW_PLUS: CardDefinition = CardDefinition {
+    id: SEARING_BLOW_PLUS_ID,
+    key: "Searing Blow+",
+    name: "Searing Blow+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(20),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 4] = [WOUND, DAZED, BURN, SLIMED];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
@@ -627,9 +775,19 @@ pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 11] = [
     FLEX_PLUS,
     SPOT_WEAKNESS_PLUS,
 ];
+pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
+    HAVOC,
+    HAVOC_PLUS,
+    WARCRY,
+    WARCRY_PLUS,
+    DUAL_WIELD,
+    DUAL_WIELD_PLUS,
+    SEARING_BLOW,
+    SEARING_BLOW_PLUS,
+];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 35] = [
+pub const ALL_CARDS: [CardDefinition; 43] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -665,6 +823,14 @@ pub const ALL_CARDS: [CardDefinition; 35] = [
     SPOT_WEAKNESS_PLUS,
     WHIRLWIND,
     WHIRLWIND_PLUS,
+    HAVOC,
+    HAVOC_PLUS,
+    WARCRY,
+    WARCRY_PLUS,
+    DUAL_WIELD,
+    DUAL_WIELD_PLUS,
+    SEARING_BLOW,
+    SEARING_BLOW_PLUS,
 ];
 
 #[must_use]
@@ -687,6 +853,10 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         FLEX_ID => Some(FLEX_PLUS_ID),
         SPOT_WEAKNESS_ID => Some(SPOT_WEAKNESS_PLUS_ID),
         WHIRLWIND_ID => Some(WHIRLWIND_PLUS_ID),
+        HAVOC_ID => Some(HAVOC_PLUS_ID),
+        WARCRY_ID => Some(WARCRY_PLUS_ID),
+        DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
+        SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
         _ => None,
     }
 }
@@ -888,5 +1058,30 @@ mod tests {
     #[test]
     fn whirlwind_plus_deals_three_more_damage_per_hit() {
         assert_eq!(WHIRLWIND_PLUS.values.damage, Some(8));
+    }
+
+    #[test]
+    fn havoc_has_expected_values() {
+        assert_eq!(HAVOC.cost, 1);
+        assert_eq!(HAVOC.card_type, CardType::Skill);
+        assert_eq!(HAVOC_PLUS.cost, 0);
+    }
+
+    #[test]
+    fn warcry_exhausts_and_warcry_plus_draws_two() {
+        assert!(WARCRY.keywords.exhaust);
+        assert_eq!(WARCRY_PLUS.cost, 0);
+    }
+
+    #[test]
+    fn dual_wield_exhausts_and_plus_costs_zero() {
+        assert!(DUAL_WIELD.keywords.exhaust);
+        assert_eq!(DUAL_WIELD_PLUS.cost, 0);
+    }
+
+    #[test]
+    fn searing_blow_plus_deals_eight_more_damage() {
+        assert_eq!(SEARING_BLOW.values.damage, Some(12));
+        assert_eq!(SEARING_BLOW_PLUS.values.damage, Some(20));
     }
 }

@@ -2,21 +2,21 @@
 
 ## What Exists
 
-### Monsters (Act 1 complete for Milestone 6)
-- Regular: Cultist, Jaw Worm, Gremlin Nob, Louses, Slimes, Lagavulin, Sentries
-- Bosses: **Hexaghost**, **Slime Boss** (split), **Guardian** (defensive charge)
+### Combat (`sts_core`)
+- **43 cards** including Milestone 5 batch 6: Havoc, Warcry, Dual Wield, Searing Blow (+ upgrades)
+- Full Act 1 monster roster including all three bosses
+- Rest: heal, smith, card removal
 
 ### Run / Meta
-- Rest: heal, smith, **card removal**
-- Rewards, map, shop, Vajra relic
+- Reward screen (fixed 3-card pool + gold), map, shop, Vajra
 
 ### Tests
-- **322 tests** passing
+- **335 tests** passing
 
 ## Next Task
 
-Milestone 5 batch 6 cards (Havoc, Warcry, Dual Wield, Searing Blow) or reward RNG.
+Reward card generation with RNG (Milestone 7), potion/relic reward placeholders.
 
 ## Last Updated
 
-2026-06-18 (Guardian boss).
+2026-06-18 (Milestone 5 batch 6 cards complete).
