@@ -9,6 +9,7 @@
 ### Run / Meta
 - Reward screen with rarity-weighted RNG card choices; potion/relic take actions
 - Shop: buy Anger, Vajra relic, **Fire Potion** (fixed prices)
+- Potions: use/discard Fire Potion
 - Rest: heal, smith, card removal; fixed + generated map placeholder
 
 ### Tests
@@ -16,8 +17,8 @@
 
 ## Next Task
 
-Milestone 9: use/discard potion; first fixed event.
+Milestone 9: first fixed event.
 
 ## Last Updated
 
-2026-06-18 (shop buy relic + potion).
+2026-06-18 (Fire Potion use/discard).

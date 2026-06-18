@@ -5,7 +5,7 @@ use sts_core::{
     content::character::IRONCLAD_A0_BASE_HP,
     legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, MapAction,
     MapNodeId, Potion, Relic, RestAction, RoomKind, RunAction, RunPhase, RunState, SimError,
-    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
+    FIRE_POTION_DAMAGE, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -226,6 +226,60 @@ fn buy_shop_potion_adds_fire_potion_to_belt() {
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.potions, vec![Potion::Fire]);
+}
+
+#[test]
+fn fire_potion_deals_twenty_damage_and_is_consumed() {
+    let mut run = RunState::combat_fixture();
+    run.potions.push(Potion::Fire);
+    let monster_id = run.combat.as_ref().expect("combat").monsters[0].id;
+    let hp_before = run.combat.as_ref().expect("combat").monsters[0].hp;
+
+    let run = apply_run_action(
+        &run,
+        RunAction::UsePotion {
+            slot: 0,
+            target: monster_id,
+        },
+    )
+    .expect("use fire potion");
+
+    let combat = run.combat.expect("combat continues");
+    assert_eq!(combat.monsters[0].hp, hp_before - FIRE_POTION_DAMAGE);
+    assert!(run.potions.is_empty());
+}
+
+#[test]
+fn lethal_fire_potion_enters_reward_phase() {
+    let mut run = RunState::combat_fixture();
+    run.potions.push(Potion::Fire);
+    let combat = run.combat.as_mut().expect("combat");
+    combat.monsters[0].hp = FIRE_POTION_DAMAGE;
+    let monster_id = combat.monsters[0].id;
+
+    let run = apply_run_action(
+        &run,
+        RunAction::UsePotion {
+            slot: 0,
+            target: monster_id,
+        },
+    )
+    .expect("use lethal fire potion");
+
+    assert_eq!(run.phase, RunPhase::Reward);
+    assert!(run.combat.is_none());
+    assert!(run.reward.is_some());
+    assert!(run.potions.is_empty());
+}
+
+#[test]
+fn discard_potion_removes_it_from_belt() {
+    let mut run = RunState::map_fixture();
+    run.potions = vec![Potion::Fire];
+
+    let run = apply_run_action(&run, RunAction::DiscardPotion { slot: 0 }).expect("discard potion");
+
+    assert!(run.potions.is_empty());
 }
 
 #[test]

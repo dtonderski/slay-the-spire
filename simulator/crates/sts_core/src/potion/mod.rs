@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_POTIONS: usize = 3;
 
-/// Content id for [Potion::Fire] (placeholder reward; not usable in combat yet).
+pub const FIRE_POTION_DAMAGE: i32 = 20;
+
+/// Content id for [Potion::Fire].
 pub const FIRE_POTION_ID: ContentId = ContentId::new(200);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

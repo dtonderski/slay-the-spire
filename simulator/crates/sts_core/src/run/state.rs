@@ -2,7 +2,7 @@ use crate::{
     card::CardInstance,
     combat::CombatState,
     content::character::IRONCLAD_A0_BASE_HP,
-    ids::{CardId, ContentId},
+    ids::{CardId, ContentId, MonsterId},
     map::{milestone8_fixture, MapRunState},
     potion::{Potion, MAX_POTIONS},
     relic::{apply_start_of_combat_relics, Relic},
@@ -60,6 +60,8 @@ pub enum RunAction {
     BuyShopCard { slot: usize },
     BuyShopRelic,
     BuyShopPotion,
+    UsePotion { slot: usize, target: MonsterId },
+    DiscardPotion { slot: usize },
 }
 
 impl RunState {
@@ -175,6 +177,9 @@ impl RunState {
                 }
             }
             RunAction::BuyShopCard { .. } | RunAction::BuyShopRelic | RunAction::BuyShopPotion => {
+                Err(SimError::IllegalAction("not a reward action"))
+            }
+            RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
         }
