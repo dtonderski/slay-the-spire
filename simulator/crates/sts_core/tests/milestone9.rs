@@ -1,5 +1,6 @@
 use sts_core::{
     apply_map_action_on_run, apply_rest_action, apply_run_action, content::cards::ANGER_ID,
+    content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP, legal_map_actions_on_run, legal_rest_actions,
     legal_shop_actions, rest_heal_amount, MapAction, MapNodeId, RestAction, RoomKind, RunAction,
     RunPhase, RunState, SimError, SHOP_ANGER_PRICE,
@@ -61,7 +62,13 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
             .map(|node| node.room_kind),
         Some(RoomKind::Rest)
     );
-    assert_eq!(legal_rest_actions(&run), vec![RestAction::Heal]);
+    let mut expected = vec![RestAction::Heal];
+    for card in &run.deck {
+        if sts_core::content::cards::upgrade_content_id(card.content_id).is_some() {
+            expected.push(RestAction::Smith { card_id: card.id });
+        }
+    }
+    assert_eq!(legal_rest_actions(&run), expected);
     assert!(legal_map_actions_on_run(&run).is_empty());
 }
 
@@ -94,6 +101,63 @@ fn rest_heal_is_illegal_outside_rest_phase() {
     let run = RunState::map_fixture();
 
     let err = apply_rest_action(&run, RestAction::Heal).expect_err("not at rest");
+
+    assert_eq!(
+        err,
+        SimError::IllegalAction("rest actions require rest phase")
+    );
+}
+
+#[test]
+fn smith_upgrades_strike_r_to_strike_r_plus() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Rest;
+    let strike_id = run
+        .deck
+        .iter()
+        .find(|card| card.content_id == STRIKE_R_ID)
+        .expect("strike in deck")
+        .id;
+
+    let after = apply_rest_action(&run, RestAction::Smith { card_id: strike_id })
+        .expect("smith applies");
+
+    assert_eq!(after.count_content_in_deck(STRIKE_R_PLUS_ID), 1);
+    assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
+    assert_eq!(after.phase, RunPhase::Idle);
+}
+
+#[test]
+fn smith_then_map_traversal_continues() {
+    let mut run = RunState::map_fixture();
+    run = apply_map_action_on_run(
+        &run,
+        MapAction::ChooseNode {
+            node_id: MapNodeId::new(2),
+        },
+    )
+    .expect("enter rest");
+    let strike_id = run.deck[0].id;
+
+    run = apply_rest_action(&run, RestAction::Smith { card_id: strike_id }).expect("smith");
+
+    assert_eq!(run.phase, RunPhase::Idle);
+    assert_eq!(run.deck[0].content_id, STRIKE_R_PLUS_ID);
+    assert_eq!(
+        legal_map_actions_on_run(&run),
+        vec![MapAction::ChooseNode {
+            node_id: MapNodeId::new(3)
+        }]
+    );
+}
+
+#[test]
+fn smith_is_illegal_outside_rest_phase() {
+    let run = RunState::map_fixture();
+    let strike_id = run.deck[0].id;
+
+    let err = apply_rest_action(&run, RestAction::Smith { card_id: strike_id })
+        .expect_err("not at rest");
 
     assert_eq!(
         err,

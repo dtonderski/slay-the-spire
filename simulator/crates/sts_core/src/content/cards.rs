@@ -39,6 +39,7 @@ pub const FLEX_PLUS_ID: ContentId = ContentId::new(31);
 pub const SPOT_WEAKNESS_PLUS_ID: ContentId = ContentId::new(32);
 pub const WHIRLWIND_ID: ContentId = ContentId::new(33);
 pub const WHIRLWIND_PLUS_ID: ContentId = ContentId::new(34);
+pub const STRIKE_R_PLUS_ID: ContentId = ContentId::new(35);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
     id: STRIKE_R_ID,
@@ -49,6 +50,21 @@ pub const STRIKE_R: CardDefinition = CardDefinition {
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const STRIKE_R_PLUS: CardDefinition = CardDefinition {
+    id: STRIKE_R_PLUS_ID,
+    key: "Strike_R+",
+    name: "Strike+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(9),
         block: None,
         vulnerable: None,
     },
@@ -613,8 +629,9 @@ pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 11] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 34] = [
+pub const ALL_CARDS: [CardDefinition; 35] = [
     STRIKE_R,
+    STRIKE_R_PLUS,
     DEFEND_R,
     BASH,
     WOUND,
@@ -653,6 +670,25 @@ pub const ALL_CARDS: [CardDefinition; 34] = [
 #[must_use]
 pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
     ALL_CARDS.iter().find(|definition| definition.id == id)
+}
+
+/// Maps a base card content id to its upgraded (+) version, if one exists.
+#[must_use]
+pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
+    match id {
+        STRIKE_R_ID => Some(STRIKE_R_PLUS_ID),
+        ANGER_ID => Some(ANGER_PLUS_ID),
+        CLEAVE_ID => Some(CLEAVE_PLUS_ID),
+        TWIN_STRIKE_ID => Some(TWIN_STRIKE_PLUS_ID),
+        POMMEL_STRIKE_ID => Some(POMMEL_STRIKE_PLUS_ID),
+        BATTLE_TRANCE_ID => Some(BATTLE_TRANCE_PLUS_ID),
+        SEEING_RED_ID => Some(SEEING_RED_PLUS_ID),
+        INFLAME_ID => Some(INFLAME_PLUS_ID),
+        FLEX_ID => Some(FLEX_PLUS_ID),
+        SPOT_WEAKNESS_ID => Some(SPOT_WEAKNESS_PLUS_ID),
+        WHIRLWIND_ID => Some(WHIRLWIND_PLUS_ID),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -706,6 +742,11 @@ mod tests {
         assert_eq!(TWIN_STRIKE.target, TargetRequirement::Enemy);
         assert_eq!(TWIN_STRIKE.card_type, CardType::Attack);
         assert_eq!(TWIN_STRIKE.values.damage, Some(5));
+    }
+
+    #[test]
+    fn strike_r_plus_deals_three_more_damage() {
+        assert_eq!(STRIKE_R_PLUS.values.damage, Some(9));
     }
 
     #[test]

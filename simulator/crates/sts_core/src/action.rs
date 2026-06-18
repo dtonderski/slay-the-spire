@@ -75,6 +75,7 @@ pub enum InternalAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RestAction {
     Heal,
+    Smith { card_id: CardId },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

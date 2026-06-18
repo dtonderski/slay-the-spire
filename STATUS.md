@@ -11,7 +11,7 @@
 - Internal action queue with damage, block, draw, exhaust events
 
 ### Monsters
-- Fixed dummy, **Cultist**, **Jaw Worm**, **Gremlin Nob** (enrage on skills)
+- Fixed dummy, **Cultist**, **Jaw Worm**, **Gremlin Nob** (enrage on skills), **Red Louse** (curl/bite cycle)
 
 ### Run / Meta
 - Master deck, HP sync, **gold** (99 start)
@@ -23,12 +23,12 @@
 
 ### Tests
 - milestone1 golden replay, milestone6 monsters, milestone7 rewards, milestone8 map, milestone9 rest+shop, milestone10 relics
-- **264 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
+- **271 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
 
 ## What Is Not Implemented
 
 - Remaining Ironclad cards (Havoc, Warcry, Searing Blow, etc.)
-- Louses, Slimes, Lagavulin, Sentries, Act 1 bosses
+- Green Louse, Slimes, Lagavulin, Sentries, Act 1 bosses
 - Card remove/upgrade at rest, reward RNG, map generation
 - Most relics/potions, events, ascensions
 - `sts_verify` crate, CommunicationMod parity, RL API, Python bindings
