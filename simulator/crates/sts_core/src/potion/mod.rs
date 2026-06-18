@@ -5,16 +5,20 @@ pub const MAX_POTIONS: usize = 3;
 
 pub const FIRE_POTION_DAMAGE: i32 = 20;
 pub const BLOCK_POTION_BLOCK: i32 = 12;
+pub const FEAR_POTION_WEAK: i32 = 3;
 
 /// Content id for [Potion::Fire].
 pub const FIRE_POTION_ID: ContentId = ContentId::new(200);
 /// Content id for [Potion::Block].
 pub const BLOCK_POTION_ID: ContentId = ContentId::new(201);
+/// Content id for [Potion::Fear].
+pub const FEAR_POTION_ID: ContentId = ContentId::new(202);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Potion {
     Fire,
     Block,
+    Fear,
 }
 
 impl Potion {
@@ -23,6 +27,7 @@ impl Potion {
         match self {
             Potion::Fire => FIRE_POTION_ID,
             Potion::Block => BLOCK_POTION_ID,
+            Potion::Fear => FEAR_POTION_ID,
         }
     }
 
@@ -31,13 +36,14 @@ impl Potion {
         match id {
             id if id == FIRE_POTION_ID => Some(Potion::Fire),
             id if id == BLOCK_POTION_ID => Some(Potion::Block),
+            id if id == FEAR_POTION_ID => Some(Potion::Fear),
             _ => None,
         }
     }
 
     #[must_use]
     pub fn requires_target(self) -> bool {
-        matches!(self, Potion::Fire)
+        matches!(self, Potion::Fire | Potion::Fear)
     }
 }
 
@@ -85,5 +91,16 @@ mod tests {
     fn block_potion_does_not_require_target() {
         assert!(Potion::Fire.requires_target());
         assert!(!Potion::Block.requires_target());
+    }
+
+    #[test]
+    fn fear_potion_content_id_maps_both_ways() {
+        assert_eq!(Potion::Fear.content_id(), FEAR_POTION_ID);
+        assert_eq!(Potion::from_content_id(FEAR_POTION_ID), Some(Potion::Fear));
+    }
+
+    #[test]
+    fn fear_potion_requires_target() {
+        assert!(Potion::Fear.requires_target());
     }
 }

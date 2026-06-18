@@ -1,7 +1,7 @@
 use crate::{
     combat::damage::deal_unmodified_damage_to_monster,
     combat::CombatPhase,
-    potion::{Potion, BLOCK_POTION_BLOCK, FIRE_POTION_DAMAGE},
+    potion::{Potion, BLOCK_POTION_BLOCK, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE},
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -71,6 +71,16 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Block => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     combat.player.block += BLOCK_POTION_BLOCK;
+                }
+                Potion::Fear => {
+                    let target = target.expect("validated fear potion target");
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    let monster = combat
+                        .monsters
+                        .iter_mut()
+                        .find(|monster| monster.id == target)
+                        .expect("validated potion target");
+                    monster.powers.weak += FEAR_POTION_WEAK;
                 }
             }
             let won = next
@@ -154,6 +164,49 @@ mod tests {
         assert_eq!(
             err,
             SimError::IllegalAction("potion does not take a target")
+        );
+    }
+
+    #[test]
+    fn fear_potion_applies_weak_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Fear);
+        let monster_id = run.combat.as_ref().expect("combat").monsters[0].id;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(monster_id),
+            },
+        )
+        .expect("use fear potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.monsters[0].powers.weak, FEAR_POTION_WEAK);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn fear_potion_reduces_monster_attack_damage() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Fear);
+        let monster_id = run.combat.as_ref().expect("combat").monsters[0].id;
+        let attack_before = run.combat.as_ref().expect("combat").monsters[0].powers.weak;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(monster_id),
+            },
+        )
+        .expect("use fear potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(
+            combat.monsters[0].powers.weak,
+            attack_before + FEAR_POTION_WEAK
         );
     }
 
