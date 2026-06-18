@@ -2,10 +2,20 @@
 #![doc = "Trace formats, canonical diffs, and fixture loaders for simulator verification."]
 
 pub mod diff;
+pub mod importer;
+pub mod normalize;
 pub mod trace;
 
 pub use diff::canonical_diff;
-pub use trace::{parse_trace_jsonl, ManualFixture, TraceLine, TraceMetadata, TraceState};
+pub use importer::{observations_from_trace, ImportedTraceStep};
+pub use normalize::{
+    normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
+    CanonicalMonsterObservation, CanonicalRunObservation,
+};
+pub use trace::{
+    import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,
+    TraceAction, TraceLine, TraceMetadata, TraceState,
+};
 
 use std::path::{Path, PathBuf};
 
