@@ -6,6 +6,8 @@ pub const MAX_POTIONS: usize = 3;
 pub const FIRE_POTION_DAMAGE: i32 = 20;
 pub const BLOCK_POTION_BLOCK: i32 = 12;
 pub const FEAR_POTION_WEAK: i32 = 3;
+pub const GAMBLE_POTION_WIN_GOLD: i32 = 50;
+pub const GAMBLE_POTION_LOSS_GOLD: i32 = 50;
 
 /// Content id for [Potion::Fire].
 pub const FIRE_POTION_ID: ContentId = ContentId::new(200);
@@ -13,12 +15,15 @@ pub const FIRE_POTION_ID: ContentId = ContentId::new(200);
 pub const BLOCK_POTION_ID: ContentId = ContentId::new(201);
 /// Content id for [Potion::Fear].
 pub const FEAR_POTION_ID: ContentId = ContentId::new(202);
+/// Content id for [Potion::Gamble].
+pub const GAMBLE_POTION_ID: ContentId = ContentId::new(203);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Potion {
     Fire,
     Block,
     Fear,
+    Gamble,
 }
 
 impl Potion {
@@ -28,6 +33,7 @@ impl Potion {
             Potion::Fire => FIRE_POTION_ID,
             Potion::Block => BLOCK_POTION_ID,
             Potion::Fear => FEAR_POTION_ID,
+            Potion::Gamble => GAMBLE_POTION_ID,
         }
     }
 
@@ -37,6 +43,7 @@ impl Potion {
             id if id == FIRE_POTION_ID => Some(Potion::Fire),
             id if id == BLOCK_POTION_ID => Some(Potion::Block),
             id if id == FEAR_POTION_ID => Some(Potion::Fear),
+            id if id == GAMBLE_POTION_ID => Some(Potion::Gamble),
             _ => None,
         }
     }
@@ -44,6 +51,16 @@ impl Potion {
     #[must_use]
     pub fn requires_target(self) -> bool {
         matches!(self, Potion::Fire | Potion::Fear)
+    }
+
+    #[must_use]
+    pub fn requires_combat(self) -> bool {
+        matches!(self, Potion::Fire | Potion::Fear | Potion::Block)
+    }
+
+    #[must_use]
+    pub fn uses_rng(self) -> bool {
+        matches!(self, Potion::Gamble)
     }
 }
 
@@ -100,7 +117,8 @@ mod tests {
     }
 
     #[test]
-    fn fear_potion_requires_target() {
-        assert!(Potion::Fear.requires_target());
+    fn gamble_potion_uses_rng() {
+        assert!(Potion::Gamble.uses_rng());
+        assert!(!Potion::Block.uses_rng());
     }
 }

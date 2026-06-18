@@ -21,6 +21,7 @@ pub enum RngStream {
     RewardCard,
     RewardRarity,
     Shuffle,
+    Potion,
 }
 
 impl SimulatorRng {
@@ -52,6 +53,11 @@ impl SimulatorRng {
             value,
         });
         value
+    }
+
+    #[must_use]
+    pub fn next_bool(&mut self, stream: RngStream, call_site: &'static str) -> bool {
+        self.next_usize(stream, call_site, 2) == 0
     }
 
     #[must_use]

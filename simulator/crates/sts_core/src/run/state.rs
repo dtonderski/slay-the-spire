@@ -2,6 +2,7 @@ use crate::{
     card::CardInstance,
     combat::state::BASE_PLAYER_ENERGY,
     combat::CombatState,
+    content::ascension::AscensionConfig,
     content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, ContentId, MonsterId},
     map::{milestone8_fixture, MapRunState},
@@ -40,6 +41,10 @@ pub struct RunState {
     pub event_rng_seed: u64,
     #[serde(default)]
     pub reward_rng_seed: u64,
+    #[serde(default)]
+    pub potion_rng_seed: u64,
+    #[serde(default)]
+    pub ascension: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,8 +99,14 @@ impl RunState {
         combat.player.max_energy = self.energy_per_turn;
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
+        combat.ascension = self.ascension;
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
+    }
+
+    #[must_use]
+    pub fn ascension_config(&self) -> AscensionConfig {
+        AscensionConfig::new(self.ascension)
     }
 
     #[must_use]
@@ -105,7 +116,17 @@ impl RunState {
 
     #[must_use]
     pub fn combat_fixture_with_relics(relics: Vec<Relic>) -> Self {
-        let deck = crate::content::deck::ironclad_starter_deck();
+        Self::combat_fixture_with_options(relics, 0)
+    }
+
+    #[must_use]
+    pub fn combat_fixture_with_ascension(ascension: u8) -> Self {
+        Self::combat_fixture_with_options(Vec::new(), ascension)
+    }
+
+    #[must_use]
+    pub fn combat_fixture_with_options(relics: Vec<Relic>, ascension: u8) -> Self {
+        let deck = crate::content::deck::ironclad_starter_deck_for_ascension(ascension);
         let mut run = Self {
             phase: RunPhase::Combat,
             deck,
@@ -122,6 +143,8 @@ impl RunState {
             potions: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
+            potion_rng_seed: 0,
+            ascension,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
         run.player_hp = combat.player.hp;
@@ -148,6 +171,8 @@ impl RunState {
             potions: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
+            potion_rng_seed: 0,
+            ascension: 0,
         }
     }
 
