@@ -7,8 +7,8 @@ pub mod shop;
 pub mod state;
 
 pub use event::{
-    apply_event_action, enter_fixed_event_screen, fixed_event_screen, validate_event_action, Event,
-    EventChoice, EventScreen, GOLDEN_SHRINE_GOLD,
+    apply_event_action, enter_fixed_event_screen, fixed_event_screen, legal_event_actions,
+    validate_event_action, Event, EventChoice, EventScreen, GOLDEN_SHRINE_GOLD,
 };
 pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
 pub use potion::{apply_potion_action, validate_potion_action};
