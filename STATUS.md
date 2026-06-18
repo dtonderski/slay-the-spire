@@ -20,14 +20,15 @@
 - On-card-play relic: Ink Bottle draw after 10 cards
 - Damage/block relic: Ornamental Fan block every 3 attacks per turn
 - Stateful relic: Ice Cream preserves energy between turns
+- Simple potion: Block Potion grants 12 block without target
 
 ### Tests
-- **418 tests** passing
+- **424 tests** passing
 
 ## Next Task
 
-Milestone 10: simple potions.
+Milestone 10: targeted potions.
 
 ## Last Updated
 
-2026-06-18 (Ice Cream relic).
+2026-06-18 (Block Potion).

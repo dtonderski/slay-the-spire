@@ -1,6 +1,7 @@
 use crate::{
-    combat::{damage::deal_unmodified_damage_to_monster, CombatPhase},
-    potion::{Potion, FIRE_POTION_DAMAGE},
+    combat::damage::deal_unmodified_damage_to_monster,
+    combat::CombatPhase,
+    potion::{Potion, BLOCK_POTION_BLOCK, FIRE_POTION_DAMAGE},
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -18,16 +19,23 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
                 .combat
                 .as_ref()
                 .ok_or(SimError::InvalidState("combat state is missing"))?;
-            if !combat
-                .monsters
-                .iter()
-                .any(|monster| monster.id == target && monster.alive)
-            {
-                return Err(SimError::IllegalAction("potion target is not alive"));
+
+            if potion.requires_target() {
+                let Some(target) = target else {
+                    return Err(SimError::IllegalAction("potion requires a target"));
+                };
+                if !combat
+                    .monsters
+                    .iter()
+                    .any(|monster| monster.id == target && monster.alive)
+                {
+                    return Err(SimError::IllegalAction("potion target is not alive"));
+                }
+            } else if target.is_some() {
+                return Err(SimError::IllegalAction("potion does not take a target"));
             }
-            match potion {
-                Potion::Fire => Ok(()),
-            }
+
+            Ok(())
         }
         RunAction::DiscardPotion { slot } => {
             run.potions
@@ -48,6 +56,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
             let potion = next.potions.remove(slot);
             match potion {
                 Potion::Fire => {
+                    let target = target.expect("validated fire potion target");
                     let combat = next.combat.as_mut().expect("validated combat state");
                     let monster = combat
                         .monsters
@@ -58,6 +67,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     if combat.monsters.iter().all(|monster| !monster.alive) {
                         combat.phase = CombatPhase::Won;
                     }
+                }
+                Potion::Block => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.block += BLOCK_POTION_BLOCK;
                 }
             }
             let won = next
@@ -94,7 +107,7 @@ mod tests {
             &run,
             RunAction::UsePotion {
                 slot: 0,
-                target: monster_id,
+                target: Some(monster_id),
             },
         )
         .expect("use fire potion");
@@ -102,6 +115,46 @@ mod tests {
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.monsters[0].hp, hp_before - FIRE_POTION_DAMAGE);
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn block_potion_grants_twelve_block_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Block);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use block potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.block, BLOCK_POTION_BLOCK);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn block_potion_rejects_target() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Block);
+        let monster_id = run.combat.as_ref().expect("combat").monsters[0].id;
+
+        let err = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(monster_id),
+            },
+        )
+        .expect_err("block potion rejects target");
+
+        assert_eq!(
+            err,
+            SimError::IllegalAction("potion does not take a target")
+        );
     }
 
     #[test]
@@ -116,7 +169,7 @@ mod tests {
             &run,
             RunAction::UsePotion {
                 slot: 0,
-                target: monster_id,
+                target: Some(monster_id),
             },
         )
         .expect("use lethal fire potion");
@@ -147,7 +200,7 @@ mod tests {
             &run,
             RunAction::UsePotion {
                 slot: 0,
-                target: monster_id,
+                target: Some(monster_id),
             },
         )
         .expect_err("no potion");
@@ -164,11 +217,28 @@ mod tests {
             &run,
             RunAction::UsePotion {
                 slot: 0,
-                target: MonsterId::new(999),
+                target: Some(MonsterId::new(999)),
             },
         )
         .expect_err("bad target");
 
         assert_eq!(err, SimError::IllegalAction("potion target is not alive"));
+    }
+
+    #[test]
+    fn fire_potion_rejects_missing_target() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Fire);
+
+        let err = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect_err("fire potion needs target");
+
+        assert_eq!(err, SimError::IllegalAction("potion requires a target"));
     }
 }

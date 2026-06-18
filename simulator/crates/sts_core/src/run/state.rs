@@ -65,15 +65,24 @@ pub struct RewardScreen {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunAction {
     SkipReward,
-    TakeCardReward { card_id: CardId },
+    TakeCardReward {
+        card_id: CardId,
+    },
     TakeGoldReward,
     TakePotionReward,
     TakeRelicReward,
-    BuyShopCard { slot: usize },
+    BuyShopCard {
+        slot: usize,
+    },
     BuyShopRelic,
     BuyShopPotion,
-    UsePotion { slot: usize, target: MonsterId },
-    DiscardPotion { slot: usize },
+    UsePotion {
+        slot: usize,
+        target: Option<MonsterId>,
+    },
+    DiscardPotion {
+        slot: usize,
+    },
 }
 
 impl RunState {

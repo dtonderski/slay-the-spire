@@ -35,7 +35,9 @@ pub use map::{
     milestone8_fixture, milestone8_map, reachable_nodes, validate_map_action, FixedMap, MapAction,
     MapNode, MapRunState, RoomKind,
 };
-pub use potion::{Potion, FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS};
+pub use potion::{
+    Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS,
+};
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
     apply_on_card_play_relics, apply_start_of_combat_relics, preserves_energy_between_turns,
