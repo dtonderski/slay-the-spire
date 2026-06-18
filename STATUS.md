@@ -19,14 +19,15 @@
 - Start-combat relic: Anchor block
 - On-card-play relic: Ink Bottle draw after 10 cards
 - Damage/block relic: Ornamental Fan block every 3 attacks per turn
+- Stateful relic: Ice Cream preserves energy between turns
 
 ### Tests
-- **414 tests** passing
+- **418 tests** passing
 
 ## Next Task
 
-Milestone 10: complex stateful relics.
+Milestone 10: simple potions.
 
 ## Last Updated
 
-2026-06-18 (Ornamental Fan relic).
+2026-06-18 (Ice Cream relic).
