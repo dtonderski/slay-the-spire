@@ -15,6 +15,7 @@ pub use reward::{
 };
 pub use shop::{
     apply_shop_action, enter_shop_screen, fixed_shop_screen, legal_shop_actions,
-    validate_shop_action, ShopCardSlot, ShopScreen, SHOP_ANGER_PRICE,
+    validate_shop_action, ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen,
+    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
 };
 pub use state::{RewardScreen, RunAction, RunPhase, RunState, REWARD_GOLD_AMOUNT, STARTING_GOLD};

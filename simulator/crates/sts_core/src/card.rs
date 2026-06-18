@@ -17,6 +17,13 @@ pub const CARD_KEYWORDS_NONE: CardKeywords = CardKeywords {
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardRarity {
+    Common,
+    Uncommon,
+    Rare,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CardDefinition {
     pub id: ContentId,
     pub key: &'static str,

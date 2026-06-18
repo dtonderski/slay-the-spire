@@ -16,15 +16,17 @@ pub struct RngDraw {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RngStream {
-    Shuffle,
+    MapRoom,
     RewardCard,
+    RewardRarity,
+    Shuffle,
 }
 
 impl SimulatorRng {
     #[must_use]
     pub fn new(seed: u64) -> Self {
         Self {
-            state: seed,
+            state: seed.max(1),
             log: Vec::new(),
         }
     }
@@ -80,5 +82,16 @@ mod tests {
             second.next_usize(RngStream::Shuffle, "test", 10)
         );
         assert_eq!(first.log().len(), 1);
+    }
+
+    #[test]
+    fn zero_seed_is_mapped_to_nonzero_state() {
+        let mut rng = SimulatorRng::new(0);
+
+        let first = rng.next_usize(RngStream::Shuffle, "test", 10);
+        let second = rng.next_usize(RngStream::Shuffle, "test", 10);
+
+        assert_ne!(rng.seed_state(), 0);
+        assert_ne!([first, second], [0, 0]);
     }
 }

@@ -3,21 +3,21 @@
 ## What Exists
 
 ### Combat
-- **43 Ironclad cards** (Milestone 5 complete including Havoc, Warcry, Dual Wield, Searing Blow)
+- **43 Ironclad cards** (Milestone 5 complete)
 - Full Act 1 monster + boss roster
 
 ### Run / Meta
-- Reward screen with **RNG card choices** (9-card pool, deterministic per seed)
-- Potion/relic reward fields (placeholder `None`)
-- Rest: heal, smith, card removal; map, shop, Vajra
+- Reward screen with rarity-weighted RNG card choices; potion/relic take actions
+- Shop: buy Anger, Vajra relic, **Fire Potion** (fixed prices)
+- Rest: heal, smith, card removal; fixed + generated map placeholder
 
 ### Tests
-- **338 tests** passing
+- **369 tests** passing
 
 ## Next Task
 
-Map generation, more relics/potions, CommunicationMod parity.
+Milestone 9: use/discard potion; first fixed event.
 
 ## Last Updated
 
-2026-06-18 (reward RNG + Milestone 5 batch 6).
+2026-06-18 (shop buy relic + potion).

@@ -2,10 +2,11 @@ use crate::{
     card::CardInstance,
     combat::CombatState,
     content::character::IRONCLAD_A0_BASE_HP,
-    ids::CardId,
+    ids::{CardId, ContentId},
     map::{milestone8_fixture, MapRunState},
-    relic::apply_start_of_combat_relics,
-    ContentId, Relic, SimError, SimResult,
+    potion::{Potion, MAX_POTIONS},
+    relic::{apply_start_of_combat_relics, Relic},
+    SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,8 @@ pub struct RunState {
     #[serde(default)]
     pub relics: Vec<Relic>,
     #[serde(default)]
+    pub potions: Vec<Potion>,
+    #[serde(default)]
     pub reward_rng_seed: u64,
 }
 
@@ -43,10 +46,8 @@ pub const REWARD_GOLD_AMOUNT: i32 = 20;
 pub struct RewardScreen {
     pub choices: Vec<CardInstance>,
     pub gold_offer: i32,
-    /// Placeholder for future potion rewards.
-    pub potion_offer: Option<ContentId>,
-    /// Placeholder for future relic rewards.
-    pub relic_offer: Option<ContentId>,
+    pub potion_offer: Option<Potion>,
+    pub relic_offer: Option<Relic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,7 +55,11 @@ pub enum RunAction {
     SkipReward,
     TakeCardReward { card_id: CardId },
     TakeGoldReward,
+    TakePotionReward,
+    TakeRelicReward,
     BuyShopCard { slot: usize },
+    BuyShopRelic,
+    BuyShopPotion,
 }
 
 impl RunState {
@@ -86,6 +91,7 @@ impl RunState {
             reward: None,
             shop: None,
             relics,
+            potions: Vec::new(),
             reward_rng_seed: 0,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
@@ -108,6 +114,7 @@ impl RunState {
             reward: None,
             shop: None,
             relics: Vec::new(),
+            potions: Vec::new(),
             reward_rng_seed: 0,
         }
     }
@@ -134,7 +141,32 @@ impl RunState {
             .ok_or(SimError::InvalidState("reward screen is missing"))?;
 
         match action {
-            RunAction::SkipReward | RunAction::TakeGoldReward => Ok(()),
+            RunAction::SkipReward => Ok(()),
+            RunAction::TakeGoldReward => {
+                if reward.gold_offer > 0 {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction("no gold reward offered"))
+                }
+            }
+            RunAction::TakePotionReward => {
+                if reward.potion_offer.is_none() {
+                    return Err(SimError::IllegalAction("no potion reward offered"));
+                }
+                if self.potions.len() >= MAX_POTIONS {
+                    return Err(SimError::IllegalAction("potion belt is full"));
+                }
+                Ok(())
+            }
+            RunAction::TakeRelicReward => {
+                let Some(relic) = reward.relic_offer else {
+                    return Err(SimError::IllegalAction("no relic reward offered"));
+                };
+                if self.relics.contains(&relic) {
+                    return Err(SimError::IllegalAction("relic already owned"));
+                }
+                Ok(())
+            }
             RunAction::TakeCardReward { card_id } => {
                 if reward.choices.iter().any(|choice| choice.id == card_id) {
                     Ok(())
@@ -142,7 +174,9 @@ impl RunState {
                     Err(SimError::UnknownCard(card_id))
                 }
             }
-            RunAction::BuyShopCard { .. } => Err(SimError::IllegalAction("not a reward action")),
+            RunAction::BuyShopCard { .. } | RunAction::BuyShopRelic | RunAction::BuyShopPotion => {
+                Err(SimError::IllegalAction("not a reward action"))
+            }
         }
     }
 

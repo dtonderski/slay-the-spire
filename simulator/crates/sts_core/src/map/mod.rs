@@ -1,3 +1,5 @@
+pub mod generation;
+
 use crate::{
     error::{SimError, SimResult},
     ids::MapNodeId,
@@ -154,6 +156,8 @@ pub fn milestone8_fixture() -> MapRunState {
         map: milestone8_map(),
     }
 }
+
+pub use generation::{generate_map_placeholder, generated_map_fixture};
 
 #[cfg(test)]
 mod tests {

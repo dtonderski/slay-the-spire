@@ -4,7 +4,8 @@ use sts_core::{
     content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
     legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, MapAction,
-    MapNodeId, RestAction, RoomKind, RunAction, RunPhase, RunState, SimError, SHOP_ANGER_PRICE,
+    MapNodeId, Potion, Relic, RestAction, RoomKind, RunAction, RunPhase, RunState, SimError,
+    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -183,9 +184,15 @@ fn entering_shop_room_exposes_anger_and_blocks_map_actions() {
     assert_eq!(shop.cards.len(), 1);
     assert_eq!(shop.cards[0].price, SHOP_ANGER_PRICE);
     assert_eq!(shop.cards[0].card.content_id, ANGER_ID);
+    let relic = shop.relic.expect("vajra offer");
+    assert_eq!(relic.relic, Relic::Vajra);
+    assert_eq!(relic.price, SHOP_VAJRA_PRICE);
+    let potion = shop.potion.expect("fire potion offer");
+    assert_eq!(potion.potion, Potion::Fire);
+    assert_eq!(potion.price, SHOP_FIRE_POTION_PRICE);
     assert_eq!(
         legal_shop_actions(&run),
-        vec![RunAction::BuyShopCard { slot: 0 }]
+        vec![RunAction::BuyShopCard { slot: 0 }, RunAction::BuyShopPotion,]
     );
     assert!(legal_map_actions_on_run(&run).is_empty());
 }
@@ -209,6 +216,29 @@ fn buy_shop_card_then_map_traversal_continues() {
             node_id: MapNodeId::new(5)
         }]
     );
+}
+
+#[test]
+fn buy_shop_potion_adds_fire_potion_to_belt() {
+    let run = reach_shop_via_left_branch();
+
+    let run = apply_run_action(&run, RunAction::BuyShopPotion).expect("buy potion");
+
+    assert_eq!(run.phase, RunPhase::Idle);
+    assert_eq!(run.potions, vec![Potion::Fire]);
+}
+
+#[test]
+fn buy_shop_relic_adds_vajra_and_applies_on_next_combat() {
+    let mut run = reach_shop_via_left_branch();
+    run.gold = SHOP_VAJRA_PRICE;
+
+    let run = apply_run_action(&run, RunAction::BuyShopRelic).expect("buy vajra");
+
+    assert_eq!(run.phase, RunPhase::Idle);
+    assert_eq!(run.relics, vec![Relic::Vajra]);
+    let combat = run.init_combat(sts_core::CombatState::initial_fixture());
+    assert_eq!(combat.player.powers.strength, VAJRA_STRENGTH);
 }
 
 #[test]
