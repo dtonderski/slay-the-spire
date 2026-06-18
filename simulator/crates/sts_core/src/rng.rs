@@ -17,6 +17,7 @@ pub struct RngDraw {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RngStream {
     Shuffle,
+    RewardCard,
 }
 
 impl SimulatorRng {
@@ -48,6 +49,11 @@ impl SimulatorRng {
             value,
         });
         value
+    }
+
+    #[must_use]
+    pub fn seed_state(&self) -> u64 {
+        self.state
     }
 
     fn next_u64(&mut self) -> u64 {

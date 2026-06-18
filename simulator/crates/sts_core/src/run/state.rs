@@ -24,6 +24,8 @@ pub struct RunState {
     pub shop: Option<super::shop::ShopScreen>,
     #[serde(default)]
     pub relics: Vec<Relic>,
+    #[serde(default)]
+    pub reward_rng_seed: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +43,10 @@ pub const REWARD_GOLD_AMOUNT: i32 = 20;
 pub struct RewardScreen {
     pub choices: Vec<CardInstance>,
     pub gold_offer: i32,
+    /// Placeholder for future potion rewards.
+    pub potion_offer: Option<ContentId>,
+    /// Placeholder for future relic rewards.
+    pub relic_offer: Option<ContentId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +86,7 @@ impl RunState {
             reward: None,
             shop: None,
             relics,
+            reward_rng_seed: 0,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
         run.player_hp = combat.player.hp;
@@ -101,6 +108,7 @@ impl RunState {
             reward: None,
             shop: None,
             relics: Vec::new(),
+            reward_rng_seed: 0,
         }
     }
 

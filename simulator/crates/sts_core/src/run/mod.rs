@@ -10,7 +10,8 @@ pub use rest::{
     REST_HEAL_PERCENT,
 };
 pub use reward::{
-    apply_combat_action_on_run, apply_run_action, enter_reward_screen, fixed_card_reward_choices,
+    apply_combat_action_on_run, apply_run_action, card_reward_choices, enter_reward_screen,
+    fixed_card_reward_choices,
 };
 pub use shop::{
     apply_shop_action, enter_shop_screen, fixed_shop_screen, legal_shop_actions,

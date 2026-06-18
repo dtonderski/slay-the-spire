@@ -1,6 +1,7 @@
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action,
-    content::cards::{ANGER_ID, BASH_ID, STRIKE_R_ID},
+    apply_combat_action_on_run, apply_run_action, card_reward_choices,
+    content::cards::{BASH_ID, STRIKE_R_ID},
+    rng::SimulatorRng,
     CombatAction, RunAction, RunPhase, RunState, SimError, REWARD_GOLD_AMOUNT, STARTING_GOLD,
 };
 
@@ -35,17 +36,29 @@ fn skip_reward_preserves_master_deck_and_gold() {
 }
 
 #[test]
+fn reward_card_choices_are_deterministic_for_seed() {
+    let mut first = SimulatorRng::new(99);
+    let mut second = SimulatorRng::new(99);
+
+    assert_eq!(
+        card_reward_choices(&mut first, 50),
+        card_reward_choices(&mut second, 50)
+    );
+}
+
+#[test]
 fn take_card_reward_appends_selected_card_to_master_deck() {
     let run = win_fixture_combat();
     let deck_len = run.deck.len();
     let chosen = run.reward.as_ref().expect("reward screen").choices[0].id;
+    let chosen_content = run.reward.as_ref().expect("reward screen").choices[0].content_id;
 
     let after =
         apply_run_action(&run, RunAction::TakeCardReward { card_id: chosen }).expect("take reward");
 
     assert_eq!(after.deck.len(), deck_len + 1);
     assert!(after.deck.iter().any(|card| card.id == chosen));
-    assert_eq!(after.count_content_in_deck(ANGER_ID), 1);
+    assert_eq!(after.count_content_in_deck(chosen_content), 1);
 }
 
 #[test]
