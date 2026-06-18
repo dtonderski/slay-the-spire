@@ -5,7 +5,7 @@ use crate::{
     ids::{CardId, ContentId, MonsterId},
     map::{milestone8_fixture, MapRunState},
     potion::{Potion, MAX_POTIONS},
-    relic::{apply_start_of_combat_relics, Relic},
+    relic::{apply_start_of_combat_relics, Relic, STRAWBERRY_MAX_HP},
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
@@ -137,6 +137,17 @@ impl RunState {
             .max()
             .unwrap_or(0)
             + 1
+    }
+
+    pub fn gain_relic(&mut self, relic: Relic) {
+        self.relics.push(relic);
+        match relic {
+            Relic::Strawberry => {
+                self.player_max_hp += STRAWBERRY_MAX_HP;
+                self.player_hp += STRAWBERRY_MAX_HP;
+            }
+            Relic::Vajra | Relic::OddlySmoothStone => {}
+        }
     }
 
     pub fn validate_reward_action(&self, action: RunAction) -> SimResult<()> {

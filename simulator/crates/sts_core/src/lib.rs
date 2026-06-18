@@ -39,7 +39,7 @@ pub use potion::{Potion, FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS};
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
     apply_start_of_combat_relics, Relic, ODDLY_SMOOTH_STONE_DEXTERITY, ODDLY_SMOOTH_STONE_ID,
-    VAJRA_ID, VAJRA_STRENGTH,
+    STRAWBERRY_ID, STRAWBERRY_MAX_HP, VAJRA_ID, VAJRA_STRENGTH,
 };
 pub use rng::{RngDraw, RngStream, SimulatorRng};
 pub use run::{
