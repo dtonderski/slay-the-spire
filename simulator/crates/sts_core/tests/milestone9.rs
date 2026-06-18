@@ -241,7 +241,7 @@ fn fire_potion_deals_twenty_damage_and_is_consumed() {
         &run,
         RunAction::UsePotion {
             slot: 0,
-            target: monster_id,
+            target: Some(monster_id),
         },
     )
     .expect("use fire potion");
@@ -263,7 +263,7 @@ fn lethal_fire_potion_enters_reward_phase() {
         &run,
         RunAction::UsePotion {
             slot: 0,
-            target: monster_id,
+            target: Some(monster_id),
         },
     )
     .expect("use lethal fire potion");
