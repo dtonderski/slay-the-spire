@@ -14,7 +14,7 @@ use crate::{
         SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
         TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
-    content::monsters::{get_monster_definition, wake_lagavulin_on_damage},
+    content::monsters::{check_slime_boss_split, get_monster_definition, wake_lagavulin_on_damage},
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
     rng::SimulatorRng,
@@ -677,11 +677,15 @@ fn apply_internal_action(
         InternalAction::DealDamage { info } => {
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
-            let monster = living_monster_mut(state, info.target)?;
-            let spikes = monster.powers.spikes;
-            deal_damage_info_to_monster(monster, info, player_powers, temp_strength);
-            wake_lagavulin_on_damage(monster);
-            if monster.alive && spikes > 0 {
+            let (spikes, still_alive) = {
+                let monster = living_monster_mut(state, info.target)?;
+                let spikes = monster.powers.spikes;
+                deal_damage_info_to_monster(monster, info, player_powers, temp_strength);
+                wake_lagavulin_on_damage(monster);
+                (spikes, monster.alive)
+            };
+            check_slime_boss_split(state, info.target);
+            if still_alive && spikes > 0 {
                 reflect_spikes_to_player(&mut state.player, spikes);
             }
             Ok(Vec::new())
@@ -696,19 +700,23 @@ fn apply_internal_action(
                 .map(|monster| (monster.id, monster.powers.spikes))
                 .collect();
             for (target, spikes) in targets {
-                let monster = living_monster_mut(state, target)?;
-                deal_damage_info_to_monster(
-                    monster,
-                    DamageInfo {
-                        source: DamageSource::Card(source),
-                        target,
-                        amount,
-                    },
-                    player_powers,
-                    temp_strength,
-                );
-                wake_lagavulin_on_damage(monster);
-                if monster.alive && spikes > 0 {
+                let still_alive = {
+                    let monster = living_monster_mut(state, target)?;
+                    deal_damage_info_to_monster(
+                        monster,
+                        DamageInfo {
+                            source: DamageSource::Card(source),
+                            target,
+                            amount,
+                        },
+                        player_powers,
+                        temp_strength,
+                    );
+                    wake_lagavulin_on_damage(monster);
+                    monster.alive
+                };
+                check_slime_boss_split(state, target);
+                if still_alive && spikes > 0 {
                     reflect_spikes_to_player(&mut state.player, spikes);
                 }
             }

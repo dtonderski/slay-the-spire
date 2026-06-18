@@ -18,6 +18,7 @@ pub const ACID_SLIME_ID: ContentId = ContentId::new(107);
 pub const LAGAVULIN_ID: ContentId = ContentId::new(108);
 pub const SENTRY_ID: ContentId = ContentId::new(109);
 pub const HEXAGHOST_ID: ContentId = ContentId::new(110);
+pub const SLIME_BOSS_ID: ContentId = ContentId::new(111);
 
 const RED_LOUSE_CURL_BLOCK: i32 = 3;
 const RED_LOUSE_BITE_DAMAGE: i32 = 6;
@@ -46,6 +47,9 @@ const HEXAGHOST_TACKLE_DAMAGE: i32 = 5;
 const HEXAGHOST_TACKLE_HITS: i32 = 6;
 const HEXAGHOST_INFERNO_BURNS: i32 = 3;
 const HEXAGHOST_INFERNO_DAMAGE: i32 = 2;
+
+const SLIME_BOSS_SLAM_DAMAGE: i32 = 35;
+const SLIME_BOSS_SPLIT_HP_THRESHOLD: i32 = 70;
 
 const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
@@ -179,6 +183,18 @@ pub const HEXAGHOST_A0: MonsterDefinition = MonsterDefinition {
     starting_sleep_turns: 0,
 };
 
+/// Act 1 Slime Boss at ascension 0: 140 HP, slams for 35, splits into acid slimes at 50% HP.
+pub const SLIME_BOSS_A0: MonsterDefinition = MonsterDefinition {
+    content_id: SLIME_BOSS_ID,
+    name: "Slime Boss",
+    hp: 140,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+};
+
 /// Act 1 Spike Slime at ascension 0: 14 HP, Lick (weak) / Spit (attack) cycle.
 pub const SPIKE_SLIME_A0: MonsterDefinition = MonsterDefinition {
     content_id: SPIKE_SLIME_ID,
@@ -217,6 +233,7 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         LAGAVULIN_ID => Some(&LAGAVULIN_A0),
         SENTRY_ID => Some(&SENTRY_A0),
         HEXAGHOST_ID => Some(&HEXAGHOST_A0),
+        SLIME_BOSS_ID => Some(&SLIME_BOSS_A0),
         _ => None,
     }
 }
@@ -236,6 +253,7 @@ pub fn monster_state(definition: &MonsterDefinition, id: MonsterId) -> MonsterSt
         moves_executed: 0,
         sleep_turns_remaining: definition.starting_sleep_turns,
         has_siphoned: false,
+        split_triggered: false,
         intent: prepare_monster_intent_for_monster(
             definition,
             0,
@@ -286,6 +304,7 @@ pub fn prepare_monster_intent_for(
         ACID_SLIME_ID => acid_slime_intent(moves_executed),
         SENTRY_ID => sentry_intent(moves_executed),
         HEXAGHOST_ID => hexaghost_intent(moves_executed),
+        SLIME_BOSS_ID => slime_boss_intent(),
         _ => MonsterIntent::Attack {
             damage: definition.attack_damage,
         },
@@ -354,6 +373,13 @@ fn sentry_intent(moves_executed: u32) -> MonsterIntent {
 }
 
 #[must_use]
+fn slime_boss_intent() -> MonsterIntent {
+    MonsterIntent::Attack {
+        damage: SLIME_BOSS_SLAM_DAMAGE,
+    }
+}
+
+#[must_use]
 fn hexaghost_intent(moves_executed: u32) -> MonsterIntent {
     match moves_executed % 3 {
         0 => MonsterIntent::AttackMultiple {
@@ -393,6 +419,49 @@ pub fn wake_lagavulin_on_damage(monster: &mut MonsterState) {
         monster.sleep_turns_remaining = 0;
         monster.intent = lagavulin_intent(monster.sleep_turns_remaining, monster.has_siphoned);
     }
+}
+
+/// Spawns acid slimes when the Slime Boss crosses its split threshold.
+pub fn check_slime_boss_split(state: &mut crate::CombatState, monster_id: MonsterId) {
+    let should_split = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == monster_id)
+        .is_some_and(|monster| {
+            monster.content_id == SLIME_BOSS_ID
+                && monster.alive
+                && !monster.split_triggered
+                && monster.hp <= SLIME_BOSS_SPLIT_HP_THRESHOLD
+        });
+
+    if !should_split {
+        return;
+    }
+
+    let next_monster_id = state
+        .monsters
+        .iter()
+        .map(|monster| monster.id.get())
+        .max()
+        .unwrap_or(0)
+        + 1;
+
+    if let Some(boss) = state
+        .monsters
+        .iter_mut()
+        .find(|monster| monster.id == monster_id)
+    {
+        boss.split_triggered = true;
+    }
+
+    state.monsters.push(monster_state(
+        &ACID_SLIME_A0,
+        MonsterId::new(next_monster_id),
+    ));
+    state.monsters.push(monster_state(
+        &ACID_SLIME_A0,
+        MonsterId::new(next_monster_id + 1),
+    ));
 }
 
 /// Deterministic Gremlin Nob move cycle: Bite → Skull Bash → Rush, keyed on `moves_executed`.
@@ -1111,5 +1180,18 @@ mod tests {
             .discard_pile
             .iter()
             .all(|card| card.content_id == BURN_ID));
+    }
+
+    #[test]
+    fn slime_boss_has_one_hundred_forty_hp_and_slam_intent() {
+        let monster = monster_state(&SLIME_BOSS_A0, MonsterId::new(1));
+
+        assert_eq!(SLIME_BOSS_A0.hp, 140);
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::Attack {
+                damage: SLIME_BOSS_SLAM_DAMAGE
+            }
+        );
     }
 }

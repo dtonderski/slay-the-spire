@@ -5,7 +5,7 @@ use crate::{
     content::monsters::{
         monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0,
         GREMLIN_NOB_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0,
-        SPIKE_SLIME_A0,
+        SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -49,6 +49,8 @@ pub struct MonsterState {
     pub sleep_turns_remaining: u32,
     #[serde(default)]
     pub has_siphoned: bool,
+    #[serde(default)]
+    pub split_triggered: bool,
     pub intent: MonsterIntent,
 }
 
@@ -182,6 +184,13 @@ impl CombatState {
     pub fn hexaghost_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&HEXAGHOST_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn slime_boss_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&SLIME_BOSS_A0, MonsterId::new(1))];
         state
     }
 

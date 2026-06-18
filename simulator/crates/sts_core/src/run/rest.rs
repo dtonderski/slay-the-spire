@@ -17,6 +17,7 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
 
     let mut actions = vec![RestAction::Heal];
     for card in &run.deck {
+        actions.push(RestAction::RemoveCard { card_id: card.id });
         if upgrade_content_id(card.content_id).is_some() {
             actions.push(RestAction::Smith { card_id: card.id });
         }
@@ -42,6 +43,13 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
                 Ok(())
             } else {
                 Err(SimError::IllegalAction("card cannot be upgraded"))
+            }
+        }
+        RestAction::RemoveCard { card_id } => {
+            if run.deck.iter().any(|card| card.id == card_id) {
+                Ok(())
+            } else {
+                Err(SimError::UnknownCard(card_id))
             }
         }
     }
@@ -70,6 +78,10 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     break;
                 }
             }
+            next.phase = RunPhase::Idle;
+        }
+        RestAction::RemoveCard { card_id } => {
+            next.deck.retain(|card| card.id != card_id);
             next.phase = RunPhase::Idle;
         }
     }
@@ -198,10 +210,40 @@ mod tests {
 
         let mut expected = vec![RestAction::Heal];
         for card in &run.deck {
+            expected.push(RestAction::RemoveCard { card_id: card.id });
             if upgrade_content_id(card.content_id).is_some() {
                 expected.push(RestAction::Smith { card_id: card.id });
             }
         }
         assert_eq!(legal_rest_actions(&run), expected);
+    }
+
+    #[test]
+    fn remove_card_drops_card_from_master_deck() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        let strike_id = run.deck[0].id;
+        let starting_len = run.deck.len();
+
+        let after = apply_rest_action(&run, RestAction::RemoveCard { card_id: strike_id })
+            .expect("remove applies");
+
+        assert_eq!(after.deck.len(), starting_len - 1);
+        assert!(!after.deck.iter().any(|card| card.id == strike_id));
+        assert_eq!(after.phase, RunPhase::Idle);
+    }
+
+    #[test]
+    fn remove_card_is_illegal_outside_rest_phase() {
+        let run = RunState::map_fixture();
+        let strike_id = run.deck[0].id;
+
+        let err = apply_rest_action(&run, RestAction::RemoveCard { card_id: strike_id })
+            .expect_err("not at rest");
+
+        assert_eq!(
+            err,
+            SimError::IllegalAction("rest actions require rest phase")
+        );
     }
 }

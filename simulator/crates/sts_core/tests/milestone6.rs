@@ -3,7 +3,7 @@ use sts_core::{
     content::cards::{BURN_ID, DAZED_ID, DEFEND_R_ID},
     content::monsters::{
         ACID_SLIME_A0, CULTIST_A0, GREEN_LOUSE_A0, GREMLIN_NOB_A0, HEXAGHOST_A0, JAW_WORM_A0,
-        LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0, SPIKE_SLIME_A0,
+        LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     end_player_turn, CardId, CombatAction, CombatState, MonsterId, MonsterIntent,
 };
@@ -485,6 +485,38 @@ fn hexaghost_combat_executes_divider_tackle_inferno_cycle() {
         after_inferno.monsters[0].intent,
         MonsterIntent::AttackMultiple { damage: 6, hits: 2 }
     );
+}
+
+#[test]
+fn slime_boss_fixture_has_expected_hp_and_slam_intent() {
+    let state = CombatState::slime_boss_fixture();
+
+    assert_eq!(state.monsters[0].hp, SLIME_BOSS_A0.hp);
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::Attack { damage: 35 }
+    );
+}
+
+#[test]
+fn slime_boss_splits_into_acid_slimes_at_half_hp() {
+    let mut state = CombatState::slime_boss_fixture();
+    state.monsters[0].hp = 71;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: hand_strike_id(&state),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Strike applies");
+
+    assert_eq!(next.monsters[0].hp, 65);
+    assert!(next.monsters[0].split_triggered);
+    assert_eq!(next.monsters.len(), 3);
+    assert_eq!(next.monsters[1].content_id, ACID_SLIME_A0.content_id);
+    assert_eq!(next.monsters[2].content_id, ACID_SLIME_A0.content_id);
 }
 
 fn hand_strike_id(state: &CombatState) -> CardId {

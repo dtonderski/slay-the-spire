@@ -65,6 +65,7 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
     );
     let mut expected = vec![RestAction::Heal];
     for card in &run.deck {
+        expected.push(RestAction::RemoveCard { card_id: card.id });
         if sts_core::content::cards::upgrade_content_id(card.content_id).is_some() {
             expected.push(RestAction::Smith { card_id: card.id });
         }
@@ -220,4 +221,31 @@ fn buy_shop_card_is_illegal_outside_shop_phase() {
         err,
         SimError::IllegalAction("shop actions require shop phase")
     );
+}
+
+#[test]
+fn remove_card_at_rest_drops_strike_from_deck() {
+    let mut run = RunState::map_fixture();
+    run = apply_map_action_on_run(
+        &run,
+        MapAction::ChooseNode {
+            node_id: MapNodeId::new(2),
+        },
+    )
+    .expect("enter rest");
+    let strike_id = run
+        .deck
+        .iter()
+        .find(|card| card.content_id == STRIKE_R_ID)
+        .expect("strike in deck")
+        .id;
+    let deck_len_before = run.deck.len();
+
+    let after = apply_rest_action(&run, RestAction::RemoveCard { card_id: strike_id })
+        .expect("remove applies");
+
+    assert_eq!(after.deck.len(), deck_len_before - 1);
+    assert!(!after.deck.iter().any(|card| card.id == strike_id));
+    assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
+    assert_eq!(after.phase, RunPhase::Idle);
 }

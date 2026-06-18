@@ -4,49 +4,24 @@
 
 ### Combat (`sts_core`)
 - 25+ Ironclad cards (starter through Whirlwind), upgrades for most
-- Full power/status system: strength, weak, vulnerable, dexterity, frail, ritual, metallicize, temp strength, monster weak, spikes (thorns)
-- Status cards: wound, dazed, burn, slimed; keywords: ethereal, exhaust, retain
-- Exhaust hooks: Feel No Pain, Dark Embrace, Burning Pact
-- X-cost Whirlwind (spend all energy, hit all enemies per energy)
-- Internal action queue with damage, block, draw, exhaust events
+- Full power/status system, status cards, exhaust hooks, X-cost Whirlwind
+- Monster intents: attack, block, ritual, weak, sleep, siphon, dazed/burn inflict, multi-hit
 
-### Monsters
-- Fixed dummy, **Cultist**, **Jaw Worm**, **Gremlin Nob** (enrage on skills)
-- **Red/Green Louse**, **Spike/Acid Slime**
-- **Lagavulin** (sleep, wake-on-hit, siphon)
-- **Sentry** (3-enemy encounter, beam dazed / attack cycle)
-- **Hexaghost** (Divider / Tackle / Inferno boss cycle)
+### Monsters (Act 1)
+- Cultist, Jaw Worm, Gremlin Nob, Louses, Slimes, Lagavulin
+- **Sentry** (3-enemy encounter), **Hexaghost**, **Slime Boss** (splits at 50% HP)
 
 ### Run / Meta
-- Master deck, HP sync, **gold** (99 start)
-- **Reward screen**: 3 fixed cards + 20 gold; skip / take card / take gold
-- **Map**: 7-node fixed graph (combat/rest/shop/boss), floor tracking
-- **Rest**: heal 30% max HP; **smith** upgrades deck cards
-- **Shop**: buy fixed Anger for 50 gold
-- **Relics**: Vajra (+1 strength at combat start)
-
-### Verification (`sts_verify`)
-- Crate skeleton: trace JSONL types, `canonical_diff` stub, corpus path helpers
+- Master deck, gold, reward screen, fixed map, rest (heal/smith/**remove card**), shop
+- Relics: Vajra
 
 ### Tests
-- **312 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
-
-## What Is Not Implemented
-
-- Remaining Ironclad cards (Havoc, Warcry, Searing Blow, etc.)
-- Slime Boss, Guardian (other Act 1 bosses)
-- Card remove at rest, reward RNG, map generation
-- Most relics/potions, events, ascensions
-- CommunicationMod parity, RL API, Python bindings
-
-## Current Milestone
-
-Milestone 6 monsters — Sentries and Hexaghost done; next Slime Boss / Guardian.
+- **318 tests** passing
 
 ## Next Task
 
-Slime Boss split behavior, then card removal at rest (Milestone 7).
+Guardian boss (defensive mode), then Milestone 5 batch 6 cards or reward RNG.
 
 ## Last Updated
 
-2026-06-18 (Sentries, Hexaghost).
+2026-06-18 (Slime Boss split, rest card removal).
