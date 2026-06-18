@@ -18,14 +18,15 @@
 - Energy relic: Coffee Dripper energy per turn and rest restriction
 - Start-combat relic: Anchor block
 - On-card-play relic: Ink Bottle draw after 10 cards
+- Damage/block relic: Ornamental Fan block every 3 attacks per turn
 
 ### Tests
-- **408 tests** passing
+- **414 tests** passing
 
 ## Next Task
 
-Milestone 10: damage/block relics.
+Milestone 10: complex stateful relics.
 
 ## Last Updated
 
-2026-06-18 (Ink Bottle on-card-play relic).
+2026-06-18 (Ornamental Fan relic).

@@ -3,7 +3,8 @@ use sts_core::{
     content::cards::{DEFEND_R_ID, STRIKE_R_ID},
     end_player_turn, legal_rest_actions, CardId, CardInstance, CombatAction, Relic, RestAction,
     RunAction, RunPhase, RunState, ANCHOR_BLOCK, BASE_PLAYER_ENERGY, COFFEE_DRIPPER_ENERGY,
-    INK_BOTTLE_THRESHOLD, ODDLY_SMOOTH_STONE_DEXTERITY, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
+    INK_BOTTLE_THRESHOLD, ODDLY_SMOOTH_STONE_DEXTERITY, ORNAMENTAL_FAN_BLOCK,
+    ORNAMENTAL_FAN_THRESHOLD, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
 };
 
 #[test]
@@ -160,6 +161,75 @@ fn ink_bottle_counters_round_trip_through_combat_json() {
 
     assert_eq!(restored.relics, vec![Relic::InkBottle]);
     assert_eq!(restored.relic_counters.ink_bottle_cards_played, 4);
+}
+
+#[test]
+fn ornamental_fan_grants_block_after_three_attacks_in_turn() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::OrnamentalFan]);
+    let mut combat = run.combat.expect("combat initialized");
+    combat.player.energy = 10;
+    combat.monsters[0].hp = 100;
+    for index in 0..2 {
+        combat
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(200 + index), STRIKE_R_ID));
+    }
+    let monster_id = combat.monsters[0].id;
+
+    for index in 0..2 {
+        let strike_id = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == STRIKE_R_ID)
+            .expect("strike in hand")
+            .id;
+        combat = apply_combat_action(
+            &combat,
+            CombatAction::PlayCard {
+                card_id: strike_id,
+                target: Some(monster_id),
+            },
+        )
+        .expect("strike applies");
+        assert_eq!(
+            combat.relic_counters.ornamental_fan_attacks_this_turn,
+            index + 1
+        );
+        assert_eq!(combat.player.block, 0);
+    }
+
+    let strike_id = combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.content_id == STRIKE_R_ID)
+        .expect("strike in hand")
+        .id;
+    let next = apply_combat_action(
+        &combat,
+        CombatAction::PlayCard {
+            card_id: strike_id,
+            target: Some(monster_id),
+        },
+    )
+    .expect("third strike triggers ornamental fan");
+
+    assert_eq!(next.player.block, ORNAMENTAL_FAN_BLOCK);
+    assert_eq!(next.relic_counters.ornamental_fan_attacks_this_turn, 0);
+}
+
+#[test]
+fn ornamental_fan_attack_counter_resets_on_new_turn() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::OrnamentalFan]);
+    let mut combat = run.combat.expect("combat initialized");
+    combat.relic_counters.ornamental_fan_attacks_this_turn = 2;
+    combat.piles.draw_pile.clear();
+
+    let next = end_player_turn(&combat);
+
+    assert_eq!(next.relic_counters.ornamental_fan_attacks_this_turn, 0);
 }
 
 #[test]

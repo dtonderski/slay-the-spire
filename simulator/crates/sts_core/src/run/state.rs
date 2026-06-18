@@ -161,7 +161,11 @@ impl RunState {
             Relic::CoffeeDripper => {
                 self.energy_per_turn += COFFEE_DRIPPER_ENERGY;
             }
-            Relic::Vajra | Relic::OddlySmoothStone | Relic::Anchor | Relic::InkBottle => {}
+            Relic::Vajra
+            | Relic::OddlySmoothStone
+            | Relic::Anchor
+            | Relic::InkBottle
+            | Relic::OrnamentalFan => {}
         }
     }
 
