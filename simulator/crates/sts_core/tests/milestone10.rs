@@ -1,8 +1,8 @@
 use sts_core::{
     apply_combat_action_on_run, apply_rest_action, apply_run_action, content::cards::STRIKE_R_ID,
     end_player_turn, legal_rest_actions, CombatAction, Relic, RestAction, RunAction, RunPhase,
-    RunState, BASE_PLAYER_ENERGY, COFFEE_DRIPPER_ENERGY, ODDLY_SMOOTH_STONE_DEXTERITY,
-    STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
+    RunState, ANCHOR_BLOCK, BASE_PLAYER_ENERGY, COFFEE_DRIPPER_ENERGY,
+    ODDLY_SMOOTH_STONE_DEXTERITY, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
 };
 
 #[test]
@@ -55,6 +55,38 @@ fn oddly_smooth_stone_grants_dexterity_when_combat_starts_from_run() {
     let combat = run.combat.expect("combat initialized");
 
     assert_eq!(combat.player.powers.dexterity, ODDLY_SMOOTH_STONE_DEXTERITY);
+}
+
+#[test]
+fn anchor_grants_block_when_combat_starts_from_run() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::Anchor]);
+    let combat = run.combat.expect("combat initialized");
+
+    assert_eq!(combat.player.block, ANCHOR_BLOCK);
+}
+
+#[test]
+fn anchor_block_stacks_with_defend() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::Anchor]);
+    let combat = run.combat.expect("combat initialized");
+    let defend_id = combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.content_id == sts_core::content::cards::DEFEND_R_ID)
+        .expect("defend in hand")
+        .id;
+
+    let next = sts_core::apply_combat_action(
+        &combat,
+        CombatAction::PlayCard {
+            card_id: defend_id,
+            target: None,
+        },
+    )
+    .expect("defend applies");
+
+    assert_eq!(next.player.block, ANCHOR_BLOCK + 5);
 }
 
 #[test]
