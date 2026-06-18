@@ -16,6 +16,7 @@ pub struct RngDraw {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RngStream {
+    Event,
     MapRoom,
     RewardCard,
     RewardRarity,
