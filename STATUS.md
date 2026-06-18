@@ -12,42 +12,41 @@
 
 ### Monsters
 - Fixed dummy, **Cultist**, **Jaw Worm**, **Gremlin Nob** (enrage on skills)
-- **Red Louse** (curl/bite), **Green Louse** (curl/bite + spikes 3)
-- **Spike Slime** (lick weak / spit attack), **Acid Slime (S)** (attack / apply weak)
-- **Lagavulin** (3-turn sleep, wake on hit, siphon −2 str/dex, 18-damage attacks)
+- **Red/Green Louse**, **Spike/Acid Slime**
+- **Lagavulin** (sleep, wake-on-hit, siphon)
+- **Sentry** (3-enemy encounter, beam dazed / attack cycle)
+- **Hexaghost** (Divider / Tackle / Inferno boss cycle)
 
 ### Run / Meta
 - Master deck, HP sync, **gold** (99 start)
 - **Reward screen**: 3 fixed cards + 20 gold; skip / take card / take gold
 - **Map**: 7-node fixed graph (combat/rest/shop/boss), floor tracking
-- **Rest**: heal 30% max HP; **smith** upgrades deck cards (e.g. Strike_R → Strike_R+)
+- **Rest**: heal 30% max HP; **smith** upgrades deck cards
 - **Shop**: buy fixed Anger for 50 gold
 - **Relics**: Vajra (+1 strength at combat start)
 
 ### Verification (`sts_verify`)
 - Crate skeleton: trace JSONL types, `canonical_diff` stub, corpus path helpers
-- Integration test loads `verification/corpus/manual/milestone1.jsonl` when present
 
 ### Tests
-- milestone1 golden replay, milestone6 monsters, milestone7 rewards, milestone8 map, milestone9 rest+shop, milestone10 relics
-- **301 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
+- **312 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
 
 ## What Is Not Implemented
 
 - Remaining Ironclad cards (Havoc, Warcry, Searing Blow, etc.)
-- Sentries, Act 1 bosses
+- Slime Boss, Guardian (other Act 1 bosses)
 - Card remove at rest, reward RNG, map generation
 - Most relics/potions, events, ascensions
 - CommunicationMod parity, RL API, Python bindings
 
 ## Current Milestone
 
-Milestone 6 monsters — Lagavulin done; next is Sentries.
+Milestone 6 monsters — Sentries and Hexaghost done; next Slime Boss / Guardian.
 
 ## Next Task
 
-Sentries (per TASKS.md Milestone 6).
+Slime Boss split behavior, then card removal at rest (Milestone 7).
 
 ## Last Updated
 
-2026-06-18 (Lagavulin).
+2026-06-18 (Sentries, Hexaghost).

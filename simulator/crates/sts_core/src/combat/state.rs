@@ -4,7 +4,8 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0,
-        GREMLIN_NOB_A0, JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0, SPIKE_SLIME_A0,
+        GREMLIN_NOB_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0,
+        SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -77,6 +78,9 @@ pub enum MonsterIntent {
     ApplyPlayerWeak { amount: i32 },
     Sleep,
     SiphonPlayer { strength: i32, dexterity: i32 },
+    AddDazedToDiscard { count: i32 },
+    AddBurnToDiscard { count: i32, damage: i32 },
+    AttackMultiple { damage: i32, hits: i32 },
 }
 
 impl CombatState {
@@ -160,6 +164,24 @@ impl CombatState {
     pub fn lagavulin_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&LAGAVULIN_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn sentry_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![
+            monster_state(&SENTRY_A0, MonsterId::new(1)),
+            monster_state(&SENTRY_A0, MonsterId::new(2)),
+            monster_state(&SENTRY_A0, MonsterId::new(3)),
+        ];
+        state
+    }
+
+    #[must_use]
+    pub fn hexaghost_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&HEXAGHOST_A0, MonsterId::new(1))];
         state
     }
 

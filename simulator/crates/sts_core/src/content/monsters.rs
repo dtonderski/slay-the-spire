@@ -1,6 +1,8 @@
 use crate::{
+    combat::piles::add_cards_to_discard,
     combat::turn_powers::monster_attack_damage,
-    combat::{MonsterIntent, MonsterState},
+    combat::{CardPiles, MonsterIntent, MonsterState},
+    content::cards::{BURN_ID, DAZED_ID},
     ids::{ContentId, MonsterId},
     power::MonsterPowers,
 };
@@ -14,6 +16,8 @@ pub const GREEN_LOUSE_ID: ContentId = ContentId::new(105);
 pub const SPIKE_SLIME_ID: ContentId = ContentId::new(106);
 pub const ACID_SLIME_ID: ContentId = ContentId::new(107);
 pub const LAGAVULIN_ID: ContentId = ContentId::new(108);
+pub const SENTRY_ID: ContentId = ContentId::new(109);
+pub const HEXAGHOST_ID: ContentId = ContentId::new(110);
 
 const RED_LOUSE_CURL_BLOCK: i32 = 3;
 const RED_LOUSE_BITE_DAMAGE: i32 = 6;
@@ -32,6 +36,16 @@ const LAGAVULIN_SLEEP_TURNS: u32 = 3;
 const LAGAVULIN_SIPHON_STRENGTH: i32 = 2;
 const LAGAVULIN_SIPHON_DEXTERITY: i32 = 2;
 const LAGAVULIN_ATTACK_DAMAGE: i32 = 18;
+
+const SENTRY_BEAM_DAZED: i32 = 2;
+const SENTRY_ATTACK_DAMAGE: i32 = 6;
+
+const HEXAGHOST_DIVIDER_DAMAGE: i32 = 6;
+const HEXAGHOST_DIVIDER_HITS: i32 = 2;
+const HEXAGHOST_TACKLE_DAMAGE: i32 = 5;
+const HEXAGHOST_TACKLE_HITS: i32 = 6;
+const HEXAGHOST_INFERNO_BURNS: i32 = 3;
+const HEXAGHOST_INFERNO_DAMAGE: i32 = 2;
 
 const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
@@ -141,6 +155,30 @@ pub const LAGAVULIN_A0: MonsterDefinition = MonsterDefinition {
     starting_sleep_turns: LAGAVULIN_SLEEP_TURNS,
 };
 
+/// Act 1 Sentry at ascension 0: 40 HP, Beam / Attack / Attack cycle.
+pub const SENTRY_A0: MonsterDefinition = MonsterDefinition {
+    content_id: SENTRY_ID,
+    name: "Sentry",
+    hp: 40,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+};
+
+/// Act 1 Hexaghost at ascension 0: 250 HP, Divider / Tackle / Inferno cycle.
+pub const HEXAGHOST_A0: MonsterDefinition = MonsterDefinition {
+    content_id: HEXAGHOST_ID,
+    name: "Hexaghost",
+    hp: 250,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+};
+
 /// Act 1 Spike Slime at ascension 0: 14 HP, Lick (weak) / Spit (attack) cycle.
 pub const SPIKE_SLIME_A0: MonsterDefinition = MonsterDefinition {
     content_id: SPIKE_SLIME_ID,
@@ -177,6 +215,8 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         SPIKE_SLIME_ID => Some(&SPIKE_SLIME_A0),
         ACID_SLIME_ID => Some(&ACID_SLIME_A0),
         LAGAVULIN_ID => Some(&LAGAVULIN_A0),
+        SENTRY_ID => Some(&SENTRY_A0),
+        HEXAGHOST_ID => Some(&HEXAGHOST_A0),
         _ => None,
     }
 }
@@ -244,6 +284,8 @@ pub fn prepare_monster_intent_for(
         GREEN_LOUSE_ID => green_louse_intent(moves_executed),
         SPIKE_SLIME_ID => spike_slime_intent(moves_executed),
         ACID_SLIME_ID => acid_slime_intent(moves_executed),
+        SENTRY_ID => sentry_intent(moves_executed),
+        HEXAGHOST_ID => hexaghost_intent(moves_executed),
         _ => MonsterIntent::Attack {
             damage: definition.attack_damage,
         },
@@ -295,6 +337,36 @@ fn acid_slime_intent(moves_executed: u32) -> MonsterIntent {
         },
         _ => MonsterIntent::ApplyPlayerWeak {
             amount: ACID_SLIME_WEAK,
+        },
+    }
+}
+
+#[must_use]
+fn sentry_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 3 {
+        0 => MonsterIntent::AddDazedToDiscard {
+            count: SENTRY_BEAM_DAZED,
+        },
+        _ => MonsterIntent::Attack {
+            damage: SENTRY_ATTACK_DAMAGE,
+        },
+    }
+}
+
+#[must_use]
+fn hexaghost_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 3 {
+        0 => MonsterIntent::AttackMultiple {
+            damage: HEXAGHOST_DIVIDER_DAMAGE,
+            hits: HEXAGHOST_DIVIDER_HITS,
+        },
+        1 => MonsterIntent::AttackMultiple {
+            damage: HEXAGHOST_TACKLE_DAMAGE,
+            hits: HEXAGHOST_TACKLE_HITS,
+        },
+        _ => MonsterIntent::AddBurnToDiscard {
+            count: HEXAGHOST_INFERNO_BURNS,
+            damage: HEXAGHOST_INFERNO_DAMAGE,
         },
     }
 }
@@ -358,7 +430,11 @@ fn jaw_worm_intent(moves_executed: u32) -> MonsterIntent {
 }
 
 /// Execute the monster's current intent and return player damage dealt this turn.
-pub fn apply_monster_intent(monster: &mut MonsterState, player: &mut crate::PlayerState) -> i32 {
+pub fn apply_monster_intent(
+    monster: &mut MonsterState,
+    player: &mut crate::PlayerState,
+    piles: &mut CardPiles,
+) -> i32 {
     let damage = match monster.intent {
         MonsterIntent::Attack { damage } => monster_attack_damage(monster, damage),
         MonsterIntent::Block { block } => {
@@ -397,6 +473,18 @@ pub fn apply_monster_intent(monster: &mut MonsterState, player: &mut crate::Play
             monster.has_siphoned = true;
             0
         }
+        MonsterIntent::AddDazedToDiscard { count } => {
+            add_cards_to_discard(piles, DAZED_ID, count);
+            0
+        }
+        MonsterIntent::AddBurnToDiscard { count, damage } => {
+            add_cards_to_discard(piles, BURN_ID, count);
+            monster_attack_damage(monster, damage)
+        }
+        MonsterIntent::AttackMultiple { damage, hits } => {
+            let hit_damage = monster_attack_damage(monster, damage);
+            hit_damage * hits
+        }
     };
     monster.moves_executed += 1;
     damage
@@ -419,9 +507,19 @@ mod tests {
         }
     }
 
+    fn dummy_piles() -> CardPiles {
+        CardPiles {
+            hand: Vec::new(),
+            draw_pile: Vec::new(),
+            discard_pile: Vec::new(),
+            exhaust_pile: Vec::new(),
+        }
+    }
+
     fn apply_intent(monster: &mut MonsterState) -> i32 {
         let mut player = dummy_player();
-        apply_monster_intent(monster, &mut player)
+        let mut piles = dummy_piles();
+        apply_monster_intent(monster, &mut player, &mut piles)
     }
 
     #[test]
@@ -762,8 +860,12 @@ mod tests {
             amount: SPIKE_SLIME_LICK_WEAK,
         };
         let mut player = dummy_player();
+        let mut piles = dummy_piles();
 
-        assert_eq!(apply_monster_intent(&mut monster, &mut player), 0);
+        assert_eq!(
+            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            0
+        );
         assert_eq!(player.powers.weak, 1);
     }
 
@@ -793,8 +895,12 @@ mod tests {
             amount: ACID_SLIME_WEAK,
         };
         let mut player = dummy_player();
+        let mut piles = dummy_piles();
 
-        assert_eq!(apply_monster_intent(&mut monster, &mut player), 0);
+        assert_eq!(
+            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            0
+        );
         assert_eq!(player.powers.weak, 1);
     }
 
@@ -850,8 +956,12 @@ mod tests {
         let mut player = dummy_player();
         player.powers.strength = 3;
         player.powers.dexterity = 2;
+        let mut piles = dummy_piles();
 
-        assert_eq!(apply_monster_intent(&mut monster, &mut player), 0);
+        assert_eq!(
+            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            0
+        );
         assert_eq!(player.powers.strength, 1);
         assert_eq!(player.powers.dexterity, 0);
         assert!(monster.has_siphoned);
@@ -871,5 +981,135 @@ mod tests {
                 dexterity: LAGAVULIN_SIPHON_DEXTERITY,
             }
         );
+    }
+
+    #[test]
+    fn sentry_has_forty_hp_and_starts_with_beam_intent() {
+        let monster = monster_state(&SENTRY_A0, MonsterId::new(1));
+
+        assert_eq!(SENTRY_A0.hp, 40);
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::AddDazedToDiscard {
+                count: SENTRY_BEAM_DAZED
+            }
+        );
+    }
+
+    #[test]
+    fn sentry_move_selection_cycles_beam_attack_attack() {
+        let definition = &SENTRY_A0;
+
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::AddDazedToDiscard {
+                count: SENTRY_BEAM_DAZED
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::Attack {
+                damage: SENTRY_ATTACK_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 2),
+            MonsterIntent::Attack {
+                damage: SENTRY_ATTACK_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn sentry_beam_adds_dazed_to_discard() {
+        let mut monster = monster_state(&SENTRY_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AddDazedToDiscard {
+            count: SENTRY_BEAM_DAZED,
+        };
+        let mut player = dummy_player();
+        let mut piles = dummy_piles();
+
+        assert_eq!(
+            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            0
+        );
+        assert_eq!(piles.discard_pile.len(), 2);
+        assert!(piles
+            .discard_pile
+            .iter()
+            .all(|card| card.content_id == DAZED_ID));
+    }
+
+    #[test]
+    fn hexaghost_has_two_hundred_fifty_hp_and_starts_with_divider() {
+        let monster = monster_state(&HEXAGHOST_A0, MonsterId::new(1));
+
+        assert_eq!(HEXAGHOST_A0.hp, 250);
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::AttackMultiple {
+                damage: HEXAGHOST_DIVIDER_DAMAGE,
+                hits: HEXAGHOST_DIVIDER_HITS,
+            }
+        );
+    }
+
+    #[test]
+    fn hexaghost_move_selection_cycles_divider_tackle_inferno() {
+        let definition = &HEXAGHOST_A0;
+
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::AttackMultiple {
+                damage: HEXAGHOST_DIVIDER_DAMAGE,
+                hits: HEXAGHOST_DIVIDER_HITS,
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::AttackMultiple {
+                damage: HEXAGHOST_TACKLE_DAMAGE,
+                hits: HEXAGHOST_TACKLE_HITS,
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 2),
+            MonsterIntent::AddBurnToDiscard {
+                count: HEXAGHOST_INFERNO_BURNS,
+                damage: HEXAGHOST_INFERNO_DAMAGE,
+            }
+        );
+    }
+
+    #[test]
+    fn hexaghost_divider_deals_damage_twice() {
+        let mut monster = monster_state(&HEXAGHOST_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AttackMultiple {
+            damage: HEXAGHOST_DIVIDER_DAMAGE,
+            hits: HEXAGHOST_DIVIDER_HITS,
+        };
+
+        assert_eq!(apply_intent(&mut monster), 12);
+    }
+
+    #[test]
+    fn hexaghost_inferno_adds_burns_and_deals_damage() {
+        let mut monster = monster_state(&HEXAGHOST_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AddBurnToDiscard {
+            count: HEXAGHOST_INFERNO_BURNS,
+            damage: HEXAGHOST_INFERNO_DAMAGE,
+        };
+        let mut player = dummy_player();
+        let mut piles = dummy_piles();
+
+        assert_eq!(
+            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            2
+        );
+        assert_eq!(piles.discard_pile.len(), 3);
+        assert!(piles
+            .discard_pile
+            .iter()
+            .all(|card| card.content_id == BURN_ID));
     }
 }

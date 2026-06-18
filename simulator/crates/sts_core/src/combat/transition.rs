@@ -591,10 +591,13 @@ fn spot_weakness_weak_amount(definition: &CardDefinition) -> i32 {
 }
 
 fn any_monster_intends_attack(state: &CombatState) -> bool {
-    state
-        .monsters
-        .iter()
-        .any(|monster| monster.alive && matches!(monster.intent, MonsterIntent::Attack { .. }))
+    state.monsters.iter().any(|monster| {
+        monster.alive
+            && matches!(
+                monster.intent,
+                MonsterIntent::Attack { .. } | MonsterIntent::AttackMultiple { .. }
+            )
+    })
 }
 
 fn spot_weakness_queue(

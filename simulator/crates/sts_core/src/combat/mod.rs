@@ -3,6 +3,7 @@ pub mod damage;
 pub mod draw;
 pub mod hand;
 pub mod legal;
+pub mod piles;
 pub mod state;
 pub mod transition;
 pub mod turn;

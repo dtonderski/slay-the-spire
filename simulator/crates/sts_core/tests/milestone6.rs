@@ -1,9 +1,9 @@
 use sts_core::{
     apply_combat_action,
-    content::cards::DEFEND_R_ID,
+    content::cards::{BURN_ID, DAZED_ID, DEFEND_R_ID},
     content::monsters::{
-        ACID_SLIME_A0, CULTIST_A0, GREEN_LOUSE_A0, GREMLIN_NOB_A0, JAW_WORM_A0, LAGAVULIN_A0,
-        RED_LOUSE_A0, SPIKE_SLIME_A0,
+        ACID_SLIME_A0, CULTIST_A0, GREEN_LOUSE_A0, GREMLIN_NOB_A0, HEXAGHOST_A0, JAW_WORM_A0,
+        LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0, SPIKE_SLIME_A0,
     },
     end_player_turn, CardId, CombatAction, CombatState, MonsterId, MonsterIntent,
 };
@@ -395,6 +395,95 @@ fn lagavulin_wake_on_strike_siphons_on_same_monster_turn() {
     assert_eq!(
         after_turn.monsters[0].intent,
         MonsterIntent::Attack { damage: 18 }
+    );
+}
+
+#[test]
+fn sentry_fixture_has_three_enemies_with_beam_intent() {
+    let state = CombatState::sentry_fixture();
+
+    assert_eq!(state.monsters.len(), 3);
+    assert_eq!(state.monsters[0].hp, SENTRY_A0.hp);
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::AddDazedToDiscard { count: 2 }
+    );
+}
+
+#[test]
+fn sentry_encounter_beams_then_attacks() {
+    let mut state = CombatState::sentry_fixture();
+    state.player.hp = 100;
+    state.piles.draw_pile.clear();
+
+    let after_beam = end_player_turn(&state);
+    assert_eq!(after_beam.player.hp, 100);
+    assert_eq!(
+        after_beam
+            .piles
+            .discard_pile
+            .iter()
+            .filter(|card| card.content_id == DAZED_ID)
+            .count(),
+        6
+    );
+    assert_eq!(
+        after_beam.monsters[0].intent,
+        MonsterIntent::Attack { damage: 6 }
+    );
+
+    let after_attack = end_player_turn(&after_beam);
+    assert_eq!(after_attack.player.hp, 82);
+}
+
+#[test]
+fn hexaghost_fixture_has_expected_hp_and_divider_intent() {
+    let state = CombatState::hexaghost_fixture();
+
+    assert_eq!(state.monsters[0].hp, HEXAGHOST_A0.hp);
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::AttackMultiple { damage: 6, hits: 2 }
+    );
+}
+
+#[test]
+fn hexaghost_combat_executes_divider_tackle_inferno_cycle() {
+    let mut state = CombatState::hexaghost_fixture();
+    state.player.hp = 100;
+    state.piles.draw_pile.clear();
+
+    let after_divider = end_player_turn(&state);
+    assert_eq!(after_divider.player.hp, 88);
+    assert_eq!(
+        after_divider.monsters[0].intent,
+        MonsterIntent::AttackMultiple { damage: 5, hits: 6 }
+    );
+
+    let after_tackle = end_player_turn(&after_divider);
+    assert_eq!(after_tackle.player.hp, 58);
+    assert_eq!(
+        after_tackle.monsters[0].intent,
+        MonsterIntent::AddBurnToDiscard {
+            count: 3,
+            damage: 2,
+        }
+    );
+
+    let after_inferno = end_player_turn(&after_tackle);
+    assert_eq!(after_inferno.player.hp, 56);
+    assert_eq!(
+        after_inferno
+            .piles
+            .discard_pile
+            .iter()
+            .filter(|card| card.content_id == BURN_ID)
+            .count(),
+        3
+    );
+    assert_eq!(
+        after_inferno.monsters[0].intent,
+        MonsterIntent::AttackMultiple { damage: 6, hits: 2 }
     );
 }
 
