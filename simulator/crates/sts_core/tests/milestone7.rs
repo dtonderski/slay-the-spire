@@ -2,7 +2,8 @@ use sts_core::{
     apply_combat_action_on_run, apply_run_action, card_reward_choices,
     content::cards::{BASH_ID, STRIKE_R_ID},
     rng::SimulatorRng,
-    CombatAction, RunAction, RunPhase, RunState, SimError, REWARD_GOLD_AMOUNT, STARTING_GOLD,
+    CombatAction, Potion, Relic, RunAction, RunPhase, RunState, SimError, REWARD_GOLD_AMOUNT,
+    STARTING_GOLD,
 };
 
 #[test]
@@ -20,6 +21,8 @@ fn combat_win_transitions_to_reward_phase() {
     let reward = run.reward.as_ref().expect("reward screen");
     assert_eq!(reward.choices.len(), 3);
     assert_eq!(reward.gold_offer, REWARD_GOLD_AMOUNT);
+    assert_eq!(reward.potion_offer, Some(Potion::Fire));
+    assert_eq!(reward.relic_offer, Some(Relic::OddlySmoothStone));
 }
 
 #[test]
@@ -56,6 +59,8 @@ fn take_card_reward_appends_selected_card_to_master_deck() {
     let after =
         apply_run_action(&run, RunAction::TakeCardReward { card_id: chosen }).expect("take reward");
 
+    assert_eq!(after.phase, RunPhase::Reward);
+    assert!(after.reward.as_ref().expect("reward").choices.is_empty());
     assert_eq!(after.deck.len(), deck_len + 1);
     assert!(after.deck.iter().any(|card| card.id == chosen));
     assert_eq!(after.count_content_in_deck(chosen_content), 1);
@@ -69,9 +74,48 @@ fn take_gold_reward_adds_fixed_amount_without_changing_deck() {
 
     let after = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
 
-    assert_eq!(after.phase, RunPhase::Idle);
+    assert_eq!(after.phase, RunPhase::Reward);
+    assert_eq!(after.reward.as_ref().expect("reward").gold_offer, 0);
     assert_eq!(after.deck, deck_before);
     assert_eq!(after.gold, gold_before + REWARD_GOLD_AMOUNT);
+}
+
+#[test]
+fn take_potion_reward_adds_to_belt_and_consumes_potion_offer() {
+    let run = win_fixture_combat();
+
+    let after = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
+
+    assert_eq!(after.phase, RunPhase::Reward);
+    assert_eq!(after.potions, vec![Potion::Fire]);
+    assert_eq!(after.reward.as_ref().expect("reward").potion_offer, None);
+}
+
+#[test]
+fn take_relic_reward_adds_oddly_smooth_stone_and_consumes_relic_offer() {
+    let run = win_fixture_combat();
+
+    let after = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic");
+
+    assert_eq!(after.phase, RunPhase::Reward);
+    assert_eq!(after.relics, vec![Relic::OddlySmoothStone]);
+    assert_eq!(after.reward.as_ref().expect("reward").relic_offer, None);
+}
+
+#[test]
+fn multiple_reward_offers_can_be_collected_before_skip() {
+    let run = win_fixture_combat();
+
+    let run = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
+    let run = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
+    let run = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic");
+    let run = apply_run_action(&run, RunAction::SkipReward).expect("skip reward");
+
+    assert_eq!(run.phase, RunPhase::Idle);
+    assert!(run.reward.is_none());
+    assert_eq!(run.gold, STARTING_GOLD + REWARD_GOLD_AMOUNT);
+    assert_eq!(run.potions, vec![Potion::Fire]);
+    assert_eq!(run.relics, vec![Relic::OddlySmoothStone]);
 }
 
 #[test]
