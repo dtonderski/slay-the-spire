@@ -1,6 +1,8 @@
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action, content::cards::STRIKE_R_ID, CombatAction, Relic,
-    RunAction, RunState, ODDLY_SMOOTH_STONE_DEXTERITY, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
+    apply_combat_action_on_run, apply_rest_action, apply_run_action, content::cards::STRIKE_R_ID,
+    end_player_turn, legal_rest_actions, CombatAction, Relic, RestAction, RunAction, RunPhase,
+    RunState, BASE_PLAYER_ENERGY, COFFEE_DRIPPER_ENERGY, ODDLY_SMOOTH_STONE_DEXTERITY,
+    STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
 };
 
 #[test]
@@ -103,6 +105,65 @@ fn strawberry_round_trips_through_run_state_json() {
 
     assert_eq!(restored.relics, vec![Relic::Strawberry]);
     assert_eq!(restored.player_max_hp, 80 + STRAWBERRY_MAX_HP);
+}
+
+#[test]
+fn coffee_dripper_pickup_increases_energy_per_turn() {
+    let mut run = RunState::map_fixture();
+
+    run.gain_relic(Relic::CoffeeDripper);
+
+    assert_eq!(run.relics, vec![Relic::CoffeeDripper]);
+    assert_eq!(
+        run.energy_per_turn,
+        BASE_PLAYER_ENERGY + COFFEE_DRIPPER_ENERGY
+    );
+}
+
+#[test]
+fn coffee_dripper_energy_applies_to_combat_and_next_turn_refill() {
+    let mut run = RunState::map_fixture();
+    run.gain_relic(Relic::CoffeeDripper);
+
+    let mut combat = run.init_combat(sts_core::CombatState::initial_fixture());
+    assert_eq!(combat.player.max_energy, 4);
+    assert_eq!(combat.player.energy, 4);
+
+    combat.player.energy = 0;
+    let combat = end_player_turn(&combat);
+
+    assert_eq!(combat.player.energy, 4);
+}
+
+#[test]
+fn coffee_dripper_disables_rest_heal() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Rest;
+    run.player_hp = 40;
+    run.gain_relic(Relic::CoffeeDripper);
+
+    assert!(!legal_rest_actions(&run).contains(&RestAction::Heal));
+    let err = apply_rest_action(&run, RestAction::Heal).expect_err("coffee dripper blocks rest");
+
+    assert_eq!(
+        err,
+        sts_core::SimError::IllegalAction("heal is not available")
+    );
+}
+
+#[test]
+fn coffee_dripper_energy_round_trips_through_run_state_json() {
+    let mut run = RunState::map_fixture();
+    run.gain_relic(Relic::CoffeeDripper);
+
+    let json = serde_json::to_string(&run).expect("run serializes");
+    let restored: RunState = serde_json::from_str(&json).expect("run deserializes");
+
+    assert_eq!(restored.relics, vec![Relic::CoffeeDripper]);
+    assert_eq!(
+        restored.energy_per_turn,
+        BASE_PLAYER_ENERGY + COFFEE_DRIPPER_ENERGY
+    );
 }
 
 fn win_fixture_combat() -> RunState {

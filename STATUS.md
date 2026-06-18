@@ -15,14 +15,15 @@
 
 ### Relics / Potions
 - Common simple relic: Strawberry pickup HP bonus
+- Energy relic: Coffee Dripper energy per turn and rest restriction
 
 ### Tests
-- **395 tests** passing
+- **399 tests** passing
 
 ## Next Task
 
-Milestone 10: energy relics.
+Milestone 10: start-combat relics.
 
 ## Last Updated
 
-2026-06-18 (Strawberry relic).
+2026-06-18 (Coffee Dripper relic).

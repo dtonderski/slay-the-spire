@@ -9,6 +9,8 @@ pub const VAJRA_STRENGTH: i32 = 1;
 pub const ODDLY_SMOOTH_STONE_DEXTERITY: i32 = 1;
 /// Max HP granted by [Relic::Strawberry] on pickup.
 pub const STRAWBERRY_MAX_HP: i32 = 7;
+/// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
+pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -16,12 +18,15 @@ pub const VAJRA_ID: ContentId = ContentId::new(300);
 pub const ODDLY_SMOOTH_STONE_ID: ContentId = ContentId::new(301);
 /// Content id for [Relic::Strawberry].
 pub const STRAWBERRY_ID: ContentId = ContentId::new(302);
+/// Content id for [Relic::CoffeeDripper].
+pub const COFFEE_DRIPPER_ID: ContentId = ContentId::new(303);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Relic {
     Vajra,
     OddlySmoothStone,
     Strawberry,
+    CoffeeDripper,
 }
 
 impl Relic {
@@ -31,6 +36,7 @@ impl Relic {
             Relic::Vajra => VAJRA_ID,
             Relic::OddlySmoothStone => ODDLY_SMOOTH_STONE_ID,
             Relic::Strawberry => STRAWBERRY_ID,
+            Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
         }
     }
 
@@ -40,6 +46,7 @@ impl Relic {
             id if id == VAJRA_ID => Some(Relic::Vajra),
             id if id == ODDLY_SMOOTH_STONE_ID => Some(Relic::OddlySmoothStone),
             id if id == STRAWBERRY_ID => Some(Relic::Strawberry),
+            id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             _ => None,
         }
     }
@@ -55,6 +62,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 combat.player.powers.dexterity += ODDLY_SMOOTH_STONE_DEXTERITY;
             }
             Relic::Strawberry => {}
+            Relic::CoffeeDripper => {}
         }
     }
 }
@@ -106,6 +114,7 @@ mod tests {
         assert_eq!(Relic::Vajra.content_id(), VAJRA_ID);
         assert_eq!(Relic::OddlySmoothStone.content_id(), ODDLY_SMOOTH_STONE_ID);
         assert_eq!(Relic::Strawberry.content_id(), STRAWBERRY_ID);
+        assert_eq!(Relic::CoffeeDripper.content_id(), COFFEE_DRIPPER_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -114,6 +123,10 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(STRAWBERRY_ID),
             Some(Relic::Strawberry)
+        );
+        assert_eq!(
+            Relic::from_content_id(COFFEE_DRIPPER_ID),
+            Some(Relic::CoffeeDripper)
         );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }

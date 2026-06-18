@@ -14,6 +14,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+pub const BASE_PLAYER_ENERGY: i32 = 3;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CombatState {
     pub player: PlayerState,
@@ -28,6 +30,8 @@ pub struct PlayerState {
     pub max_hp: i32,
     pub block: i32,
     pub energy: i32,
+    #[serde(default = "default_player_energy")]
+    pub max_energy: i32,
     pub powers: PlayerPowers,
     #[serde(default)]
     pub cannot_draw: bool,
@@ -96,7 +100,8 @@ impl CombatState {
                 hp: IRONCLAD_A0_BASE_HP,
                 max_hp: IRONCLAD_A0_BASE_HP,
                 block: 0,
-                energy: 3,
+                energy: BASE_PLAYER_ENERGY,
+                max_energy: BASE_PLAYER_ENERGY,
                 powers: PlayerPowers::default(),
                 cannot_draw: false,
                 temp_strength: 0,
@@ -223,6 +228,10 @@ impl CombatState {
         }
         Ok(())
     }
+}
+
+fn default_player_energy() -> i32 {
+    BASE_PLAYER_ENERGY
 }
 
 impl CardPiles {
