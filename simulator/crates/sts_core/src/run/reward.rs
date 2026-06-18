@@ -8,6 +8,7 @@ use crate::{
     potion::{Potion, MAX_POTIONS},
     relic::Relic,
     rng::{RngStream, SimulatorRng},
+    run::potion::apply_potion_action,
     run::shop::apply_shop_action,
     CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -145,6 +146,9 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::BuyShopCard { .. } | RunAction::BuyShopRelic | RunAction::BuyShopPotion => {
             apply_shop_action(run, action)
         }
+        RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
+            apply_potion_action(run, action)
+        }
         _ => apply_reward_action(run, action),
     }
 }
@@ -196,6 +200,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.relics.push(relic);
         }
         RunAction::BuyShopCard { .. } | RunAction::BuyShopRelic | RunAction::BuyShopPotion => {
+            unreachable!("validated reward action")
+        }
+        RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
             unreachable!("validated reward action")
         }
     }
