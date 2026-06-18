@@ -197,7 +197,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .relic_offer
                 .take()
                 .expect("validated relic offer");
-            next.relics.push(relic);
+            next.gain_relic(relic);
         }
         RunAction::BuyShopCard { .. } | RunAction::BuyShopRelic | RunAction::BuyShopPotion => {
             unreachable!("validated reward action")

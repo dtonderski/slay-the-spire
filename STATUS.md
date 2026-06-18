@@ -13,13 +13,16 @@
 - Events: fixed Golden Shrine event with availability and placeholder RNG checks
 - Rest: heal, smith, card removal; fixed + generated map placeholder
 
+### Relics / Potions
+- Common simple relic: Strawberry pickup HP bonus
+
 ### Tests
-- **392 tests** passing
+- **395 tests** passing
 
 ## Next Task
 
-Milestone 10: common simple relics.
+Milestone 10: energy relics.
 
 ## Last Updated
 
-2026-06-18 (event RNG tests).
+2026-06-18 (Strawberry relic).

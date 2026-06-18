@@ -181,7 +181,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             let price = offer.price;
             offer.sold = true;
             next.gold -= price;
-            next.relics.push(relic);
+            next.gain_relic(relic);
             next.phase = RunPhase::Idle;
             next.shop = None;
         }

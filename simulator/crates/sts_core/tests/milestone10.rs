@@ -1,6 +1,6 @@
 use sts_core::{
     apply_combat_action_on_run, apply_run_action, content::cards::STRIKE_R_ID, CombatAction, Relic,
-    RunAction, RunState, ODDLY_SMOOTH_STONE_DEXTERITY, VAJRA_STRENGTH,
+    RunAction, RunState, ODDLY_SMOOTH_STONE_DEXTERITY, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
 };
 
 #[test]
@@ -65,6 +65,44 @@ fn relic_reward_applies_on_next_combat_start() {
     let combat = run.combat.expect("combat initialized");
 
     assert_eq!(combat.player.powers.dexterity, ODDLY_SMOOTH_STONE_DEXTERITY);
+}
+
+#[test]
+fn strawberry_pickup_increases_current_and_max_hp() {
+    let mut run = RunState::map_fixture();
+    run.player_hp = 40;
+    run.player_max_hp = 80;
+
+    run.gain_relic(Relic::Strawberry);
+
+    assert_eq!(run.relics, vec![Relic::Strawberry]);
+    assert_eq!(run.player_max_hp, 80 + STRAWBERRY_MAX_HP);
+    assert_eq!(run.player_hp, 40 + STRAWBERRY_MAX_HP);
+}
+
+#[test]
+fn strawberry_hp_bonus_applies_to_next_combat() {
+    let mut run = RunState::map_fixture();
+    run.player_hp = 40;
+    run.player_max_hp = 80;
+    run.gain_relic(Relic::Strawberry);
+
+    let combat = run.init_combat(sts_core::CombatState::initial_fixture());
+
+    assert_eq!(combat.player.max_hp, 80 + STRAWBERRY_MAX_HP);
+    assert_eq!(combat.player.hp, 40 + STRAWBERRY_MAX_HP);
+}
+
+#[test]
+fn strawberry_round_trips_through_run_state_json() {
+    let mut run = RunState::map_fixture();
+    run.gain_relic(Relic::Strawberry);
+
+    let json = serde_json::to_string(&run).expect("run serializes");
+    let restored: RunState = serde_json::from_str(&json).expect("run deserializes");
+
+    assert_eq!(restored.relics, vec![Relic::Strawberry]);
+    assert_eq!(restored.player_max_hp, 80 + STRAWBERRY_MAX_HP);
 }
 
 fn win_fixture_combat() -> RunState {

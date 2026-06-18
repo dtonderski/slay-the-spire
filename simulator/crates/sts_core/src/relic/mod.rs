@@ -7,16 +7,21 @@ use crate::ids::ContentId;
 pub const VAJRA_STRENGTH: i32 = 1;
 /// Dexterity granted by [Relic::OddlySmoothStone] at combat start.
 pub const ODDLY_SMOOTH_STONE_DEXTERITY: i32 = 1;
+/// Max HP granted by [Relic::Strawberry] on pickup.
+pub const STRAWBERRY_MAX_HP: i32 = 7;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
 /// Content id for [Relic::OddlySmoothStone].
 pub const ODDLY_SMOOTH_STONE_ID: ContentId = ContentId::new(301);
+/// Content id for [Relic::Strawberry].
+pub const STRAWBERRY_ID: ContentId = ContentId::new(302);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Relic {
     Vajra,
     OddlySmoothStone,
+    Strawberry,
 }
 
 impl Relic {
@@ -25,6 +30,7 @@ impl Relic {
         match self {
             Relic::Vajra => VAJRA_ID,
             Relic::OddlySmoothStone => ODDLY_SMOOTH_STONE_ID,
+            Relic::Strawberry => STRAWBERRY_ID,
         }
     }
 
@@ -33,6 +39,7 @@ impl Relic {
         match id {
             id if id == VAJRA_ID => Some(Relic::Vajra),
             id if id == ODDLY_SMOOTH_STONE_ID => Some(Relic::OddlySmoothStone),
+            id if id == STRAWBERRY_ID => Some(Relic::Strawberry),
             _ => None,
         }
     }
@@ -47,6 +54,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::OddlySmoothStone => {
                 combat.player.powers.dexterity += ODDLY_SMOOTH_STONE_DEXTERITY;
             }
+            Relic::Strawberry => {}
         }
     }
 }
@@ -97,10 +105,15 @@ mod tests {
     fn relic_content_ids_map_both_ways() {
         assert_eq!(Relic::Vajra.content_id(), VAJRA_ID);
         assert_eq!(Relic::OddlySmoothStone.content_id(), ODDLY_SMOOTH_STONE_ID);
+        assert_eq!(Relic::Strawberry.content_id(), STRAWBERRY_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
             Some(Relic::OddlySmoothStone)
+        );
+        assert_eq!(
+            Relic::from_content_id(STRAWBERRY_ID),
+            Some(Relic::Strawberry)
         );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }
