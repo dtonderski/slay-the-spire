@@ -89,6 +89,11 @@ pub enum RestAction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventAction {
+    Choose { choice_index: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CardPile {
     Hand,
     DrawPile,

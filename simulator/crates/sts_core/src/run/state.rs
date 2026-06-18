@@ -22,6 +22,8 @@ pub struct RunState {
     pub map: Option<MapRunState>,
     pub combat: Option<CombatState>,
     pub reward: Option<RewardScreen>,
+    #[serde(default)]
+    pub event: Option<super::event::EventScreen>,
     pub shop: Option<super::shop::ShopScreen>,
     #[serde(default)]
     pub relics: Vec<Relic>,
@@ -36,6 +38,7 @@ pub enum RunPhase {
     Combat,
     Reward,
     Rest,
+    Event,
     Shop,
     Idle,
 }
@@ -91,6 +94,7 @@ impl RunState {
             map: None,
             combat: None,
             reward: None,
+            event: None,
             shop: None,
             relics,
             potions: Vec::new(),
@@ -114,6 +118,7 @@ impl RunState {
             map: Some(milestone8_fixture()),
             combat: None,
             reward: None,
+            event: None,
             shop: None,
             relics: Vec::new(),
             potions: Vec::new(),

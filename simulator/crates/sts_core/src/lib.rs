@@ -16,7 +16,7 @@ pub mod potion;
 pub mod relic;
 pub mod run;
 
-pub use action::{CardPile, CombatAction, InternalAction, RestAction};
+pub use action::{CardPile, CombatAction, EventAction, InternalAction, RestAction};
 pub use card::{
     CardDefinition, CardInstance, CardKeywords, CardRarity, CardType, CardValues, TargetRequirement,
 };
@@ -43,12 +43,14 @@ pub use relic::{
 };
 pub use rng::{RngDraw, RngStream, SimulatorRng};
 pub use run::{
-    apply_combat_action_on_run, apply_map_action_on_run, apply_potion_action, apply_rest_action,
-    apply_run_action, apply_shop_action, card_reward_choices, enter_reward_screen,
-    enter_shop_screen, fixed_card_reward_choices, fixed_shop_screen, legal_map_actions_on_run,
-    legal_rest_actions, legal_shop_actions, rest_heal_amount, validate_potion_action,
-    validate_rest_action, validate_shop_action, RewardScreen, RunAction, RunPhase, RunState,
-    ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT,
-    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
+    apply_combat_action_on_run, apply_event_action, apply_map_action_on_run, apply_potion_action,
+    apply_rest_action, apply_run_action, apply_shop_action, card_reward_choices,
+    enter_fixed_event_screen, enter_reward_screen, enter_shop_screen, fixed_card_reward_choices,
+    fixed_event_screen, fixed_shop_screen, legal_map_actions_on_run, legal_rest_actions,
+    legal_shop_actions, rest_heal_amount, validate_event_action, validate_potion_action,
+    validate_rest_action, validate_shop_action, Event, EventChoice, EventScreen, RewardScreen,
+    RunAction, RunPhase, RunState, ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen,
+    GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE,
+    SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
 };
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

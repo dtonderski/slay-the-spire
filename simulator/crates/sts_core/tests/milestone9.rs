@@ -1,11 +1,12 @@
 use sts_core::{
-    apply_map_action_on_run, apply_rest_action, apply_run_action,
+    apply_event_action, apply_map_action_on_run, apply_rest_action, apply_run_action,
     content::cards::ANGER_ID,
     content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, MapAction,
-    MapNodeId, Potion, Relic, RestAction, RoomKind, RunAction, RunPhase, RunState, SimError,
-    FIRE_POTION_DAMAGE, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
+    enter_fixed_event_screen, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions,
+    rest_heal_amount, Event, EventAction, MapAction, MapNodeId, Potion, Relic, RestAction,
+    RoomKind, RunAction, RunPhase, RunState, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD,
+    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -280,6 +281,43 @@ fn discard_potion_removes_it_from_belt() {
     let run = apply_run_action(&run, RunAction::DiscardPotion { slot: 0 }).expect("discard potion");
 
     assert!(run.potions.is_empty());
+}
+
+#[test]
+fn entering_fixed_event_exposes_golden_shrine() {
+    let mut run = RunState::map_fixture();
+
+    enter_fixed_event_screen(&mut run);
+
+    assert_eq!(run.phase, RunPhase::Event);
+    let event = run.event.as_ref().expect("event screen");
+    assert_eq!(event.event, Event::GoldenShrine);
+    assert_eq!(event.choices.len(), 1);
+}
+
+#[test]
+fn golden_shrine_choice_grants_gold_and_returns_to_map() {
+    let mut run = RunState::map_fixture();
+    enter_fixed_event_screen(&mut run);
+    let gold_before = run.gold;
+
+    let run =
+        apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("choose shrine");
+
+    assert_eq!(run.phase, RunPhase::Idle);
+    assert!(run.event.is_none());
+    assert_eq!(run.gold, gold_before + GOLDEN_SHRINE_GOLD);
+    assert_eq!(
+        legal_map_actions_on_run(&run),
+        vec![
+            MapAction::ChooseNode {
+                node_id: MapNodeId::new(1)
+            },
+            MapAction::ChooseNode {
+                node_id: MapNodeId::new(2)
+            },
+        ]
+    );
 }
 
 #[test]
