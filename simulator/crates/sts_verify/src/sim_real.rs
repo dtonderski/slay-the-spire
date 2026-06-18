@@ -1346,7 +1346,7 @@ fn verify_transition(
         return;
     }
 
-    if upper == "CHOOSE 0" {
+    if upper.starts_with("CHOOSE ") {
         if verify_reward_gold(pre, action, post, report) {
             return;
         }
@@ -1368,6 +1368,15 @@ fn verify_combat_transition(
     post: &TraceState,
     report: &mut SimRealReport,
 ) {
+    if let Some(reason) = unsupported_combat_command_reason(&pre.message, action.command.trim()) {
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason,
+        });
+        return;
+    }
+
     let Some(run) = run_from_observed_combat(&pre.message) else {
         report.unsupported.push(UnsupportedTransition {
             action_step: action.step,
@@ -1389,6 +1398,15 @@ fn verify_combat_transition(
         return;
     };
 
+    if let Some(reason) = unsupported_monster_ai_reason(&pre.message) {
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason,
+        });
+        return;
+    }
+
     if is_final_combat_blow(&run, combat_action) {
         let pre_hp = run.player_hp;
         let next = apply_combat_action_on_run(&run, combat_action);
@@ -1396,12 +1414,13 @@ fn verify_combat_transition(
             push_sim_error(report, action, "combat victory", next.err().unwrap());
             return;
         };
-        let expected = observed_run_subset(&post.message, &["current_hp", "gold", "deck_size"]);
-        let actual = json!({
-            "current_hp": next.player_hp,
-            "gold": next.gold,
-            "deck_size": next.deck.len(),
-        });
+        let fields: &[&str] = if deck_has_unmapped_cards(&post.message) {
+            &["current_hp", "gold"]
+        } else {
+            &["current_hp", "gold", "deck_size"]
+        };
+        let expected = observed_run_subset(&post.message, fields);
+        let actual = simulated_run_subset(&next, fields);
         compare_subset(
             report,
             action,
@@ -1470,16 +1489,17 @@ fn verify_reward_gold(
         return true;
     };
 
+    let fields: &[&str] = if deck_has_unmapped_cards(&post.message) {
+        &["gold", "current_hp"]
+    } else {
+        &["gold", "current_hp", "deck_size"]
+    };
     compare_subset(
         report,
         action,
         "gold reward",
-        observed_run_subset(&post.message, &["gold", "current_hp", "deck_size"]),
-        json!({
-            "gold": next.gold,
-            "current_hp": next.player_hp,
-            "deck_size": next.deck.len(),
-        }),
+        observed_run_subset(&post.message, fields),
+        simulated_run_subset(&next, fields),
     );
     true
 }
@@ -1494,37 +1514,63 @@ fn verify_reward_card_pick(
         return false;
     }
 
+    let Some(choice_index) = choose_index(&action.command) else {
+        return false;
+    };
+    let Some(card_value) = observed_reward_choice(&pre.message, choice_index) else {
+        return false;
+    };
+    if content_id_from_card_value(card_value).is_none() {
+        let card_name = card_value
+            .get("name")
+            .or_else(|| card_value.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or("unknown card");
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: format!(
+                "card '{card_name}' is not mapped in the verifier, so this reward pick is unsupported"
+            ),
+        });
+        return true;
+    }
+
     let Some(run) = reward_run_from_observed(&pre.message) else {
         return false;
     };
-    let Some(card_id) = run
+    let card_id = CardId::new(900 + choice_index as u64);
+    if !run
         .reward
         .as_ref()
-        .and_then(|reward| reward.choices.first())
-        .map(|card| card.id)
-    else {
+        .is_some_and(|reward| reward.choices.iter().any(|card| card.id == card_id))
+    {
         return false;
     };
     let next = apply_run_action(&run, RunAction::TakeCardReward { card_id });
     let Ok(next) = next else {
-        push_sim_error(report, action, "Twin Strike reward", next.err().unwrap());
+        push_sim_error(report, action, "card reward", next.err().unwrap());
         return true;
     };
+
+    if deck_has_unmapped_cards(&pre.message) || deck_has_unmapped_cards(&post.message) {
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: "card reward deck comparison is unsupported while the observed deck contains unmapped cards".to_owned(),
+        });
+        return true;
+    }
 
     compare_subset(
         report,
         action,
-        "Twin Strike reward",
+        "card reward",
         observed_run_subset(
             &post.message,
             &["gold", "current_hp", "deck_size", "deck_ids"],
         ),
-        json!({
-            "gold": next.gold,
-            "current_hp": next.player_hp,
-            "deck_size": next.deck.len(),
-            "deck_ids": deck_content_keys(&next.deck),
-        }),
+        simulated_run_subset(&next, &["gold", "current_hp", "deck_size", "deck_ids"]),
     );
     true
 }
@@ -1628,6 +1674,34 @@ fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<Com
     }
 }
 
+fn unsupported_combat_command_reason(message: &Value, command: &str) -> Option<String> {
+    let parts: Vec<_> = command.split_whitespace().collect();
+    let [cmd, hand_index, ..] = parts.as_slice() else {
+        return None;
+    };
+    if !cmd.eq_ignore_ascii_case("PLAY") {
+        return None;
+    }
+    let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
+    let card = message
+        .get("game_state")?
+        .get("combat_state")?
+        .get("hand")?
+        .as_array()?
+        .get(index)?;
+    if content_id_from_card_value(card).is_some() {
+        return None;
+    }
+    let card_name = card
+        .get("name")
+        .or_else(|| card.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown card");
+    Some(format!(
+        "card '{card_name}' is not mapped in the verifier, so this combat command is unsupported"
+    ))
+}
+
 fn is_final_combat_blow(run: &RunState, action: CombatAction) -> bool {
     let Some(combat) = &run.combat else {
         return false;
@@ -1645,7 +1719,7 @@ fn observed_combat_subset(message: &Value, fields: &[&str]) -> Value {
     let Some(combat) = obs.combat else {
         return json!({});
     };
-    let monster = combat.monsters.first();
+    let monster = combat.monsters.iter().find(|monster| monster.hp > 0);
     let mut out = serde_json::Map::new();
     for field in fields {
         match *field {
@@ -1667,7 +1741,7 @@ fn observed_combat_subset(message: &Value, fields: &[&str]) -> Value {
 
 fn simulated_combat_subset(run: &RunState, fields: &[&str]) -> Value {
     let combat = run.combat.as_ref().expect("combat available");
-    let monster = combat.monsters.first();
+    let monster = combat.monsters.iter().find(|monster| monster.alive);
     let mut out = serde_json::Map::new();
     for field in fields {
         match *field {
@@ -1707,6 +1781,55 @@ fn observed_run_subset(message: &Value, fields: &[&str]) -> Value {
         }
     }
     Value::Object(out)
+}
+
+fn simulated_run_subset(run: &RunState, fields: &[&str]) -> Value {
+    let mut out = serde_json::Map::new();
+    for field in fields {
+        match *field {
+            "gold" => insert(&mut out, field, run.gold),
+            "current_hp" => insert(&mut out, field, run.player_hp),
+            "deck_size" => insert(&mut out, field, run.deck.len()),
+            "deck_ids" => insert(&mut out, field, deck_content_keys(&run.deck)),
+            _ => {}
+        }
+    }
+    Value::Object(out)
+}
+
+fn deck_has_unmapped_cards(message: &Value) -> bool {
+    message
+        .get("game_state")
+        .and_then(|game| game.get("deck"))
+        .and_then(Value::as_array)
+        .map(|cards| {
+            cards
+                .iter()
+                .any(|card| content_id_from_card_value(card).is_none())
+        })
+        .unwrap_or(false)
+}
+
+fn unsupported_monster_ai_reason(message: &Value) -> Option<String> {
+    let groups: Vec<String> = message
+        .get("game_state")?
+        .get("combat_state")?
+        .get("monsters")?
+        .as_array()?
+        .iter()
+        .filter(|monster| int(monster, "current_hp") > 0)
+        .filter_map(|monster| monster.get("id").and_then(Value::as_str))
+        .filter(|id| !matches!(*id, "Cultist" | "JawWorm"))
+        .map(str::to_owned)
+        .collect();
+    if groups.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "exact observed-state combat transition is unsupported for monster group(s): {}",
+            groups.join(", ")
+        ))
+    }
 }
 
 fn compare_subset(
@@ -1885,6 +2008,15 @@ fn reward_choices_from_observed(game: &Value) -> Vec<CardInstance> {
         .unwrap_or_default()
 }
 
+fn observed_reward_choice<'a>(message: &'a Value, choice_index: usize) -> Option<&'a Value> {
+    message
+        .get("game_state")?
+        .get("screen_state")?
+        .get("cards")?
+        .as_array()?
+        .get(choice_index)
+}
+
 fn card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
     let Some(cards) = value.and_then(Value::as_array) else {
         return Vec::new();
@@ -1907,24 +2039,46 @@ fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
 }
 
 fn content_id_from_key(key: &str) -> Option<ContentId> {
-    use sts_core::content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID, TWIN_STRIKE_ID};
+    use sts_core::content::cards::{
+        BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, TWIN_STRIKE_ID,
+    };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
         "Defend_R" | "Defend" => Some(DEFEND_R_ID),
         "Bash" => Some(BASH_ID),
         "Twin Strike" | "twin strike" => Some(TWIN_STRIKE_ID),
+        "Battle Trance" | "battle trance" => Some(BATTLE_TRANCE_ID),
+        "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
+        "Cleave" | "cleave" => Some(CLEAVE_ID),
+        "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
         _ => None,
     }
 }
 
 fn content_key(content_id: ContentId) -> &'static str {
-    use sts_core::content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID, TWIN_STRIKE_ID};
+    use sts_core::content::cards::{
+        BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, TWIN_STRIKE_ID,
+    };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
         id if id == DEFEND_R_ID => "Defend_R",
         id if id == BASH_ID => "Bash",
         id if id == TWIN_STRIKE_ID => "Twin Strike",
+        id if id == BATTLE_TRANCE_ID => "Battle Trance",
+        id if id == SHRUG_IT_OFF_ID => "Shrug It Off",
+        id if id == CLEAVE_ID => "Cleave",
+        id if id == DRAMATIC_ENTRANCE_ID => "Dramatic Entrance",
         _ => "unknown",
+    }
+}
+
+fn choose_index(command: &str) -> Option<usize> {
+    let parts: Vec<_> = command.split_whitespace().collect();
+    match parts.as_slice() {
+        [cmd, index] if cmd.eq_ignore_ascii_case("CHOOSE") => index.parse().ok(),
+        _ => None,
     }
 }
 
@@ -2032,6 +2186,7 @@ fn push_sim_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sts_core::content::cards::DRAMATIC_ENTRANCE_ID;
 
     #[test]
     fn trace_replay_parses_unknown_exit_metadata_and_supports_empty_trace() {
@@ -2040,6 +2195,122 @@ mod tests {
 
         let report = verify_communication_mod_trace(content).expect("verifies");
         assert_eq!(report.total_actions, 0);
+        assert!(report.unexpected_diffs.is_empty());
+    }
+
+    #[test]
+    fn dramatic_entrance_maps_from_observed_card_json() {
+        let card = json!({"id": "Dramatic Entrance", "name": "Dramatic Entrance"});
+        assert_eq!(
+            content_id_from_card_value(&card),
+            Some(DRAMATIC_ENTRANCE_ID)
+        );
+    }
+
+    #[test]
+    fn unsupported_combat_command_reason_names_unmapped_cards() {
+        let message = json!({
+            "game_state": {
+                "combat_state": {
+                    "hand": [{"id": "Deep Breath", "name": "Deep Breath"}]
+                }
+            }
+        });
+        let reason = unsupported_combat_command_reason(&message, "PLAY 1")
+            .expect("unmapped card reason");
+        assert!(reason.contains("Deep Breath"));
+        assert!(reason.contains("not mapped"));
+    }
+
+    #[test]
+    fn observed_combat_subset_uses_first_living_monster() {
+        let message = json!({
+            "game_state": {
+                "combat_state": {
+                    "player": {"current_hp": 70, "block": 0, "energy": 2},
+                    "monsters": [
+                        {"current_hp": 0, "block": 0, "intent": "ATTACK", "move_base_damage": 5},
+                        {"current_hp": 24, "block": 3, "intent": "ATTACK", "move_base_damage": 7}
+                    ]
+                }
+            }
+        });
+        let subset = observed_combat_subset(&message, &["monster_hp", "monster_block"]);
+        assert_eq!(subset["monster_hp"], 24);
+        assert_eq!(subset["monster_block"], 3);
+    }
+
+    #[test]
+    fn unsupported_monster_ai_reason_names_monster_groups() {
+        let message = json!({
+            "game_state": {
+                "combat_state": {
+                    "monsters": [
+                        {"id": "SpikeSlime_S", "current_hp": 0},
+                        {"id": "AcidSlime_M", "current_hp": 24}
+                    ]
+                }
+            }
+        });
+        let reason = unsupported_monster_ai_reason(&message).expect("unsupported slime AI");
+        assert!(reason.contains("AcidSlime_M"));
+        assert!(reason.contains("monster group"));
+    }
+
+    #[test]
+    fn choose_index_parses_nonzero_reward_choice() {
+        assert_eq!(choose_index("CHOOSE 2"), Some(2));
+    }
+
+    #[test]
+    fn unmapped_reward_pick_is_classified_as_unsupported() {
+        let pre = TraceState {
+            step: 1,
+            received_at: None,
+            message: json!({
+                "game_state": {
+                    "screen_type": "CARD_REWARD",
+                    "deck": [{"id": "Strike_R"}],
+                    "current_hp": 80,
+                    "max_hp": 80,
+                    "gold": 99,
+                    "ascension_level": 0,
+                    "screen_state": {
+                        "cards": [
+                            {"id": "Flex", "name": "Flex"},
+                            {"id": "Shrug It Off", "name": "Shrug It Off"}
+                        ]
+                    }
+                }
+            }),
+        };
+        let action = TraceAction {
+            step: 2,
+            command: "CHOOSE 0".to_owned(),
+            sent_at: None,
+        };
+        let post = TraceState {
+            step: 2,
+            received_at: None,
+            message: pre.message.clone(),
+        };
+        let mut report = SimRealReport {
+            mode: VerificationMode::ObservedState,
+            total_actions: 1,
+            verified: Vec::new(),
+            unsupported: Vec::new(),
+            unexpected_diffs: Vec::new(),
+            seed_start: None,
+        };
+        verify_transition(&pre, &action, &post, &mut report);
+        assert!(
+            report
+                .unsupported
+                .iter()
+                .any(|entry| entry.reason.contains("Flex") && entry.reason.contains("reward pick")),
+            "unmapped reward picks should be unsupported: {:?}",
+            report.unsupported
+        );
         assert!(report.unexpected_diffs.is_empty());
     }
 }

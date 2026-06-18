@@ -206,3 +206,62 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         );
     }
 }
+
+#[test]
+fn codex04_controller_trace_verifies_supported_observed_state_scope() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_communication_mod_trace(&content).expect("verify trace");
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:#?}",
+        report.unexpected_diffs
+    );
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "Dramatic Entrance",
+        "Bash",
+        "Strike_R",
+        "end turn",
+        "combat victory + Burning Blood",
+        "gold reward",
+        "card reward",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified label {expected}; labels: {labels:?}"
+        );
+    }
+
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .any(|entry| entry.reason.contains("seed-start run creation")),
+        "seed-start parity gap should be explicit"
+    );
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .any(|entry| {
+                entry.reason.contains("AcidSlime_M") || entry.reason.contains("SpikeSlime_S")
+            }),
+        "unsupported slime combat should name monster groups"
+    );
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .any(|entry| entry.reason.contains("FuzzyLouseDefensive")),
+        "unsupported louse combat should name monster groups"
+    );
+}

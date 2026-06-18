@@ -9,7 +9,7 @@ use crate::{
     content::cards::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
+        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
         HAVOC_ID, HAVOC_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
@@ -68,7 +68,7 @@ fn apply_play_card(
             target.expect("validated Anger has a target"),
             definition,
         ),
-        CLEAVE_ID | CLEAVE_PLUS_ID => cleave_queue(card_id, definition),
+        CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID => cleave_queue(card_id, definition),
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => twin_strike_queue(
             card_id,
             target.expect("validated Twin Strike has a target"),
@@ -292,7 +292,7 @@ fn cleave_queue(
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
-            to: CardPile::DiscardPile,
+            to: card_move_destination(definition),
         },
     ]))
 }
@@ -1056,7 +1056,7 @@ fn apply_play_top_draw_card(
                 },
             });
         }
-        CLEAVE_ID | CLEAVE_PLUS_ID => {
+        CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID => {
             follow_ups.push(InternalAction::DealDamageAll {
                 source: card_id,
                 amount: definition.values.damage.unwrap_or(0),
@@ -1576,6 +1576,29 @@ mod tests {
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
         assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 9);
+    }
+
+    #[test]
+    fn dramatic_entrance_deals_eight_to_all_enemies_and_exhausts() {
+        use crate::content::cards::DRAMATIC_ENTRANCE_ID;
+
+        let state = two_monster_hand(DRAMATIC_ENTRANCE_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Dramatic Entrance applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 8);
+        assert_eq!(next.player.energy, state.player.energy);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DRAMATIC_ENTRANCE_ID);
+        assert!(next.piles.hand.is_empty());
     }
 
     #[test]

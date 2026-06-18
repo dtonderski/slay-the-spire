@@ -49,6 +49,7 @@ pub const DUAL_WIELD_ID: ContentId = ContentId::new(40);
 pub const DUAL_WIELD_PLUS_ID: ContentId = ContentId::new(41);
 pub const SEARING_BLOW_ID: ContentId = ContentId::new(42);
 pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
+pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
     id: STRIKE_R_ID,
@@ -768,6 +769,26 @@ pub const SEARING_BLOW_PLUS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const DRAMATIC_ENTRANCE: CardDefinition = CardDefinition {
+    id: DRAMATIC_ENTRANCE_ID,
+    key: "Dramatic Entrance",
+    name: "Dramatic Entrance",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 5] = [WOUND, DAZED, BURN, SLIMED, ASCENDERS_BANE];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
@@ -808,7 +829,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 44] = [
+pub const ALL_CARDS: [CardDefinition; 45] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -853,6 +874,7 @@ pub const ALL_CARDS: [CardDefinition; 44] = [
     DUAL_WIELD_PLUS,
     SEARING_BLOW,
     SEARING_BLOW_PLUS,
+    DRAMATIC_ENTRANCE,
 ];
 
 #[must_use]
@@ -926,6 +948,15 @@ mod tests {
         assert_eq!(CLEAVE.target, TargetRequirement::AllEnemies);
         assert_eq!(CLEAVE.card_type, CardType::Attack);
         assert_eq!(CLEAVE.values.damage, Some(8));
+    }
+
+    #[test]
+    fn dramatic_entrance_has_expected_values() {
+        assert_eq!(DRAMATIC_ENTRANCE.cost, 0);
+        assert_eq!(DRAMATIC_ENTRANCE.target, TargetRequirement::AllEnemies);
+        assert_eq!(DRAMATIC_ENTRANCE.card_type, CardType::Attack);
+        assert_eq!(DRAMATIC_ENTRANCE.values.damage, Some(8));
+        assert!(DRAMATIC_ENTRANCE.keywords.exhaust);
     }
 
     #[test]
