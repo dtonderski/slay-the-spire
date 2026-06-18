@@ -207,9 +207,10 @@ fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError>
     };
 
     let boundary = verify_seed_start_transitions(&transitions, &start, &mut report);
+    let expected_failure = boundary.category != "none";
     report.seed_start = Some(SeedStartReport {
         start_command: start,
-        expected_failure: true,
+        expected_failure,
         first_boundary: boundary,
         rng_boundaries: seed_start_rng_boundaries(),
     });
@@ -478,10 +479,54 @@ fn verify_seed_start_transitions(
                 }
             }
             SeedStartPhase::Proceed => {
+                if action.command.eq_ignore_ascii_case("PROCEED") {
+                    compare_subset(
+                        report,
+                        action,
+                        "captured return to map",
+                        seed_start_map_return_observed_subset(&post.message),
+                        json!({
+                            "screen_type": "MAP",
+                            "floor": 1,
+                            "gold": 113,
+                            "current_hp": 80,
+                            "max_hp": 80,
+                            "deck_ids": ironclad_deck_with_twin_strike_keys(),
+                            "relic_ids": ["Burning Blood", "Toy Ornithopter"],
+                            "choices": ["x=2"],
+                            "first_node_chosen": true,
+                            "current_node": {
+                                "symbol": "M",
+                                "x": 1,
+                                "y": 0,
+                            },
+                            "next_nodes": [{
+                                "symbol": "M",
+                                "x": 2,
+                                "y": 1,
+                            }],
+                        }),
+                    );
+                    phase = SeedStartPhase::Complete;
+                } else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_post_reward_map".to_owned(),
+                        reason: "seed-start verifier expected captured reward-to-map PROCEED command; alternate post-reward paths are not implemented".to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return boundary;
+                }
+            }
+            SeedStartPhase::Complete => {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_post_reward_map".to_owned(),
-                    reason: "seed-start verifier has passed captured reward pickup and stops before reward-to-map proceed because post-combat map continuation is Milestone 18 scope".to_owned(),
+                    category: "unexpected_extra_action".to_owned(),
+                    reason: "seed-start verifier already completed the captured trace and found an extra action".to_owned(),
                 };
                 report.unsupported.push(UnsupportedTransition {
                     action_step: action.step,
@@ -509,11 +554,20 @@ fn verify_seed_start_transitions(
         }
     }
 
-    SeedStartBoundary {
-        path: "$.actions".to_owned(),
-        category: "missing_post_reward_boundary".to_owned(),
-        reason: "trace ended before seed-start verifier reached the expected post-reward boundary"
-            .to_owned(),
+    if matches!(phase, SeedStartPhase::Complete) {
+        SeedStartBoundary {
+            path: "$.actions[complete]".to_owned(),
+            category: "none".to_owned(),
+            reason: "seed-start verifier reached the captured return-to-map state".to_owned(),
+        }
+    } else {
+        SeedStartBoundary {
+            path: "$.actions".to_owned(),
+            category: "missing_post_reward_boundary".to_owned(),
+            reason:
+                "trace ended before seed-start verifier reached the expected post-reward boundary"
+                    .to_owned(),
+        }
     }
 }
 
@@ -527,6 +581,7 @@ enum SeedStartPhase {
     Combat,
     Reward,
     Proceed,
+    Complete,
 }
 
 fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, SimRealError>> {
@@ -1049,6 +1104,37 @@ fn seed_start_reward_observed_subset(message: &Value) -> Value {
     out
 }
 
+fn seed_start_map_return_observed_subset(message: &Value) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    let screen_state = game.get("screen_state");
+    let current_node = screen_state.and_then(|state| state.get("current_node"));
+    json!({
+        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": int(game, "gold"),
+        "current_hp": int(game, "current_hp"),
+        "max_hp": int(game, "max_hp"),
+        "deck_ids": deck_keys_from_value(game.get("deck")),
+        "relic_ids": relic_keys_from_value(game.get("relics")),
+        "choices": choice_list_from_value(game.get("choice_list")),
+        "first_node_chosen": screen_state
+            .and_then(|state| state.get("first_node_chosen"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        "current_node": {
+            "symbol": current_node
+                .and_then(|node| node.get("symbol"))
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            "x": current_node.and_then(|node| node.get("x")).and_then(Value::as_i64).unwrap_or(0),
+            "y": current_node.and_then(|node| node.get("y")).and_then(Value::as_i64).unwrap_or(0),
+        },
+        "next_nodes": map_nodes_from_value(screen_state.and_then(|state| state.get("next_nodes"))),
+    })
+}
+
 fn seed_start_monsters_from_value(value: Option<&Value>) -> Vec<Value> {
     let Some(monsters) = value.and_then(Value::as_array) else {
         return Vec::new();
@@ -1133,6 +1219,22 @@ fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<String> {
     cards
         .iter()
         .filter_map(|card| card.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
+fn map_nodes_from_value(value: Option<&Value>) -> Vec<Value> {
+    let Some(nodes) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    nodes
+        .iter()
+        .map(|node| {
+            json!({
+                "symbol": node.get("symbol").and_then(Value::as_str).unwrap_or(""),
+                "x": node.get("x").and_then(Value::as_i64).unwrap_or(0),
+                "y": node.get("y").and_then(Value::as_i64).unwrap_or(0),
+            })
+        })
         .collect()
 }
 
