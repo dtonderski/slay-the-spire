@@ -4,6 +4,7 @@ use crate::{
     combat::{apply_combat_action, CombatPhase},
     content::cards::{ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
     ids::CardId,
+    run::shop::apply_shop_action,
     CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -56,6 +57,13 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
+    match action {
+        RunAction::BuyShopCard { .. } => apply_shop_action(run, action),
+        _ => apply_reward_action(run, action),
+    }
+}
+
+fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     run.validate_reward_action(action)?;
 
     let mut next = run.clone();
@@ -88,6 +96,7 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
             next.phase = RunPhase::Idle;
             next.reward = None;
         }
+        RunAction::BuyShopCard { .. } => unreachable!("validated reward action"),
     }
 
     Ok(next)

@@ -1,6 +1,6 @@
 use crate::{
     action::{CardPile, CombatAction, InternalAction},
-    card::CardDefinition,
+    card::{CardDefinition, CardType},
     combat::{
         apply_burning_blood,
         damage::{deal_damage_info_to_monster, DamageInfo, DamageSource},
@@ -12,8 +12,9 @@ use crate::{
         DEFEND_R_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
         SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
+    content::monsters::get_monster_definition,
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
     rng::SimulatorRng,
@@ -86,6 +87,7 @@ fn apply_play_card(
         INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
         SPOT_WEAKNESS_ID | SPOT_WEAKNESS_PLUS_ID => spot_weakness_queue(state, card_id, definition),
+        WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
         _ if definition.values.damage.is_some()
             && definition.target == crate::TargetRequirement::Enemy =>
         {
@@ -283,6 +285,40 @@ fn cleave_queue(
             to: CardPile::DiscardPile,
         },
     ]))
+}
+
+fn whirlwind_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let x = state.player.energy;
+    if x < 1 {
+        return Err(SimError::IllegalAction(
+            "Whirlwind requires at least 1 energy",
+        ));
+    }
+
+    let damage = definition.values.damage.unwrap_or(0);
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: x },
+    ]);
+
+    for _ in 0..x {
+        queue.push_back(InternalAction::DealDamageAll {
+            source: card_id,
+            amount: damage,
+        });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+
+    Ok(queue)
 }
 
 fn twin_strike_queue(
@@ -627,7 +663,10 @@ fn apply_internal_action(
     action: InternalAction,
 ) -> SimResult<Vec<InternalAction>> {
     match action {
-        InternalAction::PlayCard { .. } => Ok(Vec::new()),
+        InternalAction::PlayCard { card_id } => {
+            apply_enrage_on_skill_play(state, card_id)?;
+            Ok(Vec::new())
+        }
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;
             Ok(Vec::new())
@@ -761,6 +800,29 @@ fn living_monster_mut(state: &mut CombatState, target: MonsterId) -> SimResult<&
         .ok_or(SimError::IllegalAction("target is not a living monster"))
 }
 
+fn apply_enrage_on_skill_play(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
+    let card = find_hand_card(state, card_id)?;
+    let definition =
+        get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
+
+    if definition.card_type != CardType::Skill {
+        return Ok(());
+    }
+
+    for monster in &state.monsters {
+        if !monster.alive {
+            continue;
+        }
+        if let Some(monster_def) = get_monster_definition(monster.content_id) {
+            if monster_def.enrage_weak_on_skill > 0 {
+                state.player.powers.weak += monster_def.enrage_weak_on_skill;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn find_hand_card(state: &CombatState, card_id: CardId) -> SimResult<CardInstance> {
     state
         .piles
@@ -821,6 +883,7 @@ mod tests {
         FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     };
 
     #[test]
@@ -1233,6 +1296,44 @@ mod tests {
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
         assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 9);
+    }
+
+    #[test]
+    fn whirlwind_at_three_energy_hits_all_enemies_three_times() {
+        let state = two_monster_hand(WHIRLWIND_ID);
+        assert_eq!(state.player.energy, 3);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Whirlwind applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 15);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 15);
+        assert_eq!(next.player.energy, 0);
+    }
+
+    #[test]
+    fn whirlwind_plus_at_three_energy_hits_all_enemies_three_times() {
+        let state = two_monster_hand(WHIRLWIND_PLUS_ID);
+        assert_eq!(state.player.energy, 3);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Whirlwind+ applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 24);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 24);
+        assert_eq!(next.player.energy, 0);
     }
 
     #[test]
@@ -1974,6 +2075,52 @@ mod tests {
         let after_turn = crate::combat::end_player_turn(&after_spot);
 
         assert_eq!(after_turn.player.hp, 36);
+    }
+
+    #[test]
+    fn gremlin_nob_enrage_applies_two_weak_on_skill_play() {
+        let state = CombatState::gremlin_nob_fixture();
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.player.powers.weak, 2);
+    }
+
+    #[test]
+    fn gremlin_nob_enrage_does_not_trigger_on_strike() {
+        let state = CombatState::gremlin_nob_fixture();
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.player.powers.weak, 0);
+    }
+
+    #[test]
+    fn gremlin_nob_enrage_stacks_on_multiple_skills() {
+        let mut state = CombatState::gremlin_nob_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+
+        let after_first = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("first Defend applies");
+        let after_second = apply_combat_action(
+            &after_first,
+            CombatAction::PlayCard {
+                card_id: CardId::new(21),
+                target: None,
+            },
+        )
+        .expect("second Defend applies");
+
+        assert_eq!(after_second.player.powers.weak, 4);
     }
 
     fn hand_only(content_id: crate::ContentId) -> CombatState {

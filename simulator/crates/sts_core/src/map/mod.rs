@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum RoomKind {
     Combat,
     Rest,
+    Shop,
     Boss,
 }
 
@@ -125,7 +126,7 @@ pub fn milestone8_map() -> FixedMap {
             MapNode {
                 id: MapNodeId::new(4),
                 act: 1,
-                room_kind: RoomKind::Rest,
+                room_kind: RoomKind::Shop,
                 children: vec![MapNodeId::new(5)],
             },
             MapNode {

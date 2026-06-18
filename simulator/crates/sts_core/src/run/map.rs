@@ -3,6 +3,8 @@ use crate::{
     RunPhase, RunState, SimError, SimResult,
 };
 
+use super::shop::enter_shop_screen;
+
 fn current_room_kind(run: &RunState) -> Option<RoomKind> {
     run.map.as_ref().and_then(|map_state| {
         map_state
@@ -44,6 +46,8 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
 
     if current_room_kind(&next) == Some(RoomKind::Rest) {
         next.phase = RunPhase::Rest;
+    } else if current_room_kind(&next) == Some(RoomKind::Shop) {
+        enter_shop_screen(&mut next);
     }
 
     Ok(next)
@@ -111,5 +115,24 @@ mod tests {
         .expect("choose combat node");
 
         assert_eq!(next.phase, RunPhase::Idle);
+    }
+
+    #[test]
+    fn entering_shop_node_transitions_to_shop_phase() {
+        let mut run = RunState::map_fixture();
+        for node_id in [MapNodeId::new(1), MapNodeId::new(3), MapNodeId::new(4)] {
+            run = apply_map_action_on_run(&run, MapAction::ChooseNode { node_id })
+                .expect("reach shop");
+        }
+
+        assert_eq!(run.phase, RunPhase::Shop);
+        assert_eq!(
+            run.map
+                .as_ref()
+                .and_then(|map| map.map.node(map.current_node))
+                .map(|node| node.room_kind),
+            Some(RoomKind::Shop)
+        );
+        assert!(run.shop.is_some());
     }
 }

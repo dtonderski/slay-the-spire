@@ -12,6 +12,7 @@ pub mod snapshot;
 
 pub mod action;
 pub mod map;
+pub mod relic;
 pub mod run;
 
 pub use action::{CardPile, CombatAction, InternalAction, RestAction};
@@ -33,11 +34,14 @@ pub use map::{
     validate_map_action, FixedMap, MapAction, MapNode, MapRunState, RoomKind,
 };
 pub use power::{MonsterPowers, PlayerPowers};
+pub use relic::{apply_start_of_combat_relics, Relic, VAJRA_STRENGTH};
 pub use rng::{RngDraw, RngStream, SimulatorRng};
 pub use run::{
     apply_combat_action_on_run, apply_map_action_on_run, apply_rest_action, apply_run_action,
-    enter_reward_screen, fixed_card_reward_choices, legal_map_actions_on_run, legal_rest_actions,
-    rest_heal_amount, validate_rest_action, RewardScreen, RunAction, RunPhase, RunState,
-    REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, STARTING_GOLD,
+    apply_shop_action, enter_reward_screen, enter_shop_screen, fixed_card_reward_choices,
+    fixed_shop_screen, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions,
+    rest_heal_amount, validate_rest_action, validate_shop_action, RewardScreen, RunAction,
+    RunPhase, RunState, ShopCardSlot, ShopScreen, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT,
+    SHOP_ANGER_PRICE, STARTING_GOLD,
 };
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

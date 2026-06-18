@@ -2,7 +2,7 @@ use crate::{
     action::CombatAction,
     card::{CardDefinition, TargetRequirement},
     combat::CombatState,
-    content::cards::get_card_definition,
+    content::cards::{get_card_definition, WHIRLWIND_ID, WHIRLWIND_PLUS_ID},
     ids::{CardId, MonsterId},
     SimError, SimResult,
 };
@@ -109,7 +109,14 @@ fn card_definition_for_hand_card(
 }
 
 fn is_affordable(state: &CombatState, definition: &CardDefinition) -> bool {
+    if is_x_cost(definition) {
+        return state.player.energy >= 1;
+    }
     state.player.energy >= i32::from(definition.cost)
+}
+
+fn is_x_cost(definition: &CardDefinition) -> bool {
+    definition.id == WHIRLWIND_ID || definition.id == WHIRLWIND_PLUS_ID
 }
 
 fn living_monster_ids(state: &CombatState) -> impl Iterator<Item = MonsterId> + '_ {
@@ -141,7 +148,7 @@ mod tests {
             FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
             POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID,
             SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-            TWIN_STRIKE_PLUS_ID,
+            TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         },
         CardInstance,
     };
@@ -648,6 +655,54 @@ mod tests {
     #[test]
     fn spot_weakness_plus_is_illegal_at_zero_energy() {
         let mut state = hand_with_card(SPOT_WEAKNESS_PLUS_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn whirlwind_is_legal_without_target() {
+        let state = hand_with_card(WHIRLWIND_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn whirlwind_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(WHIRLWIND_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn whirlwind_plus_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(WHIRLWIND_PLUS_ID);
         state.player.energy = 0;
 
         assert!(

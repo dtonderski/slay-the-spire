@@ -4,7 +4,8 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     ids::CardId,
     map::{milestone8_fixture, MapRunState},
-    ContentId, SimError, SimResult,
+    relic::apply_start_of_combat_relics,
+    ContentId, Relic, SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +21,9 @@ pub struct RunState {
     pub map: Option<MapRunState>,
     pub combat: Option<CombatState>,
     pub reward: Option<RewardScreen>,
+    pub shop: Option<super::shop::ShopScreen>,
+    #[serde(default)]
+    pub relics: Vec<Relic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +31,7 @@ pub enum RunPhase {
     Combat,
     Reward,
     Rest,
+    Shop,
     Idle,
 }
 
@@ -43,23 +48,44 @@ pub enum RunAction {
     SkipReward,
     TakeCardReward { card_id: CardId },
     TakeGoldReward,
+    BuyShopCard { slot: usize },
 }
 
 impl RunState {
     #[must_use]
+    pub fn init_combat(&self, base: CombatState) -> CombatState {
+        let mut combat = base;
+        combat.player.hp = self.player_hp;
+        combat.player.max_hp = self.player_max_hp;
+        apply_start_of_combat_relics(&mut combat, &self.relics);
+        combat
+    }
+
+    #[must_use]
     pub fn combat_fixture() -> Self {
+        Self::combat_fixture_with_relics(Vec::new())
+    }
+
+    #[must_use]
+    pub fn combat_fixture_with_relics(relics: Vec<Relic>) -> Self {
         let deck = crate::content::deck::ironclad_starter_deck();
-        let combat = CombatState::initial_fixture();
-        Self {
+        let mut run = Self {
             phase: RunPhase::Combat,
             deck,
-            player_hp: combat.player.hp,
-            player_max_hp: combat.player.max_hp,
+            player_hp: IRONCLAD_A0_BASE_HP,
+            player_max_hp: IRONCLAD_A0_BASE_HP,
             gold: STARTING_GOLD,
             map: None,
-            combat: Some(combat),
+            combat: None,
             reward: None,
-        }
+            shop: None,
+            relics,
+        };
+        let combat = run.init_combat(CombatState::initial_fixture());
+        run.player_hp = combat.player.hp;
+        run.player_max_hp = combat.player.max_hp;
+        run.combat = Some(combat);
+        run
     }
 
     #[must_use]
@@ -73,6 +99,8 @@ impl RunState {
             map: Some(milestone8_fixture()),
             combat: None,
             reward: None,
+            shop: None,
+            relics: Vec::new(),
         }
     }
 
@@ -106,6 +134,7 @@ impl RunState {
                     Err(SimError::UnknownCard(card_id))
                 }
             }
+            RunAction::BuyShopCard { .. } => Err(SimError::IllegalAction("not a reward action")),
         }
     }
 

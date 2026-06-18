@@ -37,6 +37,8 @@ pub const SPOT_WEAKNESS_ID: ContentId = ContentId::new(29);
 pub const INFLAME_PLUS_ID: ContentId = ContentId::new(30);
 pub const FLEX_PLUS_ID: ContentId = ContentId::new(31);
 pub const SPOT_WEAKNESS_PLUS_ID: ContentId = ContentId::new(32);
+pub const WHIRLWIND_ID: ContentId = ContentId::new(33);
+pub const WHIRLWIND_PLUS_ID: ContentId = ContentId::new(34);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
     id: STRIKE_R_ID,
@@ -551,10 +553,40 @@ pub const SPOT_WEAKNESS_PLUS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const WHIRLWIND: CardDefinition = CardDefinition {
+    id: WHIRLWIND_ID,
+    key: "Whirlwind",
+    name: "Whirlwind",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(5),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const WHIRLWIND_PLUS: CardDefinition = CardDefinition {
+    id: WHIRLWIND_PLUS_ID,
+    key: "Whirlwind+",
+    name: "Whirlwind+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 4] = [WOUND, DAZED, BURN, SLIMED];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
-pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 8] = [
+pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 10] = [
     ANGER,
     CLEAVE,
     TWIN_STRIKE,
@@ -563,6 +595,8 @@ pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 8] = [
     TWIN_STRIKE_PLUS,
     POMMEL_STRIKE,
     POMMEL_STRIKE_PLUS,
+    WHIRLWIND,
+    WHIRLWIND_PLUS,
 ];
 pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 11] = [
     SHRUG_IT_OFF,
@@ -579,7 +613,7 @@ pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 11] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 32] = [
+pub const ALL_CARDS: [CardDefinition; 34] = [
     STRIKE_R,
     DEFEND_R,
     BASH,
@@ -612,6 +646,8 @@ pub const ALL_CARDS: [CardDefinition; 32] = [
     INFLAME_PLUS,
     FLEX_PLUS,
     SPOT_WEAKNESS_PLUS,
+    WHIRLWIND,
+    WHIRLWIND_PLUS,
 ];
 
 #[must_use]
@@ -798,5 +834,18 @@ mod tests {
     fn spot_weakness_plus_is_one_cost_skill() {
         assert_eq!(SPOT_WEAKNESS_PLUS.cost, 1);
         assert_eq!(SPOT_WEAKNESS_PLUS.card_type, CardType::Skill);
+    }
+
+    #[test]
+    fn whirlwind_has_expected_values() {
+        assert_eq!(WHIRLWIND.cost, 0);
+        assert_eq!(WHIRLWIND.target, TargetRequirement::AllEnemies);
+        assert_eq!(WHIRLWIND.card_type, CardType::Attack);
+        assert_eq!(WHIRLWIND.values.damage, Some(5));
+    }
+
+    #[test]
+    fn whirlwind_plus_deals_three_more_damage_per_hit() {
+        assert_eq!(WHIRLWIND_PLUS.values.damage, Some(8));
     }
 }

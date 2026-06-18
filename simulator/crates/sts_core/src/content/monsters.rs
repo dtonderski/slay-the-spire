@@ -8,6 +8,11 @@ use crate::{
 pub const FIXED_SIMPLE_MONSTER_ID: ContentId = ContentId::new(100);
 pub const CULTIST_ID: ContentId = ContentId::new(101);
 pub const JAW_WORM_ID: ContentId = ContentId::new(102);
+pub const GREMLIN_NOB_ID: ContentId = ContentId::new(103);
+
+const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
+const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
+const GREMLIN_NOB_RUSH_DAMAGE: i32 = 10;
 
 const JAW_WORM_CHOMP_DAMAGE: i32 = 11;
 const JAW_WORM_THRASH_DAMAGE: i32 = 7;
@@ -22,6 +27,8 @@ pub struct MonsterDefinition {
     pub hp: i32,
     pub attack_damage: i32,
     pub ritual_amount: i32,
+    /// Weak applied to the player when they play a skill card while this monster is alive.
+    pub enrage_weak_on_skill: i32,
 }
 
 pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
@@ -30,6 +37,7 @@ pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
     hp: 40,
     attack_damage: 6,
     ritual_amount: 0,
+    enrage_weak_on_skill: 0,
 };
 
 /// Act 1 Cultist at ascension 0, simplified: 50 HP, Ritual 2 on first turn, then 6-damage attacks.
@@ -39,6 +47,7 @@ pub const CULTIST_A0: MonsterDefinition = MonsterDefinition {
     hp: 50,
     attack_damage: 6,
     ritual_amount: 2,
+    enrage_weak_on_skill: 0,
 };
 
 /// Act 1 Jaw Worm at ascension 0, simplified: 42 HP (within 40–44), three-move cycle.
@@ -48,6 +57,17 @@ pub const JAW_WORM_A0: MonsterDefinition = MonsterDefinition {
     hp: 42,
     attack_damage: 0,
     ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+};
+
+/// Act 1 Gremlin Nob at ascension 0, simplified: 82 HP, enrages on skill play, 6/14/10 attack cycle.
+pub const GREMLIN_NOB_A0: MonsterDefinition = MonsterDefinition {
+    content_id: GREMLIN_NOB_ID,
+    name: "Gremlin Nob",
+    hp: 82,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 2,
 };
 
 #[must_use]
@@ -56,6 +76,7 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         FIXED_SIMPLE_MONSTER_ID => Some(&FIXED_SIMPLE_MONSTER),
         CULTIST_ID => Some(&CULTIST_A0),
         JAW_WORM_ID => Some(&JAW_WORM_A0),
+        GREMLIN_NOB_ID => Some(&GREMLIN_NOB_A0),
         _ => None,
     }
 }
@@ -90,8 +111,25 @@ pub fn prepare_monster_intent_for(
             amount: definition.ritual_amount,
         },
         JAW_WORM_ID => jaw_worm_intent(moves_executed),
+        GREMLIN_NOB_ID => gremlin_nob_intent(moves_executed),
         _ => MonsterIntent::Attack {
             damage: definition.attack_damage,
+        },
+    }
+}
+
+/// Deterministic Gremlin Nob move cycle: Bite → Skull Bash → Rush, keyed on `moves_executed`.
+#[must_use]
+fn gremlin_nob_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 3 {
+        0 => MonsterIntent::Attack {
+            damage: GREMLIN_NOB_BITE_DAMAGE,
+        },
+        1 => MonsterIntent::Attack {
+            damage: GREMLIN_NOB_SKULL_BASH_DAMAGE,
+        },
+        _ => MonsterIntent::Attack {
+            damage: GREMLIN_NOB_RUSH_DAMAGE,
         },
     }
 }
@@ -310,5 +348,57 @@ mod tests {
         assert_eq!(apply_monster_intent(&mut monster), 0);
         assert_eq!(monster.powers.strength, 3);
         assert_eq!(monster.block, 6);
+    }
+
+    #[test]
+    fn gremlin_nob_has_eighty_two_hp() {
+        assert_eq!(GREMLIN_NOB_A0.hp, 82);
+    }
+
+    #[test]
+    fn gremlin_nob_starts_with_bite_intent() {
+        let monster = monster_state(&GREMLIN_NOB_A0, MonsterId::new(1));
+
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::Attack {
+                damage: GREMLIN_NOB_BITE_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn gremlin_nob_move_selection_cycles_bite_skull_bash_rush() {
+        let definition = &GREMLIN_NOB_A0;
+
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::Attack {
+                damage: GREMLIN_NOB_BITE_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::Attack {
+                damage: GREMLIN_NOB_SKULL_BASH_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 2),
+            MonsterIntent::Attack {
+                damage: GREMLIN_NOB_RUSH_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 3),
+            MonsterIntent::Attack {
+                damage: GREMLIN_NOB_BITE_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn gremlin_nob_enrages_on_skill() {
+        assert_eq!(GREMLIN_NOB_A0.enrage_weak_on_skill, 2);
     }
 }

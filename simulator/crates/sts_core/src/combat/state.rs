@@ -2,7 +2,9 @@ use crate::{
     card::CardInstance,
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    content::monsters::{monster_state, CULTIST_A0, FIXED_SIMPLE_MONSTER, JAW_WORM_A0},
+    content::monsters::{
+        monster_state, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREMLIN_NOB_A0, JAW_WORM_A0,
+    },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
@@ -107,6 +109,13 @@ impl CombatState {
     pub fn jaw_worm_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn gremlin_nob_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&GREMLIN_NOB_A0, MonsterId::new(1))];
         state
     }
 
