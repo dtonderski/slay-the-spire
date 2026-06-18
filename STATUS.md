@@ -21,6 +21,10 @@
 - **Shop**: buy fixed Anger for 50 gold
 - **Relics**: Vajra (+1 strength at combat start)
 
+### Verification (`sts_verify`)
+- Crate skeleton: trace JSONL types, `canonical_diff` stub, corpus path helpers
+- Integration test loads `verification/corpus/manual/milestone1.jsonl` when present
+
 ### Tests
 - milestone1 golden replay, milestone6 monsters, milestone7 rewards, milestone8 map, milestone9 rest+shop, milestone10 relics
 - **271 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
@@ -31,7 +35,7 @@
 - Green Louse, Slimes, Lagavulin, Sentries, Act 1 bosses
 - Card remove/upgrade at rest, reward RNG, map generation
 - Most relics/potions, events, ascensions
-- `sts_verify` crate, CommunicationMod parity, RL API, Python bindings
+- CommunicationMod parity, RL API, Python bindings
 
 ## Current Milestone
 
@@ -43,4 +47,4 @@ More Act 1 monsters, card upgrade at rest site, ascension config (A0 baseline do
 
 ## Last Updated
 
-2026-06-18 (overnight session).
+2026-06-18 (sts_verify skeleton).

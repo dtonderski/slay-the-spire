@@ -9,6 +9,10 @@ pub const FIXED_SIMPLE_MONSTER_ID: ContentId = ContentId::new(100);
 pub const CULTIST_ID: ContentId = ContentId::new(101);
 pub const JAW_WORM_ID: ContentId = ContentId::new(102);
 pub const GREMLIN_NOB_ID: ContentId = ContentId::new(103);
+pub const RED_LOUSE_ID: ContentId = ContentId::new(104);
+
+const RED_LOUSE_CURL_BLOCK: i32 = 3;
+const RED_LOUSE_BITE_DAMAGE: i32 = 6;
 
 const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
@@ -70,6 +74,16 @@ pub const GREMLIN_NOB_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 2,
 };
 
+/// Act 1 Red Louse at ascension 0, simplified: 11 HP (within 11–12), Curl/Bite two-move cycle.
+pub const RED_LOUSE_A0: MonsterDefinition = MonsterDefinition {
+    content_id: RED_LOUSE_ID,
+    name: "Red Louse",
+    hp: 11,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+};
+
 #[must_use]
 pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterDefinition> {
     match content_id {
@@ -77,6 +91,7 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         CULTIST_ID => Some(&CULTIST_A0),
         JAW_WORM_ID => Some(&JAW_WORM_A0),
         GREMLIN_NOB_ID => Some(&GREMLIN_NOB_A0),
+        RED_LOUSE_ID => Some(&RED_LOUSE_A0),
         _ => None,
     }
 }
@@ -112,8 +127,22 @@ pub fn prepare_monster_intent_for(
         },
         JAW_WORM_ID => jaw_worm_intent(moves_executed),
         GREMLIN_NOB_ID => gremlin_nob_intent(moves_executed),
+        RED_LOUSE_ID => red_louse_intent(moves_executed),
         _ => MonsterIntent::Attack {
             damage: definition.attack_damage,
+        },
+    }
+}
+
+/// Deterministic Red Louse move cycle: Curl → Bite, keyed on `moves_executed`.
+#[must_use]
+fn red_louse_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 2 {
+        0 => MonsterIntent::Block {
+            block: RED_LOUSE_CURL_BLOCK,
+        },
+        _ => MonsterIntent::Attack {
+            damage: RED_LOUSE_BITE_DAMAGE,
         },
     }
 }
@@ -156,6 +185,10 @@ fn jaw_worm_intent(moves_executed: u32) -> MonsterIntent {
 pub fn apply_monster_intent(monster: &mut MonsterState) -> i32 {
     let damage = match monster.intent {
         MonsterIntent::Attack { damage } => monster_attack_damage(monster, damage),
+        MonsterIntent::Block { block } => {
+            monster.block += block;
+            0
+        }
         MonsterIntent::Ritual { amount } => {
             monster.powers.ritual += amount;
             0
@@ -400,5 +433,67 @@ mod tests {
     #[test]
     fn gremlin_nob_enrages_on_skill() {
         assert_eq!(GREMLIN_NOB_A0.enrage_weak_on_skill, 2);
+    }
+
+    #[test]
+    fn red_louse_has_eleven_hp() {
+        assert_eq!(RED_LOUSE_A0.hp, 11);
+    }
+
+    #[test]
+    fn red_louse_starts_with_curl_intent() {
+        let monster = monster_state(&RED_LOUSE_A0, MonsterId::new(1));
+
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::Block {
+                block: RED_LOUSE_CURL_BLOCK
+            }
+        );
+    }
+
+    #[test]
+    fn red_louse_move_selection_cycles_curl_bite() {
+        let definition = &RED_LOUSE_A0;
+
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::Block {
+                block: RED_LOUSE_CURL_BLOCK
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::Attack {
+                damage: RED_LOUSE_BITE_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 2),
+            MonsterIntent::Block {
+                block: RED_LOUSE_CURL_BLOCK
+            }
+        );
+    }
+
+    #[test]
+    fn red_louse_curl_gains_block() {
+        let mut monster = monster_state(&RED_LOUSE_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::Block {
+            block: RED_LOUSE_CURL_BLOCK,
+        };
+
+        assert_eq!(apply_monster_intent(&mut monster), 0);
+        assert_eq!(monster.block, 3);
+    }
+
+    #[test]
+    fn red_louse_bite_deals_six_damage() {
+        let mut monster = monster_state(&RED_LOUSE_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::Attack {
+            damage: RED_LOUSE_BITE_DAMAGE,
+        };
+
+        assert_eq!(apply_monster_intent(&mut monster), 6);
     }
 }

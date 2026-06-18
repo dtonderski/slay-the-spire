@@ -1,7 +1,7 @@
 use sts_core::{
     apply_combat_action,
     content::cards::DEFEND_R_ID,
-    content::monsters::{CULTIST_A0, GREMLIN_NOB_A0, JAW_WORM_A0},
+    content::monsters::{CULTIST_A0, GREMLIN_NOB_A0, JAW_WORM_A0, RED_LOUSE_A0},
     end_player_turn, CardId, CombatAction, CombatState, MonsterId, MonsterIntent,
 };
 
@@ -160,6 +160,47 @@ fn gremlin_nob_enrage_does_not_trigger_on_attack() {
     .expect("Strike applies");
 
     assert_eq!(next.player.powers.weak, 0);
+}
+
+#[test]
+fn red_louse_fixture_has_expected_hp_and_opening_intent() {
+    let state = CombatState::red_louse_fixture();
+
+    assert_eq!(state.monsters[0].hp, RED_LOUSE_A0.hp);
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::Block { block: 3 }
+    );
+}
+
+#[test]
+fn red_louse_combat_executes_curl_bite_cycle() {
+    let mut state = CombatState::red_louse_fixture();
+    state.player.hp = 100;
+    state.piles.draw_pile.clear();
+
+    let after_curl = end_player_turn(&state);
+    assert_eq!(after_curl.player.hp, 100);
+    assert_eq!(after_curl.monsters[0].block, 3);
+    assert_eq!(
+        after_curl.monsters[0].intent,
+        MonsterIntent::Attack { damage: 6 }
+    );
+
+    let after_bite = end_player_turn(&after_curl);
+    assert_eq!(after_bite.player.hp, 94);
+    assert_eq!(
+        after_bite.monsters[0].intent,
+        MonsterIntent::Block { block: 3 }
+    );
+
+    let after_second_curl = end_player_turn(&after_bite);
+    assert_eq!(after_second_curl.player.hp, 94);
+    assert_eq!(after_second_curl.monsters[0].block, 6);
+    assert_eq!(
+        after_second_curl.monsters[0].intent,
+        MonsterIntent::Attack { damage: 6 }
+    );
 }
 
 fn hand_strike_id(state: &CombatState) -> CardId {

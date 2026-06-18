@@ -4,6 +4,7 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         monster_state, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREMLIN_NOB_A0, JAW_WORM_A0,
+        RED_LOUSE_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -65,6 +66,7 @@ pub enum CombatPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MonsterIntent {
     Attack { damage: i32 },
+    Block { block: i32 },
     Ritual { amount: i32 },
     AttackAndBlock { damage: i32, block: i32 },
     StrengthAndBlock { strength: i32, block: i32 },
@@ -116,6 +118,13 @@ impl CombatState {
     pub fn gremlin_nob_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&GREMLIN_NOB_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn red_louse_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&RED_LOUSE_A0, MonsterId::new(1))];
         state
     }
 
