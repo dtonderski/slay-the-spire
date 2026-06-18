@@ -26,8 +26,9 @@ pub use combat::{
     CombatState, CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState,
     PlayerState, BASE_PLAYER_ENERGY,
 };
+pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
-pub use content::deck::ironclad_starter_deck;
+pub use content::deck::{ironclad_starter_deck, ironclad_starter_deck_for_ascension};
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 pub use map::{
@@ -37,7 +38,8 @@ pub use map::{
 };
 pub use potion::{
     Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,
-    FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS,
+    FIRE_POTION_DAMAGE, FIRE_POTION_ID, GAMBLE_POTION_ID, GAMBLE_POTION_LOSS_GOLD,
+    GAMBLE_POTION_WIN_GOLD, MAX_POTIONS,
 };
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{

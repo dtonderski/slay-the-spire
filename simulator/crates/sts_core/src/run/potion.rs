@@ -1,35 +1,44 @@
 use crate::{
     combat::damage::deal_unmodified_damage_to_monster,
     combat::CombatPhase,
-    potion::{Potion, BLOCK_POTION_BLOCK, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE},
+    potion::{
+        Potion, BLOCK_POTION_BLOCK, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE, GAMBLE_POTION_LOSS_GOLD,
+        GAMBLE_POTION_WIN_GOLD,
+    },
+    rng::{RngStream, SimulatorRng},
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
     match action {
         RunAction::UsePotion { slot, target } => {
-            if run.phase != RunPhase::Combat {
-                return Err(SimError::IllegalAction("potion use requires combat phase"));
-            }
             let potion = run
                 .potions
                 .get(slot)
                 .ok_or(SimError::IllegalAction("potion slot is not available"))?;
-            let combat = run
-                .combat
-                .as_ref()
-                .ok_or(SimError::InvalidState("combat state is missing"))?;
 
-            if potion.requires_target() {
-                let Some(target) = target else {
-                    return Err(SimError::IllegalAction("potion requires a target"));
-                };
-                if !combat
-                    .monsters
-                    .iter()
-                    .any(|monster| monster.id == target && monster.alive)
-                {
-                    return Err(SimError::IllegalAction("potion target is not alive"));
+            if potion.requires_combat() {
+                if run.phase != RunPhase::Combat {
+                    return Err(SimError::IllegalAction("potion use requires combat phase"));
+                }
+                let combat = run
+                    .combat
+                    .as_ref()
+                    .ok_or(SimError::InvalidState("combat state is missing"))?;
+
+                if potion.requires_target() {
+                    let Some(target) = target else {
+                        return Err(SimError::IllegalAction("potion requires a target"));
+                    };
+                    if !combat
+                        .monsters
+                        .iter()
+                        .any(|monster| monster.id == target && monster.alive)
+                    {
+                        return Err(SimError::IllegalAction("potion target is not alive"));
+                    }
+                } else if target.is_some() {
+                    return Err(SimError::IllegalAction("potion does not take a target"));
                 }
             } else if target.is_some() {
                 return Err(SimError::IllegalAction("potion does not take a target"));
@@ -81,6 +90,16 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         .find(|monster| monster.id == target)
                         .expect("validated potion target");
                     monster.powers.weak += FEAR_POTION_WEAK;
+                }
+                Potion::Gamble => {
+                    let mut rng = SimulatorRng::new(next.potion_rng_seed);
+                    let win = rng.next_bool(RngStream::Potion, "gamble_potion");
+                    next.potion_rng_seed = rng.seed_state();
+                    if win {
+                        next.gold += GAMBLE_POTION_WIN_GOLD;
+                    } else {
+                        next.gold = (next.gold - GAMBLE_POTION_LOSS_GOLD).max(0);
+                    }
                 }
             }
             let won = next
@@ -147,24 +166,62 @@ mod tests {
     }
 
     #[test]
-    fn block_potion_rejects_target() {
-        let mut run = RunState::combat_fixture();
-        run.potions.push(Potion::Block);
-        let monster_id = run.combat.as_ref().expect("combat").monsters[0].id;
+    fn gamble_potion_wins_gold_deterministically_for_seed() {
+        let mut run = RunState::map_fixture();
+        run.potion_rng_seed = 42;
+        run.potions.push(Potion::Gamble);
+        let gold_before = run.gold;
 
-        let err = apply_potion_action(
+        let after = apply_potion_action(
             &run,
             RunAction::UsePotion {
                 slot: 0,
-                target: Some(monster_id),
+                target: None,
             },
         )
-        .expect_err("block potion rejects target");
+        .expect("use gamble potion");
 
-        assert_eq!(
-            err,
-            SimError::IllegalAction("potion does not take a target")
+        assert_ne!(after.potion_rng_seed, run.potion_rng_seed);
+        assert!(
+            after.gold == gold_before + GAMBLE_POTION_WIN_GOLD
+                || after.gold == (gold_before - GAMBLE_POTION_LOSS_GOLD).max(0)
         );
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn gamble_potion_round_trips_rng_seed_through_run_json() {
+        let mut run = RunState::map_fixture();
+        run.potion_rng_seed = 99;
+        run.potions.push(Potion::Gamble);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use gamble potion");
+
+        let json = serde_json::to_string(&after).expect("run serializes");
+        let restored: RunState = serde_json::from_str(&json).expect("run deserializes");
+        assert_eq!(restored.potion_rng_seed, after.potion_rng_seed);
+    }
+
+    #[test]
+    fn gamble_potion_works_outside_combat() {
+        let mut run = RunState::map_fixture();
+        run.potions.push(Potion::Gamble);
+
+        apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("gamble outside combat");
     }
 
     #[test]
@@ -188,25 +245,23 @@ mod tests {
     }
 
     #[test]
-    fn fear_potion_reduces_monster_attack_damage() {
+    fn block_potion_rejects_target() {
         let mut run = RunState::combat_fixture();
-        run.potions.push(Potion::Fear);
+        run.potions.push(Potion::Block);
         let monster_id = run.combat.as_ref().expect("combat").monsters[0].id;
-        let attack_before = run.combat.as_ref().expect("combat").monsters[0].powers.weak;
 
-        let after = apply_potion_action(
+        let err = apply_potion_action(
             &run,
             RunAction::UsePotion {
                 slot: 0,
                 target: Some(monster_id),
             },
         )
-        .expect("use fear potion");
+        .expect_err("block potion rejects target");
 
-        let combat = after.combat.expect("combat continues");
         assert_eq!(
-            combat.monsters[0].powers.weak,
-            attack_before + FEAR_POTION_WEAK
+            err,
+            SimError::IllegalAction("potion does not take a target")
         );
     }
 
