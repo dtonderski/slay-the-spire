@@ -10,15 +10,16 @@
 - Reward screen with rarity-weighted RNG card choices; potion/relic take actions
 - Shop: buy Anger, Vajra relic, **Fire Potion** (fixed prices)
 - Potions: use/discard Fire Potion
+- Events: fixed Golden Shrine event
 - Rest: heal, smith, card removal; fixed + generated map placeholder
 
 ### Tests
-- **369 tests** passing
+- **387 tests** passing
 
 ## Next Task
 
-Milestone 9: first fixed event.
+Milestone 9: event availability tests.
 
 ## Last Updated
 
-2026-06-18 (Fire Potion use/discard).
+2026-06-18 (fixed Golden Shrine event).
