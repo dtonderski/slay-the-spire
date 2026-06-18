@@ -4,7 +4,7 @@ use sts_core::{
     CombatAction, CombatPhase, CombatState, ContentId, Snapshot,
 };
 
-const EXPECTED_FINAL_HASH: &str = "7d09c91a7619093d";
+const EXPECTED_FINAL_HASH: &str = "00116d55cf28e9da";
 
 #[test]
 fn full_replay_final_hash_matches_expected() {

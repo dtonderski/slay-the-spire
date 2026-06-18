@@ -12,6 +12,7 @@ pub const WOUND_ID: ContentId = ContentId::new(4);
 pub const DAZED_ID: ContentId = ContentId::new(5);
 pub const BURN_ID: ContentId = ContentId::new(6);
 pub const SLIMED_ID: ContentId = ContentId::new(7);
+pub const ASCENDERS_BANE_ID: ContentId = ContentId::new(61);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
 pub const RETAIN_DEFEND_ID: ContentId = ContentId::new(9);
 pub const ANGER_ID: ContentId = ContentId::new(10);
@@ -124,6 +125,26 @@ pub const WOUND: CardDefinition = CardDefinition {
     keywords: CardKeywords {
         unplayable: true,
         ethereal: false,
+        exhaust: false,
+        retain: false,
+    },
+};
+
+pub const ASCENDERS_BANE: CardDefinition = CardDefinition {
+    id: ASCENDERS_BANE_ID,
+    key: "Ascenders Bane",
+    name: "Ascender's Bane",
+    cost: 0,
+    card_type: CardType::Status,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        unplayable: true,
+        ethereal: true,
         exhaust: false,
         retain: false,
     },
@@ -748,7 +769,7 @@ pub const SEARING_BLOW_PLUS: CardDefinition = CardDefinition {
 };
 
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
-pub const STATUS_CARDS: [CardDefinition; 4] = [WOUND, DAZED, BURN, SLIMED];
+pub const STATUS_CARDS: [CardDefinition; 5] = [WOUND, DAZED, BURN, SLIMED, ASCENDERS_BANE];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
 pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 10] = [
     ANGER,
@@ -787,7 +808,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 43] = [
+pub const ALL_CARDS: [CardDefinition; 44] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -796,6 +817,7 @@ pub const ALL_CARDS: [CardDefinition; 43] = [
     DAZED,
     BURN,
     SLIMED,
+    ASCENDERS_BANE,
     ETHEREAL_STRIKE,
     RETAIN_DEFEND,
     ANGER,

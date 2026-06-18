@@ -47,8 +47,8 @@ fn full_map_traversal_via_rest_branch_reaches_boss_at_floor_six() {
 
 #[test]
 fn generated_map_placeholder_is_deterministic_and_traversable() {
-    let (map_a, _) = generate_map_placeholder(17);
-    let (map_b, _) = generate_map_placeholder(17);
+    let (map_a, _) = generate_map_placeholder(17, 0);
+    let (map_b, _) = generate_map_placeholder(17, 0);
 
     assert_eq!(map_a, map_b);
     assert_eq!(map_a.nodes.len(), 7);

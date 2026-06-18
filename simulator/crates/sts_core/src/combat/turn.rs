@@ -44,6 +44,7 @@ pub fn start_player_turn(state: &mut CombatState) {
 }
 
 fn run_monster_turn(state: &mut CombatState) {
+    let ascension = state.ascension;
     let CombatState {
         player,
         monsters,
@@ -54,7 +55,7 @@ fn run_monster_turn(state: &mut CombatState) {
     let total_damage: i32 = monsters
         .iter_mut()
         .filter(|monster| monster.alive)
-        .map(|monster| apply_monster_intent(monster, player, piles))
+        .map(|monster| apply_monster_intent(monster, player, piles, ascension))
         .sum();
 
     if total_damage > 0 {

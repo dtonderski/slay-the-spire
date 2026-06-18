@@ -1,19 +1,35 @@
 use super::{FixedMap, MapNode, MapRunState, RoomKind};
 use crate::{
+    content::ascension::AscensionConfig,
     ids::MapNodeId,
     rng::{RngStream, SimulatorRng},
 };
 
-const BRANCH_ROOM_OPTIONS: [RoomKind; 3] = [RoomKind::Rest, RoomKind::Shop, RoomKind::Combat];
+const BRANCH_ROOM_OPTIONS_A0: [RoomKind; 3] = [RoomKind::Rest, RoomKind::Shop, RoomKind::Combat];
+const BRANCH_ROOM_OPTIONS_A1: [RoomKind; 4] = [
+    RoomKind::Rest,
+    RoomKind::Shop,
+    RoomKind::Combat,
+    RoomKind::Elite,
+];
 const PRE_BOSS_ROOM_OPTIONS: [RoomKind; 2] = [RoomKind::Shop, RoomKind::Combat];
+
+fn branch_room_options(ascension: u8) -> &'static [RoomKind] {
+    if AscensionConfig::new(ascension).elite_rooms_enabled() {
+        &BRANCH_ROOM_OPTIONS_A1
+    } else {
+        &BRANCH_ROOM_OPTIONS_A0
+    }
+}
 
 /// Deterministic placeholder map generator. Topology matches [super::milestone8_map] but
 /// branch and pre-boss room kinds vary by seed. Not claimed to match in-game generation.
 #[must_use]
-pub fn generate_map_placeholder(seed: u64) -> (FixedMap, u64) {
+pub fn generate_map_placeholder(seed: u64, ascension: u8) -> (FixedMap, u64) {
     let mut rng = SimulatorRng::new(seed);
-    let branch_room = BRANCH_ROOM_OPTIONS
-        [rng.next_usize(RngStream::MapRoom, "branch_room", BRANCH_ROOM_OPTIONS.len())];
+    let branch_options = branch_room_options(ascension);
+    let branch_room =
+        branch_options[rng.next_usize(RngStream::MapRoom, "branch_room", branch_options.len())];
     let pre_boss_room = PRE_BOSS_ROOM_OPTIONS[rng.next_usize(
         RngStream::MapRoom,
         "pre_boss_room",
@@ -73,7 +89,12 @@ pub fn generate_map_placeholder(seed: u64) -> (FixedMap, u64) {
 
 #[must_use]
 pub fn generated_map_fixture(seed: u64) -> MapRunState {
-    let (map, _) = generate_map_placeholder(seed);
+    generated_map_fixture_for_ascension(seed, 0)
+}
+
+#[must_use]
+pub fn generated_map_fixture_for_ascension(seed: u64, ascension: u8) -> MapRunState {
+    let (map, _) = generate_map_placeholder(seed, ascension);
 
     MapRunState {
         act: 1,
@@ -90,8 +111,8 @@ mod tests {
 
     #[test]
     fn generate_map_placeholder_is_deterministic_for_seed() {
-        let (first, first_seed) = generate_map_placeholder(42);
-        let (second, second_seed) = generate_map_placeholder(42);
+        let (first, first_seed) = generate_map_placeholder(42, 0);
+        let (second, second_seed) = generate_map_placeholder(42, 0);
 
         assert_eq!(first, second);
         assert_eq!(first_seed, second_seed);
@@ -99,8 +120,8 @@ mod tests {
 
     #[test]
     fn generate_map_placeholder_varies_room_kinds_by_seed() {
-        let (map_a, _) = generate_map_placeholder(1);
-        let (map_b, _) = generate_map_placeholder(99);
+        let (map_a, _) = generate_map_placeholder(1, 0);
+        let (map_b, _) = generate_map_placeholder(99, 0);
 
         let branch_a = map_a.node(MapNodeId::new(2)).unwrap().room_kind;
         let branch_b = map_b.node(MapNodeId::new(2)).unwrap().room_kind;
@@ -111,6 +132,18 @@ mod tests {
             branch_a != branch_b || pre_boss_a != pre_boss_b,
             "expected at least one room kind to differ across seeds"
         );
+    }
+
+    #[test]
+    fn a1_maps_can_include_elite_rooms() {
+        let has_elite = (0..64).any(|seed| {
+            generate_map_placeholder(seed, 1)
+                .0
+                .nodes
+                .iter()
+                .any(|node| node.room_kind == RoomKind::Elite)
+        });
+        assert!(has_elite);
     }
 
     #[test]
@@ -146,7 +179,7 @@ mod tests {
         let fixed_pre_boss = fixed.node(MapNodeId::new(4)).unwrap().room_kind;
 
         let generated = (0_u64..10_000)
-            .map(|seed| generate_map_placeholder(seed).0)
+            .map(|seed| generate_map_placeholder(seed, 0).0)
             .find(|map| {
                 let branch = map.node(MapNodeId::new(2)).unwrap().room_kind;
                 let pre_boss = map.node(MapNodeId::new(4)).unwrap().room_kind;

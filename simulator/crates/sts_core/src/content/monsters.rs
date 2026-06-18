@@ -2,6 +2,7 @@ use crate::{
     combat::piles::add_cards_to_discard,
     combat::turn_powers::monster_attack_damage,
     combat::{CardPiles, MonsterIntent, MonsterState},
+    content::ascension::AscensionConfig,
     content::cards::{BURN_ID, DAZED_ID},
     ids::{ContentId, MonsterId},
     power::MonsterPowers,
@@ -275,9 +276,19 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
 
 #[must_use]
 pub fn monster_state(definition: &MonsterDefinition, id: MonsterId) -> MonsterState {
+    monster_state_for_ascension(definition, id, 0)
+}
+
+#[must_use]
+pub fn monster_state_for_ascension(
+    definition: &MonsterDefinition,
+    id: MonsterId,
+    ascension: u8,
+) -> MonsterState {
+    let config = AscensionConfig::new(ascension);
     MonsterState {
         id,
-        hp: definition.hp,
+        hp: config.scaled_enemy_hp(definition.hp),
         block: 0,
         alive: true,
         powers: MonsterPowers {
@@ -298,6 +309,26 @@ pub fn monster_state(definition: &MonsterDefinition, id: MonsterId) -> MonsterSt
             definition.starting_defensive_turns,
         ),
     }
+}
+
+#[must_use]
+pub fn boss_monsters_for_ascension(
+    definition: &MonsterDefinition,
+    ascension: u8,
+) -> Vec<MonsterState> {
+    let mut monsters = vec![monster_state_for_ascension(
+        definition,
+        MonsterId::new(1),
+        ascension,
+    )];
+    if AscensionConfig::new(ascension).double_boss() {
+        monsters.push(monster_state_for_ascension(
+            definition,
+            MonsterId::new(2),
+            ascension,
+        ));
+    }
+    monsters
 }
 
 #[must_use]
@@ -564,9 +595,12 @@ pub fn apply_monster_intent(
     monster: &mut MonsterState,
     player: &mut crate::PlayerState,
     piles: &mut CardPiles,
+    ascension: u8,
 ) -> i32 {
+    let config = AscensionConfig::new(ascension);
+    let scale_damage = |damage: i32| config.scaled_attack_damage(damage);
     let damage = match monster.intent {
-        MonsterIntent::Attack { damage } => monster_attack_damage(monster, damage),
+        MonsterIntent::Attack { damage } => monster_attack_damage(monster, scale_damage(damage)),
         MonsterIntent::Block { block } => {
             monster.block += block;
             0
@@ -577,7 +611,7 @@ pub fn apply_monster_intent(
         }
         MonsterIntent::AttackAndBlock { damage, block } => {
             monster.block += block;
-            monster_attack_damage(monster, damage)
+            monster_attack_damage(monster, scale_damage(damage))
         }
         MonsterIntent::StrengthAndBlock { strength, block } => {
             monster.powers.strength += strength;
@@ -609,10 +643,10 @@ pub fn apply_monster_intent(
         }
         MonsterIntent::AddBurnToDiscard { count, damage } => {
             add_cards_to_discard(piles, BURN_ID, count);
-            monster_attack_damage(monster, damage)
+            monster_attack_damage(monster, scale_damage(damage))
         }
         MonsterIntent::AttackMultiple { damage, hits } => {
-            let hit_damage = monster_attack_damage(monster, damage);
+            let hit_damage = monster_attack_damage(monster, scale_damage(damage));
             hit_damage * hits
         }
         MonsterIntent::DefensiveCharge { block, strength } => {
@@ -658,7 +692,7 @@ mod tests {
     fn apply_intent(monster: &mut MonsterState) -> i32 {
         let mut player = dummy_player();
         let mut piles = dummy_piles();
-        apply_monster_intent(monster, &mut player, &mut piles)
+        apply_monster_intent(monster, &mut player, &mut piles, 0)
     }
 
     #[test]
@@ -1002,7 +1036,7 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
             0
         );
         assert_eq!(player.powers.weak, 1);
@@ -1037,7 +1071,7 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
             0
         );
         assert_eq!(player.powers.weak, 1);
@@ -1098,7 +1132,7 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
             0
         );
         assert_eq!(player.powers.strength, 1);
@@ -1169,7 +1203,7 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
             0
         );
         assert_eq!(piles.discard_pile.len(), 2);
@@ -1242,7 +1276,7 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
             2
         );
         assert_eq!(piles.discard_pile.len(), 3);

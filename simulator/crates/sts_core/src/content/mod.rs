@@ -1,3 +1,4 @@
+pub mod ascension;
 pub mod cards;
 pub mod character;
 pub mod deck;
