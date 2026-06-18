@@ -810,8 +810,14 @@ fn apply_internal_action(
 ) -> SimResult<Vec<InternalAction>> {
     match action {
         InternalAction::PlayCard { card_id } => {
-            apply_enrage_on_skill_play(state, card_id)?;
-            Ok(crate::relic::apply_on_card_play_relics(state))
+            let card = find_hand_card(state, card_id)?;
+            let definition = get_card_definition(card.content_id)
+                .ok_or(SimError::UnknownContent(card.content_id))?;
+            apply_enrage_on_card_type(state, definition.card_type);
+            Ok(crate::relic::apply_on_card_play_relics(
+                state,
+                definition.card_type,
+            ))
         }
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;
@@ -976,15 +982,6 @@ fn living_monster_mut(state: &mut CombatState, target: MonsterId) -> SimResult<&
         .iter_mut()
         .find(|monster| monster.id == target && monster.alive)
         .ok_or(SimError::IllegalAction("target is not a living monster"))
-}
-
-fn apply_enrage_on_skill_play(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
-    let card = find_hand_card(state, card_id)?;
-    let definition =
-        get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
-
-    apply_enrage_on_card_type(state, definition.card_type);
-    Ok(())
 }
 
 fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
