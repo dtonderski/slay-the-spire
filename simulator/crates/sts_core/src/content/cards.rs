@@ -31,6 +31,12 @@ pub const SEEING_RED_ID: ContentId = ContentId::new(23);
 pub const POMMEL_STRIKE_PLUS_ID: ContentId = ContentId::new(24);
 pub const BATTLE_TRANCE_PLUS_ID: ContentId = ContentId::new(25);
 pub const SEEING_RED_PLUS_ID: ContentId = ContentId::new(26);
+pub const INFLAME_ID: ContentId = ContentId::new(27);
+pub const FLEX_ID: ContentId = ContentId::new(28);
+pub const SPOT_WEAKNESS_ID: ContentId = ContentId::new(29);
+pub const INFLAME_PLUS_ID: ContentId = ContentId::new(30);
+pub const FLEX_PLUS_ID: ContentId = ContentId::new(31);
+pub const SPOT_WEAKNESS_PLUS_ID: ContentId = ContentId::new(32);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
     id: STRIKE_R_ID,
@@ -455,6 +461,96 @@ pub const SEEING_RED_PLUS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const INFLAME: CardDefinition = CardDefinition {
+    id: INFLAME_ID,
+    key: "Inflame",
+    name: "Inflame",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const FLEX: CardDefinition = CardDefinition {
+    id: FLEX_ID,
+    key: "Flex",
+    name: "Flex",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const SPOT_WEAKNESS: CardDefinition = CardDefinition {
+    id: SPOT_WEAKNESS_ID,
+    key: "Spot Weakness",
+    name: "Spot Weakness",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const INFLAME_PLUS: CardDefinition = CardDefinition {
+    id: INFLAME_PLUS_ID,
+    key: "Inflame+",
+    name: "Inflame+",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const FLEX_PLUS: CardDefinition = CardDefinition {
+    id: FLEX_PLUS_ID,
+    key: "Flex+",
+    name: "Flex+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const SPOT_WEAKNESS_PLUS: CardDefinition = CardDefinition {
+    id: SPOT_WEAKNESS_PLUS_ID,
+    key: "Spot Weakness+",
+    name: "Spot Weakness+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 4] = [WOUND, DAZED, BURN, SLIMED];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
@@ -468,7 +564,7 @@ pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 8] = [
     POMMEL_STRIKE,
     POMMEL_STRIKE_PLUS,
 ];
-pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 7] = [
+pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 11] = [
     SHRUG_IT_OFF,
     TRUE_GRIT,
     BURNING_PACT,
@@ -476,9 +572,14 @@ pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 7] = [
     SEEING_RED,
     BATTLE_TRANCE_PLUS,
     SEEING_RED_PLUS,
+    FLEX,
+    SPOT_WEAKNESS,
+    FLEX_PLUS,
+    SPOT_WEAKNESS_PLUS,
 ];
-pub const MILESTONE5_POWER_CARDS: [CardDefinition; 2] = [FEEL_NO_PAIN, DARK_EMBRACE];
-pub const ALL_CARDS: [CardDefinition; 26] = [
+pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
+    [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
+pub const ALL_CARDS: [CardDefinition; 32] = [
     STRIKE_R,
     DEFEND_R,
     BASH,
@@ -505,6 +606,12 @@ pub const ALL_CARDS: [CardDefinition; 26] = [
     POMMEL_STRIKE_PLUS,
     BATTLE_TRANCE_PLUS,
     SEEING_RED_PLUS,
+    INFLAME,
+    FLEX,
+    SPOT_WEAKNESS,
+    INFLAME_PLUS,
+    FLEX_PLUS,
+    SPOT_WEAKNESS_PLUS,
 ];
 
 #[must_use]
@@ -653,5 +760,43 @@ mod tests {
     #[test]
     fn seeing_red_plus_costs_zero() {
         assert_eq!(SEEING_RED_PLUS.cost, 0);
+    }
+
+    #[test]
+    fn inflame_has_expected_values() {
+        assert_eq!(INFLAME.cost, 1);
+        assert_eq!(INFLAME.target, TargetRequirement::None);
+        assert_eq!(INFLAME.card_type, CardType::Power);
+    }
+
+    #[test]
+    fn flex_has_expected_values() {
+        assert_eq!(FLEX.cost, 0);
+        assert_eq!(FLEX.target, TargetRequirement::None);
+        assert_eq!(FLEX.card_type, CardType::Skill);
+    }
+
+    #[test]
+    fn spot_weakness_has_expected_values() {
+        assert_eq!(SPOT_WEAKNESS.cost, 1);
+        assert_eq!(SPOT_WEAKNESS.target, TargetRequirement::None);
+        assert_eq!(SPOT_WEAKNESS.card_type, CardType::Skill);
+    }
+
+    #[test]
+    fn inflame_plus_grants_one_more_strength_than_base() {
+        assert_eq!(INFLAME_PLUS.card_type, CardType::Power);
+    }
+
+    #[test]
+    fn flex_plus_is_zero_cost_skill() {
+        assert_eq!(FLEX_PLUS.cost, 0);
+        assert_eq!(FLEX_PLUS.card_type, CardType::Skill);
+    }
+
+    #[test]
+    fn spot_weakness_plus_is_one_cost_skill() {
+        assert_eq!(SPOT_WEAKNESS_PLUS.cost, 1);
+        assert_eq!(SPOT_WEAKNESS_PLUS.card_type, CardType::Skill);
     }
 }

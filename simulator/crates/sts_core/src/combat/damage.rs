@@ -31,8 +31,14 @@ pub fn deal_damage_info_to_monster(
     monster: &mut MonsterState,
     info: DamageInfo,
     player: PlayerPowers,
+    temp_strength: i32,
 ) {
-    let amount = calculate_attack_damage(info.amount, player, monster.powers.vulnerable);
+    let amount = calculate_attack_damage(
+        info.amount,
+        player,
+        temp_strength,
+        monster.powers.vulnerable,
+    );
     deal_unmodified_damage_to_monster(monster, amount);
 }
 
@@ -79,7 +85,7 @@ mod tests {
             amount: 6,
         };
 
-        deal_damage_info_to_monster(&mut monster, info, PlayerPowers::default());
+        deal_damage_info_to_monster(&mut monster, info, PlayerPowers::default(), 0);
 
         assert_eq!(monster.block, 0);
         assert_eq!(monster.hp, 8);
@@ -110,6 +116,7 @@ mod tests {
                 strength: 2,
                 ..Default::default()
             },
+            0,
         );
 
         assert_eq!(monster.hp, 12);
@@ -140,6 +147,7 @@ mod tests {
                 weak: 1,
                 ..Default::default()
             },
+            0,
         );
 
         assert_eq!(monster.hp, 15);

@@ -26,7 +26,12 @@ pub fn apply_end_of_monster_turn_powers(monster: &mut MonsterState) {
 }
 
 pub fn monster_attack_damage(monster: &MonsterState, base: i32) -> i32 {
-    base + monster.powers.strength
+    let with_strength = base + monster.powers.strength;
+    if monster.powers.weak > 0 {
+        with_strength * 3 / 4
+    } else {
+        with_strength
+    }
 }
 
 #[cfg(test)]
@@ -81,6 +86,15 @@ mod tests {
         monster.powers.strength = 2;
 
         assert_eq!(monster_attack_damage(&monster, 6), 8);
+    }
+
+    #[test]
+    fn monster_weak_reduces_attack_damage_with_floor() {
+        let mut monster = CombatState::initial_fixture().monsters[0].clone();
+        monster.powers.weak = 1;
+
+        assert_eq!(monster_attack_damage(&monster, 6), 4);
+        assert_eq!(monster_attack_damage(&monster, 7), 5);
     }
 
     #[test]

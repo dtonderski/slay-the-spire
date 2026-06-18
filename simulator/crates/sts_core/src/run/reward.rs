@@ -1,3 +1,4 @@
+use super::state::REWARD_GOLD_AMOUNT;
 use crate::{
     card::CardInstance,
     combat::{apply_combat_action, CombatPhase},
@@ -25,6 +26,7 @@ pub fn enter_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: fixed_card_reward_choices(next_card_id),
+        gold_offer: REWARD_GOLD_AMOUNT,
     });
 }
 
@@ -73,6 +75,16 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
                 .copied()
                 .expect("validated reward card");
             next.deck.push(choice);
+            next.phase = RunPhase::Idle;
+            next.reward = None;
+        }
+        RunAction::TakeGoldReward => {
+            let gold_offer = next
+                .reward
+                .as_ref()
+                .expect("validated reward screen")
+                .gold_offer;
+            next.gold += gold_offer;
             next.phase = RunPhase::Idle;
             next.reward = None;
         }
@@ -133,6 +145,7 @@ mod tests {
         assert!(run.combat.is_none());
         let reward = run.reward.expect("reward screen present");
         assert_eq!(reward.choices.len(), 3);
+        assert_eq!(reward.gold_offer, REWARD_GOLD_AMOUNT);
         assert_eq!(
             reward
                 .choices
@@ -184,5 +197,26 @@ mod tests {
         .expect_err("unknown reward card");
 
         assert_eq!(err, SimError::UnknownCard(CardId::new(999)));
+    }
+
+    #[test]
+    fn take_gold_reward_adds_fixed_amount_and_leaves_deck_unchanged() {
+        let run = winning_combat_run();
+        let deck_before = run.deck.clone();
+        let gold_before = run.gold;
+
+        let next = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
+
+        assert_eq!(next.phase, RunPhase::Idle);
+        assert!(next.reward.is_none());
+        assert_eq!(next.deck, deck_before);
+        assert_eq!(next.gold, gold_before + REWARD_GOLD_AMOUNT);
+    }
+
+    #[test]
+    fn combat_fixture_starts_with_starting_gold() {
+        let run = RunState::combat_fixture();
+
+        assert_eq!(run.gold, crate::run::state::STARTING_GOLD);
     }
 }

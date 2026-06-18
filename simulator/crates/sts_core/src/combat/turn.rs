@@ -35,6 +35,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 pub fn start_player_turn(state: &mut CombatState) {
     state.player.energy = PLAYER_TURN_ENERGY;
     state.player.cannot_draw = false;
+    state.player.temp_strength = 0;
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
@@ -56,6 +57,9 @@ fn run_monster_turn(state: &mut CombatState) {
         if monster.alive {
             if monster.powers.vulnerable > 0 {
                 monster.powers.vulnerable -= 1;
+            }
+            if monster.powers.weak > 0 {
+                monster.powers.weak -= 1;
             }
             apply_end_of_monster_turn_powers(monster);
         }
@@ -163,6 +167,17 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert!(!next.player.cannot_draw);
+    }
+
+    #[test]
+    fn temp_strength_clears_at_start_of_next_player_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.temp_strength = 2;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.temp_strength, 0);
     }
 
     #[test]

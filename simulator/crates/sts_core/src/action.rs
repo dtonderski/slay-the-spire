@@ -57,9 +57,24 @@ pub enum InternalAction {
     GainDarkEmbrace {
         amount: i32,
     },
+    GainStrength {
+        amount: i32,
+    },
+    GainTempStrength {
+        amount: i32,
+    },
+    ApplyWeak {
+        target: MonsterId,
+        amount: i32,
+    },
     CardExhausted {
         card_id: CardId,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RestAction {
+    Heal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

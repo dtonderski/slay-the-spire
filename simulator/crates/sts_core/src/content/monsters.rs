@@ -7,6 +7,13 @@ use crate::{
 
 pub const FIXED_SIMPLE_MONSTER_ID: ContentId = ContentId::new(100);
 pub const CULTIST_ID: ContentId = ContentId::new(101);
+pub const JAW_WORM_ID: ContentId = ContentId::new(102);
+
+const JAW_WORM_CHOMP_DAMAGE: i32 = 11;
+const JAW_WORM_THRASH_DAMAGE: i32 = 7;
+const JAW_WORM_THRASH_BLOCK: i32 = 5;
+const JAW_WORM_BELLOW_STRENGTH: i32 = 3;
+const JAW_WORM_BELLOW_BLOCK: i32 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonsterDefinition {
@@ -34,11 +41,21 @@ pub const CULTIST_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 2,
 };
 
+/// Act 1 Jaw Worm at ascension 0, simplified: 42 HP (within 40–44), three-move cycle.
+pub const JAW_WORM_A0: MonsterDefinition = MonsterDefinition {
+    content_id: JAW_WORM_ID,
+    name: "Jaw Worm",
+    hp: 42,
+    attack_damage: 0,
+    ritual_amount: 0,
+};
+
 #[must_use]
 pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterDefinition> {
     match content_id {
         FIXED_SIMPLE_MONSTER_ID => Some(&FIXED_SIMPLE_MONSTER),
         CULTIST_ID => Some(&CULTIST_A0),
+        JAW_WORM_ID => Some(&JAW_WORM_A0),
         _ => None,
     }
 }
@@ -72,8 +89,27 @@ pub fn prepare_monster_intent_for(
         CULTIST_ID if moves_executed == 0 => MonsterIntent::Ritual {
             amount: definition.ritual_amount,
         },
+        JAW_WORM_ID => jaw_worm_intent(moves_executed),
         _ => MonsterIntent::Attack {
             damage: definition.attack_damage,
+        },
+    }
+}
+
+/// Deterministic Jaw Worm move cycle: Chomp → Thrash → Bellow, keyed on `moves_executed`.
+#[must_use]
+fn jaw_worm_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 3 {
+        0 => MonsterIntent::Attack {
+            damage: JAW_WORM_CHOMP_DAMAGE,
+        },
+        1 => MonsterIntent::AttackAndBlock {
+            damage: JAW_WORM_THRASH_DAMAGE,
+            block: JAW_WORM_THRASH_BLOCK,
+        },
+        _ => MonsterIntent::StrengthAndBlock {
+            strength: JAW_WORM_BELLOW_STRENGTH,
+            block: JAW_WORM_BELLOW_BLOCK,
         },
     }
 }
@@ -84,6 +120,15 @@ pub fn apply_monster_intent(monster: &mut MonsterState) -> i32 {
         MonsterIntent::Attack { damage } => monster_attack_damage(monster, damage),
         MonsterIntent::Ritual { amount } => {
             monster.powers.ritual += amount;
+            0
+        }
+        MonsterIntent::AttackAndBlock { damage, block } => {
+            monster.block += block;
+            monster_attack_damage(monster, damage)
+        }
+        MonsterIntent::StrengthAndBlock { strength, block } => {
+            monster.powers.strength += strength;
+            monster.block += block;
             0
         }
     };
@@ -180,5 +225,90 @@ mod tests {
                 damage: FIXED_SIMPLE_MONSTER.attack_damage
             }
         );
+    }
+
+    #[test]
+    fn jaw_worm_has_forty_two_hp() {
+        assert_eq!(JAW_WORM_A0.hp, 42);
+    }
+
+    #[test]
+    fn jaw_worm_starts_with_chomp_intent() {
+        let monster = monster_state(&JAW_WORM_A0, MonsterId::new(1));
+
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::Attack {
+                damage: JAW_WORM_CHOMP_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn jaw_worm_move_selection_cycles_chomp_thrash_bellow() {
+        let definition = &JAW_WORM_A0;
+
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::Attack {
+                damage: JAW_WORM_CHOMP_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::AttackAndBlock {
+                damage: JAW_WORM_THRASH_DAMAGE,
+                block: JAW_WORM_THRASH_BLOCK,
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 2),
+            MonsterIntent::StrengthAndBlock {
+                strength: JAW_WORM_BELLOW_STRENGTH,
+                block: JAW_WORM_BELLOW_BLOCK,
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 3),
+            MonsterIntent::Attack {
+                damage: JAW_WORM_CHOMP_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn jaw_worm_chomp_deals_eleven_plus_strength() {
+        let mut monster = monster_state(&JAW_WORM_A0, MonsterId::new(1));
+        monster.powers.strength = 3;
+        monster.intent = MonsterIntent::Attack {
+            damage: JAW_WORM_CHOMP_DAMAGE,
+        };
+
+        assert_eq!(apply_monster_intent(&mut monster), 14);
+    }
+
+    #[test]
+    fn jaw_worm_thrash_deals_damage_and_gains_block() {
+        let mut monster = monster_state(&JAW_WORM_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AttackAndBlock {
+            damage: JAW_WORM_THRASH_DAMAGE,
+            block: JAW_WORM_THRASH_BLOCK,
+        };
+
+        assert_eq!(apply_monster_intent(&mut monster), 7);
+        assert_eq!(monster.block, 5);
+    }
+
+    #[test]
+    fn jaw_worm_bellow_gains_strength_and_block() {
+        let mut monster = monster_state(&JAW_WORM_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::StrengthAndBlock {
+            strength: JAW_WORM_BELLOW_STRENGTH,
+            block: JAW_WORM_BELLOW_BLOCK,
+        };
+
+        assert_eq!(apply_monster_intent(&mut monster), 0);
+        assert_eq!(monster.powers.strength, 3);
+        assert_eq!(monster.block, 6);
     }
 }

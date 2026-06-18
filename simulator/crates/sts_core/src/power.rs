@@ -15,6 +15,7 @@ pub struct PlayerPowers {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct MonsterPowers {
     pub vulnerable: i32,
+    pub weak: i32,
     pub strength: i32,
     pub ritual: i32,
 }
@@ -30,12 +31,17 @@ pub fn attack_damage_with_vulnerable(base: i32, vulnerable: i32) -> i32 {
 }
 
 /// Player attack modifiers applied before target vulnerable:
-/// 1. add strength
+/// 1. add strength and temp strength
 /// 2. if weak, multiply by 0.75 and floor via integer `base * 3 / 4`
 /// 3. apply target vulnerable
 #[must_use]
-pub fn calculate_attack_damage(base: i32, player: PlayerPowers, target_vulnerable: i32) -> i32 {
-    let with_strength = base + player.strength;
+pub fn calculate_attack_damage(
+    base: i32,
+    player: PlayerPowers,
+    temp_strength: i32,
+    target_vulnerable: i32,
+) -> i32 {
+    let with_strength = base + player.strength + temp_strength;
     let with_weak = if player.weak > 0 {
         with_strength * 3 / 4
     } else {
@@ -74,7 +80,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(calculate_attack_damage(6, player, 0), 8);
+        assert_eq!(calculate_attack_damage(6, player, 0, 0), 8);
     }
 
     #[test]
@@ -84,8 +90,8 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(calculate_attack_damage(6, player, 0), 4);
-        assert_eq!(calculate_attack_damage(7, player, 0), 5);
+        assert_eq!(calculate_attack_damage(6, player, 0, 0), 4);
+        assert_eq!(calculate_attack_damage(7, player, 0, 0), 5);
     }
 
     #[test]
@@ -96,8 +102,15 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(calculate_attack_damage(7, player, 0), 6);
-        assert_eq!(calculate_attack_damage(7, player, 2), 9);
+        assert_eq!(calculate_attack_damage(7, player, 0, 0), 6);
+        assert_eq!(calculate_attack_damage(7, player, 0, 2), 9);
+    }
+
+    #[test]
+    fn temp_strength_modifies_attack_damage() {
+        let player = PlayerPowers::default();
+
+        assert_eq!(calculate_attack_damage(6, player, 2, 0), 8);
     }
 
     #[test]

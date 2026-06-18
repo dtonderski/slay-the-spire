@@ -2,7 +2,7 @@ use crate::{
     card::CardInstance,
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    content::monsters::{monster_state, CULTIST_A0, FIXED_SIMPLE_MONSTER},
+    content::monsters::{monster_state, CULTIST_A0, FIXED_SIMPLE_MONSTER, JAW_WORM_A0},
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
@@ -27,6 +27,8 @@ pub struct PlayerState {
     pub powers: PlayerPowers,
     #[serde(default)]
     pub cannot_draw: bool,
+    #[serde(default)]
+    pub temp_strength: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +64,8 @@ pub enum CombatPhase {
 pub enum MonsterIntent {
     Attack { damage: i32 },
     Ritual { amount: i32 },
+    AttackAndBlock { damage: i32, block: i32 },
+    StrengthAndBlock { strength: i32, block: i32 },
 }
 
 impl CombatState {
@@ -75,6 +79,7 @@ impl CombatState {
                 energy: 3,
                 powers: PlayerPowers::default(),
                 cannot_draw: false,
+                temp_strength: 0,
             },
             monsters: vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
             piles: CardPiles {
@@ -95,6 +100,13 @@ impl CombatState {
     pub fn cultist_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&CULTIST_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn jaw_worm_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
         state
     }
 
@@ -167,5 +179,16 @@ mod tests {
         let state = CombatState::initial_fixture();
 
         assert_eq!(state.validate_unique_card_piles(), Ok(()));
+    }
+
+    #[test]
+    fn player_temp_strength_round_trips_through_json() {
+        let mut state = CombatState::initial_fixture();
+        state.player.temp_strength = 2;
+
+        let json = serde_json::to_string(&state.player).expect("player serializes");
+        let restored: PlayerState = serde_json::from_str(&json).expect("player deserializes");
+
+        assert_eq!(restored.temp_strength, 2);
     }
 }

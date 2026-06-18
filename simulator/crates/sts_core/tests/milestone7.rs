@@ -1,26 +1,37 @@
 use sts_core::{
     apply_combat_action_on_run, apply_run_action,
     content::cards::{ANGER_ID, BASH_ID, STRIKE_R_ID},
-    CombatAction, RunAction, RunPhase, RunState, SimError,
+    CombatAction, RunAction, RunPhase, RunState, SimError, REWARD_GOLD_AMOUNT, STARTING_GOLD,
 };
+
+#[test]
+fn combat_fixture_starts_with_starting_gold() {
+    let run = RunState::combat_fixture();
+
+    assert_eq!(run.gold, STARTING_GOLD);
+}
 
 #[test]
 fn combat_win_transitions_to_reward_phase() {
     let run = win_fixture_combat();
 
     assert_eq!(run.phase, RunPhase::Reward);
-    assert_eq!(run.reward.as_ref().expect("reward screen").choices.len(), 3);
+    let reward = run.reward.as_ref().expect("reward screen");
+    assert_eq!(reward.choices.len(), 3);
+    assert_eq!(reward.gold_offer, REWARD_GOLD_AMOUNT);
 }
 
 #[test]
-fn skip_reward_preserves_master_deck() {
+fn skip_reward_preserves_master_deck_and_gold() {
     let run = win_fixture_combat();
     let deck_before = run.deck.clone();
+    let gold_before = run.gold;
 
     let after = apply_run_action(&run, RunAction::SkipReward).expect("skip reward");
 
     assert_eq!(after.phase, RunPhase::Idle);
     assert_eq!(after.deck, deck_before);
+    assert_eq!(after.gold, gold_before);
 }
 
 #[test]
@@ -35,6 +46,19 @@ fn take_card_reward_appends_selected_card_to_master_deck() {
     assert_eq!(after.deck.len(), deck_len + 1);
     assert!(after.deck.iter().any(|card| card.id == chosen));
     assert_eq!(after.count_content_in_deck(ANGER_ID), 1);
+}
+
+#[test]
+fn take_gold_reward_adds_fixed_amount_without_changing_deck() {
+    let run = win_fixture_combat();
+    let deck_before = run.deck.clone();
+    let gold_before = run.gold;
+
+    let after = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
+
+    assert_eq!(after.phase, RunPhase::Idle);
+    assert_eq!(after.deck, deck_before);
+    assert_eq!(after.gold, gold_before + REWARD_GOLD_AMOUNT);
 }
 
 #[test]

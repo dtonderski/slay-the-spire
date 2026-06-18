@@ -9,14 +9,15 @@ use crate::{
     content::cards::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, FEEL_NO_PAIN_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID,
+        DEFEND_R_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     },
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
     rng::SimulatorRng,
-    CardInstance, CombatState, MonsterState, SimError, SimResult,
+    CardInstance, CombatState, MonsterIntent, MonsterState, SimError, SimResult,
 };
 use std::collections::VecDeque;
 
@@ -82,6 +83,9 @@ fn apply_play_card(
         ),
         BATTLE_TRANCE_ID | BATTLE_TRANCE_PLUS_ID => battle_trance_queue(card_id, definition),
         SEEING_RED_ID | SEEING_RED_PLUS_ID => seeing_red_queue(card_id, definition),
+        INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
+        FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
+        SPOT_WEAKNESS_ID | SPOT_WEAKNESS_PLUS_ID => spot_weakness_queue(state, card_id, definition),
         _ if definition.values.damage.is_some()
             && definition.target == crate::TargetRequirement::Enemy =>
         {
@@ -489,6 +493,107 @@ fn seeing_red_queue(
     ]))
 }
 
+fn inflame_strength_amount(definition: &CardDefinition) -> i32 {
+    if definition.id == INFLAME_PLUS_ID {
+        3
+    } else {
+        2
+    }
+}
+
+fn inflame_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainStrength {
+            amount: inflame_strength_amount(definition),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn flex_temp_strength_amount(definition: &CardDefinition) -> i32 {
+    if definition.id == FLEX_PLUS_ID {
+        4
+    } else {
+        2
+    }
+}
+
+fn flex_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainTempStrength {
+            amount: flex_temp_strength_amount(definition),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn spot_weakness_weak_amount(definition: &CardDefinition) -> i32 {
+    if definition.id == SPOT_WEAKNESS_PLUS_ID {
+        4
+    } else {
+        3
+    }
+}
+
+fn any_monster_intends_attack(state: &CombatState) -> bool {
+    state
+        .monsters
+        .iter()
+        .any(|monster| monster.alive && matches!(monster.intent, MonsterIntent::Attack { .. }))
+}
+
+fn spot_weakness_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+
+    if any_monster_intends_attack(state) {
+        let weak_amount = spot_weakness_weak_amount(definition);
+        for monster in &state.monsters {
+            if monster.alive {
+                queue.push_back(InternalAction::ApplyWeak {
+                    target: monster.id,
+                    amount: weak_amount,
+                });
+            }
+        }
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+
+    Ok(queue)
+}
+
 fn process_internal_queue(
     state: &CombatState,
     mut queue: VecDeque<InternalAction>,
@@ -529,12 +634,14 @@ fn apply_internal_action(
         }
         InternalAction::DealDamage { info } => {
             let player_powers = state.player.powers;
+            let temp_strength = state.player.temp_strength;
             let monster = living_monster_mut(state, info.target)?;
-            deal_damage_info_to_monster(monster, info, player_powers);
+            deal_damage_info_to_monster(monster, info, player_powers, temp_strength);
             Ok(Vec::new())
         }
         InternalAction::DealDamageAll { source, amount } => {
             let player_powers = state.player.powers;
+            let temp_strength = state.player.temp_strength;
             let targets: Vec<MonsterId> = state
                 .monsters
                 .iter()
@@ -551,6 +658,7 @@ fn apply_internal_action(
                         amount,
                     },
                     player_powers,
+                    temp_strength,
                 );
             }
             Ok(Vec::new())
@@ -563,6 +671,11 @@ fn apply_internal_action(
         InternalAction::ApplyVulnerable { target, amount } => {
             let monster = living_monster_mut(state, target)?;
             monster.powers.vulnerable += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::ApplyWeak { target, amount } => {
+            let monster = living_monster_mut(state, target)?;
+            monster.powers.weak += amount;
             Ok(Vec::new())
         }
         InternalAction::MoveCard { card_id, from, to } => {
@@ -595,6 +708,14 @@ fn apply_internal_action(
         }
         InternalAction::GainDarkEmbrace { amount } => {
             state.player.powers.dark_embrace += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainStrength { amount } => {
+            state.player.powers.strength += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainTempStrength { amount } => {
+            state.player.temp_strength += amount;
             Ok(Vec::new())
         }
         InternalAction::CardExhausted { .. } => {
@@ -696,9 +817,10 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
-        CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, FEEL_NO_PAIN_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, FEEL_NO_PAIN_ID, FLEX_ID,
+        FLEX_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
 
     #[test]
@@ -1658,6 +1780,200 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.id == CardId::new(32)));
+    }
+
+    #[test]
+    fn inflame_grants_two_strength_and_moves_to_discard() {
+        let state = hand_only(INFLAME_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Inflame applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.powers.strength, 2);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn inflame_plus_grants_three_strength() {
+        let state = hand_only(INFLAME_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Inflame+ applies");
+
+        assert_eq!(next.player.powers.strength, 3);
+    }
+
+    #[test]
+    fn flex_grants_two_temp_strength_at_zero_cost() {
+        let state = hand_only(FLEX_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Flex applies");
+
+        assert_eq!(next.player.energy, state.player.energy);
+        assert_eq!(next.player.temp_strength, 2);
+        assert_eq!(next.player.powers.strength, 0);
+    }
+
+    #[test]
+    fn flex_plus_grants_four_temp_strength() {
+        let state = hand_only(FLEX_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Flex+ applies");
+
+        assert_eq!(next.player.temp_strength, 4);
+    }
+
+    #[test]
+    fn flex_temp_strength_boosts_strike_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FLEX_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let after_flex = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Flex applies");
+
+        let after_strike = apply_combat_action(
+            &after_flex,
+            CombatAction::PlayCard {
+                card_id: CardId::new(21),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike applies");
+
+        assert_eq!(after_strike.monsters[0].hp, state.monsters[0].hp - 8);
+    }
+
+    #[test]
+    fn flex_temp_strength_clears_after_end_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), FLEX_ID)];
+        state.piles.draw_pile.clear();
+
+        let after_flex = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Flex applies");
+        assert_eq!(after_flex.player.temp_strength, 2);
+
+        let next_turn = crate::combat::end_player_turn(&after_flex);
+
+        assert_eq!(next_turn.player.temp_strength, 0);
+    }
+
+    #[test]
+    fn spot_weakness_applies_three_weak_when_enemy_intends_attack() {
+        let state = hand_only(SPOT_WEAKNESS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Spot Weakness applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.monsters[0].powers.weak, 3);
+    }
+
+    #[test]
+    fn spot_weakness_does_nothing_on_ritual_intent() {
+        let mut state = CombatState::cultist_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SPOT_WEAKNESS_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Spot Weakness applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 0);
+    }
+
+    #[test]
+    fn spot_weakness_plus_applies_four_weak() {
+        let state = hand_only(SPOT_WEAKNESS_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Spot Weakness+ applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 4);
+    }
+
+    #[test]
+    fn spot_weakness_reduces_monster_attack_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SPOT_WEAKNESS_ID)];
+        state.piles.draw_pile.clear();
+        state.player.hp = 40;
+
+        let after_spot = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Spot Weakness applies");
+        assert_eq!(after_spot.monsters[0].powers.weak, 3);
+
+        let after_turn = crate::combat::end_player_turn(&after_spot);
+
+        assert_eq!(after_turn.player.hp, 36);
     }
 
     fn hand_only(content_id: crate::ContentId) -> CombatState {
