@@ -1,5 +1,5 @@
 use crate::{
-    combat::MonsterState,
+    combat::{MonsterState, PlayerState},
     ids::{CardId, MonsterId},
     power::{calculate_attack_damage, PlayerPowers},
 };
@@ -40,6 +40,17 @@ pub fn deal_damage_info_to_monster(
         monster.powers.vulnerable,
     );
     deal_unmodified_damage_to_monster(monster, amount);
+}
+
+/// Reflects thorns-style spikes damage to the player after an attack hits the monster.
+pub fn reflect_spikes_to_player(player: &mut PlayerState, spikes: i32) {
+    if spikes <= 0 {
+        return;
+    }
+
+    let blocked = player.block.min(spikes);
+    player.block -= blocked;
+    player.hp -= spikes - blocked;
 }
 
 #[cfg(test)]
@@ -151,5 +162,23 @@ mod tests {
         );
 
         assert_eq!(monster.hp, 15);
+    }
+
+    #[test]
+    fn spikes_reflect_damage_to_player_through_block() {
+        let mut player = PlayerState {
+            hp: 20,
+            max_hp: 80,
+            block: 1,
+            energy: 3,
+            powers: PlayerPowers::default(),
+            cannot_draw: false,
+            temp_strength: 0,
+        };
+
+        reflect_spikes_to_player(&mut player, 3);
+
+        assert_eq!(player.block, 0);
+        assert_eq!(player.hp, 18);
     }
 }

@@ -10,9 +10,22 @@ pub const CULTIST_ID: ContentId = ContentId::new(101);
 pub const JAW_WORM_ID: ContentId = ContentId::new(102);
 pub const GREMLIN_NOB_ID: ContentId = ContentId::new(103);
 pub const RED_LOUSE_ID: ContentId = ContentId::new(104);
+pub const GREEN_LOUSE_ID: ContentId = ContentId::new(105);
+pub const SPIKE_SLIME_ID: ContentId = ContentId::new(106);
+pub const ACID_SLIME_ID: ContentId = ContentId::new(107);
 
 const RED_LOUSE_CURL_BLOCK: i32 = 3;
 const RED_LOUSE_BITE_DAMAGE: i32 = 6;
+
+const GREEN_LOUSE_CURL_BLOCK: i32 = 3;
+const GREEN_LOUSE_BITE_DAMAGE: i32 = 6;
+const GREEN_LOUSE_SPIKES: i32 = 3;
+
+const SPIKE_SLIME_LICK_WEAK: i32 = 1;
+const SPIKE_SLIME_SPIT_DAMAGE: i32 = 7;
+
+const ACID_SLIME_ATTACK_DAMAGE: i32 = 6;
+const ACID_SLIME_WEAK: i32 = 1;
 
 const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
@@ -33,6 +46,8 @@ pub struct MonsterDefinition {
     pub ritual_amount: i32,
     /// Weak applied to the player when they play a skill card while this monster is alive.
     pub enrage_weak_on_skill: i32,
+    /// Spikes applied at combat start (thorns on attack).
+    pub starting_spikes: i32,
 }
 
 pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
@@ -42,6 +57,7 @@ pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
     attack_damage: 6,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
+    starting_spikes: 0,
 };
 
 /// Act 1 Cultist at ascension 0, simplified: 50 HP, Ritual 2 on first turn, then 6-damage attacks.
@@ -52,6 +68,7 @@ pub const CULTIST_A0: MonsterDefinition = MonsterDefinition {
     attack_damage: 6,
     ritual_amount: 2,
     enrage_weak_on_skill: 0,
+    starting_spikes: 0,
 };
 
 /// Act 1 Jaw Worm at ascension 0, simplified: 42 HP (within 40–44), three-move cycle.
@@ -62,6 +79,7 @@ pub const JAW_WORM_A0: MonsterDefinition = MonsterDefinition {
     attack_damage: 0,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
+    starting_spikes: 0,
 };
 
 /// Act 1 Gremlin Nob at ascension 0, simplified: 82 HP, enrages on skill play, 6/14/10 attack cycle.
@@ -72,6 +90,7 @@ pub const GREMLIN_NOB_A0: MonsterDefinition = MonsterDefinition {
     attack_damage: 0,
     ritual_amount: 0,
     enrage_weak_on_skill: 2,
+    starting_spikes: 0,
 };
 
 /// Act 1 Red Louse at ascension 0, simplified: 11 HP (within 11–12), Curl/Bite two-move cycle.
@@ -82,6 +101,40 @@ pub const RED_LOUSE_A0: MonsterDefinition = MonsterDefinition {
     attack_damage: 0,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+};
+
+/// Act 1 Green Louse at ascension 0: 12 HP, Spikes 3, Curl/Bite cycle.
+pub const GREEN_LOUSE_A0: MonsterDefinition = MonsterDefinition {
+    content_id: GREEN_LOUSE_ID,
+    name: "Green Louse",
+    hp: 12,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: GREEN_LOUSE_SPIKES,
+};
+
+/// Act 1 Spike Slime at ascension 0: 14 HP, Lick (weak) / Spit (attack) cycle.
+pub const SPIKE_SLIME_A0: MonsterDefinition = MonsterDefinition {
+    content_id: SPIKE_SLIME_ID,
+    name: "Spike Slime",
+    hp: 14,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+};
+
+/// Act 1 Acid Slime (small) at ascension 0: 12 HP, attack then apply weak cycle.
+pub const ACID_SLIME_A0: MonsterDefinition = MonsterDefinition {
+    content_id: ACID_SLIME_ID,
+    name: "Acid Slime (S)",
+    hp: 12,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
 };
 
 #[must_use]
@@ -92,6 +145,9 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         JAW_WORM_ID => Some(&JAW_WORM_A0),
         GREMLIN_NOB_ID => Some(&GREMLIN_NOB_A0),
         RED_LOUSE_ID => Some(&RED_LOUSE_A0),
+        GREEN_LOUSE_ID => Some(&GREEN_LOUSE_A0),
+        SPIKE_SLIME_ID => Some(&SPIKE_SLIME_A0),
+        ACID_SLIME_ID => Some(&ACID_SLIME_A0),
         _ => None,
     }
 }
@@ -103,7 +159,10 @@ pub fn monster_state(definition: &MonsterDefinition, id: MonsterId) -> MonsterSt
         hp: definition.hp,
         block: 0,
         alive: true,
-        powers: MonsterPowers::default(),
+        powers: MonsterPowers {
+            spikes: definition.starting_spikes,
+            ..MonsterPowers::default()
+        },
         content_id: definition.content_id,
         moves_executed: 0,
         intent: prepare_monster_intent_for(definition, 0),
@@ -128,6 +187,9 @@ pub fn prepare_monster_intent_for(
         JAW_WORM_ID => jaw_worm_intent(moves_executed),
         GREMLIN_NOB_ID => gremlin_nob_intent(moves_executed),
         RED_LOUSE_ID => red_louse_intent(moves_executed),
+        GREEN_LOUSE_ID => green_louse_intent(moves_executed),
+        SPIKE_SLIME_ID => spike_slime_intent(moves_executed),
+        ACID_SLIME_ID => acid_slime_intent(moves_executed),
         _ => MonsterIntent::Attack {
             damage: definition.attack_damage,
         },
@@ -143,6 +205,42 @@ fn red_louse_intent(moves_executed: u32) -> MonsterIntent {
         },
         _ => MonsterIntent::Attack {
             damage: RED_LOUSE_BITE_DAMAGE,
+        },
+    }
+}
+
+#[must_use]
+fn green_louse_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 2 {
+        0 => MonsterIntent::Block {
+            block: GREEN_LOUSE_CURL_BLOCK,
+        },
+        _ => MonsterIntent::Attack {
+            damage: GREEN_LOUSE_BITE_DAMAGE,
+        },
+    }
+}
+
+#[must_use]
+fn spike_slime_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 2 {
+        0 => MonsterIntent::ApplyPlayerWeak {
+            amount: SPIKE_SLIME_LICK_WEAK,
+        },
+        _ => MonsterIntent::Attack {
+            damage: SPIKE_SLIME_SPIT_DAMAGE,
+        },
+    }
+}
+
+#[must_use]
+fn acid_slime_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 2 {
+        0 => MonsterIntent::Attack {
+            damage: ACID_SLIME_ATTACK_DAMAGE,
+        },
+        _ => MonsterIntent::ApplyPlayerWeak {
+            amount: ACID_SLIME_WEAK,
         },
     }
 }
@@ -182,7 +280,7 @@ fn jaw_worm_intent(moves_executed: u32) -> MonsterIntent {
 }
 
 /// Execute the monster's current intent and return player damage dealt this turn.
-pub fn apply_monster_intent(monster: &mut MonsterState) -> i32 {
+pub fn apply_monster_intent(monster: &mut MonsterState, player: &mut crate::PlayerState) -> i32 {
     let damage = match monster.intent {
         MonsterIntent::Attack { damage } => monster_attack_damage(monster, damage),
         MonsterIntent::Block { block } => {
@@ -202,6 +300,10 @@ pub fn apply_monster_intent(monster: &mut MonsterState) -> i32 {
             monster.block += block;
             0
         }
+        MonsterIntent::ApplyPlayerWeak { amount } => {
+            player.powers.weak += amount;
+            0
+        }
     };
     monster.moves_executed += 1;
     damage
@@ -210,6 +312,24 @@ pub fn apply_monster_intent(monster: &mut MonsterState) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{combat::MonsterIntent, power::PlayerPowers, PlayerState};
+
+    fn dummy_player() -> PlayerState {
+        PlayerState {
+            hp: 80,
+            max_hp: 80,
+            block: 0,
+            energy: 3,
+            powers: PlayerPowers::default(),
+            cannot_draw: false,
+            temp_strength: 0,
+        }
+    }
+
+    fn apply_intent(monster: &mut MonsterState) -> i32 {
+        let mut player = dummy_player();
+        apply_monster_intent(monster, &mut player)
+    }
 
     #[test]
     fn cultist_has_fifty_hp() {
@@ -266,7 +386,7 @@ mod tests {
     fn cultist_ritual_intent_grants_ritual_power() {
         let mut monster = monster_state(&CULTIST_A0, MonsterId::new(1));
 
-        assert_eq!(apply_monster_intent(&mut monster), 0);
+        assert_eq!(apply_intent(&mut monster), 0);
         assert_eq!(monster.powers.ritual, 2);
         assert_eq!(monster.moves_executed, 1);
     }
@@ -277,7 +397,7 @@ mod tests {
         monster.powers.strength = 2;
         monster.intent = MonsterIntent::Attack { damage: 6 };
 
-        assert_eq!(apply_monster_intent(&mut monster), 8);
+        assert_eq!(apply_intent(&mut monster), 8);
     }
 
     #[test]
@@ -355,7 +475,7 @@ mod tests {
             damage: JAW_WORM_CHOMP_DAMAGE,
         };
 
-        assert_eq!(apply_monster_intent(&mut monster), 14);
+        assert_eq!(apply_intent(&mut monster), 14);
     }
 
     #[test]
@@ -366,7 +486,7 @@ mod tests {
             block: JAW_WORM_THRASH_BLOCK,
         };
 
-        assert_eq!(apply_monster_intent(&mut monster), 7);
+        assert_eq!(apply_intent(&mut monster), 7);
         assert_eq!(monster.block, 5);
     }
 
@@ -378,7 +498,7 @@ mod tests {
             block: JAW_WORM_BELLOW_BLOCK,
         };
 
-        assert_eq!(apply_monster_intent(&mut monster), 0);
+        assert_eq!(apply_intent(&mut monster), 0);
         assert_eq!(monster.powers.strength, 3);
         assert_eq!(monster.block, 6);
     }
@@ -483,7 +603,7 @@ mod tests {
             block: RED_LOUSE_CURL_BLOCK,
         };
 
-        assert_eq!(apply_monster_intent(&mut monster), 0);
+        assert_eq!(apply_intent(&mut monster), 0);
         assert_eq!(monster.block, 3);
     }
 
@@ -494,6 +614,94 @@ mod tests {
             damage: RED_LOUSE_BITE_DAMAGE,
         };
 
-        assert_eq!(apply_monster_intent(&mut monster), 6);
+        assert_eq!(apply_intent(&mut monster), 6);
+    }
+
+    #[test]
+    fn green_louse_has_twelve_hp_and_starting_spikes() {
+        let monster = monster_state(&GREEN_LOUSE_A0, MonsterId::new(1));
+
+        assert_eq!(GREEN_LOUSE_A0.hp, 12);
+        assert_eq!(monster.powers.spikes, GREEN_LOUSE_SPIKES);
+    }
+
+    #[test]
+    fn green_louse_move_selection_cycles_curl_bite() {
+        let definition = &GREEN_LOUSE_A0;
+
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::Block {
+                block: GREEN_LOUSE_CURL_BLOCK
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::Attack {
+                damage: GREEN_LOUSE_BITE_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn spike_slime_has_fourteen_hp_and_lick_spit_cycle() {
+        let definition = &SPIKE_SLIME_A0;
+
+        assert_eq!(SPIKE_SLIME_A0.hp, 14);
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::ApplyPlayerWeak {
+                amount: SPIKE_SLIME_LICK_WEAK
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::Attack {
+                damage: SPIKE_SLIME_SPIT_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn spike_slime_lick_applies_weak_to_player() {
+        let mut monster = monster_state(&SPIKE_SLIME_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerWeak {
+            amount: SPIKE_SLIME_LICK_WEAK,
+        };
+        let mut player = dummy_player();
+
+        assert_eq!(apply_monster_intent(&mut monster, &mut player), 0);
+        assert_eq!(player.powers.weak, 1);
+    }
+
+    #[test]
+    fn acid_slime_has_twelve_hp_and_attack_weak_cycle() {
+        let definition = &ACID_SLIME_A0;
+
+        assert_eq!(ACID_SLIME_A0.hp, 12);
+        assert_eq!(
+            prepare_monster_intent_for(definition, 0),
+            MonsterIntent::Attack {
+                damage: ACID_SLIME_ATTACK_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 1),
+            MonsterIntent::ApplyPlayerWeak {
+                amount: ACID_SLIME_WEAK
+            }
+        );
+    }
+
+    #[test]
+    fn acid_slime_weak_applies_weak_to_player() {
+        let mut monster = monster_state(&ACID_SLIME_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerWeak {
+            amount: ACID_SLIME_WEAK,
+        };
+        let mut player = dummy_player();
+
+        assert_eq!(apply_monster_intent(&mut monster, &mut player), 0);
+        assert_eq!(player.powers.weak, 1);
     }
 }

@@ -42,11 +42,16 @@ pub fn start_player_turn(state: &mut CombatState) {
 }
 
 fn run_monster_turn(state: &mut CombatState) {
-    let total_damage: i32 = state
-        .monsters
+    let CombatState {
+        player,
+        monsters,
+        piles: _,
+        phase: _,
+    } = state;
+    let total_damage: i32 = monsters
         .iter_mut()
         .filter(|monster| monster.alive)
-        .map(apply_monster_intent)
+        .map(|monster| apply_monster_intent(monster, player))
         .sum();
 
     if total_damage > 0 {

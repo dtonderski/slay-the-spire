@@ -4,14 +4,16 @@
 
 ### Combat (`sts_core`)
 - 25+ Ironclad cards (starter through Whirlwind), upgrades for most
-- Full power/status system: strength, weak, vulnerable, dexterity, frail, ritual, metallicize, temp strength, monster weak
+- Full power/status system: strength, weak, vulnerable, dexterity, frail, ritual, metallicize, temp strength, monster weak, spikes (thorns)
 - Status cards: wound, dazed, burn, slimed; keywords: ethereal, exhaust, retain
 - Exhaust hooks: Feel No Pain, Dark Embrace, Burning Pact
 - X-cost Whirlwind (spend all energy, hit all enemies per energy)
 - Internal action queue with damage, block, draw, exhaust events
 
 ### Monsters
-- Fixed dummy, **Cultist**, **Jaw Worm**, **Gremlin Nob** (enrage on skills), **Red Louse** (curl/bite cycle)
+- Fixed dummy, **Cultist**, **Jaw Worm**, **Gremlin Nob** (enrage on skills)
+- **Red Louse** (curl/bite), **Green Louse** (curl/bite + spikes 3)
+- **Spike Slime** (lick weak / spit attack), **Acid Slime (S)** (attack / apply weak)
 
 ### Run / Meta
 - Master deck, HP sync, **gold** (99 start)
@@ -27,24 +29,24 @@
 
 ### Tests
 - milestone1 golden replay, milestone6 monsters, milestone7 rewards, milestone8 map, milestone9 rest+shop, milestone10 relics
-- **279 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
+- **293 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
 
 ## What Is Not Implemented
 
 - Remaining Ironclad cards (Havoc, Warcry, Searing Blow, etc.)
-- Green Louse, Slimes, Lagavulin, Sentries, Act 1 bosses
+- Lagavulin, Sentries, Act 1 bosses
 - Card remove at rest, reward RNG, map generation
 - Most relics/potions, events, ascensions
 - CommunicationMod parity, RL API, Python bindings
 
 ## Current Milestone
 
-Milestones 5–10 in progress (cards, monsters, rewards, map, shop, relics).
+Milestone 6 monsters — Louses and Slimes done; next is Lagavulin.
 
 ## Next Task
 
-More Act 1 monsters (Green Louse, Slimes), ascension config.
+Lagavulin (sleep / strength drain / attack cycle per TASKS.md Milestone 6).
 
 ## Last Updated
 
-2026-06-18 (sts_verify skeleton).
+2026-06-18 (Green Louse, Spike Slime, Acid Slime).

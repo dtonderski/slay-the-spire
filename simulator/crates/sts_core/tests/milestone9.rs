@@ -1,9 +1,10 @@
 use sts_core::{
-    apply_map_action_on_run, apply_rest_action, apply_run_action, content::cards::ANGER_ID,
+    apply_map_action_on_run, apply_rest_action, apply_run_action,
+    content::cards::ANGER_ID,
     content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
-    content::character::IRONCLAD_A0_BASE_HP, legal_map_actions_on_run, legal_rest_actions,
-    legal_shop_actions, rest_heal_amount, MapAction, MapNodeId, RestAction, RoomKind, RunAction,
-    RunPhase, RunState, SimError, SHOP_ANGER_PRICE,
+    content::character::IRONCLAD_A0_BASE_HP,
+    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, MapAction,
+    MapNodeId, RestAction, RoomKind, RunAction, RunPhase, RunState, SimError, SHOP_ANGER_PRICE,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -119,8 +120,8 @@ fn smith_upgrades_strike_r_to_strike_r_plus() {
         .expect("strike in deck")
         .id;
 
-    let after = apply_rest_action(&run, RestAction::Smith { card_id: strike_id })
-        .expect("smith applies");
+    let after =
+        apply_rest_action(&run, RestAction::Smith { card_id: strike_id }).expect("smith applies");
 
     assert_eq!(after.count_content_in_deck(STRIKE_R_PLUS_ID), 1);
     assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
@@ -156,8 +157,8 @@ fn smith_is_illegal_outside_rest_phase() {
     let run = RunState::map_fixture();
     let strike_id = run.deck[0].id;
 
-    let err = apply_rest_action(&run, RestAction::Smith { card_id: strike_id })
-        .expect_err("not at rest");
+    let err =
+        apply_rest_action(&run, RestAction::Smith { card_id: strike_id }).expect_err("not at rest");
 
     assert_eq!(
         err,

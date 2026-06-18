@@ -3,7 +3,7 @@ use crate::{
     card::{CardDefinition, CardType},
     combat::{
         apply_burning_blood,
-        damage::{deal_damage_info_to_monster, DamageInfo, DamageSource},
+        damage::{deal_damage_info_to_monster, reflect_spikes_to_player, DamageInfo, DamageSource},
         validate_combat_action, CombatPhase,
     },
     content::cards::{
@@ -675,19 +675,23 @@ fn apply_internal_action(
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let monster = living_monster_mut(state, info.target)?;
+            let spikes = monster.powers.spikes;
             deal_damage_info_to_monster(monster, info, player_powers, temp_strength);
+            if monster.alive && spikes > 0 {
+                reflect_spikes_to_player(&mut state.player, spikes);
+            }
             Ok(Vec::new())
         }
         InternalAction::DealDamageAll { source, amount } => {
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
-            let targets: Vec<MonsterId> = state
+            let targets: Vec<(MonsterId, i32)> = state
                 .monsters
                 .iter()
                 .filter(|monster| monster.alive)
-                .map(|monster| monster.id)
+                .map(|monster| (monster.id, monster.powers.spikes))
                 .collect();
-            for target in targets {
+            for (target, spikes) in targets {
                 let monster = living_monster_mut(state, target)?;
                 deal_damage_info_to_monster(
                     monster,
@@ -699,6 +703,9 @@ fn apply_internal_action(
                     player_powers,
                     temp_strength,
                 );
+                if monster.alive && spikes > 0 {
+                    reflect_spikes_to_player(&mut state.player, spikes);
+                }
             }
             Ok(Vec::new())
         }

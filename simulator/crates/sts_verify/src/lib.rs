@@ -5,7 +5,7 @@ pub mod diff;
 pub mod trace;
 
 pub use diff::canonical_diff;
-pub use trace::{ManualFixture, TraceLine, TraceMetadata, TraceState, parse_trace_jsonl};
+pub use trace::{parse_trace_jsonl, ManualFixture, TraceLine, TraceMetadata, TraceState};
 
 use std::path::{Path, PathBuf};
 

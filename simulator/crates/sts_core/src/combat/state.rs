@@ -3,8 +3,8 @@ use crate::{
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
-        monster_state, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREMLIN_NOB_A0, JAW_WORM_A0,
-        RED_LOUSE_A0,
+        monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0,
+        GREMLIN_NOB_A0, JAW_WORM_A0, RED_LOUSE_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -70,6 +70,7 @@ pub enum MonsterIntent {
     Ritual { amount: i32 },
     AttackAndBlock { damage: i32, block: i32 },
     StrengthAndBlock { strength: i32, block: i32 },
+    ApplyPlayerWeak { amount: i32 },
 }
 
 impl CombatState {
@@ -125,6 +126,27 @@ impl CombatState {
     pub fn red_louse_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&RED_LOUSE_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn green_louse_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&GREEN_LOUSE_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn spike_slime_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&SPIKE_SLIME_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn acid_slime_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&ACID_SLIME_A0, MonsterId::new(1))];
         state
     }
 
