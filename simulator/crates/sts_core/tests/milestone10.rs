@@ -1,8 +1,9 @@
 use sts_core::{
-    apply_combat_action_on_run, apply_rest_action, apply_run_action, content::cards::STRIKE_R_ID,
-    end_player_turn, legal_rest_actions, CombatAction, Relic, RestAction, RunAction, RunPhase,
-    RunState, ANCHOR_BLOCK, BASE_PLAYER_ENERGY, COFFEE_DRIPPER_ENERGY,
-    ODDLY_SMOOTH_STONE_DEXTERITY, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
+    apply_combat_action, apply_combat_action_on_run, apply_rest_action, apply_run_action,
+    content::cards::{DEFEND_R_ID, STRIKE_R_ID},
+    end_player_turn, legal_rest_actions, CardId, CardInstance, CombatAction, Relic, RestAction,
+    RunAction, RunPhase, RunState, ANCHOR_BLOCK, BASE_PLAYER_ENERGY, COFFEE_DRIPPER_ENERGY,
+    INK_BOTTLE_THRESHOLD, ODDLY_SMOOTH_STONE_DEXTERITY, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
 };
 
 #[test]
@@ -87,6 +88,78 @@ fn anchor_block_stacks_with_defend() {
     .expect("defend applies");
 
     assert_eq!(next.player.block, ANCHOR_BLOCK + 5);
+}
+
+#[test]
+fn ink_bottle_counter_tracks_card_plays_in_combat() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::InkBottle]);
+    let combat = run.combat.expect("combat initialized");
+    let defend_id = combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.content_id == DEFEND_R_ID)
+        .expect("defend in hand")
+        .id;
+
+    let next = apply_combat_action(
+        &combat,
+        CombatAction::PlayCard {
+            card_id: defend_id,
+            target: None,
+        },
+    )
+    .expect("defend applies");
+
+    assert_eq!(next.relic_counters.ink_bottle_cards_played, 1);
+}
+
+#[test]
+fn ink_bottle_draws_card_on_tenth_play() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::InkBottle]);
+    let mut combat = run.combat.expect("combat initialized");
+    combat.player.energy = 30;
+    combat.relic_counters.ink_bottle_cards_played = INK_BOTTLE_THRESHOLD - 1;
+    for index in 0..6 {
+        combat
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(100 + index), DEFEND_R_ID));
+    }
+    let draw_pile_size = combat.piles.draw_pile.len();
+    let hand_size_before = combat.piles.hand.len();
+
+    let defend_id = combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.content_id == DEFEND_R_ID)
+        .expect("defend in hand")
+        .id;
+    let next = apply_combat_action(
+        &combat,
+        CombatAction::PlayCard {
+            card_id: defend_id,
+            target: None,
+        },
+    )
+    .expect("defend triggers ink bottle");
+
+    assert_eq!(next.relic_counters.ink_bottle_cards_played, 0);
+    assert_eq!(next.piles.hand.len(), hand_size_before - 1 + draw_pile_size);
+}
+
+#[test]
+fn ink_bottle_counters_round_trip_through_combat_json() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::InkBottle]);
+    let mut combat = run.combat.expect("combat initialized");
+    combat.relic_counters.ink_bottle_cards_played = 4;
+
+    let json = serde_json::to_string(&combat).expect("combat serializes");
+    let restored: sts_core::CombatState = serde_json::from_str(&json).expect("combat deserializes");
+
+    assert_eq!(restored.relics, vec![Relic::InkBottle]);
+    assert_eq!(restored.relic_counters.ink_bottle_cards_played, 4);
 }
 
 #[test]

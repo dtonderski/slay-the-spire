@@ -38,9 +38,10 @@ pub use map::{
 pub use potion::{Potion, FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS};
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
-    apply_start_of_combat_relics, Relic, ANCHOR_BLOCK, ANCHOR_ID, COFFEE_DRIPPER_ENERGY,
-    COFFEE_DRIPPER_ID, ODDLY_SMOOTH_STONE_DEXTERITY, ODDLY_SMOOTH_STONE_ID, STRAWBERRY_ID,
-    STRAWBERRY_MAX_HP, VAJRA_ID, VAJRA_STRENGTH,
+    apply_on_card_play_relics, apply_start_of_combat_relics, Relic, RelicCounters, ANCHOR_BLOCK,
+    ANCHOR_ID, COFFEE_DRIPPER_ENERGY, COFFEE_DRIPPER_ID, INK_BOTTLE_ID, INK_BOTTLE_THRESHOLD,
+    ODDLY_SMOOTH_STONE_DEXTERITY, ODDLY_SMOOTH_STONE_ID, STRAWBERRY_ID, STRAWBERRY_MAX_HP,
+    VAJRA_ID, VAJRA_STRENGTH,
 };
 pub use rng::{RngDraw, RngStream, SimulatorRng};
 pub use run::{

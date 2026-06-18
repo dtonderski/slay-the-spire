@@ -46,6 +46,7 @@ fn run_monster_turn(state: &mut CombatState) {
         monsters,
         piles,
         phase: _,
+        ..
     } = state;
     let total_damage: i32 = monsters
         .iter_mut()
