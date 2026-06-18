@@ -233,6 +233,40 @@ fn ornamental_fan_attack_counter_resets_on_new_turn() {
 }
 
 #[test]
+fn ice_cream_preserves_leftover_energy_across_turns() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::IceCream]);
+    let mut combat = run.combat.expect("combat initialized");
+    combat.player.energy = 1;
+    combat.piles.draw_pile.clear();
+
+    let next = end_player_turn(&combat);
+
+    assert_eq!(next.player.energy, 1);
+}
+
+#[test]
+fn combat_without_ice_cream_refills_energy_on_new_turn() {
+    let run = RunState::combat_fixture();
+    let mut combat = run.combat.expect("combat initialized");
+    combat.player.energy = 1;
+    combat.piles.draw_pile.clear();
+
+    let next = end_player_turn(&combat);
+
+    assert_eq!(next.player.energy, BASE_PLAYER_ENERGY);
+}
+
+#[test]
+fn ice_cream_round_trips_through_run_state_json() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::IceCream]);
+
+    let json = serde_json::to_string(&run).expect("run serializes");
+    let restored: RunState = serde_json::from_str(&json).expect("run deserializes");
+
+    assert_eq!(restored.relics, vec![Relic::IceCream]);
+}
+
+#[test]
 fn relic_reward_applies_on_next_combat_start() {
     let run = win_fixture_combat();
     let run = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic");

@@ -36,6 +36,8 @@ pub const ANCHOR_ID: ContentId = ContentId::new(304);
 pub const INK_BOTTLE_ID: ContentId = ContentId::new(305);
 /// Content id for [Relic::OrnamentalFan].
 pub const ORNAMENTAL_FAN_ID: ContentId = ContentId::new(306);
+/// Content id for [Relic::IceCream].
+pub const ICE_CREAM_ID: ContentId = ContentId::new(307);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -54,6 +56,7 @@ pub enum Relic {
     Anchor,
     InkBottle,
     OrnamentalFan,
+    IceCream,
 }
 
 impl Relic {
@@ -67,6 +70,7 @@ impl Relic {
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
             Relic::OrnamentalFan => ORNAMENTAL_FAN_ID,
+            Relic::IceCream => ICE_CREAM_ID,
         }
     }
 
@@ -80,6 +84,7 @@ impl Relic {
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
             id if id == ORNAMENTAL_FAN_ID => Some(Relic::OrnamentalFan),
+            id if id == ICE_CREAM_ID => Some(Relic::IceCream),
             _ => None,
         }
     }
@@ -101,8 +106,15 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             }
             Relic::InkBottle => {}
             Relic::OrnamentalFan => {}
+            Relic::IceCream => {}
         }
     }
+}
+
+/// Whether player energy should carry over instead of refilling at turn start.
+#[must_use]
+pub fn preserves_energy_between_turns(relics: &[Relic]) -> bool {
+    relics.contains(&Relic::IceCream)
 }
 
 pub fn reset_turn_relic_counters(state: &mut CombatState) {
@@ -188,6 +200,7 @@ mod tests {
         assert_eq!(Relic::Anchor.content_id(), ANCHOR_ID);
         assert_eq!(Relic::InkBottle.content_id(), INK_BOTTLE_ID);
         assert_eq!(Relic::OrnamentalFan.content_id(), ORNAMENTAL_FAN_ID);
+        assert_eq!(Relic::IceCream.content_id(), ICE_CREAM_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -210,7 +223,14 @@ mod tests {
             Relic::from_content_id(ORNAMENTAL_FAN_ID),
             Some(Relic::OrnamentalFan)
         );
+        assert_eq!(Relic::from_content_id(ICE_CREAM_ID), Some(Relic::IceCream));
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
+    }
+
+    #[test]
+    fn ice_cream_preserves_energy_between_turns_flag() {
+        assert!(!preserves_energy_between_turns(&[]));
+        assert!(preserves_energy_between_turns(&[Relic::IceCream]));
     }
 
     #[test]

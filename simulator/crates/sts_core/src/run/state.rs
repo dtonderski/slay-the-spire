@@ -165,7 +165,8 @@ impl RunState {
             | Relic::OddlySmoothStone
             | Relic::Anchor
             | Relic::InkBottle
-            | Relic::OrnamentalFan => {}
+            | Relic::OrnamentalFan
+            | Relic::IceCream => {}
         }
     }
 

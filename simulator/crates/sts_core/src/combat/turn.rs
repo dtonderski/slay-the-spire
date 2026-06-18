@@ -33,7 +33,9 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 
 pub fn start_player_turn(state: &mut CombatState) {
     crate::relic::reset_turn_relic_counters(state);
-    state.player.energy = state.player.max_energy;
+    if !crate::relic::preserves_energy_between_turns(&state.relics) {
+        state.player.energy = state.player.max_energy;
+    }
     state.player.cannot_draw = false;
     state.player.temp_strength = 0;
     draw_next_hand_without_shuffle(state);
