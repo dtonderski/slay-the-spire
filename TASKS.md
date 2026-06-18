@@ -783,6 +783,8 @@ Do not implement:
 
 ## Milestone 17: Reward RNG and Post-Combat Parity
 
+Status: captured-path implementation complete for `trace-2026-06-18T06-04-49-264Z.jsonl`. Seed-start mode verifies the captured 14-gold reward offer, gold pickup to 113, card reward choices `Twin Strike`, `Heavy Blade`, and `Intimidate`, and picking `Twin Strike` into the deck. Broad game-compatible reward gold/card/potion/relic RNG remains out of scope; the next expected seed-start boundary is post-reward map continuation at `$.actions[step=19].command`.
+
 Tasks:
 
 - implement combat reward gold amount RNG for the target version
