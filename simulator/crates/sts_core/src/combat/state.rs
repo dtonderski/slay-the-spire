@@ -27,6 +27,8 @@ pub struct CombatState {
     pub relics: Vec<Relic>,
     #[serde(default)]
     pub relic_counters: RelicCounters,
+    #[serde(default)]
+    pub ascension: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +127,7 @@ impl CombatState {
             phase: CombatPhase::WaitingForPlayer,
             relics: Vec::new(),
             relic_counters: RelicCounters::default(),
+            ascension: 0,
         }
     }
 
