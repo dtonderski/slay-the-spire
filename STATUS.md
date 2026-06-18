@@ -21,14 +21,15 @@
 - Damage/block relic: Ornamental Fan block every 3 attacks per turn
 - Stateful relic: Ice Cream preserves energy between turns
 - Simple potion: Block Potion grants 12 block without target
+- Targeted potion: Fear Potion applies 3 Weak
 
 ### Tests
-- **424 tests** passing
+- **428 tests** passing
 
 ## Next Task
 
-Milestone 10: targeted potions.
+Milestone 10: random-effect potions.
 
 ## Last Updated
 
-2026-06-18 (Block Potion).
+2026-06-18 (Fear Potion).

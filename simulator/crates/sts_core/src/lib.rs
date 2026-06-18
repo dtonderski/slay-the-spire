@@ -36,7 +36,8 @@ pub use map::{
     MapNode, MapRunState, RoomKind,
 };
 pub use potion::{
-    Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS,
+    Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,
+    FIRE_POTION_DAMAGE, FIRE_POTION_ID, MAX_POTIONS,
 };
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
