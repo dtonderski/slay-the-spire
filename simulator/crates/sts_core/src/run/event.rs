@@ -34,6 +34,25 @@ pub fn enter_fixed_event_screen(run: &mut RunState) {
     run.event = Some(fixed_event_screen());
 }
 
+#[must_use]
+pub fn legal_event_actions(run: &RunState) -> Vec<EventAction> {
+    if run.phase != RunPhase::Event {
+        return Vec::new();
+    }
+
+    run.event
+        .as_ref()
+        .map(|event| {
+            event
+                .choices
+                .iter()
+                .enumerate()
+                .map(|(choice_index, _)| EventAction::Choose { choice_index })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<()> {
     if run.phase != RunPhase::Event {
         return Err(SimError::IllegalAction("event actions require event phase"));
@@ -97,6 +116,20 @@ mod tests {
         assert_eq!(after.phase, RunPhase::Idle);
         assert!(after.event.is_none());
         assert_eq!(after.gold, gold_before + GOLDEN_SHRINE_GOLD);
+    }
+
+    #[test]
+    fn legal_event_actions_are_available_only_during_event_phase() {
+        let mut run = RunState::map_fixture();
+
+        assert!(legal_event_actions(&run).is_empty());
+
+        enter_fixed_event_screen(&mut run);
+
+        assert_eq!(
+            legal_event_actions(&run),
+            vec![EventAction::Choose { choice_index: 0 }]
+        );
     }
 
     #[test]

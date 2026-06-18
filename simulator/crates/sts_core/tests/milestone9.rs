@@ -3,10 +3,10 @@ use sts_core::{
     content::cards::ANGER_ID,
     content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    enter_fixed_event_screen, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions,
-    rest_heal_amount, Event, EventAction, MapAction, MapNodeId, Potion, Relic, RestAction,
-    RoomKind, RunAction, RunPhase, RunState, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD,
-    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
+    enter_fixed_event_screen, legal_event_actions, legal_map_actions_on_run, legal_rest_actions,
+    legal_shop_actions, rest_heal_amount, Event, EventAction, MapAction, MapNodeId, Potion, Relic,
+    RestAction, RoomKind, RunAction, RunPhase, RunState, SimError, FIRE_POTION_DAMAGE,
+    GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -293,6 +293,11 @@ fn entering_fixed_event_exposes_golden_shrine() {
     let event = run.event.as_ref().expect("event screen");
     assert_eq!(event.event, Event::GoldenShrine);
     assert_eq!(event.choices.len(), 1);
+    assert_eq!(
+        legal_event_actions(&run),
+        vec![EventAction::Choose { choice_index: 0 }]
+    );
+    assert!(legal_map_actions_on_run(&run).is_empty());
 }
 
 #[test]
@@ -317,6 +322,20 @@ fn golden_shrine_choice_grants_gold_and_returns_to_map() {
                 node_id: MapNodeId::new(2)
             },
         ]
+    );
+}
+
+#[test]
+fn event_actions_are_unavailable_outside_event_phase() {
+    let run = RunState::map_fixture();
+
+    assert!(legal_event_actions(&run).is_empty());
+    let err = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+        .expect_err("not at event");
+
+    assert_eq!(
+        err,
+        SimError::IllegalAction("event actions require event phase")
     );
 }
 
