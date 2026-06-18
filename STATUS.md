@@ -16,14 +16,15 @@
 ### Relics / Potions
 - Common simple relic: Strawberry pickup HP bonus
 - Energy relic: Coffee Dripper energy per turn and rest restriction
+- Start-combat relic: Anchor block
 
 ### Tests
-- **399 tests** passing
+- **403 tests** passing
 
 ## Next Task
 
-Milestone 10: start-combat relics.
+Milestone 10: on-card-play relics.
 
 ## Last Updated
 
-2026-06-18 (Coffee Dripper relic).
+2026-06-18 (Anchor relic).

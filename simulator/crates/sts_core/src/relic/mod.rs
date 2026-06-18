@@ -11,6 +11,8 @@ pub const ODDLY_SMOOTH_STONE_DEXTERITY: i32 = 1;
 pub const STRAWBERRY_MAX_HP: i32 = 7;
 /// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
 pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
+/// Block granted by [Relic::Anchor] at combat start.
+pub const ANCHOR_BLOCK: i32 = 10;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -20,6 +22,8 @@ pub const ODDLY_SMOOTH_STONE_ID: ContentId = ContentId::new(301);
 pub const STRAWBERRY_ID: ContentId = ContentId::new(302);
 /// Content id for [Relic::CoffeeDripper].
 pub const COFFEE_DRIPPER_ID: ContentId = ContentId::new(303);
+/// Content id for [Relic::Anchor].
+pub const ANCHOR_ID: ContentId = ContentId::new(304);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Relic {
@@ -27,6 +31,7 @@ pub enum Relic {
     OddlySmoothStone,
     Strawberry,
     CoffeeDripper,
+    Anchor,
 }
 
 impl Relic {
@@ -37,6 +42,7 @@ impl Relic {
             Relic::OddlySmoothStone => ODDLY_SMOOTH_STONE_ID,
             Relic::Strawberry => STRAWBERRY_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
+            Relic::Anchor => ANCHOR_ID,
         }
     }
 
@@ -47,6 +53,7 @@ impl Relic {
             id if id == ODDLY_SMOOTH_STONE_ID => Some(Relic::OddlySmoothStone),
             id if id == STRAWBERRY_ID => Some(Relic::Strawberry),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
+            id if id == ANCHOR_ID => Some(Relic::Anchor),
             _ => None,
         }
     }
@@ -63,6 +70,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             }
             Relic::Strawberry => {}
             Relic::CoffeeDripper => {}
+            Relic::Anchor => {
+                combat.player.block += ANCHOR_BLOCK;
+            }
         }
     }
 }
@@ -115,6 +125,7 @@ mod tests {
         assert_eq!(Relic::OddlySmoothStone.content_id(), ODDLY_SMOOTH_STONE_ID);
         assert_eq!(Relic::Strawberry.content_id(), STRAWBERRY_ID);
         assert_eq!(Relic::CoffeeDripper.content_id(), COFFEE_DRIPPER_ID);
+        assert_eq!(Relic::Anchor.content_id(), ANCHOR_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -128,6 +139,16 @@ mod tests {
             Relic::from_content_id(COFFEE_DRIPPER_ID),
             Some(Relic::CoffeeDripper)
         );
+        assert_eq!(Relic::from_content_id(ANCHOR_ID), Some(Relic::Anchor));
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
+    }
+
+    #[test]
+    fn anchor_grants_ten_block_at_combat_start() {
+        let mut combat = CombatState::initial_fixture();
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::Anchor]);
+
+        assert_eq!(combat.player.block, ANCHOR_BLOCK);
     }
 }
