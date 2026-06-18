@@ -811,7 +811,7 @@ fn apply_internal_action(
     match action {
         InternalAction::PlayCard { card_id } => {
             apply_enrage_on_skill_play(state, card_id)?;
-            Ok(Vec::new())
+            Ok(crate::relic::apply_on_card_play_relics(state))
         }
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;

@@ -9,6 +9,7 @@ use crate::{
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
+    relic::{Relic, RelicCounters},
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,10 @@ pub struct CombatState {
     pub monsters: Vec<MonsterState>,
     pub piles: CardPiles,
     pub phase: CombatPhase,
+    #[serde(default)]
+    pub relics: Vec<Relic>,
+    #[serde(default)]
+    pub relic_counters: RelicCounters,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,6 +123,8 @@ impl CombatState {
                 exhaust_pile: Vec::new(),
             },
             phase: CombatPhase::WaitingForPlayer,
+            relics: Vec::new(),
+            relic_counters: RelicCounters::default(),
         }
     }
 

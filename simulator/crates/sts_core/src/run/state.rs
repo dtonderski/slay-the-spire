@@ -84,6 +84,7 @@ impl RunState {
         combat.player.max_hp = self.player_max_hp;
         combat.player.max_energy = self.energy_per_turn;
         combat.player.energy = self.energy_per_turn;
+        combat.relics = self.relics.clone();
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
     }
@@ -160,7 +161,7 @@ impl RunState {
             Relic::CoffeeDripper => {
                 self.energy_per_turn += COFFEE_DRIPPER_ENERGY;
             }
-            Relic::Vajra | Relic::OddlySmoothStone | Relic::Anchor => {}
+            Relic::Vajra | Relic::OddlySmoothStone | Relic::Anchor | Relic::InkBottle => {}
         }
     }
 
