@@ -2,8 +2,8 @@ use sts_core::{
     apply_combat_action,
     content::cards::DEFEND_R_ID,
     content::monsters::{
-        ACID_SLIME_A0, CULTIST_A0, GREEN_LOUSE_A0, GREMLIN_NOB_A0, JAW_WORM_A0, RED_LOUSE_A0,
-        SPIKE_SLIME_A0,
+        ACID_SLIME_A0, CULTIST_A0, GREEN_LOUSE_A0, GREMLIN_NOB_A0, JAW_WORM_A0, LAGAVULIN_A0,
+        RED_LOUSE_A0, SPIKE_SLIME_A0,
     },
     end_player_turn, CardId, CombatAction, CombatState, MonsterId, MonsterIntent,
 };
@@ -310,6 +310,91 @@ fn acid_slime_combat_executes_attack_weak_cycle() {
     assert_eq!(
         after_weak.monsters[0].intent,
         MonsterIntent::Attack { damage: 6 }
+    );
+}
+
+#[test]
+fn lagavulin_fixture_has_expected_hp_and_sleep_intent() {
+    let state = CombatState::lagavulin_fixture();
+
+    assert_eq!(state.monsters[0].hp, LAGAVULIN_A0.hp);
+    assert_eq!(state.monsters[0].sleep_turns_remaining, 3);
+    assert_eq!(state.monsters[0].intent, MonsterIntent::Sleep);
+}
+
+#[test]
+fn lagavulin_sleeps_three_turns_then_siphons_and_attacks() {
+    let mut state = CombatState::lagavulin_fixture();
+    state.player.hp = 100;
+    state.player.powers.strength = 3;
+    state.player.powers.dexterity = 2;
+    state.piles.draw_pile.clear();
+
+    let after_sleep_one = end_player_turn(&state);
+    assert_eq!(after_sleep_one.player.hp, 100);
+    assert_eq!(after_sleep_one.monsters[0].sleep_turns_remaining, 2);
+
+    let after_sleep_two = end_player_turn(&after_sleep_one);
+    assert_eq!(after_sleep_two.player.hp, 100);
+    assert_eq!(after_sleep_two.monsters[0].sleep_turns_remaining, 1);
+
+    let after_sleep_three = end_player_turn(&after_sleep_two);
+    assert_eq!(after_sleep_three.player.hp, 100);
+    assert_eq!(after_sleep_three.monsters[0].sleep_turns_remaining, 0);
+    assert_eq!(
+        after_sleep_three.monsters[0].intent,
+        MonsterIntent::SiphonPlayer {
+            strength: 2,
+            dexterity: 2,
+        }
+    );
+
+    let after_siphon = end_player_turn(&after_sleep_three);
+    assert_eq!(after_siphon.player.hp, 100);
+    assert_eq!(after_siphon.player.powers.strength, 1);
+    assert_eq!(after_siphon.player.powers.dexterity, 0);
+    assert_eq!(
+        after_siphon.monsters[0].intent,
+        MonsterIntent::Attack { damage: 18 }
+    );
+
+    let after_attack = end_player_turn(&after_siphon);
+    assert_eq!(after_attack.player.hp, 82);
+}
+
+#[test]
+fn lagavulin_wake_on_strike_siphons_on_same_monster_turn() {
+    let mut state = CombatState::lagavulin_fixture();
+    state.player.hp = 100;
+    state.player.powers.strength = 3;
+    state.player.powers.dexterity = 2;
+    state.piles.draw_pile.clear();
+
+    let after_strike = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: hand_strike_id(&state),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Strike applies");
+
+    assert_eq!(after_strike.monsters[0].sleep_turns_remaining, 0);
+    assert_eq!(
+        after_strike.monsters[0].intent,
+        MonsterIntent::SiphonPlayer {
+            strength: 2,
+            dexterity: 2,
+        }
+    );
+
+    let after_turn = end_player_turn(&after_strike);
+    assert_eq!(after_turn.player.hp, 100);
+    assert_eq!(after_turn.player.powers.strength, 1);
+    assert_eq!(after_turn.player.powers.dexterity, 0);
+    assert_eq!(
+        after_turn.monsters[0].intent,
+        MonsterIntent::Attack { damage: 18 }
     );
 }
 

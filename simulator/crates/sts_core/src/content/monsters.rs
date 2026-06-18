@@ -13,6 +13,7 @@ pub const RED_LOUSE_ID: ContentId = ContentId::new(104);
 pub const GREEN_LOUSE_ID: ContentId = ContentId::new(105);
 pub const SPIKE_SLIME_ID: ContentId = ContentId::new(106);
 pub const ACID_SLIME_ID: ContentId = ContentId::new(107);
+pub const LAGAVULIN_ID: ContentId = ContentId::new(108);
 
 const RED_LOUSE_CURL_BLOCK: i32 = 3;
 const RED_LOUSE_BITE_DAMAGE: i32 = 6;
@@ -26,6 +27,11 @@ const SPIKE_SLIME_SPIT_DAMAGE: i32 = 7;
 
 const ACID_SLIME_ATTACK_DAMAGE: i32 = 6;
 const ACID_SLIME_WEAK: i32 = 1;
+
+const LAGAVULIN_SLEEP_TURNS: u32 = 3;
+const LAGAVULIN_SIPHON_STRENGTH: i32 = 2;
+const LAGAVULIN_SIPHON_DEXTERITY: i32 = 2;
+const LAGAVULIN_ATTACK_DAMAGE: i32 = 18;
 
 const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
@@ -48,6 +54,8 @@ pub struct MonsterDefinition {
     pub enrage_weak_on_skill: i32,
     /// Spikes applied at combat start (thorns on attack).
     pub starting_spikes: i32,
+    /// Turns spent asleep before acting (Lagavulin).
+    pub starting_sleep_turns: u32,
 }
 
 pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
@@ -58,6 +66,7 @@ pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
+    starting_sleep_turns: 0,
 };
 
 /// Act 1 Cultist at ascension 0, simplified: 50 HP, Ritual 2 on first turn, then 6-damage attacks.
@@ -69,6 +78,7 @@ pub const CULTIST_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 2,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
+    starting_sleep_turns: 0,
 };
 
 /// Act 1 Jaw Worm at ascension 0, simplified: 42 HP (within 40–44), three-move cycle.
@@ -80,6 +90,7 @@ pub const JAW_WORM_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
+    starting_sleep_turns: 0,
 };
 
 /// Act 1 Gremlin Nob at ascension 0, simplified: 82 HP, enrages on skill play, 6/14/10 attack cycle.
@@ -91,6 +102,7 @@ pub const GREMLIN_NOB_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 0,
     enrage_weak_on_skill: 2,
     starting_spikes: 0,
+    starting_sleep_turns: 0,
 };
 
 /// Act 1 Red Louse at ascension 0, simplified: 11 HP (within 11–12), Curl/Bite two-move cycle.
@@ -102,6 +114,7 @@ pub const RED_LOUSE_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
+    starting_sleep_turns: 0,
 };
 
 /// Act 1 Green Louse at ascension 0: 12 HP, Spikes 3, Curl/Bite cycle.
@@ -113,6 +126,19 @@ pub const GREEN_LOUSE_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: GREEN_LOUSE_SPIKES,
+    starting_sleep_turns: 0,
+};
+
+/// Act 1 Lagavulin at ascension 0: 109 HP, sleeps 3 turns then siphons and attacks.
+pub const LAGAVULIN_A0: MonsterDefinition = MonsterDefinition {
+    content_id: LAGAVULIN_ID,
+    name: "Lagavulin",
+    hp: 109,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: LAGAVULIN_SLEEP_TURNS,
 };
 
 /// Act 1 Spike Slime at ascension 0: 14 HP, Lick (weak) / Spit (attack) cycle.
@@ -124,6 +150,7 @@ pub const SPIKE_SLIME_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
+    starting_sleep_turns: 0,
 };
 
 /// Act 1 Acid Slime (small) at ascension 0: 12 HP, attack then apply weak cycle.
@@ -135,6 +162,7 @@ pub const ACID_SLIME_A0: MonsterDefinition = MonsterDefinition {
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
+    starting_sleep_turns: 0,
 };
 
 #[must_use]
@@ -148,6 +176,7 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         GREEN_LOUSE_ID => Some(&GREEN_LOUSE_A0),
         SPIKE_SLIME_ID => Some(&SPIKE_SLIME_A0),
         ACID_SLIME_ID => Some(&ACID_SLIME_A0),
+        LAGAVULIN_ID => Some(&LAGAVULIN_A0),
         _ => None,
     }
 }
@@ -165,14 +194,39 @@ pub fn monster_state(definition: &MonsterDefinition, id: MonsterId) -> MonsterSt
         },
         content_id: definition.content_id,
         moves_executed: 0,
-        intent: prepare_monster_intent_for(definition, 0),
+        sleep_turns_remaining: definition.starting_sleep_turns,
+        has_siphoned: false,
+        intent: prepare_monster_intent_for_monster(
+            definition,
+            0,
+            definition.starting_sleep_turns,
+            false,
+        ),
     }
 }
 
 #[must_use]
 pub fn prepare_monster_intent(monster: &MonsterState) -> MonsterIntent {
     let definition = get_monster_definition(monster.content_id).unwrap_or(&FIXED_SIMPLE_MONSTER);
-    prepare_monster_intent_for(definition, monster.moves_executed)
+    prepare_monster_intent_for_monster(
+        definition,
+        monster.moves_executed,
+        monster.sleep_turns_remaining,
+        monster.has_siphoned,
+    )
+}
+
+#[must_use]
+fn prepare_monster_intent_for_monster(
+    definition: &MonsterDefinition,
+    moves_executed: u32,
+    sleep_turns_remaining: u32,
+    has_siphoned: bool,
+) -> MonsterIntent {
+    if definition.content_id == LAGAVULIN_ID {
+        return lagavulin_intent(sleep_turns_remaining, has_siphoned);
+    }
+    prepare_monster_intent_for(definition, moves_executed)
 }
 
 #[must_use]
@@ -245,6 +299,30 @@ fn acid_slime_intent(moves_executed: u32) -> MonsterIntent {
     }
 }
 
+#[must_use]
+fn lagavulin_intent(sleep_turns_remaining: u32, has_siphoned: bool) -> MonsterIntent {
+    if sleep_turns_remaining > 0 {
+        MonsterIntent::Sleep
+    } else if !has_siphoned {
+        MonsterIntent::SiphonPlayer {
+            strength: LAGAVULIN_SIPHON_STRENGTH,
+            dexterity: LAGAVULIN_SIPHON_DEXTERITY,
+        }
+    } else {
+        MonsterIntent::Attack {
+            damage: LAGAVULIN_ATTACK_DAMAGE,
+        }
+    }
+}
+
+/// Wakes a sleeping Lagavulin when damaged and updates its intent for the current turn.
+pub fn wake_lagavulin_on_damage(monster: &mut MonsterState) {
+    if monster.content_id == LAGAVULIN_ID && monster.sleep_turns_remaining > 0 {
+        monster.sleep_turns_remaining = 0;
+        monster.intent = lagavulin_intent(monster.sleep_turns_remaining, monster.has_siphoned);
+    }
+}
+
 /// Deterministic Gremlin Nob move cycle: Bite → Skull Bash → Rush, keyed on `moves_executed`.
 #[must_use]
 fn gremlin_nob_intent(moves_executed: u32) -> MonsterIntent {
@@ -302,6 +380,21 @@ pub fn apply_monster_intent(monster: &mut MonsterState, player: &mut crate::Play
         }
         MonsterIntent::ApplyPlayerWeak { amount } => {
             player.powers.weak += amount;
+            0
+        }
+        MonsterIntent::Sleep => {
+            if monster.sleep_turns_remaining > 0 {
+                monster.sleep_turns_remaining -= 1;
+            }
+            0
+        }
+        MonsterIntent::SiphonPlayer {
+            strength,
+            dexterity,
+        } => {
+            player.powers.strength = (player.powers.strength - strength).max(0);
+            player.powers.dexterity = (player.powers.dexterity - dexterity).max(0);
+            monster.has_siphoned = true;
             0
         }
     };
@@ -703,5 +796,80 @@ mod tests {
 
         assert_eq!(apply_monster_intent(&mut monster, &mut player), 0);
         assert_eq!(player.powers.weak, 1);
+    }
+
+    #[test]
+    fn lagavulin_has_one_hundred_nine_hp_and_starts_asleep() {
+        let monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+
+        assert_eq!(LAGAVULIN_A0.hp, 109);
+        assert_eq!(monster.sleep_turns_remaining, LAGAVULIN_SLEEP_TURNS);
+        assert_eq!(monster.intent, MonsterIntent::Sleep);
+    }
+
+    #[test]
+    fn lagavulin_intent_progresses_sleep_siphon_attack() {
+        let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+        assert_eq!(monster.intent, MonsterIntent::Sleep);
+
+        monster.sleep_turns_remaining = 0;
+        assert_eq!(
+            prepare_monster_intent(&monster),
+            MonsterIntent::SiphonPlayer {
+                strength: LAGAVULIN_SIPHON_STRENGTH,
+                dexterity: LAGAVULIN_SIPHON_DEXTERITY,
+            }
+        );
+
+        monster.has_siphoned = true;
+        assert_eq!(
+            prepare_monster_intent(&monster),
+            MonsterIntent::Attack {
+                damage: LAGAVULIN_ATTACK_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn lagavulin_sleep_decrements_remaining_turns() {
+        let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::Sleep;
+
+        assert_eq!(apply_intent(&mut monster), 0);
+        assert_eq!(monster.sleep_turns_remaining, 2);
+    }
+
+    #[test]
+    fn lagavulin_siphon_reduces_player_strength_and_dexterity() {
+        let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+        monster.sleep_turns_remaining = 0;
+        monster.intent = MonsterIntent::SiphonPlayer {
+            strength: LAGAVULIN_SIPHON_STRENGTH,
+            dexterity: LAGAVULIN_SIPHON_DEXTERITY,
+        };
+        let mut player = dummy_player();
+        player.powers.strength = 3;
+        player.powers.dexterity = 2;
+
+        assert_eq!(apply_monster_intent(&mut monster, &mut player), 0);
+        assert_eq!(player.powers.strength, 1);
+        assert_eq!(player.powers.dexterity, 0);
+        assert!(monster.has_siphoned);
+    }
+
+    #[test]
+    fn lagavulin_wake_on_damage_clears_sleep_and_sets_siphon_intent() {
+        let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+
+        wake_lagavulin_on_damage(&mut monster);
+
+        assert_eq!(monster.sleep_turns_remaining, 0);
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::SiphonPlayer {
+                strength: LAGAVULIN_SIPHON_STRENGTH,
+                dexterity: LAGAVULIN_SIPHON_DEXTERITY,
+            }
+        );
     }
 }

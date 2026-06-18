@@ -4,7 +4,7 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0,
-        GREMLIN_NOB_A0, JAW_WORM_A0, RED_LOUSE_A0, SPIKE_SLIME_A0,
+        GREMLIN_NOB_A0, JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -44,6 +44,10 @@ pub struct MonsterState {
     pub content_id: ContentId,
     #[serde(default)]
     pub moves_executed: u32,
+    #[serde(default)]
+    pub sleep_turns_remaining: u32,
+    #[serde(default)]
+    pub has_siphoned: bool,
     pub intent: MonsterIntent,
 }
 
@@ -71,6 +75,8 @@ pub enum MonsterIntent {
     AttackAndBlock { damage: i32, block: i32 },
     StrengthAndBlock { strength: i32, block: i32 },
     ApplyPlayerWeak { amount: i32 },
+    Sleep,
+    SiphonPlayer { strength: i32, dexterity: i32 },
 }
 
 impl CombatState {
@@ -147,6 +153,13 @@ impl CombatState {
     pub fn acid_slime_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&ACID_SLIME_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn lagavulin_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&LAGAVULIN_A0, MonsterId::new(1))];
         state
     }
 

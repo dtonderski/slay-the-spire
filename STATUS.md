@@ -14,6 +14,7 @@
 - Fixed dummy, **Cultist**, **Jaw Worm**, **Gremlin Nob** (enrage on skills)
 - **Red Louse** (curl/bite), **Green Louse** (curl/bite + spikes 3)
 - **Spike Slime** (lick weak / spit attack), **Acid Slime (S)** (attack / apply weak)
+- **Lagavulin** (3-turn sleep, wake on hit, siphon −2 str/dex, 18-damage attacks)
 
 ### Run / Meta
 - Master deck, HP sync, **gold** (99 start)
@@ -29,24 +30,24 @@
 
 ### Tests
 - milestone1 golden replay, milestone6 monsters, milestone7 rewards, milestone8 map, milestone9 rest+shop, milestone10 relics
-- **293 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
+- **301 tests** passing: `cargo +stable-x86_64-pc-windows-gnu test` from `simulator/`
 
 ## What Is Not Implemented
 
 - Remaining Ironclad cards (Havoc, Warcry, Searing Blow, etc.)
-- Lagavulin, Sentries, Act 1 bosses
+- Sentries, Act 1 bosses
 - Card remove at rest, reward RNG, map generation
 - Most relics/potions, events, ascensions
 - CommunicationMod parity, RL API, Python bindings
 
 ## Current Milestone
 
-Milestone 6 monsters — Louses and Slimes done; next is Lagavulin.
+Milestone 6 monsters — Lagavulin done; next is Sentries.
 
 ## Next Task
 
-Lagavulin (sleep / strength drain / attack cycle per TASKS.md Milestone 6).
+Sentries (per TASKS.md Milestone 6).
 
 ## Last Updated
 
-2026-06-18 (Green Louse, Spike Slime, Acid Slime).
+2026-06-18 (Lagavulin).
