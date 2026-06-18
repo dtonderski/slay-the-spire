@@ -5,7 +5,7 @@
 ### Combat
 - **44 Ironclad cards** (Milestone 5 complete + Ascender's Bane)
 - Full Act 1 monster + boss roster
-- Ascension modifiers A0–A20 (config, elites, damage, HP, Bane, deadly enemies, double boss)
+- Ascension modifiers A0-A20 (config, elites, damage, HP, Bane, deadly enemies, double boss)
 
 ### Run / Meta
 - Reward screen with rarity-weighted RNG card choices; potion/relic take actions
@@ -21,7 +21,7 @@
 - On-card-play relic: Ink Bottle draw after 10 cards
 - Damage/block relic: Ornamental Fan block every 3 attacks per turn
 - Stateful relic: Ice Cream preserves energy between turns
-- Random-effect potion: Gamble Potion (+50/−50 gold via RNG)
+- Random-effect potion: Gamble Potion (+50/-50 gold via RNG)
 
 ### Verification (Milestone 12)
 - CommunicationMod trace importer (`sts_verify`)
@@ -39,4 +39,4 @@ Milestone 12 complete for starter scope. Future work: full Act 1 trace replay pa
 
 ## Last Updated
 
-2026-06-18 (Milestones 10–12).
+2026-06-18 (Milestones 10-12).
