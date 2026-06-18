@@ -2,8 +2,8 @@ use sts_core::{
     apply_combat_action,
     content::cards::{BURN_ID, DAZED_ID, DEFEND_R_ID},
     content::monsters::{
-        ACID_SLIME_A0, CULTIST_A0, GREEN_LOUSE_A0, GREMLIN_NOB_A0, HEXAGHOST_A0, JAW_WORM_A0,
-        LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
+        ACID_SLIME_A0, CULTIST_A0, GREEN_LOUSE_A0, GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0,
+        JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     end_player_turn, CardId, CombatAction, CombatState, MonsterId, MonsterIntent,
 };
@@ -517,6 +517,47 @@ fn slime_boss_splits_into_acid_slimes_at_half_hp() {
     assert_eq!(next.monsters.len(), 3);
     assert_eq!(next.monsters[1].content_id, ACID_SLIME_A0.content_id);
     assert_eq!(next.monsters[2].content_id, ACID_SLIME_A0.content_id);
+}
+
+#[test]
+fn guardian_fixture_has_expected_hp_and_defensive_intent() {
+    let state = CombatState::guardian_fixture();
+
+    assert_eq!(state.monsters[0].hp, GUARDIAN_A0.hp);
+    assert_eq!(state.monsters[0].defensive_turns_remaining, 3);
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::DefensiveCharge {
+            block: 99,
+            strength: 3,
+        }
+    );
+}
+
+#[test]
+fn guardian_combat_charges_then_attacks() {
+    let mut state = CombatState::guardian_fixture();
+    state.player.hp = 200;
+    state.piles.draw_pile.clear();
+
+    let after_charge_one = end_player_turn(&state);
+    assert_eq!(after_charge_one.player.hp, 200);
+    assert_eq!(after_charge_one.monsters[0].block, 99);
+    assert_eq!(after_charge_one.monsters[0].powers.strength, 3);
+
+    let after_charge_two = end_player_turn(&after_charge_one);
+    assert_eq!(after_charge_two.monsters[0].block, 198);
+    assert_eq!(after_charge_two.monsters[0].powers.strength, 6);
+
+    let after_charge_three = end_player_turn(&after_charge_two);
+    assert_eq!(after_charge_three.monsters[0].defensive_turns_remaining, 0);
+    assert_eq!(
+        after_charge_three.monsters[0].intent,
+        MonsterIntent::Attack { damage: 12 }
+    );
+
+    let after_attack = end_player_turn(&after_charge_three);
+    assert_eq!(after_attack.player.hp, 179);
 }
 
 fn hand_strike_id(state: &CombatState) -> CardId {

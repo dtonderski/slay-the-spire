@@ -19,6 +19,7 @@ pub const LAGAVULIN_ID: ContentId = ContentId::new(108);
 pub const SENTRY_ID: ContentId = ContentId::new(109);
 pub const HEXAGHOST_ID: ContentId = ContentId::new(110);
 pub const SLIME_BOSS_ID: ContentId = ContentId::new(111);
+pub const GUARDIAN_ID: ContentId = ContentId::new(112);
 
 const RED_LOUSE_CURL_BLOCK: i32 = 3;
 const RED_LOUSE_BITE_DAMAGE: i32 = 6;
@@ -51,6 +52,12 @@ const HEXAGHOST_INFERNO_DAMAGE: i32 = 2;
 const SLIME_BOSS_SLAM_DAMAGE: i32 = 35;
 const SLIME_BOSS_SPLIT_HP_THRESHOLD: i32 = 70;
 
+const GUARDIAN_DEFENSIVE_TURNS: u32 = 3;
+const GUARDIAN_DEFENSIVE_BLOCK: i32 = 99;
+const GUARDIAN_DEFENSIVE_STRENGTH: i32 = 3;
+const GUARDIAN_FIERCE_BLOW_DAMAGE: i32 = 36;
+const GUARDIAN_ROLL_ATTACK_DAMAGE: i32 = 12;
+
 const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
 const GREMLIN_NOB_RUSH_DAMAGE: i32 = 10;
@@ -74,6 +81,8 @@ pub struct MonsterDefinition {
     pub starting_spikes: i32,
     /// Turns spent asleep before acting (Lagavulin).
     pub starting_sleep_turns: u32,
+    /// Turns spent in defensive mode before attacking (Guardian).
+    pub starting_defensive_turns: u32,
 }
 
 pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
@@ -85,6 +94,7 @@ pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Cultist at ascension 0, simplified: 50 HP, Ritual 2 on first turn, then 6-damage attacks.
@@ -97,6 +107,7 @@ pub const CULTIST_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Jaw Worm at ascension 0, simplified: 42 HP (within 40–44), three-move cycle.
@@ -109,6 +120,7 @@ pub const JAW_WORM_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Gremlin Nob at ascension 0, simplified: 82 HP, enrages on skill play, 6/14/10 attack cycle.
@@ -121,6 +133,7 @@ pub const GREMLIN_NOB_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 2,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Red Louse at ascension 0, simplified: 11 HP (within 11–12), Curl/Bite two-move cycle.
@@ -133,6 +146,7 @@ pub const RED_LOUSE_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Green Louse at ascension 0: 12 HP, Spikes 3, Curl/Bite cycle.
@@ -145,6 +159,7 @@ pub const GREEN_LOUSE_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: GREEN_LOUSE_SPIKES,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Lagavulin at ascension 0: 109 HP, sleeps 3 turns then siphons and attacks.
@@ -157,6 +172,7 @@ pub const LAGAVULIN_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: LAGAVULIN_SLEEP_TURNS,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Sentry at ascension 0: 40 HP, Beam / Attack / Attack cycle.
@@ -169,6 +185,7 @@ pub const SENTRY_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Hexaghost at ascension 0: 250 HP, Divider / Tackle / Inferno cycle.
@@ -181,6 +198,7 @@ pub const HEXAGHOST_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Slime Boss at ascension 0: 140 HP, slams for 35, splits into acid slimes at 50% HP.
@@ -193,6 +211,20 @@ pub const SLIME_BOSS_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+/// Act 1 Guardian at ascension 0: 240 HP, defensive charge then fierce blow / roll attack.
+pub const GUARDIAN_A0: MonsterDefinition = MonsterDefinition {
+    content_id: GUARDIAN_ID,
+    name: "Guardian",
+    hp: 240,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: GUARDIAN_DEFENSIVE_TURNS,
 };
 
 /// Act 1 Spike Slime at ascension 0: 14 HP, Lick (weak) / Spit (attack) cycle.
@@ -205,6 +237,7 @@ pub const SPIKE_SLIME_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Acid Slime (small) at ascension 0: 12 HP, attack then apply weak cycle.
@@ -217,6 +250,7 @@ pub const ACID_SLIME_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
 };
 
 #[must_use]
@@ -234,6 +268,7 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         SENTRY_ID => Some(&SENTRY_A0),
         HEXAGHOST_ID => Some(&HEXAGHOST_A0),
         SLIME_BOSS_ID => Some(&SLIME_BOSS_A0),
+        GUARDIAN_ID => Some(&GUARDIAN_A0),
         _ => None,
     }
 }
@@ -254,11 +289,13 @@ pub fn monster_state(definition: &MonsterDefinition, id: MonsterId) -> MonsterSt
         sleep_turns_remaining: definition.starting_sleep_turns,
         has_siphoned: false,
         split_triggered: false,
+        defensive_turns_remaining: definition.starting_defensive_turns,
         intent: prepare_monster_intent_for_monster(
             definition,
             0,
             definition.starting_sleep_turns,
             false,
+            definition.starting_defensive_turns,
         ),
     }
 }
@@ -271,6 +308,7 @@ pub fn prepare_monster_intent(monster: &MonsterState) -> MonsterIntent {
         monster.moves_executed,
         monster.sleep_turns_remaining,
         monster.has_siphoned,
+        monster.defensive_turns_remaining,
     )
 }
 
@@ -280,9 +318,13 @@ fn prepare_monster_intent_for_monster(
     moves_executed: u32,
     sleep_turns_remaining: u32,
     has_siphoned: bool,
+    defensive_turns_remaining: u32,
 ) -> MonsterIntent {
     if definition.content_id == LAGAVULIN_ID {
         return lagavulin_intent(sleep_turns_remaining, has_siphoned);
+    }
+    if definition.content_id == GUARDIAN_ID {
+        return guardian_intent(defensive_turns_remaining, moves_executed);
     }
     prepare_monster_intent_for(definition, moves_executed)
 }
@@ -369,6 +411,25 @@ fn sentry_intent(moves_executed: u32) -> MonsterIntent {
         _ => MonsterIntent::Attack {
             damage: SENTRY_ATTACK_DAMAGE,
         },
+    }
+}
+
+#[must_use]
+fn guardian_intent(defensive_turns_remaining: u32, moves_executed: u32) -> MonsterIntent {
+    if defensive_turns_remaining > 0 {
+        MonsterIntent::DefensiveCharge {
+            block: GUARDIAN_DEFENSIVE_BLOCK,
+            strength: GUARDIAN_DEFENSIVE_STRENGTH,
+        }
+    } else {
+        match moves_executed % 2 {
+            0 => MonsterIntent::Attack {
+                damage: GUARDIAN_FIERCE_BLOW_DAMAGE,
+            },
+            _ => MonsterIntent::Attack {
+                damage: GUARDIAN_ROLL_ATTACK_DAMAGE,
+            },
+        }
     }
 }
 
@@ -553,6 +614,14 @@ pub fn apply_monster_intent(
         MonsterIntent::AttackMultiple { damage, hits } => {
             let hit_damage = monster_attack_damage(monster, damage);
             hit_damage * hits
+        }
+        MonsterIntent::DefensiveCharge { block, strength } => {
+            monster.block += block;
+            monster.powers.strength += strength;
+            if monster.defensive_turns_remaining > 0 {
+                monster.defensive_turns_remaining -= 1;
+            }
+            0
         }
     };
     monster.moves_executed += 1;
@@ -1193,5 +1262,34 @@ mod tests {
                 damage: SLIME_BOSS_SLAM_DAMAGE
             }
         );
+    }
+
+    #[test]
+    fn guardian_has_two_hundred_forty_hp_and_starts_defensive() {
+        let monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+
+        assert_eq!(GUARDIAN_A0.hp, 240);
+        assert_eq!(monster.defensive_turns_remaining, GUARDIAN_DEFENSIVE_TURNS);
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::DefensiveCharge {
+                block: GUARDIAN_DEFENSIVE_BLOCK,
+                strength: GUARDIAN_DEFENSIVE_STRENGTH,
+            }
+        );
+    }
+
+    #[test]
+    fn guardian_defensive_charge_gains_block_and_strength() {
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::DefensiveCharge {
+            block: GUARDIAN_DEFENSIVE_BLOCK,
+            strength: GUARDIAN_DEFENSIVE_STRENGTH,
+        };
+
+        assert_eq!(apply_intent(&mut monster), 0);
+        assert_eq!(monster.block, 99);
+        assert_eq!(monster.powers.strength, 3);
+        assert_eq!(monster.defensive_turns_remaining, 2);
     }
 }

@@ -71,6 +71,7 @@ mod tests {
             sleep_turns_remaining: 0,
             has_siphoned: false,
             split_triggered: false,
+            defensive_turns_remaining: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -94,6 +95,7 @@ mod tests {
             sleep_turns_remaining: 0,
             has_siphoned: false,
             split_triggered: false,
+            defensive_turns_remaining: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -121,6 +123,7 @@ mod tests {
             sleep_turns_remaining: 0,
             has_siphoned: false,
             split_triggered: false,
+            defensive_turns_remaining: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -155,6 +158,7 @@ mod tests {
             sleep_turns_remaining: 0,
             has_siphoned: false,
             split_triggered: false,
+            defensive_turns_remaining: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {

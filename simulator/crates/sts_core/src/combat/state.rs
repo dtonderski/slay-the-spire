@@ -4,8 +4,8 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0,
-        GREMLIN_NOB_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0, SENTRY_A0,
-        SLIME_BOSS_A0, SPIKE_SLIME_A0,
+        GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0,
+        SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -51,6 +51,8 @@ pub struct MonsterState {
     pub has_siphoned: bool,
     #[serde(default)]
     pub split_triggered: bool,
+    #[serde(default)]
+    pub defensive_turns_remaining: u32,
     pub intent: MonsterIntent,
 }
 
@@ -83,6 +85,7 @@ pub enum MonsterIntent {
     AddDazedToDiscard { count: i32 },
     AddBurnToDiscard { count: i32, damage: i32 },
     AttackMultiple { damage: i32, hits: i32 },
+    DefensiveCharge { block: i32, strength: i32 },
 }
 
 impl CombatState {
@@ -191,6 +194,13 @@ impl CombatState {
     pub fn slime_boss_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&SLIME_BOSS_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn guardian_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, MonsterId::new(1))];
         state
     }
 
