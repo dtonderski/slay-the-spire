@@ -3,10 +3,11 @@ use sts_core::{
     content::cards::ANGER_ID,
     content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    enter_fixed_event_screen, legal_event_actions, legal_map_actions_on_run, legal_rest_actions,
-    legal_shop_actions, rest_heal_amount, Event, EventAction, MapAction, MapNodeId, Potion, Relic,
-    RestAction, RoomKind, RunAction, RunPhase, RunState, SimError, FIRE_POTION_DAMAGE,
-    GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
+    enter_event_screen, enter_fixed_event_screen, legal_event_actions, legal_map_actions_on_run,
+    legal_rest_actions, legal_shop_actions, rest_heal_amount, Event, EventAction, MapAction,
+    MapNodeId, Potion, Relic, RestAction, RoomKind, RunAction, RunPhase, RunState, SimError,
+    FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE,
+    SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -336,6 +337,26 @@ fn event_actions_are_unavailable_outside_event_phase() {
     assert_eq!(
         err,
         SimError::IllegalAction("event actions require event phase")
+    );
+}
+
+#[test]
+fn event_rng_selects_fixed_event_deterministically_and_advances_seed() {
+    let mut first = RunState::map_fixture();
+    let mut second = RunState::map_fixture();
+    first.event_rng_seed = 19;
+    second.event_rng_seed = 19;
+
+    enter_event_screen(&mut first);
+    enter_event_screen(&mut second);
+
+    assert_eq!(first.phase, RunPhase::Event);
+    assert_eq!(first.event, second.event);
+    assert_eq!(first.event_rng_seed, second.event_rng_seed);
+    assert_ne!(first.event_rng_seed, 19);
+    assert_eq!(
+        first.event.as_ref().map(|event| event.event),
+        Some(Event::GoldenShrine)
     );
 }
 

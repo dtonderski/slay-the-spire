@@ -1,7 +1,11 @@
-use crate::{EventAction, RunPhase, RunState, SimError, SimResult};
+use crate::{
+    rng::{RngStream, SimulatorRng},
+    EventAction, RunPhase, RunState, SimError, SimResult,
+};
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
+const EVENT_POOL: [Event; 1] = [Event::GoldenShrine];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
@@ -32,6 +36,21 @@ pub fn fixed_event_screen() -> EventScreen {
 pub fn enter_fixed_event_screen(run: &mut RunState) {
     run.phase = RunPhase::Event;
     run.event = Some(fixed_event_screen());
+}
+
+pub fn enter_event_screen(run: &mut RunState) {
+    let mut rng = SimulatorRng::new(run.event_rng_seed);
+    let event = EVENT_POOL[rng.next_usize(RngStream::Event, "event_screen", EVENT_POOL.len())];
+    run.event_rng_seed = rng.seed_state();
+    run.phase = RunPhase::Event;
+    run.event = Some(event_screen(event));
+}
+
+#[must_use]
+pub fn event_screen(event: Event) -> EventScreen {
+    match event {
+        Event::GoldenShrine => fixed_event_screen(),
+    }
 }
 
 #[must_use]
@@ -102,6 +121,33 @@ mod tests {
         assert_eq!(event.event, Event::GoldenShrine);
         assert_eq!(event.choices.len(), 1);
         assert_eq!(event.choices[0].label, "Pray");
+    }
+
+    #[test]
+    fn event_screen_selection_is_deterministic_for_seed() {
+        let mut first = RunState::map_fixture();
+        let mut second = RunState::map_fixture();
+        first.event_rng_seed = 7;
+        second.event_rng_seed = 7;
+
+        enter_event_screen(&mut first);
+        enter_event_screen(&mut second);
+
+        assert_eq!(first.event, second.event);
+        assert_eq!(first.event_rng_seed, second.event_rng_seed);
+    }
+
+    #[test]
+    fn event_screen_selection_advances_event_rng_seed() {
+        let mut run = RunState::map_fixture();
+
+        enter_event_screen(&mut run);
+
+        assert_ne!(run.event_rng_seed, 0);
+        assert_eq!(
+            run.event.as_ref().map(|event| event.event),
+            Some(Event::GoldenShrine)
+        );
     }
 
     #[test]

@@ -30,6 +30,8 @@ pub struct RunState {
     #[serde(default)]
     pub potions: Vec<Potion>,
     #[serde(default)]
+    pub event_rng_seed: u64,
+    #[serde(default)]
     pub reward_rng_seed: u64,
 }
 
@@ -98,6 +100,7 @@ impl RunState {
             shop: None,
             relics,
             potions: Vec::new(),
+            event_rng_seed: 0,
             reward_rng_seed: 0,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
@@ -122,6 +125,7 @@ impl RunState {
             shop: None,
             relics: Vec::new(),
             potions: Vec::new(),
+            event_rng_seed: 0,
             reward_rng_seed: 0,
         }
     }
