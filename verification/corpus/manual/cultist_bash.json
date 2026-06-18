@@ -1,0 +1,32 @@
+{
+  "name": "cultist_bash_after_play",
+  "source": "communication_mod/trace-2026-06-18T00-53-06-235Z.jsonl",
+  "step": 6,
+  "observation": {
+    "ascension": 0,
+    "floor": 1,
+    "gold": 99,
+    "current_hp": 80,
+    "max_hp": 80,
+    "deck_size": 10,
+    "in_combat": true,
+    "combat": {
+      "player_hp": 80,
+      "player_max_hp": 80,
+      "player_block": 0,
+      "player_energy": 1,
+      "hand_size": 4,
+      "draw_pile_size": 5,
+      "discard_pile_size": 1,
+      "monsters": [
+        {
+          "name": "Cultist",
+          "hp": 41,
+          "max_hp": 49,
+          "block": 0,
+          "intent": "BUFF"
+        }
+      ]
+    }
+  }
+}

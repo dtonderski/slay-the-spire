@@ -1,0 +1,10 @@
+[
+  {
+    "name": "neow_and_map_not_modeled",
+    "reason": "CommunicationMod trace includes Neow/map steps before first combat; simulator map/event parity not in scope for milestone 12 starter traces."
+  },
+  {
+    "name": "deck_uuid_identity",
+    "reason": "Real game deck uses UUID card identity; simulator uses sequential CardId instances."
+  }
+]
