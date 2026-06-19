@@ -163,8 +163,9 @@ pub fn milestone8_fixture() -> MapRunState {
 
 pub use generation::{generate_map_placeholder, generated_map_fixture};
 pub use target::{
-    generate_exordium_map_choices_after_path, generate_exordium_map_topology, ExordiumFixedRoomRow,
-    ExordiumMapChoiceStep, ExordiumMapTopology,
+    generate_exordium_fixed_map, generate_exordium_map_choices_after_path,
+    generate_exordium_map_topology, ExordiumFixedRoomRow, ExordiumMapChoiceStep,
+    ExordiumMapTopology,
 };
 
 #[cfg(test)]

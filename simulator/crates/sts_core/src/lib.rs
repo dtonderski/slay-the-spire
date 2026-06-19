@@ -32,11 +32,11 @@ pub use content::deck::{ironclad_starter_deck, ironclad_starter_deck_for_ascensi
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 pub use map::{
-    apply_map_action, generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    generate_map_placeholder, generated_map_fixture, legal_map_actions, milestone8_fixture,
-    milestone8_map, reachable_nodes, validate_map_action, ExordiumFixedRoomRow,
-    ExordiumMapChoiceStep, ExordiumMapTopology, FixedMap, MapAction, MapNode, MapRunState,
-    RoomKind,
+    apply_map_action, generate_exordium_fixed_map, generate_exordium_map_choices_after_path,
+    generate_exordium_map_topology, generate_map_placeholder, generated_map_fixture,
+    legal_map_actions, milestone8_fixture, milestone8_map, reachable_nodes, validate_map_action,
+    ExordiumFixedRoomRow, ExordiumMapChoiceStep, ExordiumMapTopology, FixedMap, MapAction, MapNode,
+    MapRunState, RoomKind,
 };
 pub use potion::{
     Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,

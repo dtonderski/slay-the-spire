@@ -1,6 +1,6 @@
-use crate::rng::StsRng;
+use crate::{ids::MapNodeId, rng::StsRng};
 
-use super::RoomKind;
+use super::{FixedMap, MapNode, MapRunState, RoomKind};
 
 const EXORDIUM_ROWS: usize = 15;
 const EXORDIUM_WIDTH: usize = 7;
@@ -48,11 +48,18 @@ pub struct ExordiumRoomTypeCounts {
     pub combats: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExordiumAssignedRoom {
     pub row: usize,
     pub x: i32,
     pub room_kind: RoomKind,
+    pub children: Vec<ExordiumMapChild>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExordiumMapChild {
+    pub row: usize,
+    pub x: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +85,57 @@ pub fn generate_exordium_map_topology(seed: i64) -> ExordiumMapTopology {
     generator.create_paths(EXORDIUM_PATHS);
     generator.filter_redundant_edges_from_first_row();
     generator.topology()
+}
+
+#[must_use]
+pub fn generate_exordium_fixed_map(seed: i64) -> MapRunState {
+    let topology = generate_exordium_map_topology(seed);
+    let boss_id = exordium_boss_node_id();
+    let mut nodes = Vec::with_capacity(topology.assigned_rooms.len() + 2);
+    nodes.push(MapNode {
+        id: exordium_root_node_id(),
+        act: 1,
+        room_kind: RoomKind::Event,
+        children: topology
+            .first_row_choices
+            .iter()
+            .copied()
+            .map(|x| exordium_map_node_id(0, x))
+            .collect(),
+    });
+
+    nodes.extend(topology.assigned_rooms.iter().map(|room| {
+        MapNode {
+            id: exordium_map_node_id(room.row, room.x),
+            act: 1,
+            room_kind: room.room_kind,
+            children: room
+                .children
+                .iter()
+                .map(|child| {
+                    if child.row >= EXORDIUM_ROWS {
+                        boss_id
+                    } else {
+                        exordium_map_node_id(child.row, child.x)
+                    }
+                })
+                .collect(),
+        }
+    }));
+
+    nodes.push(MapNode {
+        id: boss_id,
+        act: 1,
+        room_kind: RoomKind::Boss,
+        children: Vec::new(),
+    });
+
+    MapRunState {
+        act: 1,
+        floor: 0,
+        current_node: exordium_root_node_id(),
+        map: FixedMap { nodes },
+    }
 }
 
 #[must_use]
@@ -539,11 +597,31 @@ impl TargetMapGenerator {
                         row: node.y as usize,
                         x: node.x,
                         room_kind,
+                        children: node
+                            .edges
+                            .iter()
+                            .map(|edge| ExordiumMapChild {
+                                row: edge.dst_y as usize,
+                                x: edge.dst_x,
+                            })
+                            .collect(),
                     })
                 })
             })
             .collect()
     }
+}
+
+fn exordium_root_node_id() -> MapNodeId {
+    MapNodeId::new(0)
+}
+
+fn exordium_boss_node_id() -> MapNodeId {
+    MapNodeId::new(1 + EXORDIUM_ROWS as u64 * EXORDIUM_WIDTH as u64)
+}
+
+fn exordium_map_node_id(row: usize, x: i32) -> MapNodeId {
+    MapNodeId::new(1 + row as u64 * EXORDIUM_WIDTH as u64 + x as u64)
 }
 
 impl TopologyNode {
@@ -593,6 +671,8 @@ fn shuffle_room_list(rng: &mut StsRng, rooms: &mut [RoomKind]) {
 
 #[cfg(test)]
 mod tests {
+    use crate::{apply_map_action, legal_map_actions, reachable_nodes, MapAction};
+
     use super::*;
 
     #[test]
@@ -752,6 +832,80 @@ mod tests {
         assert_eq!(room_at(1, 3), Some(RoomKind::Combat));
         assert_eq!(room_at(2, 2), Some(RoomKind::Combat));
         assert_eq!(room_at(2, 3), Some(RoomKind::Event));
+    }
+
+    #[test]
+    fn exordium_fixed_map_traverses_codex04_captured_prefix() {
+        let mut state = generate_exordium_fixed_map(22_079_335_079);
+
+        assert_eq!(
+            legal_map_actions(&state),
+            vec![
+                MapAction::ChooseNode {
+                    node_id: exordium_map_node_id(0, 0)
+                },
+                MapAction::ChooseNode {
+                    node_id: exordium_map_node_id(0, 2)
+                },
+                MapAction::ChooseNode {
+                    node_id: exordium_map_node_id(0, 4)
+                },
+                MapAction::ChooseNode {
+                    node_id: exordium_map_node_id(0, 5)
+                },
+            ]
+        );
+
+        state = apply_map_action(
+            &state,
+            MapAction::ChooseNode {
+                node_id: exordium_map_node_id(0, 2),
+            },
+        )
+        .expect("first captured node is reachable");
+        assert_eq!(state.floor, 1);
+        assert_eq!(
+            state
+                .map
+                .node(state.current_node)
+                .map(|node| node.room_kind),
+            Some(RoomKind::Combat)
+        );
+        assert_eq!(reachable_nodes(&state), vec![exordium_map_node_id(1, 3)]);
+
+        state = apply_map_action(
+            &state,
+            MapAction::ChooseNode {
+                node_id: exordium_map_node_id(1, 3),
+            },
+        )
+        .expect("second captured node is reachable");
+        assert_eq!(state.floor, 2);
+        assert_eq!(
+            state
+                .map
+                .node(state.current_node)
+                .map(|node| node.room_kind),
+            Some(RoomKind::Combat)
+        );
+        assert_eq!(
+            reachable_nodes(&state),
+            vec![exordium_map_node_id(2, 2), exordium_map_node_id(2, 3)]
+        );
+        assert_eq!(
+            state
+                .map
+                .node(exordium_map_node_id(2, 2))
+                .map(|node| node.room_kind),
+            Some(RoomKind::Combat)
+        );
+        assert_eq!(
+            state
+                .map
+                .node(exordium_map_node_id(2, 3))
+                .map(|node| node.room_kind),
+            Some(RoomKind::Event)
+        );
     }
 
     #[test]
