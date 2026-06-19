@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CardKeywords {
+    pub innate: bool,
     pub ethereal: bool,
     pub exhaust: bool,
     pub retain: bool,
@@ -10,6 +11,7 @@ pub struct CardKeywords {
 }
 
 pub const CARD_KEYWORDS_NONE: CardKeywords = CardKeywords {
+    innate: false,
     ethereal: false,
     exhaust: false,
     retain: false,
