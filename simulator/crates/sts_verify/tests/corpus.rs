@@ -156,8 +156,22 @@ fn codex04_full_captured_map_matches_target_topology() {
         return;
     };
 
-    let captured = captured_first_full_map(&content);
-    let generated = generate_exordium_map_topology(22_079_335_079)
+    assert_captured_map_matches_target_topology(&content, 22_079_335_079);
+}
+
+#[test]
+fn verify01_full_captured_map_matches_target_topology() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T06-04-49-264Z.jsonl")
+    else {
+        return;
+    };
+
+    assert_captured_map_matches_target_topology(&content, 1_957_307_888_551);
+}
+
+fn assert_captured_map_matches_target_topology(content: &str, seed: i64) {
+    let captured = captured_first_full_map(content);
+    let generated = generate_exordium_map_topology(seed)
         .assigned_rooms
         .iter()
         .map(|room| CapturedMapNode {
