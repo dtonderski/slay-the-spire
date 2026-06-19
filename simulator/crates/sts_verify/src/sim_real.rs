@@ -62,6 +62,7 @@ pub struct SeedStartReport {
     pub expected_failure: bool,
     pub first_boundary: SeedStartBoundary,
     pub rng_boundaries: Vec<RngBoundary>,
+    pub m22_encounter_report: Option<crate::m22::M22EncounterReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,11 +214,18 @@ fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError>
 
     let boundary = verify_seed_start_transitions(&transitions, &start, &mut report);
     let expected_failure = boundary.category != "none";
+    let m22_encounter_report = Some(crate::m22::verify_m22_encounter_spawn_prefix(
+        &trace.lines,
+        &start.external_seed,
+        start.numeric_seed,
+        start.ascension,
+    ));
     report.seed_start = Some(SeedStartReport {
         start_command: start,
         expected_failure,
         first_boundary: boundary,
         rng_boundaries: seed_start_rng_boundaries(),
+        m22_encounter_report,
     });
 
     Ok(report)
@@ -1433,7 +1441,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "monsterRng".to_owned(),
             save_counter: Some("monster_seed_count".to_owned()),
             status: "source_backed_normal_list_prefix".to_owned(),
-            reason: "decoded Exordium normal encounter list generation covers weak encounters, strong encounter weights, first-strong exclusions, and no-repeat-last-two retries; VERIFY01 prefix is Cultist/Jaw Worm/2 Louse and CODEX04 prefix is Cultist/Small Slimes/2 Louse. Room execution and elite encounter paths remain incomplete".to_owned(),
+            reason: "decoded Exordium normal encounter list generation covers weak encounters, strong encounter weights, first-strong exclusions, and no-repeat-last-two retries; room execution maps combat index to list entries and target spawn state covers Cultist, Jaw Worm, Small Slimes, and 2 Louse for captured VERIFY01/CODEX04/CODEX03 first-three prefixes".to_owned(),
         },
         RngBoundary {
             stream: "monsterHpRng".to_owned(),
