@@ -17,7 +17,7 @@ use sts_core::{
     apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology, CardId,
     CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId,
     initialize_combat_piles, MonsterId, MonsterIntent, MonsterPowers, MonsterState, PlayerPowers,
-    PlayerState, RewardScreen, RunAction, RunPhase, RunState, starter_only_deck, StsRng,
+    PlayerState, RewardScreen, RunAction, RunPhase, RunState, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1790,7 +1790,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "shuffleRng".to_owned(),
             save_counter: Some("card_random_seed_count".to_owned()),
             status: "captured_branch".to_owned(),
-            reason: "Ironclad starter-only seed-start combats now derive opening piles from shuffleRng(seed + floor) with target master-deck instance order; innate/extra-card master-deck ordering and discard-to-draw without post-END resync remain open for CODEX04".to_owned(),
+            reason: "Ironclad starter-only seed-start combats derive opening piles from shuffleRng(seed + floor) with target master-deck instance order; innate/extra-card decks fall back to trace when seed shuffle does not match. In-combat and end-turn draws consume shuffleRng; draw piles use top-of-pile semantics. Post-END pile resync remains interim scaffolding until innate/extra-card master-deck ordering is fully decoded.".to_owned(),
         },
         RngBoundary {
             stream: "cardRewardRng".to_owned(),
@@ -2058,13 +2058,36 @@ fn seed_start_run_from_combat_entry(message: &Value, numeric_seed: i64) -> Optio
     let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as u32;
     if let Some(combat) = run.combat.as_mut() {
         combat.shuffle_rng = Some(StsRng::new(numeric_seed + i64::from(floor)));
-        if starter_only_deck(&run.deck) {
-            if let Some(rng) = combat.shuffle_rng.as_mut() {
-                combat.piles = initialize_combat_piles(&run.deck, rng);
+        if let Some(rng) = combat.shuffle_rng.as_mut() {
+            let simulated = initialize_combat_piles(&run.deck, rng);
+            if seed_start_opening_piles_match(&simulated, message) {
+                combat.piles = simulated;
             }
         }
     }
     Some(run)
+}
+
+fn seed_start_opening_piles_match(simulated: &CardPiles, message: &Value) -> bool {
+    let Some(combat) = message
+        .get("game_state")
+        .and_then(|game| game.get("combat_state"))
+    else {
+        return false;
+    };
+    let observed_hand = combat_card_ids(combat.get("hand"));
+    let observed_draw = combat_card_ids(combat.get("draw_pile"));
+    let simulated_hand = simulated
+        .hand
+        .iter()
+        .map(|card| content_key(card.content_id).to_owned())
+        .collect::<Vec<_>>();
+    let simulated_draw = simulated
+        .draw_pile
+        .iter()
+        .map(|card| content_key(card.content_id).to_owned())
+        .collect::<Vec<_>>();
+    observed_hand == simulated_hand && observed_draw == simulated_draw
 }
 
 fn seed_start_simulated_combat_subset(

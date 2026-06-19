@@ -103,7 +103,9 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
             break;
         }
 
-        state.piles.hand.push(state.piles.draw_pile.remove(0));
+        if let Some(card) = state.piles.draw_pile.pop() {
+            state.piles.hand.push(card);
+        }
     }
 }
 

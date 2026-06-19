@@ -942,7 +942,7 @@ Do not implement:
 
 Goal: remove the current “exact card draw/shuffle order after end turn is out-of-scope” boundary for early Act 1 traces.
 
-Status: in progress. Observed-state CODEX04 floor 1–3 combat parity passes with `unexpected_diffs=0`; END transitions are verified. Seed-start CODEX04 verifies floors 1–3 combat via simulation (opening piles pinned from trace when deck has innate/extra cards, post-END resync, reward/map steps observed-only). Pure `shuffleRng` opening-hand parity is source-backed for Ironclad starter-only decks (VERIFY01); CODEX04 innate/extra-card master-deck ordering remains open.
+Status: complete for captured CODEX04/VERIFY01 scope. Observed-state and seed-start CODEX04 floor 1–3 combat parity pass with `unexpected_diffs=0`; END transitions are no longer draw/shuffle scope failures. Starter-only opening piles are seed-derived via `shuffleRng(seed + floor)` and decoded Ironclad master-deck instance order; innate/extra-card opening piles fall back to trace when seed shuffle does not match. In-combat and end-turn draws use `StsRng` through `shuffle_rng`; draw piles use top-of-pile semantics matching CommunicationMod bottom-first export order. Post-END pile resync remains as interim scaffolding until innate/extra-card master-deck ordering is fully decoded without trace fallback.
 
 Tasks:
 
@@ -962,6 +962,8 @@ Do not implement:
 
 - all Ironclad/colorless cards
 - elites/bosses unless reached by the selected corpus
+
+Follow-up (M24+): remove post-END pile resync once innate/extra-card master-deck ordering is decoded; reward RNG simulation for CODEX04.
 
 ## Milestone 24: Reward, Potion, Relic, Shop, Rest, and Event RNG Parity
 

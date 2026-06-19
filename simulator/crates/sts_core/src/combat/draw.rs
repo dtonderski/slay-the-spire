@@ -1,7 +1,13 @@
 use crate::{
     combat::CombatState,
     rng::{RngStream, SimulatorRng, StsRng},
+    CardInstance,
 };
+
+/// CommunicationMod lists draw piles bottom-first; the game draws from the top (last entry).
+fn draw_card_from_pile_top(state: &mut CombatState) -> Option<CardInstance> {
+    state.piles.draw_pile.pop()
+}
 
 pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng) {
     for _ in 0..count {
@@ -13,7 +19,9 @@ pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng)
             break;
         }
 
-        state.piles.hand.push(state.piles.draw_pile.remove(0));
+        if let Some(card) = draw_card_from_pile_top(state) {
+            state.piles.hand.push(card);
+        }
     }
 }
 
@@ -27,7 +35,9 @@ pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut 
             break;
         }
 
-        state.piles.hand.push(state.piles.draw_pile.remove(0));
+        if let Some(card) = draw_card_from_pile_top(state) {
+            state.piles.hand.push(card);
+        }
     }
 }
 
@@ -59,6 +69,25 @@ mod tests {
     use crate::{legal_combat_actions, CardInstance, ContentId};
 
     #[test]
+    fn draw_pile_draws_from_top_of_bottom_first_export_order() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(crate::CardId::new(10), ContentId::new(1)),
+            CardInstance::new(crate::CardId::new(11), ContentId::new(2)),
+            CardInstance::new(crate::CardId::new(12), ContentId::new(3)),
+        ];
+        let mut rng = SimulatorRng::new(1);
+
+        draw_cards(&mut state, 2, &mut rng);
+
+        assert_eq!(state.piles.hand[0].id, crate::CardId::new(12));
+        assert_eq!(state.piles.hand[1].id, crate::CardId::new(11));
+        assert_eq!(state.piles.draw_pile.len(), 1);
+        assert_eq!(state.piles.draw_pile[0].id, crate::CardId::new(10));
+    }
+
+    #[test]
     fn draw_order_is_deterministic_without_shuffle() {
         let mut first = fixture_with_draw_pile();
         let mut second = fixture_with_draw_pile();
@@ -69,8 +98,8 @@ mod tests {
         draw_cards(&mut second, 2, &mut second_rng);
 
         assert_eq!(first.piles.hand, second.piles.hand);
-        assert_eq!(first.piles.hand[0].id, crate::CardId::new(10));
-        assert_eq!(first.piles.hand[1].id, crate::CardId::new(11));
+        assert_eq!(first.piles.hand[0].id, crate::CardId::new(11));
+        assert_eq!(first.piles.hand[1].id, crate::CardId::new(10));
         assert!(first_rng.log().is_empty());
     }
 

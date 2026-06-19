@@ -961,8 +961,13 @@ fn player_draw_cards(state: &mut CombatState, count: usize) {
     if state.player.cannot_draw {
         return;
     }
-    let mut rng = SimulatorRng::new(0);
-    crate::combat::draw::draw_cards(state, count, &mut rng);
+    if let Some(mut rng) = state.shuffle_rng.take() {
+        crate::combat::draw::draw_cards_with_sts_rng(state, count, &mut rng);
+        state.shuffle_rng = Some(rng);
+    } else {
+        let mut rng = SimulatorRng::new(0);
+        crate::combat::draw::draw_cards(state, count, &mut rng);
+    }
 }
 
 fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) {
@@ -1009,7 +1014,11 @@ fn apply_play_top_draw_card(
         return Err(SimError::IllegalAction("draw pile is empty"));
     }
 
-    let card = state.piles.draw_pile.remove(0);
+    let card = state
+        .piles
+        .draw_pile
+        .pop()
+        .ok_or(SimError::IllegalAction("draw pile is empty"))?;
     let card_id = card.id;
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
@@ -2155,9 +2164,9 @@ mod tests {
             CardInstance::new(CardId::new(25), SHRUG_IT_OFF_ID),
         ];
         state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(32), BASH_ID),
             CardInstance::new(CardId::new(30), STRIKE_R_ID),
             CardInstance::new(CardId::new(31), DEFEND_R_ID),
-            CardInstance::new(CardId::new(32), BASH_ID),
         ];
 
         let after_trance = apply_combat_action(
