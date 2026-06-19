@@ -1,6 +1,8 @@
 use std::fmt::Debug;
+use sts_core::content::encounters::generate_exordium_normal_encounters;
 use sts_core::content::monsters::{
-    target_small_slimes_hp_rolls, target_two_louse_hp_rolls, TargetMonsterHp,
+    target_jaw_worm_hp_roll, target_small_slimes_hp_rolls, target_two_louse_hp_rolls,
+    TargetMonsterHp,
 };
 use sts_core::{
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
@@ -150,6 +152,65 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
             TargetMonsterHp {
                 name: "Louse",
                 hp: 15,
+            },
+        ],
+    );
+}
+
+#[test]
+fn codex03_lament_trace_records_first_three_encounter_targets() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
+    else {
+        return;
+    };
+
+    let (_maps, encounters) = captured_map_and_encounter_prefixes(&content);
+
+    assert_sequence_eq(
+        "CODEX03 first three encounters under Neow's Lament",
+        encounters.into_iter().take(3).collect(),
+        vec![
+            CapturedEncounterPrefix {
+                action_step: 5,
+                floor: 1,
+                monsters: vec![("Jaw Worm".to_owned(), 1, 43)],
+            },
+            CapturedEncounterPrefix {
+                action_step: 11,
+                floor: 2,
+                monsters: vec![("Cultist".to_owned(), 1, 54)],
+            },
+            CapturedEncounterPrefix {
+                action_step: 17,
+                floor: 3,
+                monsters: vec![("Louse".to_owned(), 1, 12), ("Louse".to_owned(), 1, 16)],
+            },
+        ],
+    );
+    assert_sequence_eq(
+        "CODEX03 generated normal encounter prefix",
+        generate_exordium_normal_encounters(22_079_335_078)
+            .into_iter()
+            .take(3)
+            .collect(),
+        vec![
+            "Jaw Worm".to_owned(),
+            "Cultist".to_owned(),
+            "2 Louse".to_owned(),
+        ],
+    );
+    assert_eq!(target_jaw_worm_hp_roll(22_079_335_078, 1, 0), 43);
+    assert_sequence_eq(
+        "CODEX03 floor-3 louse max HP rolls",
+        target_two_louse_hp_rolls(22_079_335_078, 3, 0),
+        vec![
+            TargetMonsterHp {
+                name: "Louse",
+                hp: 12,
+            },
+            TargetMonsterHp {
+                name: "Louse",
+                hp: 16,
             },
         ],
     );

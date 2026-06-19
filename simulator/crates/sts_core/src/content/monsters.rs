@@ -129,6 +129,8 @@ impl MonsterHpRange {
 
 pub const CULTIST_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(48, 54);
 pub const CULTIST_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(50, 56);
+pub const JAW_WORM_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(40, 44);
+pub const JAW_WORM_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(42, 46);
 pub const SPIKE_SLIME_S_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(10, 14);
 pub const SPIKE_SLIME_S_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(11, 15);
 pub const ACID_SLIME_M_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(28, 32);
@@ -318,6 +320,15 @@ pub fn target_cultist_hp_range(ascension: u8) -> MonsterHpRange {
 }
 
 #[must_use]
+pub fn target_jaw_worm_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        JAW_WORM_A7_HP_RANGE
+    } else {
+        JAW_WORM_A0_HP_RANGE
+    }
+}
+
+#[must_use]
 pub fn target_spike_slime_s_hp_range(ascension: u8) -> MonsterHpRange {
     if ascension >= 7 {
         SPIKE_SLIME_S_A7_HP_RANGE
@@ -366,6 +377,12 @@ pub fn target_louse_bite_damage_range(ascension: u8) -> MonsterHpRange {
 pub fn target_cultist_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> i32 {
     let mut rng = StsRng::new(seed + i64::from(floor_num));
     target_cultist_hp_range(ascension).roll(&mut rng)
+}
+
+#[must_use]
+pub fn target_jaw_worm_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> i32 {
+    let mut rng = StsRng::new(seed + i64::from(floor_num));
+    target_jaw_worm_hp_range(ascension).roll(&mut rng)
 }
 
 #[must_use]
@@ -887,6 +904,8 @@ mod tests {
     fn target_version_hp_ranges_match_decoded_act1_constructor_bytecode() {
         assert_eq!(target_cultist_hp_range(0), MonsterHpRange::new(48, 54));
         assert_eq!(target_cultist_hp_range(7), MonsterHpRange::new(50, 56));
+        assert_eq!(target_jaw_worm_hp_range(0), MonsterHpRange::new(40, 44));
+        assert_eq!(target_jaw_worm_hp_range(7), MonsterHpRange::new(42, 46));
         assert_eq!(
             target_spike_slime_s_hp_range(0),
             MonsterHpRange::new(10, 14)
@@ -917,6 +936,11 @@ mod tests {
 
         assert_eq!(target_cultist_hp_range(0).roll(&mut codex04), 53);
         assert_eq!(target_cultist_hp_roll(22_079_335_079, 1, 0), 54);
+    }
+
+    #[test]
+    fn floor_one_codex03_jaw_worm_hp_roll_matches_lament_trace_max_hp() {
+        assert_eq!(target_jaw_worm_hp_roll(22_079_335_078, 1, 0), 43);
     }
 
     #[test]
