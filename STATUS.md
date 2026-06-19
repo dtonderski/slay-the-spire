@@ -78,7 +78,7 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 Expected result: `unexpected_diffs=0`, `seed_start.expected_failure=false`, verified labels through floor-3 combat completion and return-to-map steps, and `seed_start.first_boundary.path=$.actions[complete]`.
 
-Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening piles from `shuffleRng(seed + floor)`. CODEX04 seed-start verifies floor 1–3 combat with simulation-driven replay; captured floor-1/floor-2 reward screens, pickups, potion skip, and post-reward map returns are pinned against explicit expected states. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match, post-END pile resync remains interim scaffolding, and broad reward/potion/relic RNG remains pending Milestone 24 work.
+Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening piles from `shuffleRng(seed + floor)`. CODEX04 seed-start verifies floor 1–3 combat with simulation-driven replay; captured floor-1/floor-2 reward screens, pickups, potion skip, and post-reward map returns are pinned against explicit expected states. Card reward RNG control flow now uses target-style `cardRng` and `cardRarityFactor` over the modeled Ironclad subset. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match, post-END pile resync remains interim scaffolding, and the full reward card pool plus broad reward-gold/potion/relic RNG remain pending Milestone 24 work.
 
 ### Tests
 - `cargo test` passing
@@ -89,7 +89,7 @@ Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening p
 
 ## Next Task
 
-Continue Milestone 24: replace captured CODEX04 reward constants with game-compatible reward gold/card/potion RNG, then expand potion/relic/shop/rest/event parity as traces reach those rooms.
+Continue Milestone 24: fill the full Ironclad reward card pool and implement game-compatible reward gold/potion/relic RNG, then expand shop/rest/event parity as traces reach those rooms.
 
 ## Milestone 20 Notes
 
