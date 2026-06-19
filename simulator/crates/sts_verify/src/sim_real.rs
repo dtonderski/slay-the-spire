@@ -1955,8 +1955,8 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "cardRewardRng".to_owned(),
             save_counter: Some("card_seed_count".to_owned()),
-            status: "captured_branch".to_owned(),
-            reason: "captured VERIFY01 card choices and CODEX04 floor-1/floor-2 reward choices are verified for passing traces; broad card reward RNG remains placeholder".to_owned(),
+            status: "source_backed_modeled_pool".to_owned(),
+            reason: "card reward rarity rolls use target-style cardRng.random(99) + cardRarityFactor thresholds, common/rare factor mutation, duplicate rerolls, and StsRng counter consumption over the currently modeled Ironclad pool; full 72-card pool coverage remains pending".to_owned(),
         },
         RngBoundary {
             stream: "rewardGoldRng".to_owned(),
@@ -2484,6 +2484,8 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         potions: Vec::new(),
         event_rng_seed: 0,
         reward_rng_seed: 7,
+        card_rng_counter: 0,
+        card_rarity_factor: 5,
         potion_rng_seed: 0,
         ascension: int(game, "ascension_level") as u8,
     })
@@ -2513,6 +2515,8 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         potions: Vec::new(),
         event_rng_seed: 0,
         reward_rng_seed: 0,
+        card_rng_counter: 0,
+        card_rarity_factor: 5,
         potion_rng_seed: 0,
         ascension: int(game, "ascension_level") as u8,
     })

@@ -42,6 +42,10 @@ pub struct RunState {
     #[serde(default)]
     pub reward_rng_seed: u64,
     #[serde(default)]
+    pub card_rng_counter: u32,
+    #[serde(default = "default_card_rarity_factor")]
+    pub card_rarity_factor: i32,
+    #[serde(default)]
     pub potion_rng_seed: u64,
     #[serde(default)]
     pub ascension: u8,
@@ -58,6 +62,10 @@ pub enum RunPhase {
 }
 
 pub const REWARD_GOLD_AMOUNT: i32 = 20;
+
+fn default_card_rarity_factor() -> i32 {
+    5
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RewardScreen {
@@ -143,6 +151,8 @@ impl RunState {
             potions: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
+            card_rng_counter: 0,
+            card_rarity_factor: default_card_rarity_factor(),
             potion_rng_seed: 0,
             ascension,
         };
@@ -171,6 +181,8 @@ impl RunState {
             potions: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
+            card_rng_counter: 0,
+            card_rarity_factor: default_card_rarity_factor(),
             potion_rng_seed: 0,
             ascension: 0,
         }

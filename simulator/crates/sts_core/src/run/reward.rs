@@ -7,18 +7,13 @@ use crate::{
     ids::CardId,
     potion::{Potion, MAX_POTIONS},
     relic::Relic,
-    rng::{RngStream, SimulatorRng},
+    rng::{RngStream, SimulatorRng, StsRng},
     run::potion::apply_potion_action,
     run::shop::apply_shop_action,
     CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
 const REWARD_CARD_COUNT: usize = 3;
-
-/// Placeholder act-1 combat reward rarity weights (not claimed game-accurate).
-const COMMON_RARITY_WEIGHT: usize = 100;
-const UNCOMMON_RARITY_WEIGHT: usize = 37;
-const RARE_RARITY_WEIGHT: usize = 3;
 
 /// Deterministic fixed pool used in early milestones before RNG wiring.
 #[must_use]
@@ -32,12 +27,22 @@ pub fn fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
         .collect()
 }
 
-fn roll_reward_rarity(rng: &mut SimulatorRng) -> CardRarity {
-    let total = COMMON_RARITY_WEIGHT + UNCOMMON_RARITY_WEIGHT + RARE_RARITY_WEIGHT;
-    let roll = rng.next_usize(RngStream::RewardRarity, "reward_rarity", total);
-    if roll < COMMON_RARITY_WEIGHT {
+fn roll_reward_rarity(rng: &mut StsRng, card_rarity_factor: i32) -> CardRarity {
+    let roll = rng.random_int(99) + card_rarity_factor;
+    if roll < 3 {
+        CardRarity::Rare
+    } else if roll < 40 {
+        CardRarity::Uncommon
+    } else {
         CardRarity::Common
-    } else if roll < COMMON_RARITY_WEIGHT + UNCOMMON_RARITY_WEIGHT {
+    }
+}
+
+fn roll_placeholder_reward_rarity(rng: &mut SimulatorRng) -> CardRarity {
+    let roll = rng.next_usize(RngStream::RewardRarity, "reward_rarity", 140);
+    if roll < 100 {
+        CardRarity::Common
+    } else if roll < 137 {
         CardRarity::Uncommon
     } else {
         CardRarity::Rare
@@ -70,7 +75,7 @@ pub fn card_reward_choices(rng: &mut SimulatorRng, next_card_id: u64) -> Vec<Car
     let mut choices = Vec::with_capacity(REWARD_CARD_COUNT);
 
     for index in 0..REWARD_CARD_COUNT {
-        let requested = roll_reward_rarity(rng);
+        let requested = roll_placeholder_reward_rarity(rng);
         let rarity = resolve_rarity(requested, &pool);
         let candidate_indices: Vec<usize> = pool
             .iter()
@@ -93,11 +98,55 @@ pub fn card_reward_choices(rng: &mut SimulatorRng, next_card_id: u64) -> Vec<Car
     choices
 }
 
+#[must_use]
+pub fn target_card_reward_choices(
+    rng: &mut StsRng,
+    card_rarity_factor: &mut i32,
+    next_card_id: u64,
+) -> Vec<CardInstance> {
+    let mut choices = Vec::with_capacity(REWARD_CARD_COUNT);
+
+    for index in 0..REWARD_CARD_COUNT {
+        let requested = roll_reward_rarity(rng, *card_rarity_factor);
+        let rarity = resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES);
+        match requested {
+            CardRarity::Common => *card_rarity_factor = (*card_rarity_factor - 1).max(-40),
+            CardRarity::Rare => *card_rarity_factor = 5,
+            CardRarity::Uncommon => {}
+        }
+
+        let mut content_id;
+        loop {
+            let candidate_indices: Vec<usize> = IRONCLAD_REWARD_ENTRIES
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| entry.rarity == rarity)
+                .map(|(index, _)| index)
+                .collect();
+            let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
+            content_id = IRONCLAD_REWARD_ENTRIES[candidate_indices[pick]].content_id;
+            if !choices
+                .iter()
+                .any(|choice: &CardInstance| choice.content_id == content_id)
+            {
+                break;
+            }
+        }
+
+        choices.push(CardInstance::new(
+            CardId::new(next_card_id + index as u64),
+            content_id,
+        ));
+    }
+
+    choices
+}
+
 pub fn enter_reward_screen(run: &mut RunState) {
     let next_card_id = run.next_card_instance_id();
-    let mut rng = SimulatorRng::new(run.reward_rng_seed);
-    let choices = card_reward_choices(&mut rng, next_card_id);
-    run.reward_rng_seed = rng.seed_state();
+    let mut rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
+    let choices = target_card_reward_choices(&mut rng, &mut run.card_rarity_factor, next_card_id);
+    run.card_rng_counter = rng.counter();
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -214,7 +263,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
 mod tests {
     use super::*;
     use crate::content::cards::{
-        BASH_ID, HAVOC_ID, SEARING_BLOW_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TWIN_STRIKE_ID,
+        BASH_ID, FLEX_ID, HAVOC_ID, POMMEL_STRIKE_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
     };
 
     fn reward_pool_content_ids() -> Vec<crate::ContentId> {
@@ -300,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn some_seed_rolls_havoc_from_rare_rarity_weight() {
+    fn some_placeholder_seed_rolls_havoc_from_modeled_pool() {
         let havoc_found = (0_u64..10_000).any(|seed| {
             let mut rng = SimulatorRng::new(seed);
             card_reward_choices(&mut rng, 1)
@@ -312,16 +361,84 @@ mod tests {
     }
 
     #[test]
-    fn seed_7_reward_cards_match_golden_snapshot() {
+    fn placeholder_seed_7_reward_cards_match_golden_snapshot() {
         let mut rng = SimulatorRng::new(7);
         let choices = card_reward_choices(&mut rng, 100);
         let content_ids: Vec<_> = choices.iter().map(|card| card.content_id).collect();
 
         assert_eq!(
             content_ids,
-            vec![TWIN_STRIKE_ID, SEARING_BLOW_ID, SHRUG_IT_OFF_ID],
+            vec![TWIN_STRIKE_ID, FLEX_ID, HAVOC_ID],
             "update snapshot if reward algorithm changes intentionally"
         );
+    }
+
+    #[test]
+    fn target_card_reward_choices_use_sts_card_rng_and_rarity_factor() {
+        let mut rng = StsRng::new(22_079_335_079);
+        let mut card_rarity_factor = 5;
+
+        let choices = target_card_reward_choices(&mut rng, &mut card_rarity_factor, 100);
+        let content_ids: Vec<_> = choices.iter().map(|card| card.content_id).collect();
+
+        assert_eq!(
+            content_ids,
+            vec![TRUE_GRIT_ID, POMMEL_STRIKE_ID, TWIN_STRIKE_ID]
+        );
+        assert_eq!(rng.counter(), 8);
+        assert_eq!(card_rarity_factor, 2);
+    }
+
+    #[test]
+    fn combat_win_enters_reward_with_target_card_rng() {
+        let mut run = winning_combat_run();
+
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+
+        let reward = run.reward.expect("reward screen present");
+        let content_ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
+        assert_eq!(
+            content_ids,
+            vec![TRUE_GRIT_ID, POMMEL_STRIKE_ID, TWIN_STRIKE_ID]
+        );
+        assert_eq!(run.card_rarity_factor, 2);
+        assert_eq!(run.card_rng_counter, 8);
+    }
+
+    #[test]
+    fn target_card_reward_counter_persists_between_rewards() {
+        let mut run = winning_combat_run();
+
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+        let first_counter = run.card_rng_counter;
+        let first_choices: Vec<_> = run
+            .reward
+            .as_ref()
+            .expect("first reward")
+            .choices
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+
+        enter_reward_screen(&mut run);
+        let second_choices: Vec<_> = run
+            .reward
+            .as_ref()
+            .expect("second reward")
+            .choices
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+
+        assert_eq!(first_counter, 8);
+        assert!(run.card_rng_counter > first_counter);
+        assert_ne!(second_choices, first_choices);
     }
 
     #[test]
