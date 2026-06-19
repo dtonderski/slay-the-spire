@@ -135,6 +135,10 @@ mod tests {
             generate_exordium_weak_encounters(22_079_335_079),
             vec!["Cultist", "Small Slimes", "2 Louse"]
         );
+        assert_eq!(
+            generate_exordium_weak_encounters(22_079_335_078),
+            vec!["Jaw Worm", "Cultist", "2 Louse"]
+        );
     }
 
     #[test]
@@ -156,6 +160,10 @@ mod tests {
         let codex04 = generate_exordium_normal_encounters(22_079_335_079);
         assert_eq!(codex04.len(), 16);
         assert_eq!(&codex04[..3], ["Cultist", "Small Slimes", "2 Louse"]);
+
+        let codex03 = generate_exordium_normal_encounters(22_079_335_078);
+        assert_eq!(codex03.len(), 16);
+        assert_eq!(&codex03[..3], ["Jaw Worm", "Cultist", "2 Louse"]);
     }
 
     #[test]
