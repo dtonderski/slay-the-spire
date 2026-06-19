@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use sts_core::content::monsters::{
     target_small_slimes_hp_rolls, target_two_louse_hp_rolls, TargetMonsterHp,
 };
@@ -58,7 +59,8 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
 
     let (maps, encounters) = captured_map_and_encounter_prefixes(&content);
 
-    assert_eq!(
+    assert_sequence_eq(
+        "CODEX04 first map-choice screens",
         maps,
         vec![
             CapturedMapPrefix {
@@ -81,9 +83,10 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
                 floor: 2,
                 choices: vec!["x=2".to_owned(), "x=3".to_owned()],
             },
-        ]
+        ],
     );
-    assert_eq!(
+    assert_sequence_eq(
+        "CODEX04 generated map choices after path",
         generate_exordium_map_choices_after_path(22_079_335_079, &[2, 3]),
         vec![
             ExordiumMapChoiceStep {
@@ -96,9 +99,10 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
                 x: 3,
                 next_choices: vec![2, 3],
             },
-        ]
+        ],
     );
-    assert_eq!(
+    assert_sequence_eq(
+        "CODEX04 first three encounters",
         encounters,
         vec![
             CapturedEncounterPrefix {
@@ -119,9 +123,10 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
                 floor: 3,
                 monsters: vec![("Louse".to_owned(), 13, 13), ("Louse".to_owned(), 15, 15)],
             },
-        ]
+        ],
     );
-    assert_eq!(
+    assert_sequence_eq(
+        "CODEX04 floor-2 Small Slimes HP rolls",
         target_small_slimes_hp_rolls(22_079_335_079, 2, 0).expect("decoded reached variant"),
         vec![
             TargetMonsterHp {
@@ -132,9 +137,10 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
                 name: "Acid Slime (M)",
                 hp: 32,
             },
-        ]
+        ],
     );
-    assert_eq!(
+    assert_sequence_eq(
+        "CODEX04 floor-3 louse HP rolls",
         target_two_louse_hp_rolls(22_079_335_079, 3, 0),
         vec![
             TargetMonsterHp {
@@ -145,7 +151,7 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
                 name: "Louse",
                 hp: 15,
             },
-        ]
+        ],
     );
 }
 
@@ -186,7 +192,7 @@ fn assert_captured_map_matches_target_topology(content: &str, seed: i64) {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(generated, captured);
+    assert_sequence_eq("captured Exordium full map", generated, captured);
 }
 
 #[test]
@@ -557,6 +563,39 @@ fn room_symbol(room_kind: RoomKind) -> &'static str {
         RoomKind::Treasure => "T",
         RoomKind::Boss => "B",
     }
+}
+
+fn assert_sequence_eq<T>(label: &str, actual: Vec<T>, expected: Vec<T>)
+where
+    T: Debug + PartialEq,
+{
+    if let Some(message) = first_sequence_mismatch(label, &actual, &expected) {
+        panic!("{message}");
+    }
+}
+
+fn first_sequence_mismatch<T>(label: &str, actual: &[T], expected: &[T]) -> Option<String>
+where
+    T: Debug + PartialEq,
+{
+    if actual.len() != expected.len() {
+        return Some(format!(
+            "{label} length mismatch: actual {}, expected {}",
+            actual.len(),
+            expected.len()
+        ));
+    }
+    actual
+        .iter()
+        .zip(expected.iter())
+        .enumerate()
+        .find_map(|(index, (actual_item, expected_item))| {
+            (actual_item != expected_item).then(|| {
+                format!(
+                    "{label} mismatch at index {index}: actual {actual_item:?}, expected {expected_item:?}"
+                )
+            })
+        })
 }
 
 fn captured_map_and_encounter_prefixes(
