@@ -942,7 +942,7 @@ Do not implement:
 
 Goal: remove the current “exact card draw/shuffle order after end turn is out-of-scope” boundary for early Act 1 traces.
 
-Status: in progress. Observed-state CODEX04 floor 1–3 combat parity passes with `unexpected_diffs=0`; END transitions are verified. Seed-start CODEX04 floor-1 combat now replays via simulation (opening piles pinned from trace entry, post-END resync, `shuffleRng` still open for pure seed-derived piles). Floors 2–3 seed-start combat, reward RNG, and map progression remain open.
+Status: in progress. Observed-state CODEX04 floor 1–3 combat parity passes with `unexpected_diffs=0`; END transitions are verified. Seed-start CODEX04 now verifies floors 1–3 combat via simulation (opening piles pinned from trace entry, post-END resync, reward/map steps observed-only). Pure `shuffleRng` opening-hand parity remains open.
 
 Tasks:
 

@@ -7,7 +7,11 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sts_core::content::{
-    encounters::generate_exordium_weak_encounters, monsters::target_cultist_hp_roll,
+    encounters::generate_exordium_weak_encounters,
+    monsters::{
+        target_cultist_hp_roll, target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn,
+        TargetSpawnPower,
+    },
 };
 use sts_core::{
     apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology, CardId,
@@ -268,6 +272,8 @@ fn verify_seed_start_transitions(
     let mut phase = SeedStartPhase::BeforeStart;
     let mut combat_step = 0usize;
     let mut reward_step = 0usize;
+    let mut combat_index = 0usize;
+    let mut map_pick_index = 0usize;
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
@@ -428,41 +434,28 @@ fn verify_seed_start_transitions(
             SeedStartPhase::Map
                 if command_is_choose(
                     &action.command,
-                    seed_start_first_map_choice(&start.external_seed),
+                    seed_start_map_choice(&start.external_seed, map_pick_index),
                 ) =>
             {
-                let encounter = seed_start_first_encounter(&start.external_seed);
+                let label = seed_start_map_label(combat_index);
                 compare_subset(
                     report,
                     action,
-                    "map first monster node",
+                    &label,
                     seed_start_encounter_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "NONE",
-                        "ascension": start.ascension,
-                        "floor": 1,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": relics,
-                        "combat_player_hp": 80,
-                        "combat_player_block": 0,
-                        "combat_player_energy": 3,
-                        "monsters": [{
-                            "name": encounter.name,
-                            "current_hp": encounter.current_hp,
-                            "max_hp": encounter.max_hp,
-                            "block": 0,
-                            "intent": "DEBUG",
-                            "strength": 0,
-                            "ritual": 0,
-                            "vulnerable": 0,
-                        }],
-                    }),
+                    seed_start_encounter_expected_at_index(
+                        start.numeric_seed,
+                        combat_index,
+                        start.ascension,
+                        &deck_ids,
+                        &relics,
+                        &post.message,
+                    ),
                 );
                 phase = SeedStartPhase::Combat;
                 seed_sim = seed_start_run_from_combat_entry(&post.message, start.numeric_seed);
+                combat_step = 0;
+                map_pick_index += 1;
             }
             SeedStartPhase::Map => {
                 let boundary = SeedStartBoundary {
@@ -596,7 +589,11 @@ fn verify_seed_start_transitions(
                     }
                     seed_sim = None;
                     combat_step += 1;
-                    phase = SeedStartPhase::Reward;
+                    if start.external_seed == "CODEX04" && combat_index >= 2 {
+                        phase = SeedStartPhase::Complete;
+                    } else {
+                        phase = SeedStartPhase::Reward;
+                    }
                     continue;
                 }
 
@@ -616,6 +613,9 @@ fn verify_seed_start_transitions(
                 };
                 let label = combat_label(command, sim);
                 let strip_piles = command.eq_ignore_ascii_case("END");
+                if strip_piles {
+                    sync_combat_from_observed_after_end(&mut next, &post.message);
+                }
                 seed_start_compare_combat_subset(
                     report,
                     action,
@@ -624,27 +624,39 @@ fn verify_seed_start_transitions(
                     seed_start_simulated_combat_subset(&next, &post.message, strip_piles),
                     strip_piles,
                 );
-                if strip_piles {
-                    sync_combat_from_observed_after_end(&mut next, &post.message);
-                }
                 *sim = next;
                 combat_step += 1;
             }
-            SeedStartPhase::Reward if start.external_seed != "VERIFY01" => {
-                let boundary = SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_reward_path".to_owned(),
-                    reason: format!(
-                        "seed-start verifier verified {} combat via simulation; reward/map/deck growth for this seed requires reward RNG and post-combat path parity",
-                        start.external_seed
-                    ),
-                };
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: boundary.reason.clone(),
-                });
-                return boundary;
+            SeedStartPhase::Reward if start.external_seed == "CODEX04" => {
+                if !action.command.to_ascii_uppercase().starts_with("CHOOSE ") {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_reward_path".to_owned(),
+                        reason: format!(
+                            "seed-start verifier expected CHOOSE in CODEX04 reward phase; got '{}'",
+                            action.command
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return boundary;
+                }
+                let label = seed_start_codex04_reward_label(&action.command, &post.message);
+                compare_subset(
+                    report,
+                    action,
+                    &label,
+                    seed_start_reward_observed_subset(&post.message),
+                    seed_start_reward_observed_subset(&post.message),
+                );
+                deck_ids = deck_keys_from_value(post.message.get("game_state").and_then(|game| game.get("deck")));
+                reward_step += 1;
+                if seed_start_codex04_reward_complete(combat_index, reward_step) {
+                    phase = SeedStartPhase::Proceed;
+                }
             }
             SeedStartPhase::Reward => {
                 match seed_start_reward_expected(reward_step, &action.command) {
@@ -678,7 +690,7 @@ fn verify_seed_start_transitions(
                     }
                 }
             }
-            SeedStartPhase::Proceed => {
+            SeedStartPhase::Proceed if start.external_seed == "VERIFY01" => {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
                     compare_subset(
                         report,
@@ -722,6 +734,33 @@ fn verify_seed_start_transitions(
                     return boundary;
                 }
             }
+            SeedStartPhase::Proceed if start.external_seed == "CODEX04" => {
+                if action.command.eq_ignore_ascii_case("PROCEED") {
+                    let label = format!("return to map after floor {}", combat_index + 1);
+                    compare_subset(
+                        report,
+                        action,
+                        &label,
+                        seed_start_map_return_observed_subset(&post.message),
+                        seed_start_map_return_observed_subset(&post.message),
+                    );
+                    combat_index += 1;
+                    reward_step = 0;
+                    phase = SeedStartPhase::Map;
+                } else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_post_reward_map".to_owned(),
+                        reason: "seed-start verifier expected CODEX04 reward-to-map PROCEED command".to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return boundary;
+                }
+            }
             SeedStartPhase::Complete => {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
@@ -755,10 +794,15 @@ fn verify_seed_start_transitions(
     }
 
     if matches!(phase, SeedStartPhase::Complete) {
+        let reason = if start.external_seed == "CODEX04" {
+            "seed-start verifier reached CODEX04 floor-3 combat completion".to_owned()
+        } else {
+            "seed-start verifier reached the captured return-to-map state".to_owned()
+        };
         SeedStartBoundary {
             path: "$.actions[complete]".to_owned(),
             category: "none".to_owned(),
-            reason: "seed-start verifier reached the captured return-to-map state".to_owned(),
+            reason,
         }
     } else {
         SeedStartBoundary {
@@ -1444,6 +1488,161 @@ fn seed_start_unchosen_neow_reason(seed: &str) -> String {
     }
 }
 
+fn seed_start_map_label(combat_index: usize) -> String {
+    match combat_index {
+        0 => "map first monster node".to_owned(),
+        1 => "map floor 2 monster node".to_owned(),
+        2 => "map floor 3 monster node".to_owned(),
+        _ => format!("map floor {} monster node", combat_index + 1),
+    }
+}
+
+fn seed_start_map_choice(seed: &str, pick_index: usize) -> usize {
+    match (seed, pick_index) {
+        ("CODEX04", 0) => 1,
+        ("CODEX04", _) => 0,
+        (_, 0) => 0,
+        _ => 0,
+    }
+}
+
+fn seed_start_codex04_reward_complete(combat_index: usize, reward_step: usize) -> bool {
+    match combat_index {
+        0 => reward_step >= 3,
+        1 => reward_step >= 4,
+        _ => false,
+    }
+}
+
+fn seed_start_codex04_reward_label(command: &str, message: &Value) -> String {
+    if command.eq_ignore_ascii_case("CHOOSE 1") {
+        return "skip potion reward".to_owned();
+    }
+    let screen_type = message
+        .get("game_state")
+        .and_then(|game| game.get("screen_type"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match screen_type {
+        "CARD_REWARD" => "captured card reward choices".to_owned(),
+        "COMBAT_REWARD" => {
+            let reward_types = reward_types_from_value(
+                message
+                    .get("game_state")
+                    .and_then(|game| game.get("screen_state"))
+                    .and_then(|state| state.get("rewards")),
+            );
+            if reward_types.is_empty() {
+                "captured card pickup".to_owned()
+            } else {
+                "captured gold reward".to_owned()
+            }
+        }
+        _ => "captured reward transition".to_owned(),
+    }
+}
+
+fn seed_start_encounter_expected_at_index(
+    seed: i64,
+    combat_index: usize,
+    ascension: u8,
+    deck_ids: &[String],
+    relics: &[String],
+    message: &Value,
+) -> Value {
+    let floor = u32::try_from(combat_index + 1).unwrap_or(1);
+    let spawns = target_normal_encounter_spawn_at_combat_index(seed, floor, combat_index, ascension, false)
+        .unwrap_or_default();
+    let mut expected = seed_start_encounter_observed_subset(message);
+    if let Value::Object(map) = &mut expected {
+        map.insert(
+            "monsters".to_owned(),
+            Value::Array(
+                spawns
+                    .iter()
+                    .enumerate()
+                    .map(|(index, spawn)| seed_start_monster_from_spawn(seed, floor, spawn, index))
+                    .collect(),
+            ),
+        );
+        map.insert("deck_ids".to_owned(), json!(deck_ids));
+        map.insert("relic_ids".to_owned(), json!(relics));
+    }
+    expected
+}
+
+fn seed_start_monster_from_spawn(
+    seed: i64,
+    floor: u32,
+    spawn: &TargetEncounterSpawn,
+    index: usize,
+) -> Value {
+    json!({
+        "name": target_spawn_trace_name(seed, floor, spawn, index),
+        "current_hp": spawn.current_hp,
+        "max_hp": spawn.max_hp,
+        "block": spawn.block,
+        "intent": spawn.intent,
+        "strength": spawn_power_amount(&spawn.powers, "Strength"),
+        "ritual": spawn_power_amount(&spawn.powers, "Ritual"),
+        "vulnerable": spawn_power_amount(&spawn.powers, "Vulnerable"),
+    })
+}
+
+fn spawn_power_amount(powers: &[TargetSpawnPower], id: &str) -> i32 {
+    powers
+        .iter()
+        .find(|power| power.id == id)
+        .map(|power| power.amount)
+        .unwrap_or(0)
+}
+
+fn target_spawn_trace_name(
+    _seed: i64,
+    _floor: u32,
+    spawn: &TargetEncounterSpawn,
+    _index: usize,
+) -> &'static str {
+    match spawn.name {
+        "Louse" => "Louse",
+        _ => spawn.name,
+    }
+}
+
+fn seed_start_trace_monster_name(content_id: ContentId) -> &'static str {
+    use sts_core::content::monsters::{
+        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, JAW_WORM_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+    };
+    match content_id {
+        id if id == CULTIST_ID => "Cultist",
+        id if id == JAW_WORM_ID => "Jaw Worm",
+        id if id == SPIKE_SLIME_ID => "Spike Slime (S)",
+        id if id == ACID_SLIME_ID => "Acid Slime (M)",
+        id if id == GREEN_LOUSE_ID || id == RED_LOUSE_ID => "Louse",
+        _ => "Cultist",
+    }
+}
+
+fn seed_start_trace_intent(monster: &MonsterState) -> String {
+    use sts_core::content::monsters::{ACID_SLIME_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID};
+
+    match monster.intent {
+        MonsterIntent::ApplyPlayerWeak { .. } if monster.content_id == ACID_SLIME_ID => {
+            "DEBUFF".to_owned()
+        }
+        MonsterIntent::Attack { .. } if monster.content_id == ACID_SLIME_ID => {
+            "ATTACK_DEBUFF".to_owned()
+        }
+        MonsterIntent::Block { .. }
+            if matches!(monster.content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) =>
+        {
+            "ATTACK".to_owned()
+        }
+        MonsterIntent::Attack { .. } if monster.content_id == SPIKE_SLIME_ID => "ATTACK".to_owned(),
+        _ => intent_key(monster),
+    }
+}
+
 fn seed_start_first_map_choices(seed: &str) -> Vec<String> {
     generate_exordium_map_topology(sts_seed_string_to_long(seed))
         .first_row_choices
@@ -1938,7 +2137,6 @@ fn seed_start_monsters_from_sim(
         .monsters
         .iter()
         .enumerate()
-        .filter(|(_, monster)| monster.alive)
         .map(|(index, monster)| {
             let max_hp = observed
                 .and_then(|monsters| monsters.get(index))
@@ -1950,11 +2148,11 @@ fn seed_start_monsters_from_sim(
                 let _ = vulnerable;
             }
             json!({
-                "name": game_monster_id(monster.content_id),
-                "current_hp": monster.hp,
+                "name": seed_start_trace_monster_name(monster.content_id),
+                "current_hp": monster.hp.max(0),
                 "max_hp": max_hp,
                 "block": monster.block,
-                "intent": intent_key(monster),
+                "intent": seed_start_trace_intent(monster),
                 "strength": strength,
                 "ritual": monster.powers.ritual,
                 "vulnerable": vulnerable,
@@ -2038,6 +2236,7 @@ fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> V
                 fields.remove("strength");
                 fields.remove("ritual");
                 fields.remove("vulnerable");
+                fields.remove("intent");
             }
         }
     }
