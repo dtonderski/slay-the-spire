@@ -475,14 +475,15 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         "Neow common relic",
         "Neow leave",
         "map first monster node",
-        "captured Cultist Bash",
-        "captured Cultist Strike after Bash",
-        "captured Cultist first end turn",
-        "captured Cultist second-turn Strike one",
-        "captured Cultist second-turn Strike two",
-        "captured Cultist Defend",
-        "captured Cultist second end turn and shuffle",
-        "captured Cultist final Bash",
+        "Bash",
+        "Strike_R",
+        "end turn",
+        "Strike_R",
+        "Strike_R",
+        "Defend_R",
+        "end turn",
+        "Bash",
+        "Strike_R",
         "captured Cultist lethal Strike",
         "captured gold reward",
         "captured card reward choices",
@@ -637,10 +638,16 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
     assert!(seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "CODEX04");
     assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_079);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[step=7].command");
+    assert_eq!(seed_start.first_boundary.path, "$.actions[step=16].command");
     assert_eq!(
         seed_start.first_boundary.category,
-        "unsupported_combat_path"
+        "unsupported_reward_path"
+    );
+    assert!(
+        seed_start
+            .first_boundary
+            .reason
+            .contains("verified CODEX04 combat via simulation")
     );
 
     let labels: Vec<_> = report
@@ -655,6 +662,15 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
         "Neow Dramatic Entrance pickup",
         "Neow leave",
         "map first monster node",
+        "Dramatic Entrance",
+        "Strike_R",
+        "Strike_R",
+        "end turn",
+        "Strike_R",
+        "Strike_R",
+        "Strike_R",
+        "end turn",
+        "Strike_R",
     ] {
         assert!(
             labels.contains(&expected),

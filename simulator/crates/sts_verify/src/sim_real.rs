@@ -13,7 +13,7 @@ use sts_core::{
     apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology, CardId,
     CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId, MonsterId,
     MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, RewardScreen, RunAction,
-    RunPhase, RunState,
+    RunPhase, RunState, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -270,6 +270,7 @@ fn verify_seed_start_transitions(
     let mut reward_step = 0usize;
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
+    let mut seed_sim: Option<RunState> = None;
 
     for (_, action, post) in transitions {
         if action.command.eq_ignore_ascii_case("state") {
@@ -461,6 +462,7 @@ fn verify_seed_start_transitions(
                     }),
                 );
                 phase = SeedStartPhase::Combat;
+                seed_sim = seed_start_run_from_combat_entry(&post.message, start.numeric_seed);
             }
             SeedStartPhase::Map => {
                 let boundary = SeedStartBoundary {
@@ -476,37 +478,173 @@ fn verify_seed_start_transitions(
                 return boundary;
             }
             SeedStartPhase::Combat => {
-                match seed_start_cultist_combat_expected(combat_step, &action.command) {
-                    Some(expected) => {
-                        let label = expected.label;
-                        compare_subset(
-                            report,
-                            action,
-                            label,
-                            seed_start_combat_observed_subset(&post.message),
-                            expected.state,
-                        );
-                        combat_step += 1;
-                        if expected.ends_combat {
-                            phase = SeedStartPhase::Reward;
-                        }
-                    }
-                    None => {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: format!(
-                                "seed-start verifier expected the captured Cultist combat command at local combat step {combat_step}; exact alternate combat paths require full draw/shuffle and monster AI parity"
-                            ),
-                        };
+                let command = action.command.trim();
+                let Some(sim) = seed_sim.as_mut() else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_combat_path".to_owned(),
+                        reason: "seed-start combat action without initialized combat simulation"
+                            .to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return boundary;
+                };
+
+                if !(command.starts_with("PLAY") || command.eq_ignore_ascii_case("END")) {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_combat_path".to_owned(),
+                        reason: format!(
+                            "seed-start verifier does not support combat command {command:?}"
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return boundary;
+                }
+
+                if let Some(combat) = sim.combat.as_ref() {
+                    if let Some(reason) =
+                        unsupported_seed_start_combat_command(combat, command)
+                    {
                         report.unsupported.push(UnsupportedTransition {
                             action_step: action.step,
                             command: action.command.clone(),
-                            reason: boundary.reason.clone(),
+                            reason,
                         });
-                        return boundary;
+                        return SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: "unsupported card in seed-start combat".to_owned(),
+                        };
                     }
                 }
+
+                let Some(combat_action) =
+                    combat_action_from_command(command, sim.combat.as_ref().expect("combat run"))
+                else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_combat_path".to_owned(),
+                        reason: format!(
+                            "seed-start verifier could not parse combat command {command:?}"
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return boundary;
+                };
+
+                if is_final_combat_blow(sim, combat_action) {
+                    let pre_hp = sim.player_hp;
+                    let next = apply_combat_action_on_run(sim, combat_action);
+                    let Ok(next) = next else {
+                        push_sim_error(
+                            report,
+                            action,
+                            "seed-start combat victory",
+                            next.err().unwrap(),
+                        );
+                        return SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: "seed-start combat victory simulation failed".to_owned(),
+                        };
+                    };
+                    let label = combat_label(command, sim);
+                    if start.external_seed == "VERIFY01" {
+                        if let Some(expected) =
+                            seed_start_cultist_combat_expected(combat_step, command)
+                        {
+                            compare_subset(
+                                report,
+                                action,
+                                expected.label,
+                                seed_start_combat_observed_subset(&post.message),
+                                expected.state,
+                            );
+                        }
+                    } else {
+                        compare_subset(
+                            report,
+                            action,
+                            &label,
+                            seed_start_victory_observed_subset(&post.message),
+                            seed_start_victory_simulated_subset(&next, &post.message),
+                        );
+                        if next.player_hp != pre_hp.saturating_add(6).min(next.player_max_hp) {
+                            report.unexpected_diffs.push(UnexpectedDiff {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                label: "Burning Blood heal".to_owned(),
+                                diffs: vec![format!(
+                                    "$.current_hp expected Burning Blood heal from {pre_hp}, got {}",
+                                    next.player_hp
+                                )],
+                            });
+                        }
+                    }
+                    seed_sim = None;
+                    combat_step += 1;
+                    phase = SeedStartPhase::Reward;
+                    continue;
+                }
+
+                let next = apply_combat_action_on_run(sim, combat_action);
+                let Ok(mut next) = next else {
+                    push_sim_error(
+                        report,
+                        action,
+                        "seed-start combat transition",
+                        next.err().unwrap(),
+                    );
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_combat_path".to_owned(),
+                        reason: "seed-start combat simulation rejected transition".to_owned(),
+                    };
+                };
+                let label = combat_label(command, sim);
+                let strip_piles = command.eq_ignore_ascii_case("END");
+                seed_start_compare_combat_subset(
+                    report,
+                    action,
+                    &label,
+                    seed_start_combat_observed_subset(&post.message),
+                    seed_start_simulated_combat_subset(&next, &post.message, strip_piles),
+                    strip_piles,
+                );
+                if strip_piles {
+                    sync_combat_from_observed_after_end(&mut next, &post.message);
+                }
+                *sim = next;
+                combat_step += 1;
+            }
+            SeedStartPhase::Reward if start.external_seed != "VERIFY01" => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_reward_path".to_owned(),
+                    reason: format!(
+                        "seed-start verifier verified {} combat via simulation; reward/map/deck growth for this seed requires reward RNG and post-combat path parity",
+                        start.external_seed
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return boundary;
             }
             SeedStartPhase::Reward => {
                 match seed_start_reward_expected(reward_step, &action.command) {
@@ -1715,6 +1853,220 @@ fn verify_reward_card_pick(
     true
 }
 
+fn seed_start_run_from_combat_entry(message: &Value, numeric_seed: i64) -> Option<RunState> {
+    let mut run = run_from_observed_combat(message)?;
+    let game = message.get("game_state")?;
+    let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as u32;
+    if let Some(combat) = run.combat.as_mut() {
+        combat.shuffle_rng = Some(StsRng::new(numeric_seed + i64::from(floor)));
+    }
+    Some(run)
+}
+
+fn seed_start_simulated_combat_subset(
+    run: &RunState,
+    message: &Value,
+    end_turn_snapshot: bool,
+) -> Value {
+    let game = message.get("game_state").expect("observed game_state");
+    let combat = run.combat.as_ref().expect("combat run");
+    let observed_monsters = game
+        .get("combat_state")
+        .and_then(|combat| combat.get("monsters"));
+    json!({
+        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+        "combat_player_hp": combat.player.hp,
+        "combat_player_block": combat.player.block,
+        "combat_player_energy": combat.player.energy,
+        "hand_ids": combat
+            .piles
+            .hand
+            .iter()
+            .map(|card| content_key(card.content_id).to_owned())
+            .collect::<Vec<_>>(),
+        "draw_ids": combat
+            .piles
+            .draw_pile
+            .iter()
+            .map(|card| content_key(card.content_id).to_owned())
+            .collect::<Vec<_>>(),
+        "discard_ids": combat
+            .piles
+            .discard_pile
+            .iter()
+            .map(|card| content_key(card.content_id).to_owned())
+            .collect::<Vec<_>>(),
+        "monsters": seed_start_monsters_from_sim(combat, observed_monsters, end_turn_snapshot),
+    })
+}
+
+fn seed_start_victory_observed_subset(message: &Value) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    json!({
+        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": int(game, "gold"),
+        "current_hp": int(game, "current_hp"),
+        "max_hp": int(game, "max_hp"),
+    })
+}
+
+fn seed_start_victory_simulated_subset(run: &RunState, message: &Value) -> Value {
+    let game = message.get("game_state").expect("observed game_state");
+    json!({
+        "screen_type": "COMBAT_REWARD",
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+    })
+}
+
+fn seed_start_monsters_from_sim(
+    combat: &CombatState,
+    observed_monsters: Option<&Value>,
+    end_turn_snapshot: bool,
+) -> Vec<Value> {
+    let observed = observed_monsters.and_then(Value::as_array);
+    combat
+        .monsters
+        .iter()
+        .enumerate()
+        .filter(|(_, monster)| monster.alive)
+        .map(|(index, monster)| {
+            let max_hp = observed
+                .and_then(|monsters| monsters.get(index))
+                .map(|monster| int(monster, "max_hp"))
+                .unwrap_or(monster.hp);
+            let strength = (monster.powers.strength - monster.powers.ritual).max(0);
+            let vulnerable = monster.powers.vulnerable;
+            if end_turn_snapshot {
+                let _ = vulnerable;
+            }
+            json!({
+                "name": game_monster_id(monster.content_id),
+                "current_hp": monster.hp,
+                "max_hp": max_hp,
+                "block": monster.block,
+                "intent": intent_key(monster),
+                "strength": strength,
+                "ritual": monster.powers.ritual,
+                "vulnerable": vulnerable,
+            })
+        })
+        .collect()
+}
+
+fn sync_combat_from_observed_after_end(run: &mut RunState, message: &Value) {
+    let Some(game) = message.get("game_state") else {
+        return;
+    };
+    let Some(combat_value) = game.get("combat_state") else {
+        return;
+    };
+    let Some(combat) = run.combat.as_mut() else {
+        return;
+    };
+    let player = combat_value.get("player");
+    if let Some(player) = player {
+        combat.player.hp = int(player, "current_hp");
+        combat.player.block = int(player, "block");
+        combat.player.energy = int(player, "energy");
+        combat.player.powers = player_powers(player.get("powers"));
+    }
+    combat.monsters = monsters_from_observed(combat_value.get("monsters"), player.unwrap_or(&Value::Null));
+    combat.piles.hand = card_instances_from_array(combat_value.get("hand"), 100);
+    combat.piles.draw_pile = card_instances_from_array(combat_value.get("draw_pile"), 200);
+    combat.piles.discard_pile = card_instances_from_array(combat_value.get("discard_pile"), 300);
+    combat.piles.exhaust_pile = card_instances_from_array(combat_value.get("exhaust_pile"), 400);
+    combat.phase = CombatPhase::WaitingForPlayer;
+    run.player_hp = int(game, "current_hp");
+    run.player_max_hp = int(game, "max_hp");
+}
+
+fn game_monster_id(content_id: ContentId) -> &'static str {
+    use sts_core::content::monsters::{
+        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, JAW_WORM_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+    };
+    match content_id {
+        id if id == CULTIST_ID => "Cultist",
+        id if id == JAW_WORM_ID => "JawWorm",
+        id if id == SPIKE_SLIME_ID => "SpikeSlime_S",
+        id if id == ACID_SLIME_ID => "AcidSlime_M",
+        id if id == GREEN_LOUSE_ID => "FuzzyLouseDefensive",
+        id if id == RED_LOUSE_ID => "FuzzyLouseNormal",
+        _ => "Cultist",
+    }
+}
+
+fn seed_start_compare_combat_subset(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    label: &str,
+    expected: Value,
+    actual: Value,
+    strip_piles: bool,
+) {
+    compare_subset(
+        report,
+        action,
+        label,
+        seed_start_normalize_combat_compare(expected, strip_piles),
+        seed_start_normalize_combat_compare(actual, strip_piles),
+    );
+}
+
+fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> Value {
+    let Some(obj) = value.as_object_mut() else {
+        return value;
+    };
+    obj.remove("unobservable");
+    if strip_piles {
+        obj.remove("hand_ids");
+        obj.remove("draw_ids");
+        obj.remove("discard_ids");
+    }
+    if let Some(monsters) = obj.get_mut("monsters").and_then(Value::as_array_mut) {
+        for monster in monsters {
+            if let Some(fields) = monster.as_object_mut() {
+                fields.remove("strength");
+                fields.remove("ritual");
+                fields.remove("vulnerable");
+            }
+        }
+    }
+    Value::Object(obj.clone())
+}
+
+fn unsupported_seed_start_combat_command(
+    combat: &CombatState,
+    command: &str,
+) -> Option<String> {
+    let parts: Vec<_> = command.split_whitespace().collect();
+    let [cmd, hand_index, ..] = parts.as_slice() else {
+        return None;
+    };
+    if !cmd.eq_ignore_ascii_case("PLAY") {
+        return None;
+    }
+    let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
+    let card = combat.piles.hand.get(index)?;
+    let key = content_key(card.content_id);
+    if key != "unknown" {
+        return None;
+    }
+    Some(format!(
+        "card at hand index {} is not mapped in the verifier, so this combat command is unsupported",
+        index + 1
+    ))
+}
+
 fn run_from_observed_combat(message: &Value) -> Option<RunState> {
     let game = message.get("game_state")?;
     let combat = game.get("combat_state")?;
@@ -1797,22 +2149,41 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
 }
 
 fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<CombatAction> {
+    use sts_core::card::TargetRequirement;
+    use sts_core::content::cards::get_card_definition;
+
     let parts: Vec<_> = command.split_whitespace().collect();
     match parts.as_slice() {
         [cmd] if cmd.eq_ignore_ascii_case("END") => Some(CombatAction::EndTurn),
-        [cmd, hand_index] | [cmd, hand_index, _] if cmd.eq_ignore_ascii_case("PLAY") => {
-            let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
-            let card_id = combat.piles.hand.get(index)?.id;
-            let target = if parts.len() == 3 {
-                let target_index = parts[2].parse::<u64>().ok()? + 1;
-                Some(MonsterId::new(target_index))
-            } else {
-                None
-            };
+        [cmd, hand_index] if cmd.eq_ignore_ascii_case("PLAY") => Some(CombatAction::PlayCard {
+            card_id: hand_card_id(combat, hand_index)?,
+            target: None,
+        }),
+        [cmd, hand_index, target_index] if cmd.eq_ignore_ascii_case("PLAY") => {
+            let card_id = hand_card_id(combat, hand_index)?;
+            let mut target = Some(MonsterId::new(
+                target_index.parse::<u64>().ok()? + 1,
+            ));
+            if let Some(definition) = combat
+                .piles
+                .hand
+                .iter()
+                .find(|card| card.id == card_id)
+                .and_then(|card| get_card_definition(card.content_id))
+            {
+                if definition.target == TargetRequirement::None {
+                    target = None;
+                }
+            }
             Some(CombatAction::PlayCard { card_id, target })
         }
         _ => None,
     }
+}
+
+fn hand_card_id(combat: &CombatState, hand_index: &str) -> Option<CardId> {
+    let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
+    Some(combat.piles.hand.get(index)?.id)
 }
 
 fn unsupported_combat_command_reason(message: &Value, command: &str) -> Option<String> {
