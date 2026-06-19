@@ -159,6 +159,42 @@ fn main() {
                         boundary.reason
                     );
                 }
+                if let Some(m22) = &seed_start.m22_encounter_report {
+                    println!(
+                        "seed_start.m22.verified_entries={}",
+                        m22.verified_entries.len()
+                    );
+                    println!(
+                        "seed_start.m22.predicted_entries={}",
+                        m22.predicted_entries.len()
+                    );
+                    println!("seed_start.m22.mismatches={}", m22.mismatches.len());
+                    for entry in &m22.verified_entries {
+                        println!(
+                            "m22_verified combat_index={} floor={} step={} encounter=\"{}\" source=\"{}\"",
+                            entry.combat_index,
+                            entry.floor,
+                            entry.action_step,
+                            entry.encounter_key,
+                            entry.source
+                        );
+                    }
+                    for entry in &m22.predicted_entries {
+                        println!(
+                            "m22_predicted combat_index={} floor={} encounter=\"{}\" source=\"{}\"",
+                            entry.combat_index, entry.floor, entry.encounter_key, entry.source
+                        );
+                    }
+                    for mismatch in &m22.mismatches {
+                        println!(
+                            "m22_mismatch combat_index={} floor={} step={} message=\"{}\"",
+                            mismatch.combat_index,
+                            mismatch.floor,
+                            mismatch.action_step,
+                            mismatch.message
+                        );
+                    }
+                }
             }
 
             for verified in &report.verified {

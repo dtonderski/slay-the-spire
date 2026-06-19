@@ -6,17 +6,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sts_core::content::{
-    encounters::generate_exordium_weak_encounters,
-    monsters::{
-        target_cultist_hp_roll, target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn,
-        TargetSpawnPower,
-    },
+use sts_core::content::monsters::{
+    target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
 };
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology, CardId,
-    CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId,
-    initialize_combat_piles, MonsterId, MonsterIntent, MonsterPowers, MonsterState, PlayerPowers,
+    apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology,
+    initialize_combat_piles, CardId, CardInstance, CardPiles, CombatAction, CombatPhase,
+    CombatState, ContentId, MonsterId, MonsterIntent, MonsterPowers, MonsterState, PlayerPowers,
     PlayerState, RewardScreen, RunAction, RunPhase, RunState, StsRng,
 };
 
@@ -504,9 +500,7 @@ fn verify_seed_start_transitions(
                 }
 
                 if let Some(combat) = sim.combat.as_ref() {
-                    if let Some(reason) =
-                        unsupported_seed_start_combat_command(combat, command)
-                    {
+                    if let Some(reason) = unsupported_seed_start_combat_command(combat, command) {
                         report.unsupported.push(UnsupportedTransition {
                             action_step: action.step,
                             command: action.command.clone(),
@@ -652,7 +646,11 @@ fn verify_seed_start_transitions(
                     seed_start_reward_observed_subset(&post.message),
                     seed_start_reward_observed_subset(&post.message),
                 );
-                deck_ids = deck_keys_from_value(post.message.get("game_state").and_then(|game| game.get("deck")));
+                deck_ids = deck_keys_from_value(
+                    post.message
+                        .get("game_state")
+                        .and_then(|game| game.get("deck")),
+                );
                 reward_step += 1;
                 if seed_start_codex04_reward_complete(combat_index, reward_step) {
                     phase = SeedStartPhase::Proceed;
@@ -751,7 +749,9 @@ fn verify_seed_start_transitions(
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_post_reward_map".to_owned(),
-                        reason: "seed-start verifier expected CODEX04 reward-to-map PROCEED command".to_owned(),
+                        reason:
+                            "seed-start verifier expected CODEX04 reward-to-map PROCEED command"
+                                .to_owned(),
                     };
                     report.unsupported.push(UnsupportedTransition {
                         action_step: action.step,
@@ -910,20 +910,12 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
 struct CapturedCombatExpectation {
     label: &'static str,
     state: Value,
-    ends_combat: bool,
 }
 
 struct CapturedRewardExpectation {
     label: &'static str,
     state: Value,
     ends_reward: bool,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CapturedEncounterExpectation {
-    name: &'static str,
-    current_hp: i32,
-    max_hp: i32,
 }
 
 fn seed_start_cultist_combat_expected(
@@ -963,7 +955,6 @@ fn seed_start_cultist_combat_expected(
                 2,
                 false,
             ),
-            ends_combat: false,
         },
         1 => CapturedCombatExpectation {
             label: "captured Cultist Strike after Bash",
@@ -981,7 +972,6 @@ fn seed_start_cultist_combat_expected(
                 2,
                 false,
             ),
-            ends_combat: false,
         },
         2 => CapturedCombatExpectation {
             label: "captured Cultist first end turn",
@@ -999,7 +989,6 @@ fn seed_start_cultist_combat_expected(
                 1,
                 false,
             ),
-            ends_combat: false,
         },
         3 => CapturedCombatExpectation {
             label: "captured Cultist second-turn Strike one",
@@ -1019,7 +1008,6 @@ fn seed_start_cultist_combat_expected(
                 1,
                 false,
             ),
-            ends_combat: false,
         },
         4 => CapturedCombatExpectation {
             label: "captured Cultist second-turn Strike two",
@@ -1039,7 +1027,6 @@ fn seed_start_cultist_combat_expected(
                 1,
                 false,
             ),
-            ends_combat: false,
         },
         5 => CapturedCombatExpectation {
             label: "captured Cultist Defend",
@@ -1060,7 +1047,6 @@ fn seed_start_cultist_combat_expected(
                 1,
                 false,
             ),
-            ends_combat: false,
         },
         6 => CapturedCombatExpectation {
             label: "captured Cultist second end turn and shuffle",
@@ -1078,7 +1064,6 @@ fn seed_start_cultist_combat_expected(
                 0,
                 true,
             ),
-            ends_combat: false,
         },
         7 => CapturedCombatExpectation {
             label: "captured Cultist final Bash",
@@ -1096,7 +1081,6 @@ fn seed_start_cultist_combat_expected(
                 2,
                 false,
             ),
-            ends_combat: false,
         },
         8 => CapturedCombatExpectation {
             label: "captured Cultist lethal Strike",
@@ -1117,7 +1101,6 @@ fn seed_start_cultist_combat_expected(
                     "reward_screen_internal_ids": true,
                 },
             }),
-            ends_combat: true,
         },
         _ => return None,
     };
@@ -1551,8 +1534,9 @@ fn seed_start_encounter_expected_at_index(
     message: &Value,
 ) -> Value {
     let floor = u32::try_from(combat_index + 1).unwrap_or(1);
-    let spawns = target_normal_encounter_spawn_at_combat_index(seed, floor, combat_index, ascension, false)
-        .unwrap_or_default();
+    let spawns =
+        target_normal_encounter_spawn_at_combat_index(seed, floor, combat_index, ascension, false)
+            .unwrap_or_default();
     let mut expected = seed_start_encounter_observed_subset(message);
     if let Value::Object(map) = &mut expected {
         map.insert(
@@ -1624,7 +1608,9 @@ fn seed_start_trace_monster_name(content_id: ContentId) -> &'static str {
 }
 
 fn seed_start_trace_intent(monster: &MonsterState) -> String {
-    use sts_core::content::monsters::{ACID_SLIME_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID};
+    use sts_core::content::monsters::{
+        ACID_SLIME_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+    };
 
     match monster.intent {
         MonsterIntent::ApplyPlayerWeak { .. } if monster.content_id == ACID_SLIME_ID => {
@@ -1649,39 +1635,6 @@ fn seed_start_first_map_choices(seed: &str) -> Vec<String> {
         .into_iter()
         .map(|x| format!("x={x}"))
         .collect()
-}
-
-fn seed_start_first_map_choice(seed: &str) -> usize {
-    match seed {
-        "CODEX04" => 1,
-        _ => 0,
-    }
-}
-
-fn seed_start_first_encounter(seed: &str) -> CapturedEncounterExpectation {
-    match seed {
-        "CODEX04" => seed_start_cultist_encounter(seed),
-        "VERIFY01" => seed_start_cultist_encounter(seed),
-        _ => CapturedEncounterExpectation {
-            name: "Cultist",
-            current_hp: 49,
-            max_hp: 49,
-        },
-    }
-}
-
-fn seed_start_cultist_encounter(seed: &str) -> CapturedEncounterExpectation {
-    let generated_key = generate_exordium_weak_encounters(sts_seed_string_to_long(seed))
-        .into_iter()
-        .next()
-        .unwrap_or_default();
-    assert_eq!(generated_key, "Cultist");
-    let hp = target_cultist_hp_roll(sts_seed_string_to_long(seed), 1, 0);
-    CapturedEncounterExpectation {
-        name: "Cultist",
-        current_hp: hp,
-        max_hp: hp,
-    }
 }
 
 fn reward_types_from_value(value: Option<&Value>) -> Vec<String> {
@@ -2206,7 +2159,8 @@ fn sync_combat_from_observed_after_end(run: &mut RunState, message: &Value) {
         combat.player.energy = int(player, "energy");
         combat.player.powers = player_powers(player.get("powers"));
     }
-    combat.monsters = monsters_from_observed(combat_value.get("monsters"), player.unwrap_or(&Value::Null));
+    combat.monsters =
+        monsters_from_observed(combat_value.get("monsters"), player.unwrap_or(&Value::Null));
     combat.piles.hand = card_instances_from_array(combat_value.get("hand"), 100);
     combat.piles.draw_pile = card_instances_from_array(combat_value.get("draw_pile"), 200);
     combat.piles.discard_pile = card_instances_from_array(combat_value.get("discard_pile"), 300);
@@ -2214,21 +2168,6 @@ fn sync_combat_from_observed_after_end(run: &mut RunState, message: &Value) {
     combat.phase = CombatPhase::WaitingForPlayer;
     run.player_hp = int(game, "current_hp");
     run.player_max_hp = int(game, "max_hp");
-}
-
-fn game_monster_id(content_id: ContentId) -> &'static str {
-    use sts_core::content::monsters::{
-        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, JAW_WORM_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
-    };
-    match content_id {
-        id if id == CULTIST_ID => "Cultist",
-        id if id == JAW_WORM_ID => "JawWorm",
-        id if id == SPIKE_SLIME_ID => "SpikeSlime_S",
-        id if id == ACID_SLIME_ID => "AcidSlime_M",
-        id if id == GREEN_LOUSE_ID => "FuzzyLouseDefensive",
-        id if id == RED_LOUSE_ID => "FuzzyLouseNormal",
-        _ => "Cultist",
-    }
 }
 
 fn seed_start_compare_combat_subset(
@@ -2271,10 +2210,7 @@ fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> V
     Value::Object(obj.clone())
 }
 
-fn unsupported_seed_start_combat_command(
-    combat: &CombatState,
-    command: &str,
-) -> Option<String> {
+fn unsupported_seed_start_combat_command(combat: &CombatState, command: &str) -> Option<String> {
     let parts: Vec<_> = command.split_whitespace().collect();
     let [cmd, hand_index, ..] = parts.as_slice() else {
         return None;
@@ -2388,9 +2324,7 @@ fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<Com
         }),
         [cmd, hand_index, target_index] if cmd.eq_ignore_ascii_case("PLAY") => {
             let card_id = hand_card_id(combat, hand_index)?;
-            let mut target = Some(MonsterId::new(
-                target_index.parse::<u64>().ok()? + 1,
-            ));
+            let mut target = Some(MonsterId::new(target_index.parse::<u64>().ok()? + 1));
             if let Some(definition) = combat
                 .piles
                 .hand
@@ -2549,6 +2483,7 @@ fn deck_has_unmapped_cards(message: &Value) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn unsupported_monster_ai_reason(message: &Value) -> Option<String> {
     let groups: Vec<String> = message
         .get("game_state")?

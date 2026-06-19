@@ -548,15 +548,26 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         .m22_encounter_report
         .as_ref()
         .expect("m22 encounter report");
-    assert!(m22.mismatches.is_empty(), "m22 mismatches: {:?}", m22.mismatches);
-    assert_eq!(m22.verified_entries.len(), 3);
+    assert!(
+        m22.mismatches.is_empty(),
+        "m22 mismatches: {:?}",
+        m22.mismatches
+    );
+    assert_eq!(m22.verified_entries.len(), 1);
+    assert_eq!(m22.predicted_entries.len(), 2);
     assert_eq!(
-        m22
-            .verified_entries
+        m22.verified_entries
             .iter()
             .map(|entry| entry.encounter_key.as_str())
             .collect::<Vec<_>>(),
-        vec!["Cultist", "Jaw Worm", "2 Louse"]
+        vec!["Cultist"]
+    );
+    assert_eq!(
+        m22.predicted_entries
+            .iter()
+            .map(|entry| entry.encounter_key.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Jaw Worm", "2 Louse"]
     );
 }
 
@@ -603,7 +614,9 @@ fn codex04_controller_trace_verifies_supported_observed_state_scope() {
     );
     assert!(
         !report.unsupported.iter().any(|entry| {
-            entry.reason.contains("draw/shuffle order after end turn is out-of-scope")
+            entry
+                .reason
+                .contains("draw/shuffle order after end turn is out-of-scope")
         }),
         "END transitions should no longer be unsupported for draw/shuffle scope"
     );
@@ -614,7 +627,10 @@ fn codex04_controller_trace_verifies_supported_observed_state_scope() {
         "slime combat should be verified, not unsupported"
     );
     assert!(
-        !report.unsupported.iter().any(|entry| entry.reason.contains("FuzzyLouseDefensive")),
+        !report
+            .unsupported
+            .iter()
+            .any(|entry| entry.reason.contains("FuzzyLouseDefensive")),
         "louse combat should be verified, not unsupported"
     );
     assert!(
@@ -640,12 +656,10 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
     assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_079);
     assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
     assert_eq!(seed_start.first_boundary.category, "none");
-    assert!(
-        seed_start
-            .first_boundary
-            .reason
-            .contains("floor-3 combat completion")
-    );
+    assert!(seed_start
+        .first_boundary
+        .reason
+        .contains("floor-3 combat completion"));
 
     let labels: Vec<_> = report
         .verified
@@ -685,11 +699,15 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
         .m22_encounter_report
         .as_ref()
         .expect("m22 encounter report");
-    assert!(m22.mismatches.is_empty(), "m22 mismatches: {:?}", m22.mismatches);
+    assert!(
+        m22.mismatches.is_empty(),
+        "m22 mismatches: {:?}",
+        m22.mismatches
+    );
     assert_eq!(m22.verified_entries.len(), 3);
+    assert!(m22.predicted_entries.is_empty());
     assert_eq!(
-        m22
-            .verified_entries
+        m22.verified_entries
             .iter()
             .map(|entry| entry.encounter_key.as_str())
             .collect::<Vec<_>>(),
