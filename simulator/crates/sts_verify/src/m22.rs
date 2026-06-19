@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-    use sts_core::content::encounters::normal_encounter_key_at_combat_index;
-    use sts_core::content::monsters::{
-        target_encounter_spawn_for_key, target_normal_encounter_spawn_at_combat_index,
-        TargetEncounterSpawn, TargetSpawnPower,
-    };
+use sts_core::content::encounters::normal_encounter_key_at_combat_index;
+use sts_core::content::monsters::{
+    target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
+};
 
 use crate::trace::{TraceLine, TraceState};
 
@@ -31,6 +30,7 @@ pub struct M22EncounterReport {
     pub numeric_seed: i64,
     pub neow_lament: bool,
     pub verified_entries: Vec<M22EncounterEntry>,
+    pub predicted_entries: Vec<M22EncounterEntry>,
     pub mismatches: Vec<M22EncounterMismatch>,
 }
 
@@ -60,6 +60,7 @@ pub fn verify_m22_encounter_spawn_prefix(
     let neow_lament = trace_has_neow_lament(lines);
     let captured = captured_first_three_combat_entries(lines);
     let mut verified_entries = Vec::new();
+    let mut predicted_entries = Vec::new();
     let mut mismatches = Vec::new();
 
     for (combat_index, entry) in captured.iter().enumerate() {
@@ -79,8 +80,8 @@ pub fn verify_m22_encounter_spawn_prefix(
             continue;
         };
 
-        let encounter_key = normal_encounter_key_at_combat_index(numeric_seed, combat_index)
-            .unwrap_or_default();
+        let encounter_key =
+            normal_encounter_key_at_combat_index(numeric_seed, combat_index).unwrap_or_default();
         if let Some(message) = compare_spawn_sets(&entry.monsters, &expected) {
             mismatches.push(M22EncounterMismatch {
                 combat_index,
@@ -94,11 +95,7 @@ pub fn verify_m22_encounter_spawn_prefix(
                 floor: entry.floor,
                 action_step: entry.action_step,
                 encounter_key,
-                source: if captured_trace_has_floor_combat(external_seed, entry.floor) {
-                    "captured_trace".to_owned()
-                } else {
-                    "source_backed_generation".to_owned()
-                },
+                source: "captured_trace".to_owned(),
             });
         }
     }
@@ -109,7 +106,7 @@ pub fn verify_m22_encounter_spawn_prefix(
         ascension,
         neow_lament,
         captured.len(),
-        &mut verified_entries,
+        &mut predicted_entries,
     );
 
     M22EncounterReport {
@@ -117,6 +114,7 @@ pub fn verify_m22_encounter_spawn_prefix(
         numeric_seed,
         neow_lament,
         verified_entries,
+        predicted_entries,
         mismatches,
     }
 }
@@ -127,7 +125,7 @@ fn extend_generated_encounter_entries(
     ascension: u8,
     neow_lament: bool,
     captured_combats: usize,
-    verified_entries: &mut Vec<M22EncounterEntry>,
+    predicted_entries: &mut Vec<M22EncounterEntry>,
 ) {
     if external_seed != "VERIFY01" {
         return;
@@ -135,37 +133,27 @@ fn extend_generated_encounter_entries(
 
     for combat_index in captured_combats..3 {
         let floor = u32::try_from(combat_index + 1).expect("first three floors fit in u32");
-        let Some(spawn) =
-            target_normal_encounter_spawn_at_combat_index(
-                numeric_seed,
-                floor,
-                combat_index,
-                ascension,
-                neow_lament,
-            )
-        else {
+        let Some(spawn) = target_normal_encounter_spawn_at_combat_index(
+            numeric_seed,
+            floor,
+            combat_index,
+            ascension,
+            neow_lament,
+        ) else {
             continue;
         };
         if spawn.is_empty() {
             continue;
         }
-        let encounter_key = normal_encounter_key_at_combat_index(numeric_seed, combat_index)
-            .unwrap_or_default();
-        verified_entries.push(M22EncounterEntry {
+        let encounter_key =
+            normal_encounter_key_at_combat_index(numeric_seed, combat_index).unwrap_or_default();
+        predicted_entries.push(M22EncounterEntry {
             combat_index,
             floor,
             action_step: 0,
             encounter_key,
             source: "source_backed_generation".to_owned(),
         });
-    }
-}
-
-fn captured_trace_has_floor_combat(external_seed: &str, floor: u32) -> bool {
-    match external_seed {
-        "VERIFY01" => floor == 1,
-        "CODEX04" | "CODEX03" => floor <= 3,
-        _ => false,
     }
 }
 
@@ -327,10 +315,7 @@ fn compare_spawn_sets(
     None
 }
 
-fn compare_powers(
-    captured: &[(String, i32)],
-    expected: &[TargetSpawnPower],
-) -> Option<String> {
+fn compare_powers(captured: &[(String, i32)], expected: &[TargetSpawnPower]) -> Option<String> {
     let expected_pairs: Vec<(String, i32)> = expected
         .iter()
         .map(|power| (power.id.to_owned(), power.amount))
@@ -347,41 +332,35 @@ fn compare_powers(
 mod tests {
     use super::*;
     use crate::{import_communication_mod_trace, load_corpus_file};
+    use sts_core::content::monsters::target_encounter_spawn_for_key;
 
     #[test]
     fn codex04_first_three_combat_spawns_match_target_generation() {
-        let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl")
+        let Some(content) =
+            load_corpus_file("communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl")
         else {
             return;
         };
         let trace = import_communication_mod_trace(&content).expect("import trace");
-        let report = verify_m22_encounter_spawn_prefix(
-            &trace.lines,
-            "CODEX04",
-            22_079_335_079,
-            0,
-        );
+        let report = verify_m22_encounter_spawn_prefix(&trace.lines, "CODEX04", 22_079_335_079, 0);
         assert!(
             report.mismatches.is_empty(),
             "m22 mismatches: {:?}",
             report.mismatches
         );
         assert_eq!(report.verified_entries.len(), 3);
+        assert!(report.predicted_entries.is_empty());
     }
 
     #[test]
     fn codex03_lament_first_three_combat_spawns_match_target_generation() {
-        let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
+        let Some(content) =
+            load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
         else {
             return;
         };
         let trace = import_communication_mod_trace(&content).expect("import trace");
-        let report = verify_m22_encounter_spawn_prefix(
-            &trace.lines,
-            "CODEX03",
-            22_079_335_078,
-            0,
-        );
+        let report = verify_m22_encounter_spawn_prefix(&trace.lines, "CODEX03", 22_079_335_078, 0);
         assert!(report.neow_lament);
         assert!(
             report.mismatches.is_empty(),
@@ -389,38 +368,47 @@ mod tests {
             report.mismatches
         );
         assert_eq!(report.verified_entries.len(), 3);
+        assert!(report.predicted_entries.is_empty());
     }
 
     #[test]
-    fn verify01_first_three_encounter_keys_are_source_backed() {
-        let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T06-04-49-264Z.jsonl")
+    fn verify01_captured_and_predicted_encounter_keys_are_distinguished() {
+        let Some(content) =
+            load_corpus_file("communication_mod/trace-2026-06-18T06-04-49-264Z.jsonl")
         else {
             return;
         };
         let trace = import_communication_mod_trace(&content).expect("import trace");
-        let report = verify_m22_encounter_spawn_prefix(
-            &trace.lines,
-            "VERIFY01",
-            1_957_307_888_551,
-            0,
-        );
+        let report =
+            verify_m22_encounter_spawn_prefix(&trace.lines, "VERIFY01", 1_957_307_888_551, 0);
         assert!(
             report.mismatches.is_empty(),
             "m22 mismatches: {:?}",
             report.mismatches
         );
-        assert_eq!(report.verified_entries.len(), 3);
+        assert_eq!(report.verified_entries.len(), 1);
+        assert_eq!(report.predicted_entries.len(), 2);
         assert_eq!(
             report
                 .verified_entries
                 .iter()
                 .map(|entry| entry.encounter_key.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Cultist", "Jaw Worm", "2 Louse"]
+            vec!["Cultist"]
         );
         assert_eq!(report.verified_entries[0].source, "captured_trace");
-        assert_eq!(report.verified_entries[1].source, "source_backed_generation");
-        assert_eq!(report.verified_entries[2].source, "source_backed_generation");
+        assert_eq!(
+            report
+                .predicted_entries
+                .iter()
+                .map(|entry| entry.encounter_key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Jaw Worm", "2 Louse"]
+        );
+        assert!(report
+            .predicted_entries
+            .iter()
+            .all(|entry| entry.source == "source_backed_generation"));
     }
 
     #[test]

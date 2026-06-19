@@ -118,9 +118,7 @@ mod tests {
         );
         assert_eq!(
             content_keys(&piles.draw_pile),
-            vec![
-                "Defend_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R"
-            ]
+            vec!["Defend_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R"]
         );
     }
 

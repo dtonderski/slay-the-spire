@@ -158,17 +158,10 @@ pub fn exordium_room_kinds_on_path(seed: i64, path_xs: &[i32]) -> Vec<RoomKind> 
     let mut kinds = Vec::with_capacity(path_xs.len());
     for (row, x) in path_xs.iter().copied().enumerate() {
         let node_id = exordium_map_node_id(row, x);
-        let room_kind = state
-            .map
-            .node(node_id)
-            .expect("path node exists")
-            .room_kind;
+        let room_kind = state.map.node(node_id).expect("path node exists").room_kind;
         kinds.push(room_kind);
-        state = apply_map_action(
-            &state,
-            MapAction::ChooseNode { node_id },
-        )
-        .expect("path node is reachable");
+        state = apply_map_action(&state, MapAction::ChooseNode { node_id })
+            .expect("path node is reachable");
     }
     kinds
 }
@@ -1025,16 +1018,10 @@ mod tests {
             vec![RoomKind::Combat; 3]
         );
 
-        let verify01_floor_three_x = generate_exordium_map_choices_after_path(
-            1_957_307_888_551,
-            &[1, 2],
-        )[1]
-        .next_choices[0];
+        let verify01_floor_three_x =
+            generate_exordium_map_choices_after_path(1_957_307_888_551, &[1, 2])[1].next_choices[0];
         assert_eq!(
-            exordium_room_kinds_on_path(
-                1_957_307_888_551,
-                &[1, 2, verify01_floor_three_x],
-            ),
+            exordium_room_kinds_on_path(1_957_307_888_551, &[1, 2, verify01_floor_three_x],),
             vec![RoomKind::Combat; 3]
         );
     }

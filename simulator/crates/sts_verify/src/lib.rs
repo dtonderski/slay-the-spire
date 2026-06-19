@@ -11,12 +11,12 @@ pub mod trace;
 
 pub use diff::canonical_diff;
 pub use importer::{observations_from_trace, ImportedTraceStep};
+pub use m22::{
+    verify_m22_encounter_spawn_prefix, M22EncounterEntry, M22EncounterMismatch, M22EncounterReport,
+};
 pub use normalize::{
     normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
     CanonicalMonsterObservation, CanonicalRunObservation,
-};
-pub use m22::{
-    verify_m22_encounter_spawn_prefix, M22EncounterEntry, M22EncounterMismatch, M22EncounterReport,
 };
 pub use seed::{sts_seed_string_to_long, STS_SEED_ALPHABET};
 pub use sim_real::{

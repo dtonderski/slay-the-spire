@@ -31,7 +31,6 @@ const GREEN_LOUSE_BITE_DAMAGE: i32 = 6;
 const GREEN_LOUSE_SPIKES: i32 = 3;
 
 const SPIKE_SLIME_LICK_WEAK: i32 = 1;
-const SPIKE_SLIME_SPIT_DAMAGE: i32 = 7;
 const SPIKE_SLIME_S_SPIT_DAMAGE: i32 = 5;
 
 const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
@@ -487,8 +486,7 @@ pub fn target_two_louse_spawn_states(
             };
             let max_hp = hp_range.roll(&mut hp_rng);
             let bite_damage = target_louse_bite_damage_range(ascension).roll(&mut hp_rng);
-            let mut spawn =
-                target_combat_entry_spawn("Louse", max_hp, neow_lament, Vec::new());
+            let mut spawn = target_combat_entry_spawn("Louse", max_hp, neow_lament, Vec::new());
             spawn.rolled_attack_damage = Some(bite_damage);
             spawn
         })
@@ -535,17 +533,25 @@ pub fn target_encounter_spawn_for_key(
     match encounter_key {
         "Cultist" => {
             let max_hp = target_cultist_hp_roll(seed, floor_num, ascension);
-            vec![target_combat_entry_spawn("Cultist", max_hp, neow_lament, Vec::new())]
+            vec![target_combat_entry_spawn(
+                "Cultist",
+                max_hp,
+                neow_lament,
+                Vec::new(),
+            )]
         }
         "Jaw Worm" => {
             let max_hp = target_jaw_worm_hp_roll(seed, floor_num, ascension);
-            vec![target_combat_entry_spawn("Jaw Worm", max_hp, neow_lament, Vec::new())]
+            vec![target_combat_entry_spawn(
+                "Jaw Worm",
+                max_hp,
+                neow_lament,
+                Vec::new(),
+            )]
         }
         "Small Slimes" => target_small_slimes_spawn_states(seed, floor_num, ascension, neow_lament)
             .unwrap_or_default(),
-        "2 Louse" => {
-            target_two_louse_spawn_states(seed, floor_num, ascension, neow_lament)
-        }
+        "2 Louse" => target_two_louse_spawn_states(seed, floor_num, ascension, neow_lament),
         _ => Vec::new(),
     }
 }
@@ -694,7 +700,10 @@ pub fn prepare_monster_intent(monster: &MonsterState) -> MonsterIntent {
         monster.rolled_attack_damage,
     );
     if let Some(damage) = monster.rolled_attack_damage {
-        if let MonsterIntent::Attack { damage: ref mut attack } = intent {
+        if let MonsterIntent::Attack {
+            damage: ref mut attack,
+        } = intent
+        {
             *attack = damage;
         }
     }
@@ -778,18 +787,6 @@ fn spike_slime_s_intent(moves_executed: u32) -> MonsterIntent {
         },
         _ => MonsterIntent::ApplyPlayerWeak {
             amount: SPIKE_SLIME_LICK_WEAK,
-        },
-    }
-}
-
-#[must_use]
-fn spike_slime_intent(moves_executed: u32) -> MonsterIntent {
-    match moves_executed % 2 {
-        0 => MonsterIntent::ApplyPlayerWeak {
-            amount: SPIKE_SLIME_LICK_WEAK,
-        },
-        _ => MonsterIntent::Attack {
-            damage: SPIKE_SLIME_SPIT_DAMAGE,
         },
     }
 }
