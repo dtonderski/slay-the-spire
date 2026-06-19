@@ -635,19 +635,16 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(seed_start.expected_failure);
+    assert!(!seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "CODEX04");
     assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_079);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[step=16].command");
-    assert_eq!(
-        seed_start.first_boundary.category,
-        "unsupported_reward_path"
-    );
+    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.category, "none");
     assert!(
         seed_start
             .first_boundary
             .reason
-            .contains("verified CODEX04 combat via simulation")
+            .contains("floor-3 combat completion")
     );
 
     let labels: Vec<_> = report
@@ -663,20 +660,20 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
         "Neow leave",
         "map first monster node",
         "Dramatic Entrance",
-        "Strike_R",
-        "Strike_R",
-        "end turn",
-        "Strike_R",
-        "Strike_R",
-        "Strike_R",
-        "end turn",
-        "Strike_R",
+        "map floor 2 monster node",
+        "map floor 3 monster node",
+        "return to map after floor 1",
+        "return to map after floor 2",
     ] {
         assert!(
             labels.contains(&expected),
             "missing verified seed-start label {expected}; labels: {labels:?}"
         );
     }
+    assert!(
+        labels.iter().filter(|label| **label == "end turn").count() >= 5,
+        "floor 1-3 combats should verify multiple end turns; labels: {labels:?}"
+    );
     assert!(
         report.unsupported.iter().any(|entry| entry
             .reason
