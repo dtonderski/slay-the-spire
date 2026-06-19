@@ -124,6 +124,7 @@ pub const WOUND: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         unplayable: true,
         ethereal: false,
         exhaust: false,
@@ -144,6 +145,7 @@ pub const ASCENDERS_BANE: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         unplayable: true,
         ethereal: true,
         exhaust: false,
@@ -164,6 +166,7 @@ pub const DAZED: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         unplayable: true,
         ethereal: false,
         exhaust: false,
@@ -187,6 +190,7 @@ pub const BURN: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         unplayable: true,
         ethereal: false,
         exhaust: false,
@@ -207,6 +211,7 @@ pub const SLIMED: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         ethereal: false,
         exhaust: true,
         retain: false,
@@ -227,6 +232,7 @@ pub const ETHEREAL_STRIKE: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         ethereal: true,
         exhaust: false,
         retain: false,
@@ -247,6 +253,7 @@ pub const RETAIN_DEFEND: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         ethereal: false,
         exhaust: false,
         retain: true,
@@ -672,6 +679,7 @@ pub const WARCRY: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         ethereal: false,
         exhaust: true,
         retain: false,
@@ -692,6 +700,7 @@ pub const WARCRY_PLUS: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         ethereal: false,
         exhaust: true,
         retain: false,
@@ -712,6 +721,7 @@ pub const DUAL_WIELD: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         ethereal: false,
         exhaust: true,
         retain: false,
@@ -732,6 +742,7 @@ pub const DUAL_WIELD_PLUS: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: false,
         ethereal: false,
         exhaust: true,
         retain: false,
@@ -782,6 +793,7 @@ pub const DRAMATIC_ENTRANCE: CardDefinition = CardDefinition {
         vulnerable: None,
     },
     keywords: CardKeywords {
+        innate: true,
         ethereal: false,
         exhaust: true,
         retain: false,

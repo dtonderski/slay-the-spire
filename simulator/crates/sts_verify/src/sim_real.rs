@@ -15,9 +15,9 @@ use sts_core::content::{
 };
 use sts_core::{
     apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology, CardId,
-    CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId, MonsterId,
-    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, RewardScreen, RunAction,
-    RunPhase, RunState, StsRng,
+    CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId,
+    initialize_combat_piles, MonsterId, MonsterIntent, MonsterPowers, MonsterState, PlayerPowers,
+    PlayerState, RewardScreen, RunAction, RunPhase, RunState, starter_only_deck, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1790,7 +1790,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "shuffleRng".to_owned(),
             save_counter: Some("card_random_seed_count".to_owned()),
             status: "captured_branch".to_owned(),
-            reason: "captured Cultist opening hand and first discard-to-draw shuffle order are verified; broad game-compatible shuffle RNG remains unimplemented".to_owned(),
+            reason: "Ironclad starter-only seed-start combats now derive opening piles from shuffleRng(seed + floor) with target master-deck instance order; innate/extra-card master-deck ordering and discard-to-draw without post-END resync remain open for CODEX04".to_owned(),
         },
         RngBoundary {
             stream: "cardRewardRng".to_owned(),
@@ -2058,6 +2058,11 @@ fn seed_start_run_from_combat_entry(message: &Value, numeric_seed: i64) -> Optio
     let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as u32;
     if let Some(combat) = run.combat.as_mut() {
         combat.shuffle_rng = Some(StsRng::new(numeric_seed + i64::from(floor)));
+        if starter_only_deck(&run.deck) {
+            if let Some(rng) = combat.shuffle_rng.as_mut() {
+                combat.piles = initialize_combat_piles(&run.deck, rng);
+            }
+        }
     }
     Some(run)
 }

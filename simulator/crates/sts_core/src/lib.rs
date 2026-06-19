@@ -22,9 +22,9 @@ pub use card::{
 };
 pub use combat::{
     apply_burning_blood, apply_combat_action, apply_combat_action_with_events, draw_cards,
-    end_player_turn, legal_combat_actions, validate_combat_action, CardPiles, CombatPhase,
-    CombatState, CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState,
-    PlayerState, BASE_PLAYER_ENERGY,
+    end_player_turn, initialize_combat_piles, legal_combat_actions, starter_only_deck,
+    validate_combat_action, CardPiles, CombatPhase, CombatState, CombatTransition, DamageInfo,
+    DamageSource, MonsterIntent, MonsterState, PlayerState, BASE_PLAYER_ENERGY,
 };
 pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
