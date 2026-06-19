@@ -78,7 +78,7 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 Expected result: `unexpected_diffs=0`, verified labels through `map first monster node`, and `seed_start.first_boundary.category=unsupported_combat_path` at the first CODEX04 combat action.
 
-Current fidelity limit: VERIFY01 has captured-trace seed-start parity through return to map. CODEX04 seed-start parity now covers the captured Neow colorless-card branch and first map choice into a 54/54 HP Cultist; executing CODEX04 combat remains later draw/shuffle/combat parity work.
+Current fidelity limit: VERIFY01 has captured-trace seed-start parity through return to map and source-backed first-three encounter spawn verification via `seed_start.m22_encounter_report`. CODEX04 seed-start parity covers the captured Neow colorless-card branch, first map choice into a 54/54 HP Cultist, and M22 encounter spawn verification for all three captured combat entries; executing CODEX04 combat remains Milestone 23 draw/shuffle/combat parity work.
 
 ### Tests
 - `cargo test` passing
@@ -89,7 +89,7 @@ Current fidelity limit: VERIFY01 has captured-trace seed-start parity through re
 
 ## Next Task
 
-Continue Milestone 22: extend from full VERIFY01/CODEX04 map room-symbol parity, CODEX04 normal first-three encounter/HP parity, CODEX03 Lament first-three encounter/max-HP parity, and minimized map/encounter/HP divergence diagnostics into first-three-floor seed-start parity once combat/reward replay dependencies are ready.
+Begin Milestone 23: remove the early Act 1 draw/shuffle scope boundary and implement real move selection for Cultist, slimes, louses, Jaw Worm, and captured early-run cards so seed-start can replay combat through floor 3.
 
 ## Milestone 20 Notes
 
@@ -101,8 +101,8 @@ CODEX04 seed-start verification now covers the captured Neow colorless-card bran
 
 ## Milestone 22 Notes
 
-First captured map/encounter slice is complete for CODEX04: after leaving Neow, seed-start mode accepts `CHOOSE 1`, verifies floor 1 combat entry, and checks the visible first encounter as a source-backed 54/54 HP Cultist. The regression corpus now also records CODEX04's first three observed map-choice and encounter targets: floor 1 Cultist 54/54, floor 2 Spike Slime (S) 11/11 plus Acid Slime (M) 32/32, and floor 3 Louse 13/13 plus Louse 15/15. CODEX03 is committed as Lament-specific first-three encounter evidence: Jaw Worm 1/43, Cultist 1/54, and two louses 1/12 plus 1/16, with max HP matched against the target encounter list and monster HP constructors while current HP remains intentionally overridden by Neow's Lament. The core simulator now has a target-version `StsRng` implementation for the STS `Random` wrapper / libGDX `RandomXS128`, decoded inclusive HP ranges for the reached Act 1 monsters, source-backed floor-1 Cultist HP parity for VERIFY01 and CODEX04 from `monsterHpRng = seed + floorNum`, source-backed CODEX04 floor-2 Small Slimes variant/HP parity and floor-3 louse kind/HP parity from `miscRng` plus `monsterHpRng`, source-backed CODEX03 floor-1 Jaw Worm HP parity, source-backed Exordium normal encounter list generation for weak and strong encounters, full captured-map topology/edge/room-symbol parity for VERIFY01 and CODEX04, fixed target rows 0/8/14, bytecode-backed two-stage room-list construction, raw `Collections.shuffle` room-list prefix for VERIFY01/CODEX04, and a target Exordium `FixedMap` projection that traverses the captured CODEX04 prefix through the normal map API. Map, encounter, and monster HP corpus assertions now report the first labeled mismatch index instead of dumping whole sequences. Elite encounter selection, alternate unreached branches, and first-three-floor seed-start replay across combat/rewards are still incomplete.
+Milestone 22 is complete. Act 1 map, normal encounter selection, and monster spawn parity are source-backed for `VERIFY01`, `CODEX04`, and `CODEX03` through the first three combats. Full captured map topology/edges/room symbols match for all three seeds. Map-choice prefixes and chosen combat paths are pinned, including CODEX04 `[2, 3, 2]`, CODEX03 `[1, 0, 1]`, and VERIFY01 `[1, 2, x]` with all three nodes entering combat rooms. Normal encounter list generation covers weak/strong pools, first-strong exclusions, and no-repeat-last-two retries; room execution maps combat index to list entries via `normal_encounter_key_at_combat_index`. Target spawn state at combat entry covers Cultist, Jaw Worm, Small Slimes, and 2 Louse with floor-offset `monsterHpRng`, `miscRng` louse kind selection, and post-HP/bite Curl Up rolls from the decoded 3–7 range. Seed-start reports now include `m22_encounter_report` verifying first-three combat entry rosters for VERIFY01 (one captured trace entry plus two source-backed generated entries) and CODEX04/CODEX03 (three captured trace entries). CODEX04 seed-start still stops at the first unsupported combat command; that boundary is Milestone 23 work.
 
 ## Last Updated
 
-2026-06-19 (added CODEX03 Lament first-three encounter/max-HP corpus evidence and target Jaw Worm HP roll parity; continue with first-three-floor seed-start replay once combat/reward dependencies are ready).
+2026-06-19 (completed Milestone 22: room execution, target combat-entry spawn parity, and seed-start M22 encounter reports for VERIFY01/CODEX04/CODEX03 first-three prefixes).

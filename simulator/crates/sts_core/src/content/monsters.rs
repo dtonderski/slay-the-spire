@@ -99,6 +99,22 @@ pub struct TargetMonsterHp {
     pub hp: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetSpawnPower {
+    pub id: &'static str,
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetEncounterSpawn {
+    pub name: &'static str,
+    pub current_hp: i32,
+    pub max_hp: i32,
+    pub block: i32,
+    pub intent: &'static str,
+    pub powers: Vec<TargetSpawnPower>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SmallSlimesVariant {
     SpikeSmallAcidMedium,
@@ -141,6 +157,8 @@ pub const LOUSE_DEFENSIVE_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(11, 
 pub const LOUSE_DEFENSIVE_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(12, 18);
 pub const LOUSE_A0_BITE_DAMAGE_RANGE: MonsterHpRange = MonsterHpRange::new(5, 7);
 pub const LOUSE_A2_BITE_DAMAGE_RANGE: MonsterHpRange = MonsterHpRange::new(6, 8);
+pub const LOUSE_A0_CURL_UP_RANGE: MonsterHpRange = MonsterHpRange::new(3, 7);
+pub const LOUSE_A7_CURL_UP_RANGE: MonsterHpRange = MonsterHpRange::new(4, 8);
 
 pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
     content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -311,6 +329,15 @@ pub const ACID_SLIME_A0: MonsterDefinition = MonsterDefinition {
 };
 
 #[must_use]
+pub fn target_louse_curl_up_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        LOUSE_A7_CURL_UP_RANGE
+    } else {
+        LOUSE_A0_CURL_UP_RANGE
+    }
+}
+
+#[must_use]
 pub fn target_cultist_hp_range(ascension: u8) -> MonsterHpRange {
     if ascension >= 7 {
         CULTIST_A7_HP_RANGE
@@ -430,20 +457,123 @@ pub fn target_two_louse_kinds(seed: i64, floor_num: u32) -> [LouseKind; 2] {
 
 #[must_use]
 pub fn target_two_louse_hp_rolls(seed: i64, floor_num: u32, ascension: u8) -> Vec<TargetMonsterHp> {
+    target_two_louse_spawn_states(seed, floor_num, ascension, false)
+        .into_iter()
+        .map(|spawn| TargetMonsterHp {
+            name: spawn.name,
+            hp: spawn.max_hp,
+        })
+        .collect()
+}
+
+#[must_use]
+pub fn target_two_louse_spawn_states(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
     let kinds = target_two_louse_kinds(seed, floor_num);
     let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
-    kinds
+
+    let mut spawns = kinds
         .into_iter()
         .map(|kind| {
             let hp_range = match kind {
                 LouseKind::Normal => target_louse_normal_hp_range(ascension),
                 LouseKind::Defensive => target_louse_defensive_hp_range(ascension),
             };
-            let hp = hp_range.roll(&mut hp_rng);
+            let max_hp = hp_range.roll(&mut hp_rng);
             let _bite_damage = target_louse_bite_damage_range(ascension).roll(&mut hp_rng);
-            TargetMonsterHp { name: "Louse", hp }
+            target_combat_entry_spawn("Louse", max_hp, neow_lament, Vec::new())
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    for spawn in &mut spawns {
+        spawn.powers = vec![TargetSpawnPower {
+            id: "Curl Up",
+            amount: target_louse_curl_up_range(ascension).roll(&mut hp_rng),
+        }];
+    }
+
+    spawns
+}
+
+#[must_use]
+pub fn target_normal_encounter_spawn_at_combat_index(
+    seed: i64,
+    floor_num: u32,
+    combat_index: usize,
+    ascension: u8,
+    neow_lament: bool,
+) -> Option<Vec<TargetEncounterSpawn>> {
+    use crate::content::encounters::normal_encounter_key_at_combat_index;
+
+    let encounter_key = normal_encounter_key_at_combat_index(seed, combat_index)?;
+    Some(target_encounter_spawn_for_key(
+        seed,
+        floor_num,
+        &encounter_key,
+        ascension,
+        neow_lament,
+    ))
+}
+
+#[must_use]
+pub fn target_encounter_spawn_for_key(
+    seed: i64,
+    floor_num: u32,
+    encounter_key: &str,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
+    match encounter_key {
+        "Cultist" => {
+            let max_hp = target_cultist_hp_roll(seed, floor_num, ascension);
+            vec![target_combat_entry_spawn("Cultist", max_hp, neow_lament, Vec::new())]
+        }
+        "Jaw Worm" => {
+            let max_hp = target_jaw_worm_hp_roll(seed, floor_num, ascension);
+            vec![target_combat_entry_spawn("Jaw Worm", max_hp, neow_lament, Vec::new())]
+        }
+        "Small Slimes" => target_small_slimes_spawn_states(seed, floor_num, ascension, neow_lament)
+            .unwrap_or_default(),
+        "2 Louse" => {
+            target_two_louse_spawn_states(seed, floor_num, ascension, neow_lament)
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn target_small_slimes_spawn_states(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+) -> Option<Vec<TargetEncounterSpawn>> {
+    let rolls = target_small_slimes_hp_rolls(seed, floor_num, ascension)?;
+    Some(
+        rolls
+            .into_iter()
+            .map(|roll| target_combat_entry_spawn(roll.name, roll.hp, neow_lament, Vec::new()))
+            .collect(),
+    )
+}
+
+fn target_combat_entry_spawn(
+    name: &'static str,
+    max_hp: i32,
+    neow_lament: bool,
+    powers: Vec<TargetSpawnPower>,
+) -> TargetEncounterSpawn {
+    TargetEncounterSpawn {
+        name,
+        current_hp: if neow_lament { 1 } else { max_hp },
+        max_hp,
+        block: 0,
+        intent: "DEBUG",
+        powers,
+    }
 }
 
 fn target_louse_kind(rng: &mut StsRng) -> LouseKind {
@@ -936,6 +1066,59 @@ mod tests {
 
         assert_eq!(target_cultist_hp_range(0).roll(&mut codex04), 53);
         assert_eq!(target_cultist_hp_roll(22_079_335_079, 1, 0), 54);
+    }
+
+    #[test]
+    fn floor_three_louse_spawn_powers_match_captured_traces() {
+        assert_eq!(
+            target_two_louse_kinds(22_079_335_079, 3),
+            [LouseKind::Defensive, LouseKind::Defensive]
+        );
+        assert_eq!(
+            target_two_louse_kinds(22_079_335_078, 3),
+            [LouseKind::Normal, LouseKind::Defensive]
+        );
+
+        let codex04 = target_two_louse_spawn_states(22_079_335_079, 3, 0, false);
+        assert_eq!(codex04.len(), 2);
+        assert_eq!(codex04[0].max_hp, 13);
+        assert_eq!(codex04[1].max_hp, 15);
+        assert_eq!(
+            codex04
+                .iter()
+                .map(|spawn| spawn.powers.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![TargetSpawnPower {
+                    id: "Curl Up",
+                    amount: 3,
+                }],
+                vec![TargetSpawnPower {
+                    id: "Curl Up",
+                    amount: 3,
+                }],
+            ]
+        );
+
+        let codex03 = target_two_louse_spawn_states(22_079_335_078, 3, 0, true);
+        assert_eq!(codex03[0].max_hp, 12);
+        assert_eq!(codex03[1].max_hp, 16);
+        assert_eq!(
+            codex03
+                .iter()
+                .map(|spawn| spawn.powers.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![TargetSpawnPower {
+                    id: "Curl Up",
+                    amount: 3,
+                }],
+                vec![TargetSpawnPower {
+                    id: "Curl Up",
+                    amount: 7,
+                }],
+            ]
+        );
     }
 
     #[test]

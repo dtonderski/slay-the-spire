@@ -34,6 +34,16 @@ pub fn generate_exordium_normal_encounters(seed: i64) -> Vec<String> {
     encounters
 }
 
+/// Returns the normal encounter key for the `combat_index`-th Act 1 combat room entered.
+/// Target `AbstractDungeon.monsterList` is populated once at run start; normal rooms consume
+/// entries sequentially from this list.
+#[must_use]
+pub fn normal_encounter_key_at_combat_index(seed: i64, combat_index: usize) -> Option<String> {
+    generate_exordium_normal_encounters(seed)
+        .into_iter()
+        .nth(combat_index)
+}
+
 pub fn generate_exordium_weak_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
     let pool = normalized_monster_weights(&EXORDIUM_WEAK_ENCOUNTERS);
     let mut encounters = Vec::with_capacity(count);
@@ -149,6 +159,26 @@ mod tests {
             assert_ne!(encounters[0], encounters[2]);
             assert_ne!(encounters[1], encounters[2]);
         }
+    }
+
+    #[test]
+    fn normal_encounter_keys_follow_combat_index_for_captured_prefixes() {
+        assert_eq!(
+            normal_encounter_key_at_combat_index(1_957_307_888_551, 0).as_deref(),
+            Some("Cultist")
+        );
+        assert_eq!(
+            normal_encounter_key_at_combat_index(1_957_307_888_551, 1).as_deref(),
+            Some("Jaw Worm")
+        );
+        assert_eq!(
+            normal_encounter_key_at_combat_index(1_957_307_888_551, 2).as_deref(),
+            Some("2 Louse")
+        );
+        assert_eq!(
+            normal_encounter_key_at_combat_index(22_079_335_079, 2).as_deref(),
+            Some("2 Louse")
+        );
     }
 
     #[test]

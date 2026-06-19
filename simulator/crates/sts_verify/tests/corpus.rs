@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use sts_core::content::encounters::generate_exordium_normal_encounters;
 use sts_core::content::monsters::{
-    target_jaw_worm_hp_roll, target_small_slimes_hp_rolls, target_two_louse_hp_rolls,
-    TargetMonsterHp,
+    target_cultist_hp_roll, target_jaw_worm_hp_roll, target_small_slimes_hp_rolls,
+    target_two_louse_hp_rolls, TargetMonsterHp,
 };
 use sts_core::{
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
@@ -158,14 +158,90 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
 }
 
 #[test]
-fn codex03_lament_trace_records_first_three_encounter_targets() {
+fn verify01_trace_records_first_map_choice_targets() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T06-04-49-264Z.jsonl")
+    else {
+        return;
+    };
+
+    let (maps, _encounters) = captured_map_and_encounter_prefixes(&content);
+
+    assert_sequence_eq(
+        "VERIFY01 first map-choice screens",
+        maps.into_iter().take(2).collect(),
+        vec![
+            CapturedMapPrefix {
+                action_step: 5,
+                floor: 0,
+                choices: vec!["x=1".to_owned(), "x=2".to_owned()],
+            },
+            CapturedMapPrefix {
+                action_step: 19,
+                floor: 1,
+                choices: vec!["x=2".to_owned()],
+            },
+        ],
+    );
+    assert_sequence_eq(
+        "VERIFY01 generated map choices after path",
+        generate_exordium_map_choices_after_path(1_957_307_888_551, &[1]),
+        vec![ExordiumMapChoiceStep {
+            floor: 1,
+            x: 1,
+            next_choices: vec![2],
+        }],
+    );
+}
+
+#[test]
+fn codex03_lament_trace_records_first_three_map_and_encounter_targets() {
     let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
     else {
         return;
     };
 
-    let (_maps, encounters) = captured_map_and_encounter_prefixes(&content);
+    let (maps, encounters) = captured_map_and_encounter_prefixes(&content);
 
+    assert_sequence_eq(
+        "CODEX03 first map-choice screens",
+        maps,
+        vec![
+            CapturedMapPrefix {
+                action_step: 4,
+                floor: 0,
+                choices: vec!["x=1".to_owned(), "x=2".to_owned(), "x=5".to_owned()],
+            },
+            CapturedMapPrefix {
+                action_step: 10,
+                floor: 1,
+                choices: vec!["x=0".to_owned(), "x=1".to_owned()],
+            },
+            CapturedMapPrefix {
+                action_step: 16,
+                floor: 2,
+                choices: vec!["x=1".to_owned()],
+            },
+        ],
+    );
+    assert_sequence_eq(
+        "CODEX03 generated map choices after path",
+        generate_exordium_map_choices_after_path(22_079_335_078, &[1, 0, 1])
+            .into_iter()
+            .take(2)
+            .collect(),
+        vec![
+            ExordiumMapChoiceStep {
+                floor: 1,
+                x: 1,
+                next_choices: vec![0, 1],
+            },
+            ExordiumMapChoiceStep {
+                floor: 2,
+                x: 0,
+                next_choices: vec![1],
+            },
+        ],
+    );
     assert_sequence_eq(
         "CODEX03 first three encounters under Neow's Lament",
         encounters.into_iter().take(3).collect(),
@@ -200,6 +276,7 @@ fn codex03_lament_trace_records_first_three_encounter_targets() {
         ],
     );
     assert_eq!(target_jaw_worm_hp_roll(22_079_335_078, 1, 0), 43);
+    assert_eq!(target_cultist_hp_roll(22_079_335_078, 2, 0), 54);
     assert_sequence_eq(
         "CODEX03 floor-3 louse max HP rolls",
         target_two_louse_hp_rolls(22_079_335_078, 3, 0),
@@ -214,6 +291,16 @@ fn codex03_lament_trace_records_first_three_encounter_targets() {
             },
         ],
     );
+}
+
+#[test]
+fn codex03_full_captured_map_matches_target_topology() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
+    else {
+        return;
+    };
+
+    assert_captured_map_matches_target_topology(&content, 22_079_335_078);
 }
 
 #[test]
@@ -455,6 +542,21 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
             .all(|boundary| boundary.status != "captured_opaque"),
         "no RNG boundary should remain captured_opaque"
     );
+
+    let m22 = seed_start
+        .m22_encounter_report
+        .as_ref()
+        .expect("m22 encounter report");
+    assert!(m22.mismatches.is_empty(), "m22 mismatches: {:?}", m22.mismatches);
+    assert_eq!(m22.verified_entries.len(), 3);
+    assert_eq!(
+        m22
+            .verified_entries
+            .iter()
+            .map(|entry| entry.encounter_key.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Cultist", "Jaw Worm", "2 Louse"]
+    );
 }
 
 #[test]
@@ -557,6 +659,21 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
             .reason
             .contains("potions, max-hp removal, and boss swap")),
         "unchosen CODEX04 Neow branches should be named"
+    );
+
+    let m22 = seed_start
+        .m22_encounter_report
+        .as_ref()
+        .expect("m22 encounter report");
+    assert!(m22.mismatches.is_empty(), "m22 mismatches: {:?}", m22.mismatches);
+    assert_eq!(m22.verified_entries.len(), 3);
+    assert_eq!(
+        m22
+            .verified_entries
+            .iter()
+            .map(|entry| entry.encounter_key.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Cultist", "Small Slimes", "2 Louse"]
     );
 }
 

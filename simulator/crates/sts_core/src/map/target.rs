@@ -149,6 +149,30 @@ pub fn generate_exordium_map_choices_after_path(
     generator.choices_after_path(path_xs)
 }
 
+/// Returns the room kind assigned to each node along a captured Exordium path prefix.
+#[must_use]
+pub fn exordium_room_kinds_on_path(seed: i64, path_xs: &[i32]) -> Vec<RoomKind> {
+    use crate::map::{apply_map_action, MapAction};
+
+    let mut state = generate_exordium_fixed_map(seed);
+    let mut kinds = Vec::with_capacity(path_xs.len());
+    for (row, x) in path_xs.iter().copied().enumerate() {
+        let node_id = exordium_map_node_id(row, x);
+        let room_kind = state
+            .map
+            .node(node_id)
+            .expect("path node exists")
+            .room_kind;
+        kinds.push(room_kind);
+        state = apply_map_action(
+            &state,
+            MapAction::ChooseNode { node_id },
+        )
+        .expect("path node is reachable");
+    }
+    kinds
+}
+
 struct TargetMapGenerator {
     rng: StsRng,
     grid: Vec<Vec<TopologyNode>>,
@@ -702,6 +726,10 @@ mod tests {
             generate_exordium_map_topology(22_079_335_079).first_row_choices,
             vec![0, 2, 4, 5]
         );
+        assert_eq!(
+            generate_exordium_map_topology(22_079_335_078).first_row_choices,
+            vec![1, 2, 5]
+        );
     }
 
     #[test]
@@ -943,6 +971,71 @@ mod tests {
                     next_choices: vec![2, 3],
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn exordium_reachable_choices_match_codex03_captured_path_prefix() {
+        let choices = generate_exordium_map_choices_after_path(22_079_335_078, &[1, 0, 1]);
+
+        assert_eq!(
+            choices,
+            vec![
+                ExordiumMapChoiceStep {
+                    floor: 1,
+                    x: 1,
+                    next_choices: vec![0, 1],
+                },
+                ExordiumMapChoiceStep {
+                    floor: 2,
+                    x: 0,
+                    next_choices: vec![1],
+                },
+                ExordiumMapChoiceStep {
+                    floor: 3,
+                    x: 1,
+                    next_choices: vec![0, 1, 2],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn exordium_reachable_choices_match_verify01_captured_path_prefix() {
+        let choices = generate_exordium_map_choices_after_path(1_957_307_888_551, &[1]);
+
+        assert_eq!(
+            choices,
+            vec![ExordiumMapChoiceStep {
+                floor: 1,
+                x: 1,
+                next_choices: vec![2],
+            }]
+        );
+    }
+
+    #[test]
+    fn exordium_room_kinds_on_captured_first_three_combat_paths() {
+        assert_eq!(
+            exordium_room_kinds_on_path(22_079_335_079, &[2, 3, 2]),
+            vec![RoomKind::Combat; 3]
+        );
+        assert_eq!(
+            exordium_room_kinds_on_path(22_079_335_078, &[1, 0, 1]),
+            vec![RoomKind::Combat; 3]
+        );
+
+        let verify01_floor_three_x = generate_exordium_map_choices_after_path(
+            1_957_307_888_551,
+            &[1, 2],
+        )[1]
+        .next_choices[0];
+        assert_eq!(
+            exordium_room_kinds_on_path(
+                1_957_307_888_551,
+                &[1, 2, verify01_floor_three_x],
+            ),
+            vec![RoomKind::Combat; 3]
         );
     }
 }

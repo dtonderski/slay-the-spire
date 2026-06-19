@@ -3,6 +3,7 @@
 
 pub mod diff;
 pub mod importer;
+pub mod m22;
 pub mod normalize;
 pub mod seed;
 pub mod sim_real;
@@ -13,6 +14,9 @@ pub use importer::{observations_from_trace, ImportedTraceStep};
 pub use normalize::{
     normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
     CanonicalMonsterObservation, CanonicalRunObservation,
+};
+pub use m22::{
+    verify_m22_encounter_spawn_prefix, M22EncounterEntry, M22EncounterMismatch, M22EncounterReport,
 };
 pub use seed::{sts_seed_string_to_long, STS_SEED_ALPHABET};
 pub use sim_real::{
