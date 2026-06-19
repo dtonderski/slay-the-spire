@@ -676,7 +676,14 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
         "Dramatic Entrance",
         "map floor 2 monster node",
         "map floor 3 monster node",
+        "captured floor 1 gold reward",
+        "captured floor 1 card reward choices",
+        "captured Battle Trance pickup",
         "return to map after floor 1",
+        "captured floor 2 gold reward",
+        "captured floor 2 potion skip",
+        "captured floor 2 card reward choices",
+        "captured Shrug It Off pickup",
         "return to map after floor 2",
     ] {
         assert!(

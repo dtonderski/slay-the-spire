@@ -967,6 +967,8 @@ Follow-up (M24+): remove post-END pile resync once innate/extra-card master-deck
 
 ## Milestone 24: Reward, Potion, Relic, Shop, Rest, and Event RNG Parity
 
+Status: in progress. The CODEX04 seed-start verifier now checks captured floor-1/floor-2 reward screens and pickup mutations against explicit expected states rather than observed-state echoing: 19/17 gold pickups, Battle Trance and Shrug It Off card reward screens/picks, potion skip, deck mutations, and post-reward map returns are pinned with `unexpected_diffs=0`. Broad game-compatible reward gold/card/potion/relic RNG is still pending.
+
 Goal: make post-combat and non-combat room outcomes seed-start compatible for captured Act 1 paths.
 
 Tasks:
