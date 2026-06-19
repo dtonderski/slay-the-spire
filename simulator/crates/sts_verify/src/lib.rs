@@ -4,6 +4,7 @@
 pub mod diff;
 pub mod importer;
 pub mod normalize;
+pub mod seed;
 pub mod sim_real;
 pub mod trace;
 
@@ -13,6 +14,7 @@ pub use normalize::{
     normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
     CanonicalMonsterObservation, CanonicalRunObservation,
 };
+pub use seed::{sts_seed_string_to_long, STS_SEED_ALPHABET};
 pub use sim_real::{
     verify_communication_mod_trace, verify_communication_mod_trace_with_mode,
     verify_seed_start_communication_mod_trace, RngBoundary, SeedStartBoundary, SeedStartReport,

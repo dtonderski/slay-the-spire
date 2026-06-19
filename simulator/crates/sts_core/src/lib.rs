@@ -32,9 +32,11 @@ pub use content::deck::{ironclad_starter_deck, ironclad_starter_deck_for_ascensi
 pub use error::{SimError, SimResult};
 pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 pub use map::{
-    apply_map_action, generate_map_placeholder, generated_map_fixture, legal_map_actions,
-    milestone8_fixture, milestone8_map, reachable_nodes, validate_map_action, FixedMap, MapAction,
-    MapNode, MapRunState, RoomKind,
+    apply_map_action, generate_exordium_map_choices_after_path, generate_exordium_map_topology,
+    generate_map_placeholder, generated_map_fixture, legal_map_actions, milestone8_fixture,
+    milestone8_map, reachable_nodes, validate_map_action, ExordiumFixedRoomRow,
+    ExordiumMapChoiceStep, ExordiumMapTopology, FixedMap, MapAction, MapNode, MapRunState,
+    RoomKind,
 };
 pub use potion::{
     Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,
@@ -49,7 +51,7 @@ pub use relic::{
     ODDLY_SMOOTH_STONE_DEXTERITY, ODDLY_SMOOTH_STONE_ID, ORNAMENTAL_FAN_BLOCK, ORNAMENTAL_FAN_ID,
     ORNAMENTAL_FAN_THRESHOLD, STRAWBERRY_ID, STRAWBERRY_MAX_HP, VAJRA_ID, VAJRA_STRENGTH,
 };
-pub use rng::{RngDraw, RngStream, SimulatorRng};
+pub use rng::{RngDraw, RngStream, SimulatorRng, StsRng};
 pub use run::{
     apply_combat_action_on_run, apply_event_action, apply_map_action_on_run, apply_potion_action,
     apply_rest_action, apply_run_action, apply_shop_action, card_reward_choices,

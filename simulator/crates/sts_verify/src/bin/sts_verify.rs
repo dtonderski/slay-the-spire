@@ -135,6 +135,10 @@ fn main() {
                     seed_start.start_command.external_seed
                 );
                 println!(
+                    "seed_start.numeric_seed={}",
+                    seed_start.start_command.numeric_seed
+                );
+                println!(
                     "seed_start.first_boundary.path={}",
                     seed_start.first_boundary.path
                 );
