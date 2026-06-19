@@ -1,7 +1,9 @@
 use sts_core::content::monsters::{
     target_small_slimes_hp_rolls, target_two_louse_hp_rolls, TargetMonsterHp,
 };
-use sts_core::{generate_exordium_map_choices_after_path, ExordiumMapChoiceStep};
+use sts_core::{
+    generate_exordium_map_choices_after_path, generate_exordium_map_topology, ExordiumMapChoiceStep,
+};
 use sts_verify::{
     canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
     verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ManualFixture,
@@ -20,6 +22,13 @@ struct CapturedMapPrefix {
     action_step: u32,
     floor: i64,
     choices: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CapturedMapNode {
+    x: i64,
+    y: i64,
+    children: Vec<(i64, i64)>,
 }
 
 #[test]
@@ -136,6 +145,31 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
             },
         ]
     );
+}
+
+#[test]
+fn codex04_full_captured_map_edges_match_target_topology() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl")
+    else {
+        return;
+    };
+
+    let captured = captured_first_full_map(&content);
+    let generated = generate_exordium_map_topology(22_079_335_079)
+        .assigned_rooms
+        .iter()
+        .map(|room| CapturedMapNode {
+            x: i64::from(room.x),
+            y: room.row as i64,
+            children: room
+                .children
+                .iter()
+                .map(|child| (i64::from(child.x), child.row as i64))
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(generated, captured);
 }
 
 #[test]
@@ -440,6 +474,55 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
             .contains("potions, max-hp removal, and boss swap")),
         "unchosen CODEX04 Neow branches should be named"
     );
+}
+
+fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");
+        let Some(nodes) = value
+            .get("message")
+            .and_then(|message| message.get("game_state"))
+            .and_then(|game| game.get("map"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+
+        return nodes
+            .iter()
+            .map(|node| CapturedMapNode {
+                x: node
+                    .get("x")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(-1),
+                y: node
+                    .get("y")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(-1),
+                children: node
+                    .get("children")
+                    .and_then(serde_json::Value::as_array)
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|child| {
+                        (
+                            child
+                                .get("x")
+                                .and_then(serde_json::Value::as_i64)
+                                .unwrap_or(-1),
+                            child
+                                .get("y")
+                                .and_then(serde_json::Value::as_i64)
+                                .unwrap_or(-1),
+                        )
+                    })
+                    .collect(),
+            })
+            .collect();
+    }
+
+    Vec::new()
 }
 
 fn captured_map_and_encounter_prefixes(

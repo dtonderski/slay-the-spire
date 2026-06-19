@@ -379,6 +379,9 @@ impl TargetMapGenerator {
         self.grid[node.0][node.1]
             .edges
             .sort_by_key(|edge| (edge.dst_x, edge.dst_y));
+        self.grid[node.0][node.1]
+            .edges
+            .dedup_by_key(|edge| (edge.dst_x, edge.dst_y));
     }
 
     fn topology(mut self) -> ExordiumMapTopology {
@@ -593,6 +596,9 @@ impl TargetMapGenerator {
             .iter()
             .flat_map(|row| {
                 row.iter().filter_map(|node| {
+                    if !node.has_edges() {
+                        return None;
+                    }
                     node.room_kind.map(|room_kind| ExordiumAssignedRoom {
                         row: node.y as usize,
                         x: node.x,
