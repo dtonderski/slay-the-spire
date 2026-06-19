@@ -622,38 +622,41 @@ fn verify_seed_start_transitions(
                 combat_step += 1;
             }
             SeedStartPhase::Reward if start.external_seed == "CODEX04" => {
-                if !action.command.to_ascii_uppercase().starts_with("CHOOSE ") {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_reward_path".to_owned(),
-                        reason: format!(
-                            "seed-start verifier expected CHOOSE in CODEX04 reward phase; got '{}'",
-                            action.command
-                        ),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return boundary;
-                }
-                let label = seed_start_codex04_reward_label(&action.command, &post.message);
-                compare_subset(
-                    report,
-                    action,
-                    &label,
-                    seed_start_reward_observed_subset(&post.message),
-                    seed_start_reward_observed_subset(&post.message),
-                );
-                deck_ids = deck_keys_from_value(
-                    post.message
-                        .get("game_state")
-                        .and_then(|game| game.get("deck")),
-                );
-                reward_step += 1;
-                if seed_start_codex04_reward_complete(combat_index, reward_step) {
-                    phase = SeedStartPhase::Proceed;
+                match seed_start_codex04_reward_expected(combat_index, reward_step, &action.command)
+                {
+                    Some(expected) => {
+                        compare_subset(
+                            report,
+                            action,
+                            expected.label,
+                            seed_start_reward_observed_subset(&post.message),
+                            expected.state,
+                        );
+                        deck_ids = deck_keys_from_value(
+                            post.message
+                                .get("game_state")
+                                .and_then(|game| game.get("deck")),
+                        );
+                        reward_step += 1;
+                        if expected.ends_reward {
+                            phase = SeedStartPhase::Proceed;
+                        }
+                    }
+                    None => {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_reward_path".to_owned(),
+                            reason: format!(
+                                "seed-start verifier expected captured CODEX04 reward command for combat {combat_index} local reward step {reward_step}; broad reward RNG and alternate reward-screen ordering are not implemented"
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return boundary;
+                    }
                 }
             }
             SeedStartPhase::Reward => {
@@ -740,7 +743,7 @@ fn verify_seed_start_transitions(
                         action,
                         &label,
                         seed_start_map_return_observed_subset(&post.message),
-                        seed_start_map_return_observed_subset(&post.message),
+                        seed_start_codex04_map_return_expected(combat_index),
                     );
                     combat_index += 1;
                     reward_step = 0;
@@ -1436,6 +1439,24 @@ fn ironclad_deck_with_twin_strike_keys() -> Vec<String> {
     deck
 }
 
+fn codex04_deck_after_neow_keys() -> Vec<String> {
+    let mut deck = ironclad_starter_deck_keys();
+    deck.push("Dramatic Entrance".to_owned());
+    deck
+}
+
+fn codex04_deck_after_floor1_keys() -> Vec<String> {
+    let mut deck = codex04_deck_after_neow_keys();
+    deck.push("Battle Trance".to_owned());
+    deck
+}
+
+fn codex04_deck_after_floor2_keys() -> Vec<String> {
+    let mut deck = codex04_deck_after_floor1_keys();
+    deck.push("Shrug It Off".to_owned());
+    deck
+}
+
 fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
     match seed {
         "CODEX04" => vec![
@@ -1489,39 +1510,225 @@ fn seed_start_map_choice(seed: &str, pick_index: usize) -> usize {
     }
 }
 
-fn seed_start_codex04_reward_complete(combat_index: usize, reward_step: usize) -> bool {
-    match combat_index {
-        0 => reward_step >= 3,
-        1 => reward_step >= 4,
-        _ => false,
+fn seed_start_codex04_reward_expected(
+    combat_index: usize,
+    reward_step: usize,
+    command: &str,
+) -> Option<CapturedRewardExpectation> {
+    let expected_command = match (combat_index, reward_step) {
+        (0, 0..=2) | (1, 0..=2) => "CHOOSE 0",
+        (1, 3) => "CHOOSE 1",
+        _ => return None,
+    };
+    if !command.eq_ignore_ascii_case(expected_command) {
+        return None;
     }
+
+    let expectation = match (combat_index, reward_step) {
+        (0, 0) => CapturedRewardExpectation {
+            label: "captured floor 1 gold reward",
+            state: codex04_reward_state(
+                1,
+                118,
+                codex04_deck_after_neow_keys(),
+                vec!["card"],
+                vec!["CARD"],
+                Vec::new(),
+                reward_rng_unobservable(),
+            ),
+            ends_reward: false,
+        },
+        (0, 1) => CapturedRewardExpectation {
+            label: "captured floor 1 card reward choices",
+            state: codex04_card_reward_state(
+                1,
+                118,
+                codex04_deck_after_neow_keys(),
+                vec!["battle trance", "twin strike", "entrench"],
+                vec!["Battle Trance", "Twin Strike", "Entrench"],
+            ),
+            ends_reward: false,
+        },
+        (0, 2) => CapturedRewardExpectation {
+            label: "captured Battle Trance pickup",
+            state: codex04_reward_state(
+                1,
+                118,
+                codex04_deck_after_floor1_keys(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                json!({ "picked_card_uuid": true }),
+            ),
+            ends_reward: true,
+        },
+        (1, 0) => CapturedRewardExpectation {
+            label: "captured floor 2 gold reward",
+            state: codex04_reward_state(
+                2,
+                135,
+                codex04_deck_after_floor1_keys(),
+                vec!["potion", "card"],
+                vec!["POTION", "CARD"],
+                Vec::new(),
+                reward_rng_unobservable(),
+            ),
+            ends_reward: false,
+        },
+        (1, 1) => CapturedRewardExpectation {
+            label: "captured floor 2 potion skip",
+            state: codex04_reward_state(
+                2,
+                135,
+                codex04_deck_after_floor1_keys(),
+                vec!["card"],
+                vec!["CARD"],
+                Vec::new(),
+                reward_rng_unobservable(),
+            ),
+            ends_reward: false,
+        },
+        (1, 2) => CapturedRewardExpectation {
+            label: "captured floor 2 card reward choices",
+            state: codex04_card_reward_state(
+                2,
+                135,
+                codex04_deck_after_floor1_keys(),
+                vec!["flex", "shrug it off", "cleave"],
+                vec!["Flex", "Shrug It Off", "Cleave"],
+            ),
+            ends_reward: false,
+        },
+        (1, 3) => CapturedRewardExpectation {
+            label: "captured Shrug It Off pickup",
+            state: codex04_reward_state(
+                2,
+                135,
+                codex04_deck_after_floor2_keys(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                json!({ "picked_card_uuid": true }),
+            ),
+            ends_reward: true,
+        },
+        _ => return None,
+    };
+    Some(expectation)
 }
 
-fn seed_start_codex04_reward_label(command: &str, message: &Value) -> String {
-    if command.eq_ignore_ascii_case("CHOOSE 1") {
-        return "skip potion reward".to_owned();
-    }
-    let screen_type = message
-        .get("game_state")
-        .and_then(|game| game.get("screen_type"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    match screen_type {
-        "CARD_REWARD" => "captured card reward choices".to_owned(),
-        "COMBAT_REWARD" => {
-            let reward_types = reward_types_from_value(
-                message
-                    .get("game_state")
-                    .and_then(|game| game.get("screen_state"))
-                    .and_then(|state| state.get("rewards")),
-            );
-            if reward_types.is_empty() {
-                "captured card pickup".to_owned()
-            } else {
-                "captured gold reward".to_owned()
-            }
+fn codex04_reward_state(
+    floor: u32,
+    gold: i32,
+    deck_ids: Vec<String>,
+    choices: Vec<&'static str>,
+    reward_types: Vec<&'static str>,
+    card_reward_ids: Vec<&'static str>,
+    unobservable: Value,
+) -> Value {
+    let mut state = json!({
+        "screen_type": "COMBAT_REWARD",
+        "floor": floor,
+        "gold": gold,
+        "current_hp": 80,
+        "max_hp": 80,
+        "deck_ids": deck_ids,
+        "relic_ids": ["Burning Blood"],
+        "choices": choices,
+        "reward_types": reward_types,
+        "unobservable": unobservable,
+    });
+    if !card_reward_ids.is_empty() {
+        if let Value::Object(map) = &mut state {
+            insert(map, "card_reward_ids", card_reward_ids);
         }
-        _ => "captured reward transition".to_owned(),
+    }
+    state
+}
+
+fn codex04_card_reward_state(
+    floor: u32,
+    gold: i32,
+    deck_ids: Vec<String>,
+    choices: Vec<&'static str>,
+    card_reward_ids: Vec<&'static str>,
+) -> Value {
+    json!({
+        "screen_type": "CARD_REWARD",
+        "floor": floor,
+        "gold": gold,
+        "current_hp": 80,
+        "max_hp": 80,
+        "deck_ids": deck_ids,
+        "relic_ids": ["Burning Blood"],
+        "choices": choices,
+        "card_reward_ids": card_reward_ids,
+        "unobservable": {
+            "card_reward_rng_draws": true,
+            "card_reward_uuids": true,
+        },
+    })
+}
+
+fn reward_rng_unobservable() -> Value {
+    json!({
+        "reward_gold_rng_draws": true,
+        "reward_screen_internal_ids": true,
+    })
+}
+
+fn seed_start_codex04_map_return_expected(combat_index: usize) -> Value {
+    match combat_index {
+        0 => json!({
+            "screen_type": "MAP",
+            "floor": 1,
+            "gold": 118,
+            "current_hp": 80,
+            "max_hp": 80,
+            "deck_ids": codex04_deck_after_floor1_keys(),
+            "relic_ids": ["Burning Blood"],
+            "choices": ["x=3"],
+            "first_node_chosen": true,
+            "current_node": {
+                "symbol": "M",
+                "x": 2,
+                "y": 0,
+            },
+            "next_nodes": [{
+                "symbol": "M",
+                "x": 3,
+                "y": 1,
+            }],
+        }),
+        1 => json!({
+            "screen_type": "MAP",
+            "floor": 2,
+            "gold": 135,
+            "current_hp": 80,
+            "max_hp": 80,
+            "deck_ids": codex04_deck_after_floor2_keys(),
+            "relic_ids": ["Burning Blood"],
+            "choices": ["x=2", "x=3"],
+            "first_node_chosen": true,
+            "current_node": {
+                "symbol": "M",
+                "x": 3,
+                "y": 1,
+            },
+            "next_nodes": [
+                {
+                    "symbol": "M",
+                    "x": 2,
+                    "y": 2,
+                },
+                {
+                    "symbol": "?",
+                    "x": 3,
+                    "y": 2,
+                },
+            ],
+        }),
+        _ => seed_start_map_return_observed_subset(&json!({})),
     }
 }
 
@@ -1749,13 +1956,13 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "cardRewardRng".to_owned(),
             save_counter: Some("card_seed_count".to_owned()),
             status: "captured_branch".to_owned(),
-            reason: "captured reward choices Twin Strike, Heavy Blade, and Intimidate are verified for this trace; broad card reward RNG remains placeholder".to_owned(),
+            reason: "captured VERIFY01 card choices and CODEX04 floor-1/floor-2 reward choices are verified for passing traces; broad card reward RNG remains placeholder".to_owned(),
         },
         RngBoundary {
             stream: "rewardGoldRng".to_owned(),
             save_counter: None,
             status: "captured_value".to_owned(),
-            reason: "captured 14 gold reward is verified for this trace; broad combat reward gold RNG is not game-compatible".to_owned(),
+            reason: "captured VERIFY01 and CODEX04 floor-1/floor-2 gold rewards are verified for passing traces; broad combat reward gold RNG is not game-compatible".to_owned(),
         },
         RngBoundary {
             stream: "relicRng".to_owned(),
