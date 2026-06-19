@@ -114,6 +114,7 @@ pub struct TargetEncounterSpawn {
     pub block: i32,
     pub intent: &'static str,
     pub powers: Vec<TargetSpawnPower>,
+    pub rolled_attack_damage: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -485,8 +486,11 @@ pub fn target_two_louse_spawn_states(
                 LouseKind::Defensive => target_louse_defensive_hp_range(ascension),
             };
             let max_hp = hp_range.roll(&mut hp_rng);
-            let _bite_damage = target_louse_bite_damage_range(ascension).roll(&mut hp_rng);
-            target_combat_entry_spawn("Louse", max_hp, neow_lament, Vec::new())
+            let bite_damage = target_louse_bite_damage_range(ascension).roll(&mut hp_rng);
+            let mut spawn =
+                target_combat_entry_spawn("Louse", max_hp, neow_lament, Vec::new());
+            spawn.rolled_attack_damage = Some(bite_damage);
+            spawn
         })
         .collect::<Vec<_>>();
 
@@ -574,6 +578,7 @@ fn target_combat_entry_spawn(
         block: 0,
         intent: "DEBUG",
         powers,
+        rolled_attack_damage: None,
     }
 }
 
