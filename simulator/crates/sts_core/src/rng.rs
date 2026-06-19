@@ -14,6 +14,18 @@ pub struct RngDraw {
     pub value: usize,
 }
 
+/// Slay the Spire's target-game RNG wrapper for version `12-18-2022`.
+///
+/// The game class `com.megacrit.cardcrawl.random.Random` wraps libGDX
+/// `RandomXS128`, increments `counter` once per public draw, and uses inclusive
+/// integer bounds for `random(min, max)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StsRng {
+    seed0: u64,
+    seed1: u64,
+    counter: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RngStream {
     Event,
@@ -75,6 +87,122 @@ impl SimulatorRng {
     }
 }
 
+impl StsRng {
+    const ZERO_SEED_REPLACEMENT: u64 = 0x8000_0000_0000_0000;
+    const MURMUR_MULTIPLIER_1: u64 = 0xff51_afd7_ed55_8ccd;
+    const MURMUR_MULTIPLIER_2: u64 = 0xc4ce_b9fe_1a85_ec53;
+
+    #[must_use]
+    pub fn new(seed: i64) -> Self {
+        let seed = if seed == 0 {
+            Self::ZERO_SEED_REPLACEMENT
+        } else {
+            seed as u64
+        };
+        let seed0 = Self::murmur_hash3(seed);
+        let seed1 = Self::murmur_hash3(seed0);
+        Self {
+            seed0,
+            seed1,
+            counter: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn with_counter(seed: i64, counter: u32) -> Self {
+        let mut rng = Self::new(seed);
+        rng.set_counter(counter);
+        rng
+    }
+
+    #[must_use]
+    pub fn counter(&self) -> u32 {
+        self.counter
+    }
+
+    #[must_use]
+    pub fn state(&self) -> (u64, u64) {
+        (self.seed0, self.seed1)
+    }
+
+    pub fn set_counter(&mut self, target: u32) {
+        assert!(
+            target >= self.counter,
+            "STS RNG counter cannot move backwards"
+        );
+        while self.counter < target {
+            self.random_bool();
+        }
+    }
+
+    pub fn random_int(&mut self, max_inclusive: i32) -> i32 {
+        assert!(max_inclusive >= 0, "STS RNG max must be non-negative");
+        self.counter += 1;
+        self.next_int(max_inclusive + 1)
+    }
+
+    pub fn random_int_range(&mut self, min_inclusive: i32, max_inclusive: i32) -> i32 {
+        assert!(
+            max_inclusive >= min_inclusive,
+            "STS RNG range must be ordered"
+        );
+        self.counter += 1;
+        min_inclusive + self.next_int(max_inclusive - min_inclusive + 1)
+    }
+
+    pub fn random_bool(&mut self) -> bool {
+        self.counter += 1;
+        (self.next_long() & 1) != 0
+    }
+
+    pub fn random_float(&mut self) -> f32 {
+        self.counter += 1;
+        ((self.next_long() >> 40) as f64 * 5.960_464_477_539_063e-8) as f32
+    }
+
+    pub fn random_long(&mut self) -> i64 {
+        self.counter += 1;
+        self.next_long() as i64
+    }
+
+    pub fn raw_next_int(&mut self, bound_exclusive: i32) -> i32 {
+        self.next_int(bound_exclusive)
+    }
+
+    fn next_int(&mut self, bound_exclusive: i32) -> i32 {
+        assert!(bound_exclusive > 0, "STS RNG bound must be positive");
+        self.next_long_bound(bound_exclusive as u64) as i32
+    }
+
+    fn next_long_bound(&mut self, bound_exclusive: u64) -> u64 {
+        loop {
+            let bits = self.next_long() >> 1;
+            let value = bits % bound_exclusive;
+            if (bits.wrapping_sub(value).wrapping_add(bound_exclusive - 1) as i64) >= 0 {
+                return value;
+            }
+        }
+    }
+
+    fn next_long(&mut self) -> u64 {
+        let mut s1 = self.seed0;
+        let s0 = self.seed1;
+        self.seed0 = s0;
+        s1 ^= s1 << 23;
+        self.seed1 = s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26);
+        self.seed1.wrapping_add(s0)
+    }
+
+    fn murmur_hash3(mut value: u64) -> u64 {
+        value ^= value >> 33;
+        value = value.wrapping_mul(Self::MURMUR_MULTIPLIER_1);
+        value ^= value >> 33;
+        value = value.wrapping_mul(Self::MURMUR_MULTIPLIER_2);
+        value ^= value >> 33;
+        value
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +228,48 @@ mod tests {
 
         assert_ne!(rng.seed_state(), 0);
         assert_ne!([first, second], [0, 0]);
+    }
+
+    #[test]
+    fn sts_rng_matches_target_randomxs128_reference_outputs() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        assert_eq!(rng.random_int(99), 63);
+        assert_eq!(rng.random_int(99), 25);
+        assert_eq!(rng.random_int(99), 52);
+        assert_eq!(rng.counter(), 3);
+    }
+
+    #[test]
+    fn sts_rng_float_matches_target_randomxs128_reference_output() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        assert_eq!(rng.random_float().to_bits(), 0x396a_1000);
+        assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
+    fn sts_rng_inclusive_range_uses_target_random_reference_output() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        assert_eq!(rng.random_int_range(49, 54), 54);
+        assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
+    fn sts_rng_counter_constructor_advances_with_public_draw_semantics() {
+        let mut stepped = StsRng::new(1_957_307_888_551);
+        for _ in 0..5 {
+            stepped.random_bool();
+        }
+
+        let advanced = StsRng::with_counter(1_957_307_888_551, 5);
+
+        assert_eq!(advanced.counter(), 5);
+        assert_eq!(advanced.state(), stepped.state());
+        assert_eq!(
+            advanced.clone().random_int(99),
+            stepped.clone().random_int(99)
+        );
     }
 }

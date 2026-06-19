@@ -833,3 +833,179 @@ Do not implement:
 - claims about full Act 1 or arbitrary seeds
 - full-run outcome parity
 - RL training integration
+
+## Milestone 19: Trace Verifier Coverage and Corpus Hygiene
+
+Goal: make observed-state verification trustworthy on newly captured controller traces by removing false positives and naming every unsupported surface precisely.
+
+Tasks:
+
+- add `trace-2026-06-18T16-50-50-232Z.jsonl` or a minimized version of it to the regression corpus
+- support CommunicationMod `PLAY n` no-target commands for all mapped no-target cards
+- add unmapped-card classification so unknown cards do not shift hand/deck indices and produce bogus diffs
+- compare the correct live monster when earlier enemies are dead
+- classify unsupported monster-turn AI by monster group instead of reporting it as an unexpected diff
+- make reward/deck comparisons partial when the observed deck contains unmapped cards
+- add regression tests for `Dramatic Entrance`, nonzero reward choices, and multi-monster observed-state comparison
+
+Acceptance tests:
+
+- `cargo test -p sts_verify`
+- observed-state parity on the new controller trace has no false `unexpected_diff` caused by unmapped cards or dead-front monsters
+- unsupported counts include stable reasons for every skipped command
+
+Do not implement:
+
+- real RNG parity
+- new card mechanics beyond what is needed to avoid verifier misclassification
+- broad monster AI parity
+
+## Milestone 20: External Seed Conversion and RNG Stream Audit
+
+Status: complete. `SeedHelper.getLong(String)` was recovered from the target `12-18-2022` `desktop-1.0.jar`; captured seed tests pass for `VERIFY01`, `CODEX03`, and `CODEX04`; seed-start reports now include `numeric_seed` and classify seed conversion as `source_backed`.
+
+Goal: replace opaque seed handling with target-version-compatible seed initialization evidence.
+
+Tasks:
+
+- document Slay the Spire seed string to numeric seed conversion for version `12-18-2022`
+- add tests for known seed strings captured through CommunicationMod
+- map real save-file RNG counters to simulator stream names
+- record which stream advances for Neow, map, encounter, monster HP, shuffle, rewards, relics, potions, shop, and events
+- add CLI output that reports stream/counter deltas where observed or inferred
+
+Acceptance tests:
+
+- seed conversion tests pass for at least three captured seeds
+- `seed-start` reports no `captured_opaque` status for seed conversion
+- documentation cites exact source/code evidence
+
+Do not implement:
+
+- map generation
+- reward RNG
+- full save import
+
+## Milestone 21: General Neow and Colorless Reward Parity
+
+Status: captured-path implementation complete for `trace-2026-06-18T16-50-50-232Z.jsonl`. Seed-start mode verifies `CODEX04` from `START IRONCLAD 0 CODEX04` through the captured Neow colorless-card branch, including the `Deep Breath` / `Dramatic Entrance` / `Jack Of All Trades` reward screen, picking `Dramatic Entrance`, and leaving to the first map-choice screen. Broad real-game Neow option RNG remains classified as captured-branch only; executing map nodes and encounters begins in Milestone 22.
+
+Goal: support the Neow branches seen in controller traces, including colorless-card rewards.
+
+Tasks:
+
+- implement Neow option generation from the real RNG streams
+- implement colorless card reward generation for Neow
+- add mapped content for colorless cards needed by captured traces, starting with `Dramatic Entrance`
+- verify `CODEX04` through Neow card pick and leave from seed-start mode
+- keep unsupported branch classification for boss swap and remove-card branches until implemented
+
+Acceptance tests:
+
+- seed-start parity reaches the first map choice for `CODEX04`
+- observed-state parity can simulate `Dramatic Entrance` without classifying it as unknown
+- unchosen Neow branches remain named, not silent
+
+Do not implement:
+
+- all colorless cards
+- all boss relic swaps
+- full Act 1 path parity
+
+## Milestone 22: Act 1 Map, Encounter, and Monster HP RNG Parity for Arbitrary Captured Seeds
+
+Status: captured-target coverage expanded for `trace-2026-06-18T16-50-50-232Z.jsonl`. Seed-start mode now executes CODEX04's first map choice `CHOOSE 1`, verifies entry to floor 1, and checks the first encounter as a source-backed 54/54 HP Cultist with visible `DEBUG` intent. The corpus tests also pin CODEX04's first three observed map-choice and encounter targets: floor 1 Cultist 54/54, floor 2 Spike Slime (S) 11/11 plus Acid Slime (M) 32/32, and floor 3 Louse 13/13 plus Louse 15/15. The core simulator now includes source-backed `StsRng` behavior for the STS `Random` wrapper / libGDX `RandomXS128`, decoded inclusive HP ranges for the reached Act 1 monsters, floor-offset `monsterHpRng = seed + floorNum` parity for VERIFY01/CODEX04 floor-1 Cultists plus CODEX04 floor-2 Small Slimes and floor-3 louses, decoded Exordium normal encounter list generation for weak and strong encounters, source-backed Act 1 topology choices through CODEX04's first two selected nodes, fixed target rows 0/8/14, desired discretionary room counts, pre-shuffle room-list order, raw `Collections.shuffle` room-list prefix for VERIFY01/CODEX04, and CODEX04 captured-path room placement. Chosen-node execution, elite encounter selection, alternate unreached encounter branches, broader room-placement evidence, and full first-three-floor seed-start parity remain incomplete; CODEX04 seed-start still stops at the first unsupported combat command.
+
+Goal: produce the same Act 1 map prefix and normal encounters as real STS for multiple captured seeds.
+
+Tasks:
+
+- implement target-version Act 1 map generation
+- implement normal encounter selection, including first-three-fight rules
+- implement monster group composition and HP rolls for Act 1 normal fights
+- verify `VERIFY01` and `CODEX04` first three floors from seed-start mode
+- add minimized divergence traces for map, encounter, and HP mismatches
+
+Acceptance tests:
+
+- first available map nodes match captured traces
+- chosen nodes enter the same room type
+- monster roster, HP, block, powers, and visible intent match for the first three fights on at least two seeds
+
+Do not implement:
+
+- elite/boss encounter parity beyond the reached trace path
+- rewards
+- shops/events/rest effects
+
+## Milestone 23: Draw, Shuffle, Card, and Monster AI Parity for Early Act 1
+
+Goal: remove the current “exact card draw/shuffle order after end turn is out-of-scope” boundary for early Act 1 traces.
+
+Tasks:
+
+- implement game-compatible draw-pile initialization and shuffling
+- implement real move selection for Cultist, slimes, louses, Jaw Worm, and early Act 1 normal monsters
+- add missing card mechanics for captured early-run cards, including `Dramatic Entrance`, `Battle Trance`, and `Shrug It Off` interactions
+- verify all combat turns in `CODEX04` through floor 3 from seed-start mode
+- make hidden RNG draws visible in simulator RNG logs
+
+Acceptance tests:
+
+- no `END` command in the early captured traces is unsupported due to draw/shuffle scope
+- no supported combat transition in the early captured traces has unexpected HP, block, energy, intent, hand, or pile diffs
+- unsupported combat commands are limited to genuinely unmapped card/content surfaces
+
+Do not implement:
+
+- all Ironclad/colorless cards
+- elites/bosses unless reached by the selected corpus
+
+## Milestone 24: Reward, Potion, Relic, Shop, Rest, and Event RNG Parity
+
+Goal: make post-combat and non-combat room outcomes seed-start compatible for captured Act 1 paths.
+
+Tasks:
+
+- implement game-compatible combat reward gold, card, potion, and relic RNG
+- implement reward screen ordering and pickup semantics for multiple rewards
+- implement shop inventory and price RNG
+- implement rest/event RNG for captured events and outcomes
+- verify post-combat reward screens and pickups in `CODEX04`
+- expand nightly parity to run all captured seed-start traces that are expected to pass
+
+Acceptance tests:
+
+- reward offers and pickup mutations match captured traces without observed-state restoration
+- potion/relic/shop/event RNG boundaries are either passing or explicitly expected-failing with first divergence paths
+- nightly parity includes at least two distinct seed-start traces
+
+Do not implement:
+
+- full-game win-rate claims
+- arbitrary-character parity
+- RL training integration
+
+## Milestone 25: Full Ironclad Act 1 Seed-Start Parity
+
+Goal: for a selected set of Ironclad A0 seeds, replay Act 1 from seed plus controller actions without observed-state restoration.
+
+Tasks:
+
+- choose at least three representative controller traces with different Neow/path/reward shapes
+- verify every action from `START` through Act 1 boss reward
+- add divergence minimization tooling for new failing traces
+- document remaining unobservable hidden-state assumptions
+- make CI/nightly fail on regressions for passing seed-start traces
+
+Acceptance tests:
+
+- selected traces pass with `seed_start.expected_failure=false`
+- `unexpected_diffs=0` for passing seed-start traces
+- unsupported items are absent from the required passing scope or formally waived as unobservable with tests
+
+Do not implement:
+
+- Defect/Silent/Watcher parity
+- Act 2/3 parity
+- claims for arbitrary mods

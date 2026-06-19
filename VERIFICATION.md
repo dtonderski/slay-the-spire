@@ -54,14 +54,23 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 This mode parses the real `START IRONCLAD 0 VERIFY01` command and verifies the captured Ironclad A0 trace through return to map without restoring from observed pre-state. It verifies the selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, captured reward offer, gold pickup, card reward choices, Twin Strike pickup, and post-reward `PROCEED`. For the captured trace, it reports `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
 
-The seed-start report includes named RNG boundaries for the captured trace: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, and potion streams. Save-counter names are included where current research identifies likely real save fields. Captured branches are modeled narrowly: talk, choose random common relic, obtain Toy Ornithopter as an inert relic for this trace, leave Neow, choose the first monster map node, enter a 49-HP Cultist encounter, verify the captured opening hand, verify both captured `END` transitions including the first discard-to-draw shuffle order, verify the captured kill, verify the 14-gold reward offer, verify card reward choices `Twin Strike`, `Heavy Blade`, and `Intimidate`, verify adding `Twin Strike` to the deck, and verify returning to the captured map node.
+The same seed-start mode also covers the captured `CODEX04` Neow opening through the first map-choice screen:
+
+```powershell
+cd simulator
+cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
+```
+
+For `CODEX04`, it verifies talk, the captured colorless-card reward choices `Deep Breath`, `Dramatic Entrance`, and `Jack Of All Trades`, picking `Dramatic Entrance`, leaving Neow with that card in the deck, and taking the captured first map choice into a source-backed 54/54 HP Cultist encounter. It intentionally stops before executing the first CODEX04 combat command: the current boundary is `unsupported_combat_path`, with `unexpected_diffs=0`. The corpus tests separately pin CODEX04's first three observed map/encounter targets so exact map, encounter, and monster HP RNG work has executable targets even before seed-start can play through all intervening combat and rewards.
+
+The seed-start report includes named RNG boundaries for the captured traces: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, and potion streams. Save-counter names are included where current research identifies likely real save fields. Captured branches are modeled narrowly: VERIFY01's Toy Ornithopter branch through the captured post-reward map return, and CODEX04's colorless-card Neow branch through the first captured map choice and 54-HP Cultist entry. Map RNG now has source-backed Act 1 topology choices from target `MapGenerator` with `mapRng = seed + actNum`, including CODEX04's first two selected nodes; fixed target rows 0 combat, 8 treasure, and 14 rest are source-backed from `AbstractDungeon.generateMap()`; desired room counts, pre-shuffle room-list order, raw `Collections.shuffle` room-list prefix, and CODEX04 captured-path room placement are source-backed from `Exordium.initializeLevelSpecificChances()` / `generateRoomTypes` / `RoomTypeAssigner.distributeRoomsAcrossMap` plus captured map symbols. Encounter selection now has source-backed Exordium normal-list generation for weak encounters, strong encounter weights, first-strong exclusions, and no-repeat-last-two retries. Monster HP now has a source-backed target `RandomXS128` wrapper, decoded ranges for the reached Act 1 monsters, floor-1 Cultist HP parity for `VERIFY01` and `CODEX04`, CODEX04 floor-2 Small Slimes HP parity, and CODEX04 floor-3 louse HP parity from `miscRng` plus `monsterHpRng = seed + floorNum`. Broad real-game Neow, chosen-node execution, broader room-placement evidence, elite encounter selection, alternate unreached branches, shuffle, and reward RNG remain later milestone work.
 
 Seed conversion status:
 
 - External seed string captured: `VERIFY01`.
-- Exact numeric seed conversion: unimplemented; the harness carries `VERIFY01` as an opaque captured seed for the current branch.
-- Current evidence in this repo: `RESEARCH.md` and `DESIGN.md` identify `sts_lightspeed` and target-version source inspection as required evidence before implementing conversion.
-- The harness must keep reporting exact seed conversion as an RNG boundary until source-level evidence and tests are added.
+- Exact numeric seed conversion: implemented from the target `SeedHelper.getLong(String)` bytecode in the local `12-18-2022` desktop jar. Seeds are uppercased, `O` maps to `0`, and characters are parsed in base 35 using `0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ`.
+- Current evidence in this repo: `RESEARCH.md` records the target jar/class inspected and captured checks for `VERIFY01`, `CODEX03`, and `CODEX04`.
+- The harness reports seed conversion as `source_backed`; broader RNG stream parity remains bounded by the later stream-specific milestones.
 
 Also inspect [silentcoder99/sts_lightspeed](https://github.com/silentcoder99/sts_lightspeed), whose repository description says it integrates `sts_lightspeed` with CommunicationMod. If it contains reusable trace ideas, document them before building our own bridge.
 

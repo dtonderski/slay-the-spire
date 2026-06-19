@@ -39,6 +39,10 @@
   - unsupported monster-turn AI names monster groups (for example `AcidSlime_M`, `FuzzyLouseDefensive`)
   - reward `CHOOSE n` preserves observed choice indices when some reward options are unmapped
   - deck comparisons are partial when the observed deck contains unmapped cards
+- Seed-start Neow coverage (Milestone 21):
+  - `VERIFY01` verifies the captured Toy Ornithopter branch through return to map
+  - `CODEX04` verifies talk, colorless reward choices, Dramatic Entrance pickup, leaving Neow, and the first captured map choice into a 54/54 HP Cultist
+  - unchosen Neow branches remain explicitly classified
 
 Run the VERIFY01 captured-trace verifier with:
 
@@ -65,10 +69,19 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 Expected result: `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
 
-Current fidelity limit: VERIFY01 has captured-trace seed-start parity through return to map. CODEX04 observed-state parity covers supported Cultist combat, Dramatic Entrance, and reward picks, but seed-start parity for CODEX04 is not implemented yet.
+Run the CODEX04 seed-start Neow harness with:
+
+```powershell
+cd simulator
+cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
+```
+
+Expected result: `unexpected_diffs=0`, verified labels through `map first monster node`, and `seed_start.first_boundary.category=unsupported_combat_path` at the first CODEX04 combat action.
+
+Current fidelity limit: VERIFY01 has captured-trace seed-start parity through return to map. CODEX04 seed-start parity now covers the captured Neow colorless-card branch and first map choice into a 54/54 HP Cultist; executing CODEX04 combat remains later draw/shuffle/combat parity work.
 
 ### Tests
-- **466 tests** passing
+- `cargo test` passing
 
 ## Current Captured Controller Trace
 
@@ -76,8 +89,20 @@ Current fidelity limit: VERIFY01 has captured-trace seed-start parity through re
 
 ## Next Task
 
-Milestone 20 is next: external seed conversion and RNG stream audit. Milestones 21-25 continue broader real-game RNG compatibility for Neow/colorless rewards, map/encounter/HP RNG, draw/shuffle/monster AI, reward/non-combat RNG, and full Ironclad Act 1 seed-start parity.
+Continue Milestone 22: extend source-backed map work from topology, room counts, room-list shuffle, and the CODEX04 captured room placements into chosen-node execution and full first-three-floor seed-start parity.
+
+## Milestone 20 Notes
+
+External seed conversion is source-backed from the target `SeedHelper.getLong(String)` bytecode in `desktop-1.0.jar`: uppercase, map `O` to `0`, parse in base 35 with alphabet `0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ`. Captured checks now pass for `VERIFY01`, `CODEX03`, and `CODEX04`, and seed-start CLI output includes `seed_start.numeric_seed`.
+
+## Milestone 21 Notes
+
+CODEX04 seed-start verification now covers the captured Neow colorless-card branch: `START IRONCLAD 0 CODEX04`, talk, choose the colorless-card reward option, verify `Deep Breath` / `Dramatic Entrance` / `Jack Of All Trades`, pick `Dramatic Entrance`, and leave to the first map-choice screen with the card in the deck. Broad Neow RNG is still classified as captured-branch only; exact general option generation remains future evidence work.
+
+## Milestone 22 Notes
+
+First captured map/encounter slice is complete for CODEX04: after leaving Neow, seed-start mode accepts `CHOOSE 1`, verifies floor 1 combat entry, and checks the visible first encounter as a source-backed 54/54 HP Cultist. The regression corpus now also records CODEX04's first three observed map-choice and encounter targets: floor 1 Cultist 54/54, floor 2 Spike Slime (S) 11/11 plus Acid Slime (M) 32/32, and floor 3 Louse 13/13 plus Louse 15/15. The core simulator now has a target-version `StsRng` implementation for the STS `Random` wrapper / libGDX `RandomXS128`, decoded inclusive HP ranges for the reached Act 1 monsters, source-backed floor-1 Cultist HP parity for VERIFY01 and CODEX04 from `monsterHpRng = seed + floorNum`, source-backed CODEX04 floor-2 Small Slimes variant/HP parity and floor-3 louse kind/HP parity from `miscRng` plus `monsterHpRng`, source-backed Exordium normal encounter list generation for weak and strong encounters, source-backed Act 1 topology choices through CODEX04's first two selected nodes, fixed target rows 0/8/14, desired discretionary room counts, pre-shuffle room-list order, raw `Collections.shuffle` room-list prefix for VERIFY01/CODEX04, and CODEX04 captured-path room placement for row 0 x=2, row 1 x=3, and row 2 x=2/x=3. Chosen-node execution, elite encounter selection, alternate unreached branches, and broader room-placement evidence are still incomplete.
 
 ## Last Updated
 
-2026-06-18 (completed Milestone 19 trace verifier coverage and corpus hygiene for CODEX04).
+2026-06-19 (added decoded map topology choices through CODEX04's first two selected nodes, fixed target room rows 0/8/14, desired discretionary room counts, pre-shuffle room-list order, raw `Collections.shuffle` room-list prefix for VERIFY01/CODEX04, CODEX04 captured-path room placement, normal encounter list generation through strong encounters, floor-1 Cultist HP parity, CODEX04 floor-2 Small Slimes HP parity, CODEX04 floor-3 louse HP parity, and Act 1 HP ranges; continue with chosen-node execution, broader room-placement evidence, and elite/alternate encounter coverage).

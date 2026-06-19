@@ -6,6 +6,7 @@ use crate::{
     content::cards::{BURN_ID, DAZED_ID},
     ids::{ContentId, MonsterId},
     power::MonsterPowers,
+    rng::StsRng,
 };
 
 pub const FIXED_SIMPLE_MONSTER_ID: ContentId = ContentId::new(100);
@@ -85,6 +86,59 @@ pub struct MonsterDefinition {
     /// Turns spent in defensive mode before attacking (Guardian).
     pub starting_defensive_turns: u32,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonsterHpRange {
+    pub min: i32,
+    pub max: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetMonsterHp {
+    pub name: &'static str,
+    pub hp: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmallSlimesVariant {
+    SpikeSmallAcidMedium,
+    AcidSmallSpikeMedium,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LouseKind {
+    Normal,
+    Defensive,
+}
+
+impl MonsterHpRange {
+    #[must_use]
+    pub const fn new(min: i32, max: i32) -> Self {
+        Self { min, max }
+    }
+
+    #[must_use]
+    pub const fn contains(self, hp: i32) -> bool {
+        self.min <= hp && hp <= self.max
+    }
+
+    pub fn roll(self, rng: &mut StsRng) -> i32 {
+        rng.random_int_range(self.min, self.max)
+    }
+}
+
+pub const CULTIST_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(48, 54);
+pub const CULTIST_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(50, 56);
+pub const SPIKE_SLIME_S_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(10, 14);
+pub const SPIKE_SLIME_S_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(11, 15);
+pub const ACID_SLIME_M_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(28, 32);
+pub const ACID_SLIME_M_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(29, 34);
+pub const LOUSE_NORMAL_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(10, 15);
+pub const LOUSE_NORMAL_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(11, 16);
+pub const LOUSE_DEFENSIVE_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(11, 17);
+pub const LOUSE_DEFENSIVE_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(12, 18);
+pub const LOUSE_A0_BITE_DAMAGE_RANGE: MonsterHpRange = MonsterHpRange::new(5, 7);
+pub const LOUSE_A2_BITE_DAMAGE_RANGE: MonsterHpRange = MonsterHpRange::new(6, 8);
 
 pub const FIXED_SIMPLE_MONSTER: MonsterDefinition = MonsterDefinition {
     content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -253,6 +307,135 @@ pub const ACID_SLIME_A0: MonsterDefinition = MonsterDefinition {
     starting_sleep_turns: 0,
     starting_defensive_turns: 0,
 };
+
+#[must_use]
+pub fn target_cultist_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        CULTIST_A7_HP_RANGE
+    } else {
+        CULTIST_A0_HP_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_spike_slime_s_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        SPIKE_SLIME_S_A7_HP_RANGE
+    } else {
+        SPIKE_SLIME_S_A0_HP_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_acid_slime_m_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        ACID_SLIME_M_A7_HP_RANGE
+    } else {
+        ACID_SLIME_M_A0_HP_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_louse_normal_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        LOUSE_NORMAL_A7_HP_RANGE
+    } else {
+        LOUSE_NORMAL_A0_HP_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_louse_defensive_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        LOUSE_DEFENSIVE_A7_HP_RANGE
+    } else {
+        LOUSE_DEFENSIVE_A0_HP_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_louse_bite_damage_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 2 {
+        LOUSE_A2_BITE_DAMAGE_RANGE
+    } else {
+        LOUSE_A0_BITE_DAMAGE_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_cultist_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> i32 {
+    let mut rng = StsRng::new(seed + i64::from(floor_num));
+    target_cultist_hp_range(ascension).roll(&mut rng)
+}
+
+#[must_use]
+pub fn target_small_slimes_variant(seed: i64, floor_num: u32) -> SmallSlimesVariant {
+    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    if misc_rng.random_bool() {
+        SmallSlimesVariant::SpikeSmallAcidMedium
+    } else {
+        SmallSlimesVariant::AcidSmallSpikeMedium
+    }
+}
+
+#[must_use]
+pub fn target_small_slimes_hp_rolls(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+) -> Option<Vec<TargetMonsterHp>> {
+    match target_small_slimes_variant(seed, floor_num) {
+        SmallSlimesVariant::SpikeSmallAcidMedium => {
+            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            Some(vec![
+                TargetMonsterHp {
+                    name: "Spike Slime (S)",
+                    hp: target_spike_slime_s_hp_range(ascension).roll(&mut hp_rng),
+                },
+                TargetMonsterHp {
+                    name: "Acid Slime (M)",
+                    hp: target_acid_slime_m_hp_range(ascension).roll(&mut hp_rng),
+                },
+            ])
+        }
+        SmallSlimesVariant::AcidSmallSpikeMedium => None,
+    }
+}
+
+#[must_use]
+pub fn target_two_louse_kinds(seed: i64, floor_num: u32) -> [LouseKind; 2] {
+    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    [
+        target_louse_kind(&mut misc_rng),
+        target_louse_kind(&mut misc_rng),
+    ]
+}
+
+#[must_use]
+pub fn target_two_louse_hp_rolls(seed: i64, floor_num: u32, ascension: u8) -> Vec<TargetMonsterHp> {
+    let kinds = target_two_louse_kinds(seed, floor_num);
+    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    kinds
+        .into_iter()
+        .map(|kind| {
+            let hp_range = match kind {
+                LouseKind::Normal => target_louse_normal_hp_range(ascension),
+                LouseKind::Defensive => target_louse_defensive_hp_range(ascension),
+            };
+            let hp = hp_range.roll(&mut hp_rng);
+            let _bite_damage = target_louse_bite_damage_range(ascension).roll(&mut hp_rng);
+            TargetMonsterHp { name: "Louse", hp }
+        })
+        .collect()
+}
+
+fn target_louse_kind(rng: &mut StsRng) -> LouseKind {
+    if rng.random_bool() {
+        LouseKind::Normal
+    } else {
+        LouseKind::Defensive
+    }
+}
 
 #[must_use]
 pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterDefinition> {
@@ -698,6 +881,95 @@ mod tests {
     #[test]
     fn cultist_has_fifty_hp() {
         assert_eq!(CULTIST_A0.hp, 50);
+    }
+
+    #[test]
+    fn target_version_hp_ranges_match_decoded_act1_constructor_bytecode() {
+        assert_eq!(target_cultist_hp_range(0), MonsterHpRange::new(48, 54));
+        assert_eq!(target_cultist_hp_range(7), MonsterHpRange::new(50, 56));
+        assert_eq!(
+            target_spike_slime_s_hp_range(0),
+            MonsterHpRange::new(10, 14)
+        );
+        assert_eq!(
+            target_spike_slime_s_hp_range(7),
+            MonsterHpRange::new(11, 15)
+        );
+        assert_eq!(target_acid_slime_m_hp_range(0), MonsterHpRange::new(28, 32));
+        assert_eq!(target_acid_slime_m_hp_range(7), MonsterHpRange::new(29, 34));
+        assert_eq!(target_louse_normal_hp_range(0), MonsterHpRange::new(10, 15));
+        assert_eq!(
+            target_louse_defensive_hp_range(0),
+            MonsterHpRange::new(11, 17)
+        );
+        assert_eq!(target_louse_bite_damage_range(0), MonsterHpRange::new(5, 7));
+        assert_eq!(target_louse_bite_damage_range(2), MonsterHpRange::new(6, 8));
+    }
+
+    #[test]
+    fn floor_one_cultist_hp_roll_matches_verify01_trace() {
+        assert_eq!(target_cultist_hp_roll(1_957_307_888_551, 1, 0), 49);
+    }
+
+    #[test]
+    fn floor_one_cultist_hp_roll_matches_codex04_trace() {
+        let mut codex04 = StsRng::new(22_079_335_079);
+
+        assert_eq!(target_cultist_hp_range(0).roll(&mut codex04), 53);
+        assert_eq!(target_cultist_hp_roll(22_079_335_079, 1, 0), 54);
+    }
+
+    #[test]
+    fn later_codex04_hp_rolls_need_encounter_constructor_order_before_claiming_parity() {
+        let mut rng = StsRng::new(22_079_335_079 + 2);
+        let _floor_one_cultist = target_cultist_hp_range(0).roll(&mut rng);
+        let naive_spike_slime_s = target_spike_slime_s_hp_range(0).roll(&mut rng);
+        let naive_acid_slime_m = target_acid_slime_m_hp_range(0).roll(&mut rng);
+
+        assert_ne!(naive_spike_slime_s, 11);
+        assert_ne!(naive_acid_slime_m, 32);
+    }
+
+    #[test]
+    fn floor_two_codex04_small_slimes_variant_and_hp_match_trace() {
+        assert_eq!(
+            target_small_slimes_variant(22_079_335_079, 2),
+            SmallSlimesVariant::SpikeSmallAcidMedium
+        );
+        assert_eq!(
+            target_small_slimes_hp_rolls(22_079_335_079, 2, 0).expect("decoded reached variant"),
+            vec![
+                TargetMonsterHp {
+                    name: "Spike Slime (S)",
+                    hp: 11,
+                },
+                TargetMonsterHp {
+                    name: "Acid Slime (M)",
+                    hp: 32,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn floor_three_codex04_two_louse_kinds_and_hp_match_trace() {
+        assert_eq!(
+            target_two_louse_kinds(22_079_335_079, 3),
+            [LouseKind::Defensive, LouseKind::Defensive]
+        );
+        assert_eq!(
+            target_two_louse_hp_rolls(22_079_335_079, 3, 0),
+            vec![
+                TargetMonsterHp {
+                    name: "Louse",
+                    hp: 13,
+                },
+                TargetMonsterHp {
+                    name: "Louse",
+                    hp: 15,
+                },
+            ]
+        );
     }
 
     #[test]

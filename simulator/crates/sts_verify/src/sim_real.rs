@@ -2,14 +2,18 @@
 
 use crate::{
     canonical_diff, import_communication_mod_trace, normalize_communication_mod_message,
-    TraceAction, TraceLine, TraceState,
+    sts_seed_string_to_long, TraceAction, TraceLine, TraceState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sts_core::content::{
+    encounters::generate_exordium_weak_encounters, monsters::target_cultist_hp_roll,
+};
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action, CardId, CardInstance, CardPiles, CombatAction,
-    CombatPhase, CombatState, ContentId, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
-    PlayerPowers, PlayerState, RewardScreen, RunAction, RunPhase, RunState,
+    apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology, CardId,
+    CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId, MonsterId,
+    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, RewardScreen, RunAction,
+    RunPhase, RunState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +70,7 @@ pub struct StartRunCommand {
     pub character: String,
     pub ascension: u8,
     pub external_seed: String,
+    pub numeric_seed: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -256,6 +261,7 @@ fn verify_seed_start_transitions(
     let mut combat_step = 0usize;
     let mut reward_step = 0usize;
     let mut relics = vec!["Burning Blood".to_owned()];
+    let mut deck_ids = ironclad_starter_deck_keys();
 
     for (_, action, post) in transitions {
         if action.command.eq_ignore_ascii_case("state") {
@@ -285,7 +291,7 @@ fn verify_seed_start_transitions(
                         "gold": 99,
                         "current_hp": 80,
                         "max_hp": 80,
-                        "deck_ids": ironclad_starter_deck_keys(),
+                        "deck_ids": deck_ids,
                         "relic_ids": relics,
                         "choices": ["talk"],
                     }),
@@ -305,22 +311,43 @@ fn verify_seed_start_transitions(
                         "gold": 99,
                         "current_hp": 80,
                         "max_hp": 80,
-                        "deck_ids": ironclad_starter_deck_keys(),
+                        "deck_ids": deck_ids,
                         "relic_ids": relics,
-                        "choices": [
-                            "choose a card to obtain",
-                            "obtain a random common relic",
-                            "lose 8 max hp remove 2 cards",
-                            "lose your starting relic obtain a random boss relic",
-                        ],
+                        "choices": seed_start_neow_choices(&start.external_seed),
                     }),
                 );
                 report.unsupported.push(UnsupportedTransition {
                     action_step: action.step,
-                    command: "CHOOSE 0/2/3".to_owned(),
-                    reason: "unchosen Neow branches are classified but not implemented: card reward, max-hp removal, and boss swap".to_owned(),
+                    command: seed_start_unchosen_neow_command(&start.external_seed),
+                    reason: seed_start_unchosen_neow_reason(&start.external_seed),
                 });
                 phase = SeedStartPhase::NeowOptions;
+            }
+            SeedStartPhase::NeowOptions
+                if start.external_seed == "CODEX04" && command_is_choose(&action.command, 0) =>
+            {
+                compare_subset(
+                    report,
+                    action,
+                    "Neow colorless reward choices",
+                    seed_start_reward_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "CARD_REWARD",
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["deep breath", "dramatic entrance", "jack of all trades"],
+                        "card_reward_ids": ["Deep Breath", "Dramatic Entrance", "Jack Of All Trades"],
+                        "unobservable": {
+                            "card_reward_rng_draws": true,
+                            "card_reward_uuids": true,
+                        },
+                    }),
+                );
+                phase = SeedStartPhase::NeowCardReward;
             }
             SeedStartPhase::NeowOptions if command_is_choose(&action.command, 1) => {
                 relics.push("Toy Ornithopter".to_owned());
@@ -336,7 +363,7 @@ fn verify_seed_start_transitions(
                         "gold": 99,
                         "current_hp": 80,
                         "max_hp": 80,
-                        "deck_ids": ironclad_starter_deck_keys(),
+                        "deck_ids": deck_ids,
                         "relic_ids": relics,
                         "choices": ["leave"],
                     }),
@@ -346,6 +373,27 @@ fn verify_seed_start_transitions(
                     command: action.command.clone(),
                     reason: "Toy Ornithopter is modeled as an inert captured Neow relic for this trace; potion-triggered healing is not implemented".to_owned(),
                 });
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowCardReward if command_is_choose(&action.command, 1) => {
+                deck_ids.push("Dramatic Entrance".to_owned());
+                compare_subset(
+                    report,
+                    action,
+                    "Neow Dramatic Entrance pickup",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
@@ -361,14 +409,20 @@ fn verify_seed_start_transitions(
                         "gold": 99,
                         "current_hp": 80,
                         "max_hp": 80,
-                        "deck_ids": ironclad_starter_deck_keys(),
+                        "deck_ids": deck_ids,
                         "relic_ids": relics,
-                        "choices": ["x=1", "x=2"],
+                        "choices": seed_start_first_map_choices(&start.external_seed),
                     }),
                 );
                 phase = SeedStartPhase::Map;
             }
-            SeedStartPhase::Map if command_is_choose(&action.command, 0) => {
+            SeedStartPhase::Map
+                if command_is_choose(
+                    &action.command,
+                    seed_start_first_map_choice(&start.external_seed),
+                ) =>
+            {
+                let encounter = seed_start_first_encounter(&start.external_seed);
                 compare_subset(
                     report,
                     action,
@@ -381,15 +435,15 @@ fn verify_seed_start_transitions(
                         "gold": 99,
                         "current_hp": 80,
                         "max_hp": 80,
-                        "deck_ids": ironclad_starter_deck_keys(),
+                        "deck_ids": deck_ids,
                         "relic_ids": relics,
                         "combat_player_hp": 80,
                         "combat_player_block": 0,
                         "combat_player_energy": 3,
                         "monsters": [{
-                            "name": "Cultist",
-                            "current_hp": 49,
-                            "max_hp": 49,
+                            "name": encounter.name,
+                            "current_hp": encounter.current_hp,
+                            "max_hp": encounter.max_hp,
                             "block": 0,
                             "intent": "DEBUG",
                             "strength": 0,
@@ -404,7 +458,7 @@ fn verify_seed_start_transitions(
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
                     category: "unsupported_map_generation".to_owned(),
-                    reason: "seed-start verifier expected captured first map choice CHOOSE 0; other map paths require exact map generation".to_owned(),
+                    reason: "seed-start verifier reached the first map choice; executing map nodes and encounters requires exact map generation".to_owned(),
                 };
                 report.unsupported.push(UnsupportedTransition {
                     action_step: action.step,
@@ -576,6 +630,7 @@ enum SeedStartPhase {
     BeforeStart,
     NeowTalk,
     NeowOptions,
+    NeowCardReward,
     NeowLeave,
     Map,
     Combat,
@@ -610,6 +665,7 @@ fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, S
         character: parts[1].to_owned(),
         ascension,
         external_seed: parts[3].to_owned(),
+        numeric_seed: sts_seed_string_to_long(parts[3]),
     }))
 }
 
@@ -671,6 +727,13 @@ struct CapturedRewardExpectation {
     label: &'static str,
     state: Value,
     ends_reward: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CapturedEncounterExpectation {
+    name: &'static str,
+    current_hp: i32,
+    max_hp: i32,
 }
 
 fn seed_start_cultist_combat_expected(
@@ -1184,17 +1247,96 @@ fn power_amount(value: Option<&Value>, id: &str) -> i32 {
         .unwrap_or(0)
 }
 
-fn ironclad_starter_deck_keys() -> Vec<&'static str> {
+fn ironclad_starter_deck_keys() -> Vec<String> {
     vec![
         "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
         "Defend_R", "Defend_R", "Bash",
     ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
 }
 
-fn ironclad_deck_with_twin_strike_keys() -> Vec<&'static str> {
+fn ironclad_deck_with_twin_strike_keys() -> Vec<String> {
     let mut deck = ironclad_starter_deck_keys();
-    deck.push("Twin Strike");
+    deck.push("Twin Strike".to_owned());
     deck
+}
+
+fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
+    match seed {
+        "CODEX04" => vec![
+            "choose a colorless card to obtain",
+            "obtain 3 random potions",
+            "lose 8 max hp remove 2 cards",
+            "lose your starting relic obtain a random boss relic",
+        ],
+        _ => vec![
+            "choose a card to obtain",
+            "obtain a random common relic",
+            "lose 8 max hp remove 2 cards",
+            "lose your starting relic obtain a random boss relic",
+        ],
+    }
+}
+
+fn seed_start_unchosen_neow_command(seed: &str) -> String {
+    match seed {
+        "CODEX04" => "CHOOSE 1/2/3".to_owned(),
+        _ => "CHOOSE 0/2/3".to_owned(),
+    }
+}
+
+fn seed_start_unchosen_neow_reason(seed: &str) -> String {
+    match seed {
+        "CODEX04" => {
+            "unchosen Neow branches are classified but not implemented: potions, max-hp removal, and boss swap".to_owned()
+        }
+        _ => {
+            "unchosen Neow branches are classified but not implemented: card reward, max-hp removal, and boss swap".to_owned()
+        }
+    }
+}
+
+fn seed_start_first_map_choices(seed: &str) -> Vec<String> {
+    generate_exordium_map_topology(sts_seed_string_to_long(seed))
+        .first_row_choices
+        .into_iter()
+        .map(|x| format!("x={x}"))
+        .collect()
+}
+
+fn seed_start_first_map_choice(seed: &str) -> usize {
+    match seed {
+        "CODEX04" => 1,
+        _ => 0,
+    }
+}
+
+fn seed_start_first_encounter(seed: &str) -> CapturedEncounterExpectation {
+    match seed {
+        "CODEX04" => seed_start_cultist_encounter(seed),
+        "VERIFY01" => seed_start_cultist_encounter(seed),
+        _ => CapturedEncounterExpectation {
+            name: "Cultist",
+            current_hp: 49,
+            max_hp: 49,
+        },
+    }
+}
+
+fn seed_start_cultist_encounter(seed: &str) -> CapturedEncounterExpectation {
+    let generated_key = generate_exordium_weak_encounters(sts_seed_string_to_long(seed))
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    assert_eq!(generated_key, "Cultist");
+    let hp = target_cultist_hp_roll(sts_seed_string_to_long(seed), 1, 0);
+    CapturedEncounterExpectation {
+        name: "Cultist",
+        current_hp: hp,
+        max_hp: hp,
+    }
 }
 
 fn reward_types_from_value(value: Option<&Value>) -> Vec<String> {
@@ -1272,32 +1414,32 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "seed_conversion".to_owned(),
             save_counter: None,
-            status: "captured_opaque".to_owned(),
-            reason: "VERIFY01 is parsed and carried as an external seed string, but exact numeric seed conversion still needs target-version source evidence".to_owned(),
+            status: "source_backed".to_owned(),
+            reason: "SeedHelper.getLong from the target 12-18-2022 desktop jar uppercases seed text, maps O to 0, and parses it with base-35 alphabet 0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ".to_owned(),
         },
         RngBoundary {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "captured_branch".to_owned(),
-            reason: "captured VERIFY01 Neow branch is modeled through Toy Ornithopter; broad Neow RNG remains unimplemented".to_owned(),
+            reason: "captured VERIFY01 Toy Ornithopter and CODEX04 colorless-card Neow branches are modeled; broad Neow RNG remains unimplemented".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
             save_counter: None,
-            status: "captured_branch".to_owned(),
-            reason: "captured VERIFY01 first map choices and CHOOSE 0 path are modeled; broad map generation remains placeholder".to_owned(),
+            status: "source_backed_topology_prefix".to_owned(),
+            reason: "decoded Exordium mapRng initialization uses seed + actNum and MapGenerator topology reproduces captured VERIFY01 first choices x=1/x=2, CODEX04 first choices x=0/x=2/x=4/x=5, and CODEX04 chosen-path next choices x=3 then x=2/x=3; fixed generateMap rows are row 0 combat, row 8 treasure, and row 14 rest; generateRoomTypes counts/pre-shuffle order and raw RandomXS128 Collections.shuffle prefix match decoded target behavior for VERIFY01/CODEX04. RoomTypeAssigner placement rules remain incomplete".to_owned(),
         },
         RngBoundary {
             stream: "monsterRng".to_owned(),
             save_counter: Some("monster_seed_count".to_owned()),
-            status: "captured_branch".to_owned(),
-            reason: "captured first encounter is modeled as Cultist; broad encounter selection is not wired to a real-game RNG stream".to_owned(),
+            status: "source_backed_normal_list_prefix".to_owned(),
+            reason: "decoded Exordium normal encounter list generation covers weak encounters, strong encounter weights, first-strong exclusions, and no-repeat-last-two retries; VERIFY01 prefix is Cultist/Jaw Worm/2 Louse and CODEX04 prefix is Cultist/Small Slimes/2 Louse. Room execution and elite encounter paths remain incomplete".to_owned(),
         },
         RngBoundary {
             stream: "monsterHpRng".to_owned(),
             save_counter: Some("monster_seed_count".to_owned()),
-            status: "captured_value".to_owned(),
-            reason: "captured Cultist HP 49 is modeled for this trace; broad monster HP rolls are not game-compatible".to_owned(),
+            status: "source_backed_floor_prefix".to_owned(),
+            reason: "decoded room transition reinitializes monsterHpRng with Settings.seed + floorNum; floor-1 Cultist HP rolls reproduce VERIFY01 49 and CODEX04 54, CODEX04 floor-2 Small Slimes rolls reproduce Spike Slime (S) 11 plus Acid Slime (M) 32, and CODEX04 floor-3 louse constructors reproduce 13/15 with bite-damage interleaving".to_owned(),
         },
         RngBoundary {
             stream: "shuffleRng".to_owned(),
@@ -2216,8 +2358,8 @@ mod tests {
                 }
             }
         });
-        let reason = unsupported_combat_command_reason(&message, "PLAY 1")
-            .expect("unmapped card reason");
+        let reason =
+            unsupported_combat_command_reason(&message, "PLAY 1").expect("unmapped card reason");
         assert!(reason.contains("Deep Breath"));
         assert!(reason.contains("not mapped"));
     }

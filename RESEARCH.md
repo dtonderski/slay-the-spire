@@ -234,3 +234,104 @@ Task 2.4 finding:
 Current limitation:
 
 - No full save importer, decryption tooling, or broad RNG parity claim exists in this repo.
+
+## Milestone 20 Seed Conversion Audit
+
+- Target binary inspected: `D:\SteamLibrary\steamapps\common\SlayTheSpire\desktop-1.0.jar`, game version shown by ModTheSpire as `12-18-2022`.
+- Class inspected locally: `com/megacrit/cardcrawl/helpers/SeedHelper.class`.
+- Reverse-engineering method: inspect the target game jar directly, extract the compiled helper class, disassemble the bytecode, and translate only the small `SeedHelper` methods needed for verification. The local JRE bundled with STS did not include `javap`, so the class was read from the jar and decoded with a small local class-file/bytecode inspection script instead of relying on guessed base conversion.
+- `SeedHelper.getLong(String)` uppercases the seed string, maps `O` to `0`, then parses each character with alphabet `0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ`.
+- The alphabet length is 35 because `O` is omitted. The numeric seed is accumulated as `value = value * 35 + alphabet_index(character)`.
+- Captured seed checks:
+  - `VERIFY01` -> `1957307888551`
+  - `CODEX03` -> `22079335078`
+  - `CODEX04` -> `22079335079`
+- `SeedHelper.getString(long)` performs the inverse conversion using unsigned long text and the same alphabet.
+- `SeedHelper.sterilizeString(String)` trims, uppercases, accepts only letters/digits via `([A-Z]*[0-9]*)*`, and maps `O` to `0`.
+
+RNG stream/counter audit status:
+
+- Confirmed from prior notes / save fields: `potion_seed_count`, `relic_seed_count`, `event_seed_count`, `monster_seed_count`, `merchant_seed_count`, `card_random_seed_count`, `card_seed_count`, and `treasure_seed_count`.
+- Current simulator/verifier stream labels: `potionRng`, `relicRng`, `neowRng`, `mapRng`, `monsterRng`, `monsterHpRng`, `shuffleRng`, `cardRewardRng`, and `rewardGoldRng`.
+- Known mapping still requiring implementation evidence in future milestones:
+  - monster encounter and monster HP use `monster_seed_count`
+  - card draw/shuffle uses `card_random_seed_count`
+  - card reward selection uses `card_seed_count`
+  - relic rewards use `relic_seed_count`
+  - potion rewards/use effects use `potion_seed_count`
+  - event selection uses `event_seed_count`
+  - shop/merchant generation uses `merchant_seed_count`
+  - treasure/relic chest outcomes use `treasure_seed_count`
+
+## Milestone 22 Map / Encounter Evidence
+
+Target binary inspected: `D:\SteamLibrary\steamapps\common\SlayTheSpire\desktop-1.0.jar`, game version shown by ModTheSpire as `12-18-2022`.
+
+Relevant target classes found in the jar:
+
+- `com.megacrit.cardcrawl.dungeons.AbstractDungeon`
+- `com.megacrit.cardcrawl.dungeons.Exordium`
+- `com.megacrit.cardcrawl.map.MapGenerator`
+- `com.megacrit.cardcrawl.map.MapRoomNode`
+- `com.megacrit.cardcrawl.helpers.MonsterHelper`
+- `com.megacrit.cardcrawl.monsters.MonsterInfo`
+- Act 1 constructors including `Cultist`, `AcidSlime_M`, `SpikeSlime_S`, `LouseNormal`, and `LouseDefensive`
+
+Bytecode metadata inspection, using the same local class-file parser approach as the seed audit, confirms these source-backed entry points:
+
+- `Exordium` initializes `mapRng` as `new Random(Settings.seed + AbstractDungeon.actNum)`, so Act 1 map topology uses `seed + 1`.
+- `AbstractDungeon.generateMap()` sets target map dimensions to 15 rows, 7 columns, and 6 paths, references `AbstractDungeon.mapRng`, calls `MapGenerator.generateDungeon(IIILcom/megacrit/cardcrawl/random/Random;)`, assigns fixed rows, then calls `RoomTypeAssigner.distributeRoomsAcrossMap(...)`.
+- `Exordium.initializeLevelSpecificChances()` sets discretionary map room chances to shop `0.05`, rest `0.12`, treasure `0.0`, event `0.22`, and elite `0.08`.
+- `AbstractDungeon.generateRoomTypes(roomList, count)` computes desired room counts with `Math.round(count * chance)` for shop, rest, treasure, elite, and event rooms, then assigns the remainder as monster rooms. The generated list order before `Collections.shuffle` is shops, rests, elites, events, then monster rooms; treasure is present in the formula but Exordium chance is `0.0`.
+- `MapGenerator.generateDungeon` creates the node grid, calls `createPaths`, then calls `filterRedundantEdgesFromRow` before room assignment.
+- `MapGenerator.randRange(Random,min,max)` calls `rng.random(max - min) + min`, which is inclusive because target `Random.random(int)` is inclusive.
+- `Exordium.generateMonsters()` calls `generateWeakEnemies`, `generateStrongEnemies`, and `generateElites`; its constants include Act 1 encounter keys such as `Cultist`, `2 Louse`, `Small Slimes`, `Large Slime`, `Lots of Slimes`, `Exordium Thugs`, `Exordium Wildlife`, and `3 Louse`.
+- `Exordium` references `AbstractDungeon.monsterRng` during encounter list population / selection.
+- `Exordium.generateWeakEnemies(3)` builds the weak pool as `Cultist`, `Jaw Worm`, `2 Louse`, and `Small Slimes`, each with weight `2.0`.
+- `Exordium.generateStrongEnemies(12)` builds the strong pool as `Blue Slaver` 2.0, `Gremlin Gang` 1.0, `Looter` 2.0, `Large Slime` 2.0, `Lots of Slimes` 1.0, `Exordium Thugs` 1.5, `Exordium Wildlife` 1.5, `Red Slaver` 1.0, `3 Louse` 2.0, and `2 Fungi Beasts` 2.0. It normalizes weights, calls `populateFirstStrongEnemy(pool, generateExclusions())`, then appends 12 more entries with `populateMonsterList(pool, 12, false)`.
+- `MonsterInfo.normalizeWeights` sorts by weight and divides by the total weight; for the weak pool this preserves the listed order and produces four `0.25` intervals.
+- `MonsterInfo.roll` returns the first entry whose cumulative normalized weight is greater than the `monsterRng.random()` float.
+- `AbstractDungeon.populateMonsterList(..., false)` rejects a rolled encounter if it matches the previous or two-back entry, then retries the same list slot.
+- `AbstractDungeon.populateFirstStrongEnemy` repeatedly rolls from the normalized strong pool until the result is not in the exclusions list. `Exordium.generateExclusions()` excludes `Exordium Thugs` after `Looter`; `Red Slaver` and `Exordium Thugs` after `Blue Slaver`; `3 Louse` after `2 Louse`; and `Large Slime` plus `Lots of Slimes` after `Small Slimes`.
+- `LouseNormal` and `LouseDefensive` constructors reference `AbstractDungeon.monsterHpRng.random(II)` for HP rolls.
+- `Cultist`, `AcidSlime_M`, and `SpikeSlime_S` constructors expose target-version HP constants and `setHp` calls; exact numeric constants still need full bytecode instruction decoding before replacing captured HP fixtures.
+- `AbstractDungeon.nextRoomTransition` reinitializes `monsterHpRng`, `aiRng`, `shuffleRng`, `cardRandomRng`, and `miscRng` as `new Random(Settings.seed + floorNum)` after incrementing `floorNum` for the entered room.
+
+Target RNG wrapper evidence:
+
+- `com.megacrit.cardcrawl.random.Random` wraps `com.badlogic.gdx.math.RandomXS128`.
+- `Random(Long)` constructs `RandomXS128(seed.longValue())` and starts `counter` at 0.
+- `Random(Long, int)` constructs the same RNG, then advances by calling `random(999)` once per saved counter step.
+- Every public draw inspected increments `counter` by 1.
+- `random(int max)` calls `RandomXS128.nextInt(max + 1)`, so its integer max is inclusive.
+- `random(int min, int max)` calls `min + RandomXS128.nextInt(max - min + 1)`, so both integer bounds are inclusive.
+- `RandomXS128.setSeed(long)` maps seed 0 to `Long.MIN_VALUE`, applies `murmurHash3` to produce `seed0`, and applies `murmurHash3(seed0)` to produce `seed1`.
+- `RandomXS128.nextLong()` uses xorshift128+ state transition: `s1 = seed0`, `s0 = seed1`, `seed0 = s0`, `s1 ^= s1 << 23`, `seed1 = s1 ^ s0 ^ (s1 >>> 17) ^ (s0 >>> 26)`, return `seed1 + s0`.
+- The simulator's `StsRng` now encodes this wrapper separately from the older placeholder `SimulatorRng`.
+- `AbstractMonster.setHp(min,max)` calls `AbstractDungeon.monsterHpRng.random(min,max)`, so monster HP ranges are inclusive.
+- Decoded target-version ranges now represented in `sts_core`: Cultist A0 `48..54` / A7 `50..56`, Spike Slime (S) A0 `10..14` / A7 `11..15`, Acid Slime (M) A0 `28..32` / A7 `29..34`, red louse A0 `10..15` / A7 `11..16`, green louse A0 `11..17` / A7 `12..18`, and louse bite damage A0 `5..7` / A2+ `6..8`.
+- Source-backed map topology validation: translated `MapGenerator` topology with Act 1 `seed + 1` map RNG produces `VERIFY01` first choices `x=1`, `x=2`, `CODEX04` first choices `x=0`, `x=2`, `x=4`, `x=5`, and CODEX04 chosen-path next choices `x=3` then `x=2`, `x=3`.
+- Source-backed fixed room row validation: `AbstractDungeon.generateMap()` assigns row 14 to `RestRoom`, row 0 to `MonsterRoom`, and row 8 to `TreasureRoom` before distributing the rest of the rooms. Endless `MimicInfestation` would replace row 8 with `MonsterRoomElite`, but the captured traces are normal non-endless runs.
+- Source-backed discretionary room count validation: using the target `hasEdges && y != map.size() - 2` assignable-node count and Exordium chances, `VERIFY01` produces 54 assignable nodes and desired counts shop/rest/treasure/elite/event/monster = `3/6/0/4/12/29`; `CODEX04` produces 57 assignable nodes and counts `3/7/0/5/13/29`.
+- Source-backed pre-shuffle room-list validation: the simulator now expands those desired counts in the same target order before `Collections.shuffle`, giving `VERIFY01` 3 shops, 6 rests, 4 elites, 12 events, then 29 combats, and `CODEX04` 3 shops, 7 rests, 5 elites, 13 events, then 29 combats.
+- Source-backed room-list shuffle validation: `RoomTypeAssigner.distributeRoomsAcrossMap` passes the underlying `mapRng.random` `RandomXS128` directly to `Collections.shuffle`, so the shuffle advances raw RNG state without incrementing the STS wrapper counter. CODEX04's shuffled room-list prefix now pins `Rest`, `Combat`, `Event`, `Combat`, `Combat`, `Rest`, `Rest`, `Elite`, `Elite`, `Shop`, `Combat`, `Event` while `map_rng_counter` remains 95.
+- Captured room-placement validation: translating the observed `RoomTypeAssigner` constraints now reproduces the CODEX04 captured path prefix where row 0 x=2, row 1 x=3, and row 2 x=2 are monster rooms, while the sibling row 2 x=3 is an event room. The current implementation uses the target shuffled room list as an audit artifact and consumes a working copy during placement.
+- Source-backed normal encounter list validation: zero-counter `monsterRng` produces `VERIFY01` weak prefix `Cultist`, `Jaw Worm`, `2 Louse`, and `CODEX04` weak prefix `Cultist`, `Small Slimes`, `2 Louse`, then continues into the decoded strong-list generation with first-strong exclusions and no-repeat-last-two retries.
+- First Cultist HP validation: floor-1 `monsterHpRng` uses `seed + 1`, so the decoded Cultist A0 range rolls 49 for `VERIFY01` and 54 for `CODEX04`, matching both captured first encounters. Plain zero-counter `StsRng(CODEX04)` with no floor offset rolls 53, which is why the earlier captured value looked like a counter gap.
+- Floor-2 Small Slimes HP validation: `MonsterHelper.spawnSmallSlimes()` branches on floor-2 `miscRng.randomBoolean()`. For `CODEX04`, the reached branch is `SpikeSlime_S` then `AcidSlime_M`; floor-2 `monsterHpRng = seed + 2` rolls 11 and 32 through the decoded ranges, matching the captured second encounter.
+- Floor-3 louse HP validation: `MonsterHelper.getLouse()` branches on `miscRng.randomBoolean()` for each louse. For `CODEX04`, floor-3 `miscRng = seed + 3` chooses two defensive/green louses. Each louse constructor rolls HP and then bite damage from the same `monsterHpRng`; with that interleaving, floor-3 `monsterHpRng = seed + 3` produces observed HP 13 and 15.
+
+Captured CODEX04 executable targets now pinned in `sts_verify` corpus tests:
+
+- First map screen after Neow: choices `x=0`, `x=2`, `x=4`, `x=5`.
+- Floor 1 encounter: `Cultist` 54/54.
+- Post-floor-1 map choices: `x=3`.
+- Floor 2 encounter: `Spike Slime (S)` 11/11 and `Acid Slime (M)` 32/32.
+- Post-floor-2 map choices: `x=2`, `x=3`.
+- Floor 3 encounter: `Louse` 13/13 and `Louse` 15/15.
+
+Next implementation evidence needed:
+
+- Extend map parity from source-backed topology path choices, fixed rows, desired room counts, shuffled room-list order, and the CODEX04 captured placement prefix into chosen-node room execution, broader placement evidence, and later reachable node choices.
+- Extend source-backed encounter selection from decoded normal-list generation to room execution, elite generation, alternate unreached group constructors, and the full first-three-fight seed-start path.
+- Extend floor-offset `monsterHpRng` validation to alternate Small Slimes/louse branches and additional captured seeds.

@@ -1,4 +1,5 @@
 pub mod generation;
+pub mod target;
 
 use crate::{
     error::{SimError, SimResult},
@@ -10,8 +11,10 @@ use serde::{Deserialize, Serialize};
 pub enum RoomKind {
     Combat,
     Elite,
+    Event,
     Rest,
     Shop,
+    Treasure,
     Boss,
 }
 
@@ -159,6 +162,10 @@ pub fn milestone8_fixture() -> MapRunState {
 }
 
 pub use generation::{generate_map_placeholder, generated_map_fixture};
+pub use target::{
+    generate_exordium_map_choices_after_path, generate_exordium_map_topology, ExordiumFixedRoomRow,
+    ExordiumMapChoiceStep, ExordiumMapTopology,
+};
 
 #[cfg(test)]
 mod tests {
