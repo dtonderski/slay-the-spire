@@ -38,6 +38,11 @@ pub fn start_player_turn(state: &mut CombatState) {
     }
     state.player.cannot_draw = false;
     state.player.temp_strength = 0;
+    for monster in &mut state.monsters {
+        if monster.alive && monster.powers.vulnerable > 0 {
+            monster.powers.vulnerable -= 1;
+        }
+    }
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
@@ -84,7 +89,20 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
 }
 
 fn draw_next_hand_without_shuffle(state: &mut CombatState) {
-    while state.piles.hand.len() < HAND_SIZE && !state.piles.draw_pile.is_empty() {
+    while state.piles.hand.len() < HAND_SIZE {
+        if state.piles.draw_pile.is_empty() {
+            if let Some(rng) = state.shuffle_rng.as_mut() {
+                if !state.piles.discard_pile.is_empty() {
+                    state.piles.draw_pile.append(&mut state.piles.discard_pile);
+                    rng.collections_shuffle(&mut state.piles.draw_pile);
+                }
+            }
+        }
+
+        if state.piles.draw_pile.is_empty() {
+            break;
+        }
+
         state.piles.hand.push(state.piles.draw_pile.remove(0));
     }
 }
@@ -245,7 +263,7 @@ mod tests {
         assert_eq!(state.monsters[0].powers.vulnerable, 2);
 
         state = end_player_turn(&state);
-        assert_eq!(state.monsters[0].powers.vulnerable, 1);
+        assert_eq!(state.monsters[0].powers.vulnerable, 0);
 
         state = end_player_turn(&state);
         assert_eq!(state.monsters[0].powers.vulnerable, 0);

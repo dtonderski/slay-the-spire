@@ -942,6 +942,8 @@ Do not implement:
 
 Goal: remove the current “exact card draw/shuffle order after end turn is out-of-scope” boundary for early Act 1 traces.
 
+Status: in progress. Observed-state CODEX04 floor 1–3 combat parity passes with `unexpected_diffs=0`; END transitions are verified. Seed-start CODEX04 combat replay and full `shuffleRng` opening-hand parity remain open.
+
 Tasks:
 
 - implement game-compatible draw-pile initialization and shuffling

@@ -169,6 +169,14 @@ impl StsRng {
         self.next_int(bound_exclusive)
     }
 
+    /// Fisher-Yates shuffle matching Java `Collections.shuffle` with raw `RandomXS128`.
+    pub fn collections_shuffle<T>(&mut self, items: &mut [T]) {
+        for i in (2..=items.len()).rev() {
+            let j = self.raw_next_int(i as i32) as usize;
+            items.swap(i - 1, j);
+        }
+    }
+
     fn next_int(&mut self, bound_exclusive: i32) -> i32 {
         assert!(bound_exclusive > 0, "STS RNG bound must be positive");
         self.next_long_bound(bound_exclusive as u64) as i32

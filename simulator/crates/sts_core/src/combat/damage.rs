@@ -22,6 +22,11 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     monster.block -= blocked;
     monster.hp -= amount - blocked;
 
+    if monster.powers.curl_up > 0 {
+        monster.block += monster.powers.curl_up;
+        monster.powers.curl_up = 0;
+    }
+
     if monster.hp <= 0 {
         monster.alive = false;
     }
@@ -72,6 +77,7 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -96,6 +102,7 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -124,6 +131,7 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -159,6 +167,7 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {

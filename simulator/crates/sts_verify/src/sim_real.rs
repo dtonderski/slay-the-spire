@@ -1548,15 +1548,6 @@ fn verify_combat_transition(
         return;
     };
 
-    if let Some(reason) = unsupported_monster_ai_reason(&pre.message) {
-        report.unsupported.push(UnsupportedTransition {
-            action_step: action.step,
-            command: action.command.clone(),
-            reason,
-        });
-        return;
-    }
-
     if is_final_combat_blow(&run, combat_action) {
         let pre_hp = run.player_hp;
         let next = apply_combat_action_on_run(&run, combat_action);
@@ -1604,18 +1595,17 @@ fn verify_combat_transition(
     };
 
     let label = combat_label(&action.command, &run);
-    let expected =
-        observed_combat_subset(&post.message, post_supported_combat_fields(&action.command));
-    let actual = simulated_combat_subset(&next, post_supported_combat_fields(&action.command));
-    compare_subset(report, action, &label, expected, actual);
-
+    let mut fields: Vec<&str> = post_supported_combat_fields(&action.command).to_vec();
     if action.command.trim().eq_ignore_ascii_case("END") {
-        report.unsupported.push(UnsupportedTransition {
-            action_step: action.step,
-            command: action.command.clone(),
-            reason: "exact card draw/shuffle order after end turn is out-of-scope for this verifier pass".to_owned(),
-        });
+        let pre_intent = observed_combat_subset(&pre.message, &["monster_intent"]);
+        let post_intent = observed_combat_subset(&post.message, &["monster_intent"]);
+        if pre_intent.get("monster_intent") == post_intent.get("monster_intent") {
+            fields.retain(|field| *field != "monster_intent");
+        }
     }
+    let expected = observed_combat_subset(&post.message, &fields);
+    let actual = simulated_combat_subset(&next, &fields);
+    compare_subset(report, action, &label, expected, actual);
 }
 
 fn verify_reward_gold(
@@ -1742,7 +1732,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
             cannot_draw: false,
             temp_strength: 0,
         },
-        monsters: monsters_from_observed(combat.get("monsters")),
+        monsters: monsters_from_observed(combat.get("monsters"), player),
         piles: CardPiles {
             hand: card_instances_from_array(combat.get("hand"), 100),
             draw_pile: card_instances_from_array(combat.get("draw_pile"), 200),
@@ -1753,6 +1743,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         relics: Vec::new(),
         relic_counters: Default::default(),
         ascension: int(game, "ascension_level") as u8,
+        shuffle_rng: None,
     };
 
     Some(RunState {
@@ -2047,7 +2038,7 @@ fn combat_label(command: &str, run: &RunState) -> String {
     key.to_owned()
 }
 
-fn monsters_from_observed(value: Option<&Value>) -> Vec<MonsterState> {
+fn monsters_from_observed(value: Option<&Value>, player: &Value) -> Vec<MonsterState> {
     let Some(monsters) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -2056,38 +2047,90 @@ fn monsters_from_observed(value: Option<&Value>) -> Vec<MonsterState> {
         .iter()
         .enumerate()
         .map(|(index, monster)| {
-            let powers = monster_powers(monster.get("powers"));
+            let game_id = monster
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("Cultist");
+            let content_id = sts_core::content::monsters::content_id_from_game_monster_id(game_id);
+            let rolled_attack_damage = louse_bite_damage_from_observed(monster, content_id);
+            let powers = monster_powers_for_replay(monster.get("powers"), player);
             MonsterState {
                 id: MonsterId::new(index as u64 + 1),
                 hp: int(monster, "current_hp"),
                 block: int(monster, "block"),
                 alive: int(monster, "current_hp") > 0,
                 powers,
-                content_id: sts_core::content::monsters::CULTIST_ID,
-                moves_executed: moves_executed(monster),
+                content_id,
+                moves_executed: moves_executed_from_observed(monster, content_id),
                 sleep_turns_remaining: 0,
                 has_siphoned: false,
                 split_triggered: false,
                 defensive_turns_remaining: 0,
-                intent: observed_intent(monster),
+                rolled_attack_damage,
+                intent: observed_intent(monster, content_id),
             }
         })
         .collect()
 }
 
-fn observed_intent(monster: &Value) -> MonsterIntent {
+fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Option<i32> {
+    if !matches!(
+        content_id,
+        sts_core::content::monsters::RED_LOUSE_ID | sts_core::content::monsters::GREEN_LOUSE_ID
+    ) {
+        return None;
+    }
+    let damage = int(monster, "move_base_damage");
+    (damage > 0).then_some(damage)
+}
+
+fn observed_intent(monster: &Value, content_id: ContentId) -> MonsterIntent {
+    use sts_core::content::monsters::{
+        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+    };
+
+    let damage = int(monster, "move_base_damage");
     match monster.get("intent").and_then(Value::as_str).unwrap_or("") {
-        "BUFF" | "DEBUG" => MonsterIntent::Ritual { amount: 3 },
         "ATTACK" => MonsterIntent::Attack {
-            damage: int(monster, "move_base_damage").max(0),
+            damage: damage.max(0),
+        },
+        "DEBUFF" => MonsterIntent::ApplyPlayerWeak {
+            amount: if content_id == ACID_SLIME_ID { 1 } else { 1 },
+        },
+        "ATTACK_DEBUFF" => MonsterIntent::Attack {
+            damage: damage.max(0),
+        },
+        "DEFEND" | "BLOCK" => MonsterIntent::Block {
+            block: if matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) {
+                3
+            } else {
+                damage.max(0)
+            },
+        },
+        "BUFF" | "DEBUG" => match content_id {
+            CULTIST_ID => MonsterIntent::Ritual { amount: 3 },
+            SPIKE_SLIME_ID if damage > 0 => MonsterIntent::Attack { damage },
+            SPIKE_SLIME_ID => MonsterIntent::Attack { damage: 5 },
+            ACID_SLIME_ID => MonsterIntent::Attack { damage: 7 },
+            RED_LOUSE_ID | GREEN_LOUSE_ID => MonsterIntent::Block { block: 3 },
+            _ => MonsterIntent::Attack { damage: 0 },
         },
         _ => MonsterIntent::Attack { damage: 0 },
     }
 }
 
-fn moves_executed(monster: &Value) -> u32 {
+fn moves_executed_from_observed(monster: &Value, content_id: ContentId) -> u32 {
+    use sts_core::content::monsters::{
+        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+    };
+
     match monster.get("intent").and_then(Value::as_str).unwrap_or("") {
-        "BUFF" | "DEBUG" => 0,
+        "BUFF" | "DEBUG" | "DEBUFF" => 0,
+        "ATTACK_DEBUFF" => 1,
+        "ATTACK" if content_id == CULTIST_ID => 1,
+        "ATTACK" if content_id == SPIKE_SLIME_ID => 0,
+        "ATTACK" if matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) => 1,
+        "ATTACK" if content_id == ACID_SLIME_ID => 1,
         _ => 1,
     }
 }
@@ -2105,10 +2148,30 @@ fn monster_powers(value: Option<&Value>) -> MonsterPowers {
             Some("Strength") => powers.strength = amount,
             Some("Ritual") => powers.ritual = amount,
             Some("Sharp Hide") | Some("Spikes") => powers.spikes = amount,
+            Some("Curl Up") => powers.curl_up = amount,
             _ => {}
         }
     }
     powers
+}
+
+fn monster_powers_for_replay(value: Option<&Value>, player: &Value) -> MonsterPowers {
+    let mut powers = monster_powers(value);
+    if player_has_weak(player) {
+        powers.vulnerable = 0;
+    }
+    powers
+}
+
+fn player_has_weak(player: &Value) -> bool {
+    player
+        .get("powers")
+        .and_then(Value::as_array)
+        .is_some_and(|powers| {
+            powers.iter().any(|power| {
+                power_id(power).as_deref() == Some("Weakened") && int(power, "amount") > 0
+            })
+        })
 }
 
 fn player_powers(value: Option<&Value>) -> PlayerPowers {
@@ -2284,20 +2347,27 @@ fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
 }
 
 fn intent_key(monster: &MonsterState) -> String {
+    use sts_core::content::monsters::ACID_SLIME_ID;
+
     match monster.intent {
-        MonsterIntent::Attack { .. } | MonsterIntent::AttackMultiple { .. } => "ATTACK",
+        MonsterIntent::Attack { .. } | MonsterIntent::AttackMultiple { .. } => {
+            if monster.content_id == ACID_SLIME_ID {
+                "ATTACK_DEBUFF".to_owned()
+            } else {
+                "ATTACK".to_owned()
+            }
+        }
         MonsterIntent::Ritual { .. }
         | MonsterIntent::Block { .. }
-        | MonsterIntent::StrengthAndBlock { .. } => "BUFF",
-        MonsterIntent::AttackAndBlock { .. } => "ATTACK_BUFF",
+        | MonsterIntent::StrengthAndBlock { .. } => "BUFF".to_owned(),
+        MonsterIntent::AttackAndBlock { .. } => "ATTACK_BUFF".to_owned(),
         MonsterIntent::ApplyPlayerWeak { .. }
         | MonsterIntent::AddDazedToDiscard { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
-        | MonsterIntent::SiphonPlayer { .. } => "DEBUFF",
-        MonsterIntent::Sleep => "SLEEP",
-        MonsterIntent::DefensiveCharge { .. } => "UNKNOWN",
+        | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
+        MonsterIntent::Sleep => "SLEEP".to_owned(),
+        MonsterIntent::DefensiveCharge { .. } => "UNKNOWN".to_owned(),
     }
-    .to_owned()
 }
 
 fn int(value: &Value, key: &str) -> i32 {

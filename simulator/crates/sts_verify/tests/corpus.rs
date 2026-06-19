@@ -601,17 +601,24 @@ fn codex04_controller_trace_verifies_supported_observed_state_scope() {
         "seed-start parity gap should be explicit"
     );
     assert!(
-        report.unsupported.iter().any(|entry| {
-            entry.reason.contains("AcidSlime_M") || entry.reason.contains("SpikeSlime_S")
+        !report.unsupported.iter().any(|entry| {
+            entry.reason.contains("draw/shuffle order after end turn is out-of-scope")
         }),
-        "unsupported slime combat should name monster groups"
+        "END transitions should no longer be unsupported for draw/shuffle scope"
     );
     assert!(
-        report
-            .unsupported
-            .iter()
-            .any(|entry| entry.reason.contains("FuzzyLouseDefensive")),
-        "unsupported louse combat should name monster groups"
+        !report.unsupported.iter().any(|entry| {
+            entry.reason.contains("AcidSlime_M") || entry.reason.contains("SpikeSlime_S")
+        }),
+        "slime combat should be verified, not unsupported"
+    );
+    assert!(
+        !report.unsupported.iter().any(|entry| entry.reason.contains("FuzzyLouseDefensive")),
+        "louse combat should be verified, not unsupported"
+    );
+    assert!(
+        labels.iter().filter(|label| **label == "end turn").count() >= 5,
+        "floor 1-3 combats should verify multiple end turns; labels: {labels:?}"
     );
 }
 

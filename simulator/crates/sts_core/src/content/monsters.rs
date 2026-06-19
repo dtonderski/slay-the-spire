@@ -32,8 +32,9 @@ const GREEN_LOUSE_SPIKES: i32 = 3;
 
 const SPIKE_SLIME_LICK_WEAK: i32 = 1;
 const SPIKE_SLIME_SPIT_DAMAGE: i32 = 7;
+const SPIKE_SLIME_S_SPIT_DAMAGE: i32 = 5;
 
-const ACID_SLIME_ATTACK_DAMAGE: i32 = 6;
+const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
 const ACID_SLIME_WEAK: i32 = 1;
 
 const LAGAVULIN_SLEEP_TURNS: u32 = 3;
@@ -585,6 +586,19 @@ fn target_louse_kind(rng: &mut StsRng) -> LouseKind {
 }
 
 #[must_use]
+pub fn content_id_from_game_monster_id(game_id: &str) -> ContentId {
+    match game_id {
+        "Cultist" => CULTIST_ID,
+        "JawWorm" => JAW_WORM_ID,
+        "SpikeSlime_S" | "Spike Slime (S)" => SPIKE_SLIME_ID,
+        "AcidSlime_M" | "Acid Slime (M)" => ACID_SLIME_ID,
+        "FuzzyLouseDefensive" | "LouseDefensive" => GREEN_LOUSE_ID,
+        "FuzzyLouseNormal" | "LouseNormal" => RED_LOUSE_ID,
+        _ => CULTIST_ID,
+    }
+}
+
+#[must_use]
 pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterDefinition> {
     match content_id {
         FIXED_SIMPLE_MONSTER_ID => Some(&FIXED_SIMPLE_MONSTER),
@@ -631,12 +645,14 @@ pub fn monster_state_for_ascension(
         has_siphoned: false,
         split_triggered: false,
         defensive_turns_remaining: definition.starting_defensive_turns,
+        rolled_attack_damage: None,
         intent: prepare_monster_intent_for_monster(
             definition,
             0,
             definition.starting_sleep_turns,
             false,
             definition.starting_defensive_turns,
+            None,
         ),
     }
 }
@@ -664,13 +680,20 @@ pub fn boss_monsters_for_ascension(
 #[must_use]
 pub fn prepare_monster_intent(monster: &MonsterState) -> MonsterIntent {
     let definition = get_monster_definition(monster.content_id).unwrap_or(&FIXED_SIMPLE_MONSTER);
-    prepare_monster_intent_for_monster(
+    let mut intent = prepare_monster_intent_for_monster(
         definition,
         monster.moves_executed,
         monster.sleep_turns_remaining,
         monster.has_siphoned,
         monster.defensive_turns_remaining,
-    )
+        monster.rolled_attack_damage,
+    );
+    if let Some(damage) = monster.rolled_attack_damage {
+        if let MonsterIntent::Attack { damage: ref mut attack } = intent {
+            *attack = damage;
+        }
+    }
+    intent
 }
 
 #[must_use]
@@ -680,6 +703,7 @@ fn prepare_monster_intent_for_monster(
     sleep_turns_remaining: u32,
     has_siphoned: bool,
     defensive_turns_remaining: u32,
+    rolled_attack_damage: Option<i32>,
 ) -> MonsterIntent {
     if definition.content_id == LAGAVULIN_ID {
         return lagavulin_intent(sleep_turns_remaining, has_siphoned);
@@ -687,13 +711,14 @@ fn prepare_monster_intent_for_monster(
     if definition.content_id == GUARDIAN_ID {
         return guardian_intent(defensive_turns_remaining, moves_executed);
     }
-    prepare_monster_intent_for(definition, moves_executed)
+    prepare_monster_intent_for(definition, moves_executed, rolled_attack_damage)
 }
 
 #[must_use]
 pub fn prepare_monster_intent_for(
     definition: &MonsterDefinition,
     moves_executed: u32,
+    rolled_attack_damage: Option<i32>,
 ) -> MonsterIntent {
     match definition.content_id {
         CULTIST_ID if moves_executed == 0 => MonsterIntent::Ritual {
@@ -701,9 +726,9 @@ pub fn prepare_monster_intent_for(
         },
         JAW_WORM_ID => jaw_worm_intent(moves_executed),
         GREMLIN_NOB_ID => gremlin_nob_intent(moves_executed),
-        RED_LOUSE_ID => red_louse_intent(moves_executed),
-        GREEN_LOUSE_ID => green_louse_intent(moves_executed),
-        SPIKE_SLIME_ID => spike_slime_intent(moves_executed),
+        RED_LOUSE_ID => red_louse_intent(moves_executed, rolled_attack_damage),
+        GREEN_LOUSE_ID => green_louse_intent(moves_executed, rolled_attack_damage),
+        SPIKE_SLIME_ID => spike_slime_s_intent(moves_executed),
         ACID_SLIME_ID => acid_slime_intent(moves_executed),
         SENTRY_ID => sentry_intent(moves_executed),
         HEXAGHOST_ID => hexaghost_intent(moves_executed),
@@ -716,25 +741,38 @@ pub fn prepare_monster_intent_for(
 
 /// Deterministic Red Louse move cycle: Curl → Bite, keyed on `moves_executed`.
 #[must_use]
-fn red_louse_intent(moves_executed: u32) -> MonsterIntent {
+fn red_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) -> MonsterIntent {
     match moves_executed % 2 {
         0 => MonsterIntent::Block {
             block: RED_LOUSE_CURL_BLOCK,
         },
         _ => MonsterIntent::Attack {
-            damage: RED_LOUSE_BITE_DAMAGE,
+            damage: rolled_attack_damage.unwrap_or(RED_LOUSE_BITE_DAMAGE),
         },
     }
 }
 
 #[must_use]
-fn green_louse_intent(moves_executed: u32) -> MonsterIntent {
+fn green_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) -> MonsterIntent {
     match moves_executed % 2 {
         0 => MonsterIntent::Block {
             block: GREEN_LOUSE_CURL_BLOCK,
         },
         _ => MonsterIntent::Attack {
-            damage: GREEN_LOUSE_BITE_DAMAGE,
+            damage: rolled_attack_damage.unwrap_or(GREEN_LOUSE_BITE_DAMAGE),
+        },
+    }
+}
+
+/// Spike Slime (S) opens with Spit, then Lick.
+#[must_use]
+fn spike_slime_s_intent(moves_executed: u32) -> MonsterIntent {
+    match moves_executed % 2 {
+        0 => MonsterIntent::Attack {
+            damage: SPIKE_SLIME_S_SPIT_DAMAGE,
+        },
+        _ => MonsterIntent::ApplyPlayerWeak {
+            amount: SPIKE_SLIME_LICK_WEAK,
         },
     }
 }
@@ -754,11 +792,11 @@ fn spike_slime_intent(moves_executed: u32) -> MonsterIntent {
 #[must_use]
 fn acid_slime_intent(moves_executed: u32) -> MonsterIntent {
     match moves_executed % 2 {
-        0 => MonsterIntent::Attack {
-            damage: ACID_SLIME_ATTACK_DAMAGE,
-        },
-        _ => MonsterIntent::ApplyPlayerWeak {
+        0 => MonsterIntent::ApplyPlayerWeak {
             amount: ACID_SLIME_WEAK,
+        },
+        _ => MonsterIntent::Attack {
+            damage: ACID_SLIME_ATTACK_DAMAGE,
         },
     }
 }
@@ -1196,15 +1234,15 @@ mod tests {
         let definition = &CULTIST_A0;
 
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
+            prepare_monster_intent_for(definition, 0, None),
             MonsterIntent::Ritual { amount: 2 }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
+            prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::Attack { damage: 6 }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 2),
+            prepare_monster_intent_for(definition, 2, None),
             MonsterIntent::Attack { damage: 6 }
         );
     }
@@ -1254,7 +1292,7 @@ mod tests {
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(&FIXED_SIMPLE_MONSTER, 5),
+            prepare_monster_intent_for(&FIXED_SIMPLE_MONSTER, 5, None),
             MonsterIntent::Attack {
                 damage: FIXED_SIMPLE_MONSTER.attack_damage
             }
@@ -1283,27 +1321,27 @@ mod tests {
         let definition = &JAW_WORM_A0;
 
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
+            prepare_monster_intent_for(definition, 0, None),
             MonsterIntent::Attack {
                 damage: JAW_WORM_CHOMP_DAMAGE
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
+            prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::AttackAndBlock {
                 damage: JAW_WORM_THRASH_DAMAGE,
                 block: JAW_WORM_THRASH_BLOCK,
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 2),
+            prepare_monster_intent_for(definition, 2, None),
             MonsterIntent::StrengthAndBlock {
                 strength: JAW_WORM_BELLOW_STRENGTH,
                 block: JAW_WORM_BELLOW_BLOCK,
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 3),
+            prepare_monster_intent_for(definition, 3, None),
             MonsterIntent::Attack {
                 damage: JAW_WORM_CHOMP_DAMAGE
             }
@@ -1368,25 +1406,25 @@ mod tests {
         let definition = &GREMLIN_NOB_A0;
 
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
+            prepare_monster_intent_for(definition, 0, None),
             MonsterIntent::Attack {
                 damage: GREMLIN_NOB_BITE_DAMAGE
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
+            prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::Attack {
                 damage: GREMLIN_NOB_SKULL_BASH_DAMAGE
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 2),
+            prepare_monster_intent_for(definition, 2, None),
             MonsterIntent::Attack {
                 damage: GREMLIN_NOB_RUSH_DAMAGE
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 3),
+            prepare_monster_intent_for(definition, 3, None),
             MonsterIntent::Attack {
                 damage: GREMLIN_NOB_BITE_DAMAGE
             }
@@ -1420,19 +1458,19 @@ mod tests {
         let definition = &RED_LOUSE_A0;
 
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
+            prepare_monster_intent_for(definition, 0, None),
             MonsterIntent::Block {
                 block: RED_LOUSE_CURL_BLOCK
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
+            prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::Attack {
                 damage: RED_LOUSE_BITE_DAMAGE
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 2),
+            prepare_monster_intent_for(definition, 2, None),
             MonsterIntent::Block {
                 block: RED_LOUSE_CURL_BLOCK
             }
@@ -1473,13 +1511,13 @@ mod tests {
         let definition = &GREEN_LOUSE_A0;
 
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
+            prepare_monster_intent_for(definition, 0, None),
             MonsterIntent::Block {
                 block: GREEN_LOUSE_CURL_BLOCK
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
+            prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::Attack {
                 damage: GREEN_LOUSE_BITE_DAMAGE
             }
@@ -1487,20 +1525,20 @@ mod tests {
     }
 
     #[test]
-    fn spike_slime_has_fourteen_hp_and_lick_spit_cycle() {
+    fn spike_slime_has_fourteen_hp_and_spit_lick_cycle() {
         let definition = &SPIKE_SLIME_A0;
 
         assert_eq!(SPIKE_SLIME_A0.hp, 14);
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
-            MonsterIntent::ApplyPlayerWeak {
-                amount: SPIKE_SLIME_LICK_WEAK
+            prepare_monster_intent_for(definition, 0, None),
+            MonsterIntent::Attack {
+                damage: SPIKE_SLIME_S_SPIT_DAMAGE
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
-            MonsterIntent::Attack {
-                damage: SPIKE_SLIME_SPIT_DAMAGE
+            prepare_monster_intent_for(definition, 1, None),
+            MonsterIntent::ApplyPlayerWeak {
+                amount: SPIKE_SLIME_LICK_WEAK
             }
         );
     }
@@ -1522,20 +1560,20 @@ mod tests {
     }
 
     #[test]
-    fn acid_slime_has_twelve_hp_and_attack_weak_cycle() {
+    fn acid_slime_has_twelve_hp_and_weak_attack_cycle() {
         let definition = &ACID_SLIME_A0;
 
         assert_eq!(ACID_SLIME_A0.hp, 12);
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
-            MonsterIntent::Attack {
-                damage: ACID_SLIME_ATTACK_DAMAGE
+            prepare_monster_intent_for(definition, 0, None),
+            MonsterIntent::ApplyPlayerWeak {
+                amount: ACID_SLIME_WEAK
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
-            MonsterIntent::ApplyPlayerWeak {
-                amount: ACID_SLIME_WEAK
+            prepare_monster_intent_for(definition, 1, None),
+            MonsterIntent::Attack {
+                damage: ACID_SLIME_ATTACK_DAMAGE
             }
         );
     }
@@ -1653,19 +1691,19 @@ mod tests {
         let definition = &SENTRY_A0;
 
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
+            prepare_monster_intent_for(definition, 0, None),
             MonsterIntent::AddDazedToDiscard {
                 count: SENTRY_BEAM_DAZED
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
+            prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::Attack {
                 damage: SENTRY_ATTACK_DAMAGE
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 2),
+            prepare_monster_intent_for(definition, 2, None),
             MonsterIntent::Attack {
                 damage: SENTRY_ATTACK_DAMAGE
             }
@@ -1711,21 +1749,21 @@ mod tests {
         let definition = &HEXAGHOST_A0;
 
         assert_eq!(
-            prepare_monster_intent_for(definition, 0),
+            prepare_monster_intent_for(definition, 0, None),
             MonsterIntent::AttackMultiple {
                 damage: HEXAGHOST_DIVIDER_DAMAGE,
                 hits: HEXAGHOST_DIVIDER_HITS,
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 1),
+            prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::AttackMultiple {
                 damage: HEXAGHOST_TACKLE_DAMAGE,
                 hits: HEXAGHOST_TACKLE_HITS,
             }
         );
         assert_eq!(
-            prepare_monster_intent_for(definition, 2),
+            prepare_monster_intent_for(definition, 2, None),
             MonsterIntent::AddBurnToDiscard {
                 count: HEXAGHOST_INFERNO_BURNS,
                 damage: HEXAGHOST_INFERNO_DAMAGE,
