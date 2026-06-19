@@ -19,6 +19,7 @@ pub struct MonsterPowers {
     pub strength: i32,
     pub ritual: i32,
     pub spikes: i32,
+    pub curl_up: i32,
 }
 
 /// Slay the Spire-style vulnerable bonus: attack damage is increased by 50%, floored.

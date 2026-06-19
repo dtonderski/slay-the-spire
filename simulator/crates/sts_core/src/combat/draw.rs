@@ -1,12 +1,26 @@
 use crate::{
     combat::CombatState,
-    rng::{RngStream, SimulatorRng},
+    rng::{RngStream, SimulatorRng, StsRng},
 };
 
 pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng) {
     for _ in 0..count {
         if state.piles.draw_pile.is_empty() {
             shuffle_discard_into_draw(state, rng);
+        }
+
+        if state.piles.draw_pile.is_empty() {
+            break;
+        }
+
+        state.piles.hand.push(state.piles.draw_pile.remove(0));
+    }
+}
+
+pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut StsRng) {
+    for _ in 0..count {
+        if state.piles.draw_pile.is_empty() {
+            shuffle_discard_into_draw_sts(state, rng);
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -28,6 +42,15 @@ fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut SimulatorRng) {
         let swap_with = rng.next_usize(RngStream::Shuffle, "combat::draw::shuffle", index + 1);
         state.piles.draw_pile.swap(index, swap_with);
     }
+}
+
+fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
+    if state.piles.discard_pile.is_empty() {
+        return;
+    }
+
+    state.piles.draw_pile.append(&mut state.piles.discard_pile);
+    rng.collections_shuffle(&mut state.piles.draw_pile);
 }
 
 #[cfg(test)]

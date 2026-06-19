@@ -78,18 +78,18 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 Expected result: `unexpected_diffs=0`, verified labels through `map first monster node`, and `seed_start.first_boundary.category=unsupported_combat_path` at the first CODEX04 combat action.
 
-Current fidelity limit: VERIFY01 has captured-trace seed-start parity through return to map and source-backed first-three encounter spawn verification via `seed_start.m22_encounter_report`. CODEX04 seed-start parity covers the captured Neow colorless-card branch, first map choice into a 54/54 HP Cultist, and M22 encounter spawn verification for all three captured combat entries; executing CODEX04 combat remains Milestone 23 draw/shuffle/combat parity work.
+Current fidelity limit: VERIFY01 has captured-trace seed-start parity through return to map and source-backed first-three encounter spawn verification via `seed_start.m22_encounter_report`. CODEX04 observed-state parity now verifies all floor 1–3 combats (Cultist, Small Slimes, 2 Louse) with `unexpected_diffs=0`; END transitions are no longer draw/shuffle scope failures. CODEX04 seed-start still stops at the first unsupported combat command; seed-start combat replay through floor 3 remains in progress.
 
 ### Tests
 - `cargo test` passing
 
 ## Current Captured Controller Trace
 
-`verification/corpus/communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl` imports successfully with 42 states and 41 actions. Observed-state parity verifies Cultist combat, Dramatic Entrance no-target plays, nonzero reward picks, and gold/card rewards with `unexpected_diffs=0`. Unsupported commands are classified for Neow/map/seed-start gaps, draw/shuffle scope, and slime/louse monster AI.
+`verification/corpus/communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl` imports successfully with 42 states and 41 actions. Observed-state parity verifies floor 1–3 combat (Cultist, Small Slimes, 2 Louse), Dramatic Entrance, Battle Trance path cards, multiple `END` turns, and reward screens with `unexpected_diffs=0`. Unsupported commands are classified for Neow/map/seed-start gaps only.
 
 ## Next Task
 
-Begin Milestone 23: remove the early Act 1 draw/shuffle scope boundary and implement real move selection for Cultist, slimes, louses, Jaw Worm, and captured early-run cards so seed-start can replay combat through floor 3.
+Continue Milestone 23: wire `StsRng` combat-start shuffle into seed-start mode and replay CODEX04 combat through floor 3 without observed-state restoration.
 
 ## Milestone 20 Notes
 
@@ -103,6 +103,6 @@ CODEX04 seed-start verification now covers the captured Neow colorless-card bran
 
 Milestone 22 is complete. Act 1 map, normal encounter selection, and monster spawn parity are source-backed for `VERIFY01`, `CODEX04`, and `CODEX03` through the first three combats. Full captured map topology/edges/room symbols match for all three seeds. Map-choice prefixes and chosen combat paths are pinned, including CODEX04 `[2, 3, 2]`, CODEX03 `[1, 0, 1]`, and VERIFY01 `[1, 2, x]` with all three nodes entering combat rooms. Normal encounter list generation covers weak/strong pools, first-strong exclusions, and no-repeat-last-two retries; room execution maps combat index to list entries via `normal_encounter_key_at_combat_index`. Target spawn state at combat entry covers Cultist, Jaw Worm, Small Slimes, and 2 Louse with floor-offset `monsterHpRng`, `miscRng` louse kind selection, and post-HP/bite Curl Up rolls from the decoded 3–7 range. Seed-start reports now include `m22_encounter_report` verifying first-three combat entry rosters for VERIFY01 (one captured trace entry plus two source-backed generated entries) and CODEX04/CODEX03 (three captured trace entries). CODEX04 seed-start still stops at the first unsupported combat command; that boundary is Milestone 23 work.
 
-## Last Updated
+## Milestone 23 Notes
 
-2026-06-19 (completed Milestone 22: room execution, target combat-entry spawn parity, and seed-start M22 encounter reports for VERIFY01/CODEX04/CODEX03 first-three prefixes).
+Observed-state CODEX04 parity now covers floor 1–3 combat with game-ID monster mapping (`SpikeSlime_S`, `AcidSlime_M`, `FuzzyLouseDefensive`), per-louse bite damage, Curl Up on-hit block, Spike Slime (S) spit-first move cycle, Acid Slime (M) weak-first cycle with `ATTACK_DEBUFF` intent labeling, and removal of the END draw/shuffle unsupported boundary. `StsRng::collections_shuffle` and optional `CombatState.shuffle_rng` are wired for discard-to-draw shuffles. Seed-start CODEX04 combat execution remains open.

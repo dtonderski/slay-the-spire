@@ -254,29 +254,30 @@ fn spike_slime_fixture_has_expected_hp_and_opening_intent() {
     assert_eq!(state.monsters[0].hp, SPIKE_SLIME_A0.hp);
     assert_eq!(
         state.monsters[0].intent,
-        MonsterIntent::ApplyPlayerWeak { amount: 1 }
+        MonsterIntent::Attack { damage: 5 }
     );
 }
 
 #[test]
-fn spike_slime_combat_executes_lick_spit_cycle() {
+fn spike_slime_combat_executes_spit_lick_cycle() {
     let mut state = CombatState::spike_slime_fixture();
     state.player.hp = 100;
     state.piles.draw_pile.clear();
 
-    let after_lick = end_player_turn(&state);
-    assert_eq!(after_lick.player.hp, 100);
-    assert_eq!(after_lick.player.powers.weak, 1);
-    assert_eq!(
-        after_lick.monsters[0].intent,
-        MonsterIntent::Attack { damage: 7 }
-    );
-
-    let after_spit = end_player_turn(&after_lick);
-    assert_eq!(after_spit.player.hp, 93);
+    let after_spit = end_player_turn(&state);
+    assert_eq!(after_spit.player.hp, 95);
+    assert_eq!(after_spit.player.powers.weak, 0);
     assert_eq!(
         after_spit.monsters[0].intent,
         MonsterIntent::ApplyPlayerWeak { amount: 1 }
+    );
+
+    let after_lick = end_player_turn(&after_spit);
+    assert_eq!(after_lick.player.hp, 95);
+    assert_eq!(after_lick.player.powers.weak, 1);
+    assert_eq!(
+        after_lick.monsters[0].intent,
+        MonsterIntent::Attack { damage: 5 }
     );
 }
 
@@ -287,29 +288,29 @@ fn acid_slime_fixture_has_expected_hp_and_opening_intent() {
     assert_eq!(state.monsters[0].hp, ACID_SLIME_A0.hp);
     assert_eq!(
         state.monsters[0].intent,
-        MonsterIntent::Attack { damage: 6 }
+        MonsterIntent::ApplyPlayerWeak { amount: 1 }
     );
 }
 
 #[test]
-fn acid_slime_combat_executes_attack_weak_cycle() {
+fn acid_slime_combat_executes_weak_attack_cycle() {
     let mut state = CombatState::acid_slime_fixture();
     state.player.hp = 100;
     state.piles.draw_pile.clear();
 
-    let after_attack = end_player_turn(&state);
-    assert_eq!(after_attack.player.hp, 94);
-    assert_eq!(
-        after_attack.monsters[0].intent,
-        MonsterIntent::ApplyPlayerWeak { amount: 1 }
-    );
-
-    let after_weak = end_player_turn(&after_attack);
-    assert_eq!(after_weak.player.hp, 94);
+    let after_weak = end_player_turn(&state);
+    assert_eq!(after_weak.player.hp, 100);
     assert_eq!(after_weak.player.powers.weak, 1);
     assert_eq!(
         after_weak.monsters[0].intent,
-        MonsterIntent::Attack { damage: 6 }
+        MonsterIntent::Attack { damage: 7 }
+    );
+
+    let after_attack = end_player_turn(&after_weak);
+    assert_eq!(after_attack.player.hp, 93);
+    assert_eq!(
+        after_attack.monsters[0].intent,
+        MonsterIntent::ApplyPlayerWeak { amount: 1 }
     );
 }
 

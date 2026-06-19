@@ -10,6 +10,7 @@ use crate::{
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
     relic::{Relic, RelicCounters},
+    rng::StsRng,
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,8 @@ pub struct CombatState {
     pub relic_counters: RelicCounters,
     #[serde(default)]
     pub ascension: u8,
+    #[serde(default)]
+    pub shuffle_rng: Option<StsRng>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,6 +67,8 @@ pub struct MonsterState {
     pub split_triggered: bool,
     #[serde(default)]
     pub defensive_turns_remaining: u32,
+    #[serde(default)]
+    pub rolled_attack_damage: Option<i32>,
     pub intent: MonsterIntent,
 }
 
@@ -128,6 +133,7 @@ impl CombatState {
             relics: Vec::new(),
             relic_counters: RelicCounters::default(),
             ascension: 0,
+            shuffle_rng: None,
         }
     }
 
