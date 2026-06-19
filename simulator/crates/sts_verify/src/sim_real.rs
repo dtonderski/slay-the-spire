@@ -1427,7 +1427,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "mapRng".to_owned(),
             save_counter: None,
             status: "source_backed_topology_prefix".to_owned(),
-            reason: "decoded Exordium mapRng initialization uses seed + actNum and MapGenerator topology reproduces captured VERIFY01 first choices x=1/x=2, CODEX04 first choices x=0/x=2/x=4/x=5, and CODEX04 chosen-path next choices x=3 then x=2/x=3; fixed generateMap rows are row 0 combat, row 8 treasure, and row 14 rest; generateRoomTypes counts/pre-shuffle order and raw RandomXS128 Collections.shuffle prefix match decoded target behavior for VERIFY01/CODEX04. RoomTypeAssigner placement rules remain incomplete".to_owned(),
+            reason: "decoded Exordium mapRng initialization uses seed + actNum and MapGenerator topology reproduces captured VERIFY01 first choices x=1/x=2, CODEX04 first choices x=0/x=2/x=4/x=5, and CODEX04 chosen-path next choices x=3 then x=2/x=3; fixed generateMap rows are row 0 combat, row 8 treasure, and row 14 rest; generateRoomTypes, RoomTypeAssigner two-stage room-list construction, raw RandomXS128 Collections.shuffle prefix, and full CODEX04 room-symbol placement match decoded target behavior and captured map payloads".to_owned(),
         },
         RngBoundary {
             stream: "monsterRng".to_owned(),

@@ -2,7 +2,8 @@ use sts_core::content::monsters::{
     target_small_slimes_hp_rolls, target_two_louse_hp_rolls, TargetMonsterHp,
 };
 use sts_core::{
-    generate_exordium_map_choices_after_path, generate_exordium_map_topology, ExordiumMapChoiceStep,
+    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
+    ExordiumMapChoiceStep, RoomKind,
 };
 use sts_verify::{
     canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
@@ -28,6 +29,7 @@ struct CapturedMapPrefix {
 struct CapturedMapNode {
     x: i64,
     y: i64,
+    symbol: String,
     children: Vec<(i64, i64)>,
 }
 
@@ -148,7 +150,7 @@ fn codex04_trace_records_first_three_map_and_encounter_targets() {
 }
 
 #[test]
-fn codex04_full_captured_map_edges_match_target_topology() {
+fn codex04_full_captured_map_matches_target_topology() {
     let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl")
     else {
         return;
@@ -161,6 +163,7 @@ fn codex04_full_captured_map_edges_match_target_topology() {
         .map(|room| CapturedMapNode {
             x: i64::from(room.x),
             y: room.row as i64,
+            symbol: room_symbol(room.room_kind).to_owned(),
             children: room
                 .children
                 .iter()
@@ -499,6 +502,11 @@ fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
                     .get("y")
                     .and_then(serde_json::Value::as_i64)
                     .unwrap_or(-1),
+                symbol: node
+                    .get("symbol")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
                 children: node
                     .get("children")
                     .and_then(serde_json::Value::as_array)
@@ -523,6 +531,18 @@ fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
     }
 
     Vec::new()
+}
+
+fn room_symbol(room_kind: RoomKind) -> &'static str {
+    match room_kind {
+        RoomKind::Combat => "M",
+        RoomKind::Elite => "E",
+        RoomKind::Event => "?",
+        RoomKind::Rest => "R",
+        RoomKind::Shop => "$",
+        RoomKind::Treasure => "T",
+        RoomKind::Boss => "B",
+    }
 }
 
 fn captured_map_and_encounter_prefixes(

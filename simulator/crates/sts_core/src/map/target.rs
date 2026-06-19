@@ -390,12 +390,19 @@ impl TargetMapGenerator {
             .filter(|node| !node.edges.is_empty())
             .map(|node| node.x)
             .collect();
-        let room_type_counts = self.room_type_counts();
+        let mut room_type_counts = self.room_type_counts();
+        self.assign_fixed_rows();
+        room_type_counts.combats = self
+            .connected_non_assigned_node_count()
+            .saturating_sub(room_type_counts.shops)
+            .saturating_sub(room_type_counts.rests)
+            .saturating_sub(room_type_counts.treasures)
+            .saturating_sub(room_type_counts.elites)
+            .saturating_sub(room_type_counts.events);
         let pre_shuffle_room_list = pre_shuffle_room_list(room_type_counts);
         let mut shuffled_room_list = pre_shuffle_room_list.clone();
         shuffle_room_list(&mut self.rng, &mut shuffled_room_list);
         let shuffled_room_list_report = shuffled_room_list.clone();
-        self.assign_fixed_rows();
         self.assign_rooms_to_nodes(&mut shuffled_room_list);
         self.last_minute_node_checker();
         let assigned_rooms = self.assigned_rooms();
@@ -448,6 +455,16 @@ impl TargetMapGenerator {
             .count()
     }
 
+    fn connected_non_assigned_node_count(&self) -> usize {
+        self.grid
+            .iter()
+            .flat_map(|row| {
+                row.iter()
+                    .filter(|node| node.has_edges() && node.room_kind.is_none())
+            })
+            .count()
+    }
+
     fn choices_after_path(&self, path_xs: &[i32]) -> Vec<ExordiumMapChoiceStep> {
         let mut steps = Vec::with_capacity(path_xs.len());
         for (floor, x) in path_xs.iter().copied().enumerate() {
@@ -488,7 +505,7 @@ impl TargetMapGenerator {
 
     fn assign_rooms_to_nodes(&mut self, room_list: &mut Vec<RoomKind>) {
         for row_index in 0..self.grid.len() {
-            for node_index in (0..self.grid[row_index].len()).rev() {
+            for node_index in 0..self.grid[row_index].len() {
                 if !self.grid[row_index][node_index].has_edges()
                     || self.grid[row_index][node_index].room_kind.is_some()
                 {
@@ -509,12 +526,6 @@ impl TargetMapGenerator {
         node: (usize, usize),
         room_list: &[RoomKind],
     ) -> Option<usize> {
-        if self.grid[node.0][node.1].y == 1 {
-            return room_list
-                .iter()
-                .position(|room_kind| *room_kind == RoomKind::Combat);
-        }
-
         let parents = &self.grid[node.0][node.1].parents;
         let siblings = self.siblings(parents, node);
         for (index, room_kind) in room_list.iter().copied().enumerate() {
@@ -548,7 +559,7 @@ impl TargetMapGenerator {
 
     fn rule_assignable_to_row(&self, node: (usize, usize), room_kind: RoomKind) -> bool {
         let y = self.grid[node.0][node.1].y;
-        if y <= 4 && matches!(room_kind, RoomKind::Rest | RoomKind::Elite | RoomKind::Shop) {
+        if y <= 4 && matches!(room_kind, RoomKind::Rest | RoomKind::Elite) {
             return false;
         }
         if y >= 13 && room_kind == RoomKind::Rest {
@@ -740,7 +751,7 @@ mod tests {
                 treasures: 0,
                 elites: 5,
                 events: 13,
-                combats: 29,
+                combats: 23,
             }
         );
         assert_eq!(
@@ -752,7 +763,7 @@ mod tests {
                 treasures: 0,
                 elites: 4,
                 events: 12,
-                combats: 29,
+                combats: 23,
             }
         );
     }
@@ -760,7 +771,7 @@ mod tests {
     #[test]
     fn exordium_pre_shuffle_room_list_matches_target_generate_room_types_order() {
         let codex04 = generate_exordium_map_topology(22_079_335_079);
-        assert_eq!(codex04.pre_shuffle_room_list.len(), 57);
+        assert_eq!(codex04.pre_shuffle_room_list.len(), 51);
         assert_eq!(
             codex04
                 .pre_shuffle_room_list
@@ -774,12 +785,12 @@ mod tests {
         assert_eq!(codex04.pre_shuffle_room_list[10..15], [RoomKind::Elite; 5]);
         assert_eq!(codex04.pre_shuffle_room_list[15..28], [RoomKind::Event; 13]);
         assert_eq!(
-            codex04.pre_shuffle_room_list[28..57],
-            [RoomKind::Combat; 29]
+            codex04.pre_shuffle_room_list[28..51],
+            [RoomKind::Combat; 23]
         );
 
         let verify01 = generate_exordium_map_topology(1_957_307_888_551);
-        assert_eq!(verify01.pre_shuffle_room_list.len(), 54);
+        assert_eq!(verify01.pre_shuffle_room_list.len(), 48);
         assert_eq!(verify01.pre_shuffle_room_list[0..3], [RoomKind::Shop; 3]);
         assert_eq!(verify01.pre_shuffle_room_list[3..9], [RoomKind::Rest; 6]);
         assert_eq!(verify01.pre_shuffle_room_list[9..13], [RoomKind::Elite; 4]);
@@ -788,8 +799,8 @@ mod tests {
             [RoomKind::Event; 12]
         );
         assert_eq!(
-            verify01.pre_shuffle_room_list[25..54],
-            [RoomKind::Combat; 29]
+            verify01.pre_shuffle_room_list[25..48],
+            [RoomKind::Combat; 23]
         );
     }
 
@@ -798,7 +809,7 @@ mod tests {
         let topology = generate_exordium_map_topology(22_079_335_079);
 
         assert_eq!(topology.map_rng_counter, 95);
-        assert_eq!(topology.shuffled_room_list.len(), 57);
+        assert_eq!(topology.shuffled_room_list.len(), 51);
         assert_eq!(
             topology
                 .shuffled_room_list
@@ -807,16 +818,16 @@ mod tests {
                 .copied()
                 .collect::<Vec<_>>(),
             vec![
-                RoomKind::Rest,
+                RoomKind::Combat,
+                RoomKind::Combat,
+                RoomKind::Combat,
+                RoomKind::Combat,
+                RoomKind::Combat,
+                RoomKind::Elite,
                 RoomKind::Combat,
                 RoomKind::Event,
                 RoomKind::Combat,
                 RoomKind::Combat,
-                RoomKind::Rest,
-                RoomKind::Rest,
-                RoomKind::Elite,
-                RoomKind::Elite,
-                RoomKind::Shop,
                 RoomKind::Combat,
                 RoomKind::Event,
             ]
