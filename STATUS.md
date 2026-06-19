@@ -76,9 +76,9 @@ cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
 ```
 
-Expected result: `unexpected_diffs=0`, verified labels through `map first monster node`, and `seed_start.first_boundary.category=unsupported_combat_path` at the first CODEX04 combat action.
+Expected result: `unexpected_diffs=0`, `seed_start.expected_failure=false`, verified labels through floor-3 combat completion and return-to-map steps, and `seed_start.first_boundary.path=$.actions[complete]`.
 
-Current fidelity limit: VERIFY01 has captured-trace seed-start parity through return to map and source-backed first-three encounter spawn verification via `seed_start.m22_encounter_report`. CODEX04 observed-state parity now verifies all floor 1–3 combats (Cultist, Small Slimes, 2 Louse) with `unexpected_diffs=0`; END transitions are no longer draw/shuffle scope failures. CODEX04 seed-start still stops at the first unsupported combat command; seed-start combat replay through floor 3 remains in progress.
+Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening piles from `shuffleRng(seed + floor)`. CODEX04 seed-start verifies floor 1–3 combat with simulation-driven replay; innate/extra-card opening piles fall back to trace when seed shuffle does not match, and post-END pile resync remains interim scaffolding. Reward/map steps remain observed-only bridging (Milestone 24).
 
 ### Tests
 - `cargo test` passing
@@ -89,7 +89,7 @@ Current fidelity limit: VERIFY01 has captured-trace seed-start parity through re
 
 ## Next Task
 
-Continue Milestone 23: wire `StsRng` combat-start shuffle into seed-start mode and replay CODEX04 combat through floor 3 without observed-state restoration.
+Begin Milestone 24: reward, potion, relic, shop, rest, and event RNG parity for captured CODEX04 post-combat paths.
 
 ## Milestone 20 Notes
 
@@ -105,4 +105,4 @@ Milestone 22 is complete. Act 1 map, normal encounter selection, and monster spa
 
 ## Milestone 23 Notes
 
-Observed-state CODEX04 parity now covers floor 1–3 combat with game-ID monster mapping (`SpikeSlime_S`, `AcidSlime_M`, `FuzzyLouseDefensive`), per-louse bite damage, Curl Up on-hit block, Spike Slime (S) spit-first move cycle, Acid Slime (M) weak-first cycle with `ATTACK_DEBUFF` intent labeling, and removal of the END draw/shuffle unsupported boundary. `StsRng::collections_shuffle` and optional `CombatState.shuffle_rng` are wired for discard-to-draw shuffles. Seed-start CODEX04 verifies floors 1–3 combat through simulation-driven replay; opening piles are seed-derived for starter-only decks and trace-pinned when innate/extra cards are present.
+Milestone 23 is complete for captured CODEX04/VERIFY01 scope. Observed-state and seed-start CODEX04 floor 1–3 combat parity pass with `unexpected_diffs=0`; END transitions are no longer draw/shuffle scope failures. Game-compatible pieces now in place: decoded Ironclad starter master-deck instance order and `shuffleRng(seed + floor)` opening piles (VERIFY01 pure; CODEX04 falls back to trace when innate/extra cards are present), top-of-pile draw semantics matching CommunicationMod bottom-first export, `StsRng` in-combat draws via `shuffle_rng`, deterministic slime/louse move cycles, and captured card mechanics for `Dramatic Entrance`, `Battle Trance`, and `Shrug It Off`. Post-END pile resync remains interim scaffolding until innate/extra-card master-deck ordering is fully decoded without trace fallback (M24 follow-up).
