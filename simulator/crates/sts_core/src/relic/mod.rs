@@ -1,6 +1,7 @@
 use crate::action::InternalAction;
 use crate::card::CardType;
 use crate::combat::CombatState;
+use crate::rng::{JavaRng, StsRng};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::ContentId;
@@ -54,6 +55,316 @@ pub enum RelicTier {
     Rare,
     Boss,
     Shop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelicKey {
+    Whetstone,
+    TheBoot,
+    BloodVial,
+    MealTicket,
+    PenNib,
+    Akabeko,
+    Lantern,
+    RegalPillow,
+    BagOfPreparation,
+    AncientTeaSet,
+    SmilingMask,
+    PotionBelt,
+    PreservedInsect,
+    Omamori,
+    MawBank,
+    ArtOfWar,
+    ToyOrnithopter,
+    CeramicFish,
+    Vajra,
+    CentennialPuzzle,
+    Strawberry,
+    HappyFlower,
+    OddlySmoothStone,
+    WarPaint,
+    BronzeScales,
+    JuzuBracelet,
+    DreamCatcher,
+    Nunchaku,
+    TinyChest,
+    Orichalcum,
+    Anchor,
+    BagOfMarbles,
+    RedSkull,
+    BottledTornado,
+    Sundial,
+    Kunai,
+    Pear,
+    BlueCandle,
+    EternalFeather,
+    StrikeDummy,
+    SingingBowl,
+    Matryoshka,
+    InkBottle,
+    TheCourier,
+    FrozenEgg,
+    OrnamentalFan,
+    BottledLightning,
+    GremlinHorn,
+    HornCleat,
+    ToxicEgg,
+    LetterOpener,
+    QuestionCard,
+    BottledFlame,
+    Shuriken,
+    MoltenEgg,
+    MeatOnTheBone,
+    DarkstonePeriapt,
+    MummifiedHand,
+    Pantograph,
+    WhiteBeastStatue,
+    MercuryHourglass,
+    SelfFormingClay,
+    PaperPhrog,
+    Ginger,
+    OldCoin,
+    BirdFacedUrn,
+    UnceasingTop,
+    Torii,
+    StoneCalendar,
+    Shovel,
+    WingBoots,
+    ThreadAndNeedle,
+    Turnip,
+    IceCream,
+    Calipers,
+    LizardTail,
+    PrayerWheel,
+    Girya,
+    DeadBranch,
+    DuVuDoll,
+    Pocketwatch,
+    Mango,
+    IncenseBurner,
+    GamblingChip,
+    PeacePipe,
+    CaptainsWheel,
+    FossilizedHelix,
+    TungstenRod,
+    MagicFlower,
+    CharonsAshes,
+    ChampionBelt,
+    FusionHammer,
+    VelvetChoker,
+    RunicDome,
+    SlaversCollar,
+    SneckoEye,
+    PandorasBox,
+    CursedKey,
+    BustedCrown,
+    Ectoplasm,
+    TinyHouse,
+    Sozu,
+    PhilosophersStone,
+    Astrolabe,
+    BlackStar,
+    SacredBark,
+    EmptyCage,
+    RunicPyramid,
+    CallingBell,
+    CoffeeDripper,
+    BlackBlood,
+    MarkOfPain,
+    RunicCube,
+    SlingOfCourage,
+    HandDrill,
+    Toolbox,
+    ChemicalX,
+    LeesWaffle,
+    Orrery,
+    DollysMirror,
+    OrangePellets,
+    PrismaticShard,
+    ClockworkSouvenir,
+    FrozenEye,
+    TheAbacus,
+    MedicalKit,
+    Cauldron,
+    StrangeSpoon,
+    MembershipCard,
+    Brimstone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelicPoolState {
+    pub common: Vec<RelicKey>,
+    pub uncommon: Vec<RelicKey>,
+    pub rare: Vec<RelicKey>,
+    pub shop: Vec<RelicKey>,
+    pub boss: Vec<RelicKey>,
+}
+
+pub const IRONCLAD_COMMON_RELIC_POOL: [RelicKey; 33] = [
+    RelicKey::Whetstone,
+    RelicKey::TheBoot,
+    RelicKey::BloodVial,
+    RelicKey::MealTicket,
+    RelicKey::PenNib,
+    RelicKey::Akabeko,
+    RelicKey::Lantern,
+    RelicKey::RegalPillow,
+    RelicKey::BagOfPreparation,
+    RelicKey::AncientTeaSet,
+    RelicKey::SmilingMask,
+    RelicKey::PotionBelt,
+    RelicKey::PreservedInsect,
+    RelicKey::Omamori,
+    RelicKey::MawBank,
+    RelicKey::ArtOfWar,
+    RelicKey::ToyOrnithopter,
+    RelicKey::CeramicFish,
+    RelicKey::Vajra,
+    RelicKey::CentennialPuzzle,
+    RelicKey::Strawberry,
+    RelicKey::HappyFlower,
+    RelicKey::OddlySmoothStone,
+    RelicKey::WarPaint,
+    RelicKey::BronzeScales,
+    RelicKey::JuzuBracelet,
+    RelicKey::DreamCatcher,
+    RelicKey::Nunchaku,
+    RelicKey::TinyChest,
+    RelicKey::Orichalcum,
+    RelicKey::Anchor,
+    RelicKey::BagOfMarbles,
+    RelicKey::RedSkull,
+];
+
+pub const IRONCLAD_UNCOMMON_RELIC_POOL: [RelicKey; 30] = [
+    RelicKey::BottledTornado,
+    RelicKey::Sundial,
+    RelicKey::Kunai,
+    RelicKey::Pear,
+    RelicKey::BlueCandle,
+    RelicKey::EternalFeather,
+    RelicKey::StrikeDummy,
+    RelicKey::SingingBowl,
+    RelicKey::Matryoshka,
+    RelicKey::InkBottle,
+    RelicKey::TheCourier,
+    RelicKey::FrozenEgg,
+    RelicKey::OrnamentalFan,
+    RelicKey::BottledLightning,
+    RelicKey::GremlinHorn,
+    RelicKey::HornCleat,
+    RelicKey::ToxicEgg,
+    RelicKey::LetterOpener,
+    RelicKey::QuestionCard,
+    RelicKey::BottledFlame,
+    RelicKey::Shuriken,
+    RelicKey::MoltenEgg,
+    RelicKey::MeatOnTheBone,
+    RelicKey::DarkstonePeriapt,
+    RelicKey::MummifiedHand,
+    RelicKey::Pantograph,
+    RelicKey::WhiteBeastStatue,
+    RelicKey::MercuryHourglass,
+    RelicKey::SelfFormingClay,
+    RelicKey::PaperPhrog,
+];
+
+pub const IRONCLAD_RARE_RELIC_POOL: [RelicKey; 28] = [
+    RelicKey::Ginger,
+    RelicKey::OldCoin,
+    RelicKey::BirdFacedUrn,
+    RelicKey::UnceasingTop,
+    RelicKey::Torii,
+    RelicKey::StoneCalendar,
+    RelicKey::Shovel,
+    RelicKey::WingBoots,
+    RelicKey::ThreadAndNeedle,
+    RelicKey::Turnip,
+    RelicKey::IceCream,
+    RelicKey::Calipers,
+    RelicKey::LizardTail,
+    RelicKey::PrayerWheel,
+    RelicKey::Girya,
+    RelicKey::DeadBranch,
+    RelicKey::DuVuDoll,
+    RelicKey::Pocketwatch,
+    RelicKey::Mango,
+    RelicKey::IncenseBurner,
+    RelicKey::GamblingChip,
+    RelicKey::PeacePipe,
+    RelicKey::CaptainsWheel,
+    RelicKey::FossilizedHelix,
+    RelicKey::TungstenRod,
+    RelicKey::MagicFlower,
+    RelicKey::CharonsAshes,
+    RelicKey::ChampionBelt,
+];
+
+pub const IRONCLAD_SHOP_RELIC_POOL: [RelicKey; 17] = [
+    RelicKey::SlingOfCourage,
+    RelicKey::HandDrill,
+    RelicKey::Toolbox,
+    RelicKey::ChemicalX,
+    RelicKey::LeesWaffle,
+    RelicKey::Orrery,
+    RelicKey::DollysMirror,
+    RelicKey::OrangePellets,
+    RelicKey::PrismaticShard,
+    RelicKey::ClockworkSouvenir,
+    RelicKey::FrozenEye,
+    RelicKey::TheAbacus,
+    RelicKey::MedicalKit,
+    RelicKey::Cauldron,
+    RelicKey::StrangeSpoon,
+    RelicKey::MembershipCard,
+    RelicKey::Brimstone,
+];
+
+pub const IRONCLAD_BOSS_RELIC_POOL: [RelicKey; 22] = [
+    RelicKey::FusionHammer,
+    RelicKey::VelvetChoker,
+    RelicKey::RunicDome,
+    RelicKey::SlaversCollar,
+    RelicKey::SneckoEye,
+    RelicKey::PandorasBox,
+    RelicKey::CursedKey,
+    RelicKey::BustedCrown,
+    RelicKey::Ectoplasm,
+    RelicKey::TinyHouse,
+    RelicKey::Sozu,
+    RelicKey::PhilosophersStone,
+    RelicKey::Astrolabe,
+    RelicKey::BlackStar,
+    RelicKey::SacredBark,
+    RelicKey::EmptyCage,
+    RelicKey::RunicPyramid,
+    RelicKey::CallingBell,
+    RelicKey::CoffeeDripper,
+    RelicKey::BlackBlood,
+    RelicKey::MarkOfPain,
+    RelicKey::RunicCube,
+];
+
+pub fn initialize_ironclad_relic_pools(relic_rng: &mut StsRng) -> RelicPoolState {
+    let mut common = IRONCLAD_COMMON_RELIC_POOL.to_vec();
+    let mut uncommon = IRONCLAD_UNCOMMON_RELIC_POOL.to_vec();
+    let mut rare = IRONCLAD_RARE_RELIC_POOL.to_vec();
+    let mut shop = IRONCLAD_SHOP_RELIC_POOL.to_vec();
+    let mut boss = IRONCLAD_BOSS_RELIC_POOL.to_vec();
+
+    JavaRng::new(relic_rng.random_long()).collections_shuffle(&mut common);
+    JavaRng::new(relic_rng.random_long()).collections_shuffle(&mut uncommon);
+    JavaRng::new(relic_rng.random_long()).collections_shuffle(&mut rare);
+    JavaRng::new(relic_rng.random_long()).collections_shuffle(&mut shop);
+    JavaRng::new(relic_rng.random_long()).collections_shuffle(&mut boss);
+
+    RelicPoolState {
+        common,
+        uncommon,
+        rare,
+        shop,
+        boss,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +473,102 @@ pub fn apply_on_card_play_relics(
 mod tests {
     use super::*;
     use crate::combat::CombatState;
+
+    #[test]
+    fn ironclad_relic_pool_constants_match_target_sizes() {
+        assert_eq!(IRONCLAD_COMMON_RELIC_POOL.len(), 33);
+        assert_eq!(IRONCLAD_UNCOMMON_RELIC_POOL.len(), 30);
+        assert_eq!(IRONCLAD_RARE_RELIC_POOL.len(), 28);
+        assert_eq!(IRONCLAD_SHOP_RELIC_POOL.len(), 17);
+        assert_eq!(IRONCLAD_BOSS_RELIC_POOL.len(), 22);
+    }
+
+    #[test]
+    fn ironclad_relic_pool_initialization_consumes_five_relic_rng_draws() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        let pools = initialize_ironclad_relic_pools(&mut rng);
+
+        assert_eq!(rng.counter(), 5);
+        assert_eq!(pools.common.len(), 33);
+        assert_eq!(pools.uncommon.len(), 30);
+        assert_eq!(pools.rare.len(), 28);
+        assert_eq!(pools.shop.len(), 17);
+        assert_eq!(pools.boss.len(), 22);
+    }
+
+    #[test]
+    fn ironclad_relic_pool_initialization_matches_codex04_prefixes() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        let pools = initialize_ironclad_relic_pools(&mut rng);
+
+        assert_eq!(
+            &pools.common[..8],
+            &[
+                RelicKey::ToyOrnithopter,
+                RelicKey::BronzeScales,
+                RelicKey::RegalPillow,
+                RelicKey::SmilingMask,
+                RelicKey::Orichalcum,
+                RelicKey::Lantern,
+                RelicKey::BagOfMarbles,
+                RelicKey::Strawberry,
+            ]
+        );
+        assert_eq!(
+            &pools.uncommon[..8],
+            &[
+                RelicKey::MummifiedHand,
+                RelicKey::MeatOnTheBone,
+                RelicKey::Shuriken,
+                RelicKey::LetterOpener,
+                RelicKey::Sundial,
+                RelicKey::TheCourier,
+                RelicKey::FrozenEgg,
+                RelicKey::SingingBowl,
+            ]
+        );
+        assert_eq!(
+            &pools.rare[..8],
+            &[
+                RelicKey::StoneCalendar,
+                RelicKey::ChampionBelt,
+                RelicKey::Ginger,
+                RelicKey::CharonsAshes,
+                RelicKey::PrayerWheel,
+                RelicKey::CaptainsWheel,
+                RelicKey::Torii,
+                RelicKey::GamblingChip,
+            ]
+        );
+        assert_eq!(
+            &pools.shop[..8],
+            &[
+                RelicKey::Brimstone,
+                RelicKey::HandDrill,
+                RelicKey::Cauldron,
+                RelicKey::Toolbox,
+                RelicKey::MedicalKit,
+                RelicKey::StrangeSpoon,
+                RelicKey::LeesWaffle,
+                RelicKey::TheAbacus,
+            ]
+        );
+        assert_eq!(
+            &pools.boss[..8],
+            &[
+                RelicKey::CoffeeDripper,
+                RelicKey::SacredBark,
+                RelicKey::BlackBlood,
+                RelicKey::PhilosophersStone,
+                RelicKey::RunicDome,
+                RelicKey::RunicCube,
+                RelicKey::SneckoEye,
+                RelicKey::CallingBell,
+            ]
+        );
+    }
 
     #[test]
     fn vajra_grants_one_strength_at_combat_start() {

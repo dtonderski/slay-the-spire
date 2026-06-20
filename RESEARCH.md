@@ -354,3 +354,11 @@ Source inspected: `%TEMP%\sts_lightspeed\src\game\Game.cpp`, `%TEMP%\sts_lightsp
 `returnRandomRelicTier(relicRng, act)` rolls `relicRng.random(0, 99)`. Acts 1-3 use 50% common, 33% uncommon, and 17% rare; Act 4 uses 0% common and 100% uncommon. `returnRandomRelicTierElite(relicRng)` rolls `relicRng.random(99)` with `<50` common, `>82` rare, otherwise uncommon.
 
 Normal monster `createCombatReward()` does not add any relic. Elite rewards call `returnRandomRelic(returnRandomRelicTierElite(relicRng))`. Relic pool selection itself is more involved: `initRelics()` fills class-specific common/uncommon/rare/shop/boss pools and shuffles each with Java `Collections.shuffle` using `java::Random(relicRng.nextLong())`; `returnRandomRelic` then pops from the front for normal rewards, with fallbacks for empty pools and spawn filters.
+
+The simulator now keeps this distinction explicit: target map/list shuffles that pass the game RNG directly still use raw `RandomXS128`, while relic pool initialization uses a Java `Random` LCG seeded from five public `relicRng.randomLong()` draws. For captured seed `CODEX04` (`22079335079`), those five Java-shuffled Ironclad pool prefixes are pinned in unit tests:
+
+- common: `ToyOrnithopter`, `BronzeScales`, `RegalPillow`, `SmilingMask`, `Orichalcum`, `Lantern`, `BagOfMarbles`, `Strawberry`
+- uncommon: `MummifiedHand`, `MeatOnTheBone`, `Shuriken`, `LetterOpener`, `Sundial`, `TheCourier`, `FrozenEgg`, `SingingBowl`
+- rare: `StoneCalendar`, `ChampionBelt`, `Ginger`, `CharonsAshes`, `PrayerWheel`, `CaptainsWheel`, `Torii`, `GamblingChip`
+- shop: `Brimstone`, `HandDrill`, `Cauldron`, `Toolbox`, `MedicalKit`, `StrangeSpoon`, `LeesWaffle`, `TheAbacus`
+- boss: `CoffeeDripper`, `SacredBark`, `BlackBlood`, `PhilosophersStone`, `RunicDome`, `RunicCube`, `SneckoEye`, `CallingBell`
