@@ -101,6 +101,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.gold = (next.gold - GAMBLE_POTION_LOSS_GOLD).max(0);
                     }
                 }
+                _ => {
+                    return Err(SimError::IllegalAction(
+                        "potion mechanics are not implemented",
+                    ));
+                }
             }
             let won = next
                 .combat

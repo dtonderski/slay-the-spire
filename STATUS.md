@@ -91,6 +91,10 @@ Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening p
 
 Continue Milestone 24: implement game-compatible potion/relic reward RNG and broaden reward RNG beyond normal-combat gold, then expand shop/rest/event parity as traces reach those rooms.
 
+## Milestone 24 Notes
+
+Normal reward potion drops are now source-backed for `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Remaining M24 work is relic reward RNG, broader reward contexts, shop/rest/event RNG, and replacing any captured reward constants that are still pinned directly in the seed-start verifier.
+
 ## Milestone 20 Notes
 
 External seed conversion is source-backed from the target `SeedHelper.getLong(String)` bytecode in `desktop-1.0.jar`: uppercase, map `O` to `0`, parse in base 35 with alphabet `0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ`. Captured checks now pass for `VERIFY01`, `CODEX03`, and `CODEX04`, and seed-start CLI output includes `seed_start.numeric_seed`.

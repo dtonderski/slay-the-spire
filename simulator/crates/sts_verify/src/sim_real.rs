@@ -1973,8 +1973,8 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "potionRng".to_owned(),
             save_counter: Some("potion_seed_count".to_owned()),
-            status: "partial".to_owned(),
-            reason: "some potion RNG exists locally, but real-game potion reward/drop parity is not wired".to_owned(),
+            status: "source_backed_reward_drop".to_owned(),
+            reason: "normal reward potion drops use target-style potionRng.random(99), persisted potionChance, target rarity thresholds, and the full 33-potion Ironclad reward pool; potion use effects and broader potion RNG surfaces remain partial".to_owned(),
         },
     ]
 }
@@ -2489,6 +2489,8 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         treasure_rng_seed: 0,
         treasure_rng_counter: 0,
         potion_rng_seed: 0,
+        potion_rng_counter: 0,
+        potion_chance: 0,
         ascension: int(game, "ascension_level") as u8,
     })
 }
@@ -2522,6 +2524,8 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         treasure_rng_seed: 0,
         treasure_rng_counter: 0,
         potion_rng_seed: 0,
+        potion_rng_counter: 0,
+        potion_chance: 0,
         ascension: int(game, "ascension_level") as u8,
     })
 }
