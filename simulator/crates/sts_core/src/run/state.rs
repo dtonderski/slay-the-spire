@@ -56,6 +56,10 @@ pub struct RunState {
     #[serde(default)]
     pub potion_chance: i32,
     #[serde(default)]
+    pub relic_rng_seed: u64,
+    #[serde(default)]
+    pub relic_rng_counter: u32,
+    #[serde(default)]
     pub ascension: u8,
 }
 
@@ -166,6 +170,8 @@ impl RunState {
             potion_rng_seed: 0,
             potion_rng_counter: 0,
             potion_chance: 0,
+            relic_rng_seed: 0,
+            relic_rng_counter: 0,
             ascension,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
@@ -200,6 +206,8 @@ impl RunState {
             potion_rng_seed: 0,
             potion_rng_counter: 0,
             potion_chance: 0,
+            relic_rng_seed: 0,
+            relic_rng_counter: 0,
             ascension: 0,
         }
     }

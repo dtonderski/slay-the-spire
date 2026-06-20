@@ -94,6 +94,7 @@ Continue Milestone 24: implement game-compatible potion/relic reward RNG and bro
 ## Milestone 24 Notes
 
 Normal reward potion drops are now source-backed for `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Remaining M24 work is relic reward RNG, broader reward contexts, shop/rest/event RNG, and replacing any captured reward constants that are still pinned directly in the seed-start verifier.
+Relic tier rolls are now source-backed for normal/chest-style and elite thresholds with persisted `relic_seed_count`; shuffled relic tier pools, pool popping, spawn filtering, and boss relic rewards are still pending.
 
 ## Milestone 20 Notes
 

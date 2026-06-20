@@ -5,6 +5,7 @@ use crate::{
     content::reward_pool::{RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
     potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
+    relic::RelicTier,
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::apply_potion_action,
     run::shop::apply_shop_action,
@@ -15,6 +16,7 @@ const REWARD_CARD_COUNT: usize = 3;
 const NORMAL_COMBAT_GOLD_MIN: i32 = 10;
 const NORMAL_COMBAT_GOLD_MAX: i32 = 20;
 const BASE_POTION_DROP_CHANCE: i32 = 40;
+const ACT_4: i32 = 4;
 
 /// Deterministic fixed pool used in early milestones before RNG wiring.
 #[must_use]
@@ -145,6 +147,31 @@ pub fn target_card_reward_choices(
 
 pub fn target_normal_combat_gold(rng: &mut StsRng) -> i32 {
     rng.random_int_range(NORMAL_COMBAT_GOLD_MIN, NORMAL_COMBAT_GOLD_MAX)
+}
+
+pub fn target_relic_tier(rng: &mut StsRng, act: i32) -> RelicTier {
+    let common_chance = if act == ACT_4 { 0 } else { 50 };
+    let uncommon_chance = if act == ACT_4 { 100 } else { 33 };
+    let roll = rng.random_int_range(0, 99);
+
+    if roll < common_chance {
+        RelicTier::Common
+    } else if roll < common_chance + uncommon_chance {
+        RelicTier::Uncommon
+    } else {
+        RelicTier::Rare
+    }
+}
+
+pub fn target_elite_relic_tier(rng: &mut StsRng) -> RelicTier {
+    let roll = rng.random_int(99);
+    if roll < 50 {
+        RelicTier::Common
+    } else if roll > 82 {
+        RelicTier::Rare
+    } else {
+        RelicTier::Uncommon
+    }
 }
 
 fn target_random_potion(rng: &mut StsRng) -> Potion {
@@ -645,6 +672,47 @@ mod tests {
 
         assert_eq!(target_normal_combat_gold(&mut rng), 19);
         assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
+    fn target_relic_tier_uses_act_one_thresholds() {
+        let mut uncommon_rng = StsRng::new(22_079_335_079);
+        let mut common_rng = StsRng::new(22_079_335_079);
+        common_rng.random_int(99);
+        let mut rare_rng = StsRng::new(22_079_335_079);
+        for _ in 0..10 {
+            rare_rng.random_int(99);
+        }
+
+        assert_eq!(target_relic_tier(&mut common_rng, 1), RelicTier::Common);
+        assert_eq!(target_relic_tier(&mut rare_rng, 1), RelicTier::Rare);
+        assert_eq!(target_relic_tier(&mut uncommon_rng, 1), RelicTier::Uncommon);
+    }
+
+    #[test]
+    fn target_relic_tier_uses_act_four_thresholds() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        assert_eq!(target_relic_tier(&mut rng, 4), RelicTier::Uncommon);
+        assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
+    fn target_elite_relic_tier_uses_target_thresholds() {
+        let mut uncommon_rng = StsRng::new(22_079_335_079);
+        let mut common_rng = StsRng::new(22_079_335_079);
+        common_rng.random_int(99);
+        let mut rare_rng = StsRng::new(22_079_335_079);
+        for _ in 0..10 {
+            rare_rng.random_int(99);
+        }
+
+        assert_eq!(target_elite_relic_tier(&mut common_rng), RelicTier::Common);
+        assert_eq!(target_elite_relic_tier(&mut rare_rng), RelicTier::Rare);
+        assert_eq!(
+            target_elite_relic_tier(&mut uncommon_rng),
+            RelicTier::Uncommon
+        );
     }
 
     #[test]
