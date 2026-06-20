@@ -5,7 +5,7 @@ use crate::{
     content::reward_pool::{RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
     potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
-    relic::RelicTier,
+    relic::{Relic, RelicTier},
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::apply_potion_action,
     run::shop::apply_shop_action,
@@ -242,6 +242,7 @@ pub fn enter_reward_screen(run: &mut RunState) {
         gold_offer,
         potion_offer,
         relic_offer: None,
+        relic_key_offer: None,
     });
 }
 
@@ -319,12 +320,11 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.potions.push(potion);
         }
         RunAction::TakeRelicReward => {
-            let relic = next
-                .reward
-                .as_mut()
-                .expect("validated reward screen")
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            let relic = reward
                 .relic_offer
                 .take()
+                .or_else(|| reward.relic_key_offer.take().and_then(Relic::from_key))
                 .expect("validated relic offer");
             next.gain_relic(relic);
         }
@@ -649,6 +649,32 @@ mod tests {
     }
 
     #[test]
+    fn take_relic_reward_accepts_implemented_relic_key_offer() {
+        let mut run = winning_combat_run();
+        run.reward.as_mut().expect("reward").relic_key_offer = Some(Relic::OddlySmoothStone.key());
+
+        let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic key");
+
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert_eq!(next.reward.as_ref().expect("reward").relic_key_offer, None);
+        assert_eq!(next.relics, vec![Relic::OddlySmoothStone]);
+    }
+
+    #[test]
+    fn take_relic_reward_rejects_unimplemented_relic_key_offer() {
+        let mut run = winning_combat_run();
+        run.reward.as_mut().expect("reward").relic_key_offer =
+            Some(crate::RelicKey::ToyOrnithopter);
+
+        let err = apply_run_action(&run, RunAction::TakeRelicReward).expect_err("unimplemented");
+
+        assert_eq!(
+            err,
+            SimError::IllegalAction("relic reward effect is not implemented")
+        );
+    }
+
+    #[test]
     fn multiple_reward_offers_can_be_taken_before_skip() {
         let mut run = winning_combat_run();
         run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
@@ -756,11 +782,11 @@ mod tests {
     fn take_relic_reward_rejects_duplicate_relic() {
         let mut run = winning_combat_run();
         run.relics.push(Relic::OddlySmoothStone);
-        run.reward.as_mut().expect("reward screen").relic_offer = None;
+        run.reward.as_mut().expect("reward screen").relic_offer = Some(Relic::OddlySmoothStone);
 
-        let err = apply_run_action(&run, RunAction::TakeRelicReward).expect_err("no offer");
+        let err = apply_run_action(&run, RunAction::TakeRelicReward).expect_err("duplicate");
 
-        assert_eq!(err, SimError::IllegalAction("no relic reward offered"));
+        assert_eq!(err, SimError::IllegalAction("relic already owned"));
     }
 
     #[test]

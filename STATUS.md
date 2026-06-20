@@ -89,12 +89,12 @@ Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening p
 
 ## Next Task
 
-Continue Milestone 24: wire game-compatible relic pool state into elite/chest/boss reward generation and broaden reward RNG beyond normal-combat gold, then expand shop/rest/event parity as traces reach those rooms.
+Continue Milestone 24: generate elite/chest/boss relic reward screens from the persisted relic pool state and broaden reward RNG beyond normal-combat gold, then expand shop/rest/event parity as traces reach those rooms.
 
 ## Milestone 24 Notes
 
 Normal reward potion drops are now source-backed for `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Remaining M24 work is relic reward wiring, broader reward contexts, shop/rest/event RNG, and replacing any captured reward constants that are still pinned directly in the seed-start verifier.
-Relic tier rolls are now source-backed for normal/chest-style and elite thresholds with persisted `relic_seed_count`; Ironclad common/uncommon/rare/shop/boss pool initialization uses target-order pools and Java `Collections.shuffle` seeded by five `relicRng.nextLong()` calls. Hidden relic pool popping now follows target front/back removal, empty-pool fallbacks, Circlet/Red Circlet exhaustion, and source-backed spawn filters for floor/shop/bottled/starter-upgrade/campfire gates. Reward-screen wiring for elite/chest/boss relic offers is still pending.
+Relic tier rolls are now source-backed for normal/chest-style and elite thresholds with persisted `relic_seed_count`; Ironclad common/uncommon/rare/shop/boss pool initialization uses target-order pools and Java `Collections.shuffle` seeded by five `relicRng.nextLong()` calls. Hidden relic pool state is serialized on `RunState`; pool popping follows target front/back removal, empty-pool fallbacks, Circlet/Red Circlet exhaustion, and source-backed spawn filters for floor/shop/bottled/starter-upgrade/campfire gates. Reward screens can now carry RNG-accurate `RelicKey` offers separately from implemented relic effects. Generated elite/chest/boss relic reward screens are still pending.
 
 ## Milestone 20 Notes
 

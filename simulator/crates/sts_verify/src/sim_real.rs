@@ -1968,7 +1968,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "relicRng".to_owned(),
             save_counter: Some("relic_seed_count".to_owned()),
             status: "source_backed_pool_selection_unwired".to_owned(),
-            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad common/uncommon/rare/shop/boss relic pools initialize in target order, Java-shuffle from five relicRng.nextLong() seeds, pop with target front/back and empty-pool fallback behavior, and apply source-backed core spawn filters. Reward wiring and Neow relic results remain unwired".to_owned(),
+            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad common/uncommon/rare/shop/boss relic pools initialize in target order, Java-shuffle from five relicRng.nextLong() seeds, serialize on RunState, pop with target front/back and empty-pool fallback behavior, apply source-backed core spawn filters, and can be represented as RelicKey reward offers. Generated elite/chest/boss reward screens and Neow relic results remain unwired".to_owned(),
         },
         RngBoundary {
             stream: "potionRng".to_owned(),
@@ -2493,6 +2493,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         potion_chance: 0,
         relic_rng_seed: 0,
         relic_rng_counter: 0,
+        relic_pools: None,
         ascension: int(game, "ascension_level") as u8,
     })
 }
@@ -2504,6 +2505,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         gold_offer: reward_gold_offer(game),
         potion_offer: None,
         relic_offer: None,
+        relic_key_offer: None,
     };
     Some(RunState {
         phase: RunPhase::Reward,
@@ -2530,6 +2532,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         potion_chance: 0,
         relic_rng_seed: 0,
         relic_rng_counter: 0,
+        relic_pools: None,
         ascension: int(game, "ascension_level") as u8,
     })
 }
