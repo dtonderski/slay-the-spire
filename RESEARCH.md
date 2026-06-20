@@ -362,3 +362,11 @@ The simulator now keeps this distinction explicit: target map/list shuffles that
 - rare: `StoneCalendar`, `ChampionBelt`, `Ginger`, `CharonsAshes`, `PrayerWheel`, `CaptainsWheel`, `Torii`, `GamblingChip`
 - shop: `Brimstone`, `HandDrill`, `Cauldron`, `Toolbox`, `MedicalKit`, `StrangeSpoon`, `LeesWaffle`, `TheAbacus`
 - boss: `CoffeeDripper`, `SacredBark`, `BlackBlood`, `PhilosophersStone`, `RunicDome`, `RunicCube`, `SneckoEye`, `CallingBell`
+
+`returnRandomRelic` source behavior now represented in the simulator:
+
+- pop from the front for ordinary offers, or from the back after a rejected spawn filter
+- common empty falls through to uncommon, uncommon empty falls through to rare, shop empty falls through to uncommon
+- rare empty returns `Circlet`; boss empty returns `Red Circlet`
+- rejected relics are removed from their pool before retrying from the back of the same tier
+- spawn filters cover the target floor/shop gates, bottled-card availability gates, starter-relic upgrade gates, and the less-than-two campfire relic rule
