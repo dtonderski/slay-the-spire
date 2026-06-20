@@ -1960,9 +1960,9 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         },
         RngBoundary {
             stream: "rewardGoldRng".to_owned(),
-            save_counter: None,
-            status: "captured_value".to_owned(),
-            reason: "captured VERIFY01 and CODEX04 floor-1/floor-2 gold rewards are verified for passing traces; broad combat reward gold RNG is not game-compatible".to_owned(),
+            save_counter: Some("treasure_seed_count".to_owned()),
+            status: "source_backed_normal_combat".to_owned(),
+            reason: "normal-combat gold uses target-style treasureRng.random(10, 20) with StsRng counter persistence; captured VERIFY01 and CODEX04 reward screens are still pinned by explicit seed-start expectations until full reward-screen generation replaces observed constants".to_owned(),
         },
         RngBoundary {
             stream: "relicRng".to_owned(),
@@ -2486,6 +2486,8 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         reward_rng_seed: 7,
         card_rng_counter: 0,
         card_rarity_factor: 5,
+        treasure_rng_seed: 0,
+        treasure_rng_counter: 0,
         potion_rng_seed: 0,
         ascension: int(game, "ascension_level") as u8,
     })
@@ -2517,6 +2519,8 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         reward_rng_seed: 0,
         card_rng_counter: 0,
         card_rarity_factor: 5,
+        treasure_rng_seed: 0,
+        treasure_rng_counter: 0,
         potion_rng_seed: 0,
         ascension: int(game, "ascension_level") as u8,
     })

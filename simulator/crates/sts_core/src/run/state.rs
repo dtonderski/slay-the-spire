@@ -46,6 +46,10 @@ pub struct RunState {
     #[serde(default = "default_card_rarity_factor")]
     pub card_rarity_factor: i32,
     #[serde(default)]
+    pub treasure_rng_seed: u64,
+    #[serde(default)]
+    pub treasure_rng_counter: u32,
+    #[serde(default)]
     pub potion_rng_seed: u64,
     #[serde(default)]
     pub ascension: u8,
@@ -153,6 +157,8 @@ impl RunState {
             reward_rng_seed: 0,
             card_rng_counter: 0,
             card_rarity_factor: default_card_rarity_factor(),
+            treasure_rng_seed: 0,
+            treasure_rng_counter: 0,
             potion_rng_seed: 0,
             ascension,
         };
@@ -183,6 +189,8 @@ impl RunState {
             reward_rng_seed: 0,
             card_rng_counter: 0,
             card_rarity_factor: default_card_rarity_factor(),
+            treasure_rng_seed: 0,
+            treasure_rng_counter: 0,
             potion_rng_seed: 0,
             ascension: 0,
         }

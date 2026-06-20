@@ -2,8 +2,7 @@ use sts_core::{
     apply_combat_action_on_run, apply_run_action, card_reward_choices,
     content::cards::{BASH_ID, STRIKE_R_ID},
     rng::SimulatorRng,
-    CombatAction, Potion, Relic, RunAction, RunPhase, RunState, SimError, REWARD_GOLD_AMOUNT,
-    STARTING_GOLD,
+    CombatAction, Potion, Relic, RunAction, RunPhase, RunState, SimError, STARTING_GOLD,
 };
 
 #[test]
@@ -20,7 +19,7 @@ fn combat_win_transitions_to_reward_phase() {
     assert_eq!(run.phase, RunPhase::Reward);
     let reward = run.reward.as_ref().expect("reward screen");
     assert_eq!(reward.choices.len(), 3);
-    assert_eq!(reward.gold_offer, REWARD_GOLD_AMOUNT);
+    assert_eq!(reward.gold_offer, 11);
     assert_eq!(reward.potion_offer, Some(Potion::Fire));
     assert_eq!(reward.relic_offer, Some(Relic::OddlySmoothStone));
 }
@@ -71,13 +70,14 @@ fn take_gold_reward_adds_fixed_amount_without_changing_deck() {
     let run = win_fixture_combat();
     let deck_before = run.deck.clone();
     let gold_before = run.gold;
+    let gold_offer = run.reward.as_ref().expect("reward").gold_offer;
 
     let after = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
 
     assert_eq!(after.phase, RunPhase::Reward);
     assert_eq!(after.reward.as_ref().expect("reward").gold_offer, 0);
     assert_eq!(after.deck, deck_before);
-    assert_eq!(after.gold, gold_before + REWARD_GOLD_AMOUNT);
+    assert_eq!(after.gold, gold_before + gold_offer);
 }
 
 #[test]
@@ -105,6 +105,7 @@ fn take_relic_reward_adds_oddly_smooth_stone_and_consumes_relic_offer() {
 #[test]
 fn multiple_reward_offers_can_be_collected_before_skip() {
     let run = win_fixture_combat();
+    let gold_offer = run.reward.as_ref().expect("reward").gold_offer;
 
     let run = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
     let run = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
@@ -113,7 +114,7 @@ fn multiple_reward_offers_can_be_collected_before_skip() {
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert!(run.reward.is_none());
-    assert_eq!(run.gold, STARTING_GOLD + REWARD_GOLD_AMOUNT);
+    assert_eq!(run.gold, STARTING_GOLD + gold_offer);
     assert_eq!(run.potions, vec![Potion::Fire]);
     assert_eq!(run.relics, vec![Relic::OddlySmoothStone]);
 }
