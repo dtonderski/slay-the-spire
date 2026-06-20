@@ -59,6 +59,10 @@ pub enum RelicTier {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RelicKey {
+    BurningBlood,
+    CrackedCore,
+    RingOfTheSnake,
+    PureWater,
     Whetstone,
     TheBoot,
     BloodVial,
@@ -170,6 +174,9 @@ pub enum RelicKey {
     CallingBell,
     CoffeeDripper,
     BlackBlood,
+    FrozenCore,
+    RingOfTheSerpent,
+    HolyWater,
     MarkOfPain,
     RunicCube,
     SlingOfCourage,
@@ -189,6 +196,8 @@ pub enum RelicKey {
     StrangeSpoon,
     MembershipCard,
     Brimstone,
+    Circlet,
+    RedCirclet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -198,6 +207,29 @@ pub struct RelicPoolState {
     pub rare: Vec<RelicKey>,
     pub shop: Vec<RelicKey>,
     pub boss: Vec<RelicKey>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelicSpawnContext {
+    pub floor_num: i32,
+    pub shop_room: bool,
+    pub owned_relics: Vec<RelicKey>,
+    pub has_non_basic_attack: bool,
+    pub has_non_basic_skill: bool,
+    pub has_power: bool,
+}
+
+impl Default for RelicSpawnContext {
+    fn default() -> Self {
+        Self {
+            floor_num: 1,
+            shop_room: false,
+            owned_relics: Vec::new(),
+            has_non_basic_attack: false,
+            has_non_basic_skill: false,
+            has_power: false,
+        }
+    }
 }
 
 pub const IRONCLAD_COMMON_RELIC_POOL: [RelicKey; 33] = [
@@ -365,6 +397,104 @@ pub fn initialize_ironclad_relic_pools(relic_rng: &mut StsRng) -> RelicPoolState
         shop,
         boss,
     }
+}
+
+impl RelicPoolState {
+    pub fn return_random_relic(
+        &mut self,
+        tier: RelicTier,
+        context: &RelicSpawnContext,
+    ) -> RelicKey {
+        self.return_random_relic_from(tier, context, true)
+    }
+
+    fn return_random_relic_from(
+        &mut self,
+        tier: RelicTier,
+        context: &RelicSpawnContext,
+        from_front: bool,
+    ) -> RelicKey {
+        let relic = match tier {
+            RelicTier::Common if self.common.is_empty() => {
+                return self.return_random_relic_from(RelicTier::Uncommon, context, true);
+            }
+            RelicTier::Common => pop_relic(&mut self.common, from_front),
+            RelicTier::Uncommon if self.uncommon.is_empty() => {
+                return self.return_random_relic_from(RelicTier::Rare, context, true);
+            }
+            RelicTier::Uncommon => pop_relic(&mut self.uncommon, from_front),
+            RelicTier::Rare if self.rare.is_empty() => RelicKey::Circlet,
+            RelicTier::Rare => pop_relic(&mut self.rare, from_front),
+            RelicTier::Shop if self.shop.is_empty() => {
+                return self.return_random_relic_from(RelicTier::Uncommon, context, true);
+            }
+            RelicTier::Shop => pop_relic(&mut self.shop, from_front),
+            RelicTier::Boss if self.boss.is_empty() => RelicKey::RedCirclet,
+            RelicTier::Boss => pop_relic(&mut self.boss, from_front),
+        };
+
+        if relic_can_spawn(relic, context) {
+            relic
+        } else {
+            self.return_random_relic_from(tier, context, false)
+        }
+    }
+}
+
+fn pop_relic(pool: &mut Vec<RelicKey>, from_front: bool) -> RelicKey {
+    if from_front {
+        pool.remove(0)
+    } else {
+        pool.pop().expect("pool checked non-empty")
+    }
+}
+
+#[must_use]
+pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
+    use RelicKey::{
+        AncientTeaSet, BlackBlood, BottledFlame, BottledLightning, BottledTornado, BurningBlood,
+        CeramicFish, CrackedCore, DarkstonePeriapt, DreamCatcher, FrozenCore, FrozenEgg, Girya,
+        HolyWater, JuzuBracelet, MawBank, MealTicket, MeatOnTheBone, MoltenEgg, OldCoin, Omamori,
+        PeacePipe, PotionBelt, PrayerWheel, PreservedInsect, PureWater, QuestionCard, RegalPillow,
+        RingOfTheSerpent, RingOfTheSnake, Shovel, SingingBowl, SmilingMask, TheCourier, TinyChest,
+        ToxicEgg, WingBoots,
+    };
+
+    match relic {
+        BottledFlame => context.has_non_basic_attack,
+        BottledLightning => context.has_non_basic_skill,
+        BottledTornado => context.has_power,
+        BlackBlood => context.owned_relics.contains(&BurningBlood),
+        FrozenCore => context.owned_relics.contains(&CrackedCore),
+        BurningBlood => context.owned_relics.contains(&BurningBlood),
+        RingOfTheSerpent => context.owned_relics.contains(&RingOfTheSnake),
+        HolyWater => context.owned_relics.contains(&PureWater),
+        TinyChest => context.floor_num <= 35,
+        WingBoots | RelicKey::Matryoshka => context.floor_num <= 40,
+        Girya | PeacePipe | Shovel => {
+            context.floor_num < 48 && campfire_relic_count(&context.owned_relics) < 2
+        }
+        MawBank | OldCoin | SmilingMask => context.floor_num <= 48 && !context.shop_room,
+        AncientTeaSet | CeramicFish | DarkstonePeriapt | DreamCatcher | FrozenEgg
+        | JuzuBracelet | MealTicket | MeatOnTheBone | MoltenEgg | Omamori | PotionBelt
+        | PrayerWheel | QuestionCard | RegalPillow | SingingBowl | TheCourier | ToxicEgg => {
+            context.floor_num <= 48
+        }
+        PreservedInsect => context.floor_num <= 52,
+        _ => true,
+    }
+}
+
+fn campfire_relic_count(owned: &[RelicKey]) -> usize {
+    owned
+        .iter()
+        .filter(|relic| {
+            matches!(
+                relic,
+                RelicKey::Girya | RelicKey::PeacePipe | RelicKey::Shovel
+            )
+        })
+        .count()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -568,6 +698,106 @@ mod tests {
                 RelicKey::CallingBell,
             ]
         );
+    }
+
+    #[test]
+    fn return_random_relic_pops_from_front_for_requested_tier() {
+        let mut pools = RelicPoolState {
+            common: vec![RelicKey::Anchor, RelicKey::Vajra],
+            uncommon: Vec::new(),
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: Vec::new(),
+        };
+
+        let relic = pools.return_random_relic(RelicTier::Common, &RelicSpawnContext::default());
+
+        assert_eq!(relic, RelicKey::Anchor);
+        assert_eq!(pools.common, vec![RelicKey::Vajra]);
+    }
+
+    #[test]
+    fn return_random_relic_falls_through_empty_common_and_uncommon_pools() {
+        let mut pools = RelicPoolState {
+            common: Vec::new(),
+            uncommon: vec![RelicKey::InkBottle],
+            rare: vec![RelicKey::IceCream],
+            shop: Vec::new(),
+            boss: Vec::new(),
+        };
+
+        let relic = pools.return_random_relic(RelicTier::Common, &RelicSpawnContext::default());
+
+        assert_eq!(relic, RelicKey::InkBottle);
+        assert!(pools.uncommon.is_empty());
+        assert_eq!(pools.rare, vec![RelicKey::IceCream]);
+    }
+
+    #[test]
+    fn return_random_relic_uses_circlets_for_empty_rare_and_boss_pools() {
+        let mut pools = RelicPoolState {
+            common: Vec::new(),
+            uncommon: Vec::new(),
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: Vec::new(),
+        };
+
+        assert_eq!(
+            pools.return_random_relic(RelicTier::Rare, &RelicSpawnContext::default()),
+            RelicKey::Circlet
+        );
+        assert_eq!(
+            pools.return_random_relic(RelicTier::Boss, &RelicSpawnContext::default()),
+            RelicKey::RedCirclet
+        );
+    }
+
+    #[test]
+    fn rejected_relic_is_discarded_then_retry_pops_from_back() {
+        let mut pools = RelicPoolState {
+            common: vec![RelicKey::TinyChest, RelicKey::Anchor, RelicKey::Vajra],
+            uncommon: Vec::new(),
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: Vec::new(),
+        };
+        let context = RelicSpawnContext {
+            floor_num: 36,
+            ..RelicSpawnContext::default()
+        };
+
+        let relic = pools.return_random_relic(RelicTier::Common, &context);
+
+        assert_eq!(relic, RelicKey::Vajra);
+        assert_eq!(pools.common, vec![RelicKey::Anchor]);
+    }
+
+    #[test]
+    fn relic_spawn_filters_match_target_floor_shop_and_owned_gates() {
+        let mut context = RelicSpawnContext {
+            floor_num: 49,
+            shop_room: true,
+            owned_relics: vec![RelicKey::Girya, RelicKey::PeacePipe],
+            has_non_basic_attack: false,
+            has_non_basic_skill: false,
+            has_power: false,
+        };
+
+        assert!(!relic_can_spawn(RelicKey::MawBank, &context));
+        assert!(!relic_can_spawn(RelicKey::PotionBelt, &context));
+        assert!(!relic_can_spawn(RelicKey::Shovel, &context));
+        assert!(!relic_can_spawn(RelicKey::BottledFlame, &context));
+
+        context.floor_num = 20;
+        context.shop_room = false;
+        context.owned_relics.clear();
+        context.has_non_basic_attack = true;
+
+        assert!(relic_can_spawn(RelicKey::MawBank, &context));
+        assert!(relic_can_spawn(RelicKey::PotionBelt, &context));
+        assert!(relic_can_spawn(RelicKey::Shovel, &context));
+        assert!(relic_can_spawn(RelicKey::BottledFlame, &context));
     }
 
     #[test]

@@ -1967,8 +1967,8 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "relicRng".to_owned(),
             save_counter: Some("relic_seed_count".to_owned()),
-            status: "source_backed_tier_rolls_and_pool_shuffle".to_owned(),
-            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad common/uncommon/rare/shop/boss relic pools initialize in target order and Java-shuffle from five relicRng.nextLong() seeds. Pool popping, spawn filtering, reward wiring, and Neow relic results remain unwired".to_owned(),
+            status: "source_backed_pool_selection_unwired".to_owned(),
+            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad common/uncommon/rare/shop/boss relic pools initialize in target order, Java-shuffle from five relicRng.nextLong() seeds, pop with target front/back and empty-pool fallback behavior, and apply source-backed core spawn filters. Reward wiring and Neow relic results remain unwired".to_owned(),
         },
         RngBoundary {
             stream: "potionRng".to_owned(),

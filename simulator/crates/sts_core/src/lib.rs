@@ -47,11 +47,11 @@ pub use potion::{
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
     apply_on_card_play_relics, apply_start_of_combat_relics, initialize_ironclad_relic_pools,
-    preserves_energy_between_turns, reset_turn_relic_counters, Relic, RelicCounters, RelicKey,
-    RelicPoolState, ANCHOR_BLOCK, ANCHOR_ID, COFFEE_DRIPPER_ENERGY, COFFEE_DRIPPER_ID,
-    ICE_CREAM_ID, INK_BOTTLE_ID, INK_BOTTLE_THRESHOLD, ODDLY_SMOOTH_STONE_DEXTERITY,
-    ODDLY_SMOOTH_STONE_ID, ORNAMENTAL_FAN_BLOCK, ORNAMENTAL_FAN_ID, ORNAMENTAL_FAN_THRESHOLD,
-    STRAWBERRY_ID, STRAWBERRY_MAX_HP, VAJRA_ID, VAJRA_STRENGTH,
+    preserves_energy_between_turns, relic_can_spawn, reset_turn_relic_counters, Relic,
+    RelicCounters, RelicKey, RelicPoolState, RelicSpawnContext, ANCHOR_BLOCK, ANCHOR_ID,
+    COFFEE_DRIPPER_ENERGY, COFFEE_DRIPPER_ID, ICE_CREAM_ID, INK_BOTTLE_ID, INK_BOTTLE_THRESHOLD,
+    ODDLY_SMOOTH_STONE_DEXTERITY, ODDLY_SMOOTH_STONE_ID, ORNAMENTAL_FAN_BLOCK, ORNAMENTAL_FAN_ID,
+    ORNAMENTAL_FAN_THRESHOLD, STRAWBERRY_ID, STRAWBERRY_MAX_HP, VAJRA_ID, VAJRA_STRENGTH,
 };
 pub use rng::{JavaRng, RngDraw, RngStream, SimulatorRng, StsRng};
 pub use run::{
