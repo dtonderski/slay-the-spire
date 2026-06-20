@@ -78,7 +78,7 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 Expected result: `unexpected_diffs=0`, `seed_start.expected_failure=false`, verified labels through floor-3 combat completion and return-to-map steps, and `seed_start.first_boundary.path=$.actions[complete]`.
 
-Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening piles from `shuffleRng(seed + floor)`. CODEX04 seed-start verifies floor 1–3 combat with simulation-driven replay; captured floor-1/floor-2 reward screens, pickups, potion skip, and post-reward map returns are pinned against explicit expected states. Card reward RNG control flow now uses target-style `cardRng`, `cardRarityFactor`, and the full 72-card Ironclad reward pool; normal-combat gold now uses target-style `treasureRng.random(10, 20)`. Many pool entries are RNG-only until their card mechanics are implemented. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match, post-END pile resync remains interim scaffolding, and potion/relic plus broader reward RNG remains pending Milestone 24 work.
+Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening piles from `shuffleRng(seed + floor)`. CODEX04 seed-start verifies floor 1–3 combat with simulation-driven replay; captured floor-1/floor-2 reward screens, pickups, potion skip, and post-reward map returns are pinned against explicit expected states. Card reward RNG control flow now uses target-style `cardRng`, `cardRarityFactor`, and the full 72-card Ironclad reward pool; normal-combat gold now uses target-style `treasureRng.random(10, 20)`. Many pool entries are RNG-only until their card mechanics are implemented. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match, post-END pile resync remains interim scaffolding, and relic pool popping/reward wiring plus broader reward RNG remains pending Milestone 24 work.
 
 ### Tests
 - `cargo test` passing
@@ -89,12 +89,12 @@ Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening p
 
 ## Next Task
 
-Continue Milestone 24: implement game-compatible potion/relic reward RNG and broaden reward RNG beyond normal-combat gold, then expand shop/rest/event parity as traces reach those rooms.
+Continue Milestone 24: wire game-compatible relic pool popping/spawn filtering into elite/chest/boss reward generation and broaden reward RNG beyond normal-combat gold, then expand shop/rest/event parity as traces reach those rooms.
 
 ## Milestone 24 Notes
 
-Normal reward potion drops are now source-backed for `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Remaining M24 work is relic reward RNG, broader reward contexts, shop/rest/event RNG, and replacing any captured reward constants that are still pinned directly in the seed-start verifier.
-Relic tier rolls are now source-backed for normal/chest-style and elite thresholds with persisted `relic_seed_count`; shuffled relic tier pools, pool popping, spawn filtering, and boss relic rewards are still pending.
+Normal reward potion drops are now source-backed for `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Remaining M24 work is relic reward wiring, broader reward contexts, shop/rest/event RNG, and replacing any captured reward constants that are still pinned directly in the seed-start verifier.
+Relic tier rolls are now source-backed for normal/chest-style and elite thresholds with persisted `relic_seed_count`; Ironclad common/uncommon/rare/shop/boss pool initialization uses target-order pools and Java `Collections.shuffle` seeded by five `relicRng.nextLong()` calls. Pool popping, spawn filtering, and boss relic rewards are still pending.
 
 ## Milestone 20 Notes
 

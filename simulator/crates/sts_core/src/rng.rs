@@ -26,6 +26,16 @@ pub struct StsRng {
     counter: u32,
 }
 
+/// Java `java.util.Random` compatibility helper.
+///
+/// Target relic pool initialization seeds a Java LCG with `relicRng.nextLong()`
+/// and then calls `Collections.shuffle`, which is distinct from the game's
+/// libGDX `RandomXS128` wrapper used by [StsRng].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JavaRng {
+    seed: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RngStream {
     Event,
@@ -211,6 +221,51 @@ impl StsRng {
     }
 }
 
+impl JavaRng {
+    const MULTIPLIER: u64 = 0x5DEECE66D;
+    const ADDEND: u64 = 0xB;
+    const MASK: u64 = (1_u64 << 48) - 1;
+
+    #[must_use]
+    pub fn new(seed: i64) -> Self {
+        Self {
+            seed: ((seed as u64) ^ Self::MULTIPLIER) & Self::MASK,
+        }
+    }
+
+    pub fn next_int(&mut self, bound: i32) -> i32 {
+        assert!(bound > 0, "Java Random bound must be positive");
+
+        if (bound & -bound) == bound {
+            return (((bound as i64) * (self.next_bits(31) as i64)) >> 31) as i32;
+        }
+
+        loop {
+            let bits = self.next_bits(31) as i32;
+            let value = bits % bound;
+            if bits - value + (bound - 1) >= 0 {
+                return value;
+            }
+        }
+    }
+
+    pub fn collections_shuffle<T>(&mut self, items: &mut [T]) {
+        for i in (2..=items.len()).rev() {
+            let j = self.next_int(i as i32) as usize;
+            items.swap(i - 1, j);
+        }
+    }
+
+    fn next_bits(&mut self, bits: u32) -> u32 {
+        self.seed = self
+            .seed
+            .wrapping_mul(Self::MULTIPLIER)
+            .wrapping_add(Self::ADDEND)
+            & Self::MASK;
+        (self.seed >> (48 - bits)) as u32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,5 +334,24 @@ mod tests {
             advanced.clone().random_int(99),
             stepped.clone().random_int(99)
         );
+    }
+
+    #[test]
+    fn java_rng_matches_reference_next_int_sequence() {
+        let mut rng = JavaRng::new(0);
+
+        assert_eq!(rng.next_int(10), 0);
+        assert_eq!(rng.next_int(10), 8);
+        assert_eq!(rng.next_int(10), 9);
+        assert_eq!(rng.next_int(10), 7);
+        assert_eq!(rng.next_int(10), 5);
+    }
+
+    #[test]
+    fn java_collections_shuffle_matches_reference_order() {
+        let mut values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        JavaRng::new(0).collections_shuffle(&mut values);
+
+        assert_eq!(values, vec![4, 8, 9, 6, 3, 5, 2, 1, 7, 0]);
     }
 }
