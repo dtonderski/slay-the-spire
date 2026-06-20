@@ -263,7 +263,8 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
 mod tests {
     use super::*;
     use crate::content::cards::{
-        BASH_ID, FLEX_ID, HAVOC_ID, POMMEL_STRIKE_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        TWIN_STRIKE_ID,
     };
 
     fn reward_pool_content_ids() -> Vec<crate::ContentId> {
@@ -368,7 +369,7 @@ mod tests {
 
         assert_eq!(
             content_ids,
-            vec![TWIN_STRIKE_ID, FLEX_ID, HAVOC_ID],
+            vec![CLOTHESLINE_ID, SHRUG_IT_OFF_ID, CLEAVE_ID],
             "update snapshot if reward algorithm changes intentionally"
         );
     }
@@ -383,9 +384,9 @@ mod tests {
 
         assert_eq!(
             content_ids,
-            vec![TRUE_GRIT_ID, POMMEL_STRIKE_ID, TWIN_STRIKE_ID]
+            vec![BODY_SLAM_ID, TWIN_STRIKE_ID, CLOTHESLINE_ID]
         );
-        assert_eq!(rng.counter(), 8);
+        assert_eq!(rng.counter(), 6);
         assert_eq!(card_rarity_factor, 2);
     }
 
@@ -402,10 +403,10 @@ mod tests {
         let content_ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
         assert_eq!(
             content_ids,
-            vec![TRUE_GRIT_ID, POMMEL_STRIKE_ID, TWIN_STRIKE_ID]
+            vec![BODY_SLAM_ID, TWIN_STRIKE_ID, CLOTHESLINE_ID]
         );
         assert_eq!(run.card_rarity_factor, 2);
-        assert_eq!(run.card_rng_counter, 8);
+        assert_eq!(run.card_rng_counter, 6);
     }
 
     #[test]
@@ -436,7 +437,7 @@ mod tests {
             .map(|card| card.content_id)
             .collect();
 
-        assert_eq!(first_counter, 8);
+        assert_eq!(first_counter, 6);
         assert!(run.card_rng_counter > first_counter);
         assert_ne!(second_choices, first_choices);
     }

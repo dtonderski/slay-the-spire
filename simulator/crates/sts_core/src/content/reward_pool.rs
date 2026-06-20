@@ -1,10 +1,19 @@
 use crate::{
     card::CardRarity,
     content::cards::{
-        ANGER_ID, BATTLE_TRANCE_ID, BURNING_PACT_ID, CLEAVE_ID, DARK_EMBRACE_ID, DUAL_WIELD_ID,
-        FEEL_NO_PAIN_ID, FLEX_ID, HAVOC_ID, INFLAME_ID, POMMEL_STRIKE_ID, SEARING_BLOW_ID,
-        SEEING_RED_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID,
-        WHIRLWIND_ID,
+        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
+        BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
+        CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
+        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMMOLATE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INTIMIDATE_ID,
+        IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
+        WHIRLWIND_ID, WILD_STRIKE_ID,
     },
     ContentId,
 };
@@ -15,11 +24,10 @@ pub struct RewardCardEntry {
     pub rarity: CardRarity,
 }
 
-/// Source-order subset of the Ironclad combat-reward pool for cards modeled by this simulator.
+/// Target source-order Ironclad combat-reward pool grouped by rarity.
 ///
-/// The full target pool has 72 Ironclad cards. This subset preserves target rarity and relative
-/// order for the cards that currently have simulator definitions; reward generation must report
-/// pool completeness separately from RNG control-flow parity.
+/// Some entries are not yet implemented as playable `CardDefinition`s. They still belong here
+/// because reward RNG indexes into the full target pool before the player can choose a card.
 pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
     RewardCardEntry {
         content_id: ANGER_ID,
@@ -38,6 +46,14 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Common,
     },
     RewardCardEntry {
+        content_id: IRON_WAVE_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: BODY_SLAM_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
         content_id: TRUE_GRIT_ID,
         rarity: CardRarity::Common,
     },
@@ -46,7 +62,11 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Common,
     },
     RewardCardEntry {
-        content_id: TWIN_STRIKE_ID,
+        content_id: CLASH_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: THUNDERCLAP_ID,
         rarity: CardRarity::Common,
     },
     RewardCardEntry {
@@ -54,7 +74,39 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Common,
     },
     RewardCardEntry {
+        content_id: TWIN_STRIKE_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: CLOTHESLINE_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: ARMAMENTS_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
         content_id: HAVOC_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: HEADBUTT_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: WILD_STRIKE_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: HEAVY_BLADE_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: PERFECTED_STRIKE_ID,
+        rarity: CardRarity::Common,
+    },
+    RewardCardEntry {
+        content_id: SWORD_BOOMERANG_ID,
         rarity: CardRarity::Common,
     },
     RewardCardEntry {
@@ -66,7 +118,39 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
+        content_id: POWER_THROUGH_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
         content_id: DUAL_WIELD_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: INFERNAL_BLADE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: RECKLESS_CHARGE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: HEMOKINESIS_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: INTIMIDATE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: BLOOD_FOR_BLOOD_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: FLAME_BARRIER_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: PUMMEL_ID,
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
@@ -74,7 +158,27 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
+        content_id: METALLICIZE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: SHOCKWAVE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: RAMPAGE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: SEVER_SOUL_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
         content_id: WHIRLWIND_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: COMBUST_ID,
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
@@ -90,12 +194,128 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
+        content_id: DISARM_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: RAGE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: ENTRENCH_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: SENTINEL_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
         content_id: BATTLE_TRANCE_ID,
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
         content_id: SEARING_BLOW_ID,
         rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: SECOND_WIND_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: RUPTURE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: BLOODLETTING_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: CARNAGE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: DROPKICK_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: FIRE_BREATHING_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: GHOSTLY_ARMOR_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: UPPERCUT_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: EVOLVE_ID,
+        rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: DOUBLE_TAP_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: DEMON_FORM_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BLUDGEON_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: FEED_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: LIMIT_BREAK_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: CORRUPTION_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BARRICADE_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: FIEND_FIRE_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BERSERK_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: IMPERVIOUS_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: JUGGERNAUT_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BRUTALITY_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: REAPER_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: EXHUME_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: OFFERING_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: IMMOLATE_ID,
+        rarity: CardRarity::Rare,
     },
 ];
 
@@ -114,7 +334,7 @@ mod tests {
     #[test]
     fn ironclad_reward_pool_has_unique_modeled_cards() {
         let ids = ironclad_reward_content_ids();
-        assert_eq!(ids.len(), IRONCLAD_REWARD_ENTRIES.len());
+        assert_eq!(ids.len(), 72);
         assert_eq!(ids.len(), {
             let unique: std::collections::BTreeSet<_> = ids.iter().copied().collect();
             unique.len()
@@ -136,5 +356,7 @@ mod tests {
         assert_eq!(rarity(WARCRY_ID), CardRarity::Common);
         assert_eq!(rarity(BATTLE_TRANCE_ID), CardRarity::Uncommon);
         assert_eq!(rarity(SEARING_BLOW_ID), CardRarity::Uncommon);
+        assert_eq!(rarity(DOUBLE_TAP_ID), CardRarity::Rare);
+        assert_eq!(rarity(IMMOLATE_ID), CardRarity::Rare);
     }
 }
