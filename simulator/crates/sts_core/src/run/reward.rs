@@ -5,7 +5,6 @@ use crate::{
     content::reward_pool::{RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
     potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
-    relic::Relic,
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::apply_potion_action,
     run::shop::apply_shop_action,
@@ -215,11 +214,7 @@ pub fn enter_reward_screen(run: &mut RunState) {
         choices,
         gold_offer,
         potion_offer,
-        relic_offer: if run.relics.contains(&Relic::OddlySmoothStone) {
-            None
-        } else {
-            Some(Relic::OddlySmoothStone)
-        },
+        relic_offer: None,
     });
 }
 
@@ -324,6 +319,7 @@ mod tests {
         BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
         TWIN_STRIKE_ID,
     };
+    use crate::relic::Relic;
 
     fn reward_pool_content_ids() -> Vec<crate::ContentId> {
         IRONCLAD_REWARD_ENTRIES
@@ -513,7 +509,7 @@ mod tests {
         assert_eq!(reward.potion_offer, None);
         assert_eq!(run.potion_chance, 10);
         assert_eq!(run.potion_rng_counter, 1);
-        assert_eq!(reward.relic_offer, Some(Relic::OddlySmoothStone));
+        assert_eq!(reward.relic_offer, None);
         assert!(reward
             .choices
             .iter()
@@ -615,7 +611,8 @@ mod tests {
 
     #[test]
     fn take_relic_reward_adds_oddly_smooth_stone() {
-        let run = winning_combat_run();
+        let mut run = winning_combat_run();
+        run.reward.as_mut().expect("reward").relic_offer = Some(Relic::OddlySmoothStone);
 
         let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic");
 
@@ -628,6 +625,7 @@ mod tests {
     fn multiple_reward_offers_can_be_taken_before_skip() {
         let mut run = winning_combat_run();
         run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
+        run.reward.as_mut().expect("reward").relic_offer = Some(Relic::OddlySmoothStone);
 
         let run = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
         let run = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");

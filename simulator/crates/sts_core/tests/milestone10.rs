@@ -268,7 +268,8 @@ fn ice_cream_round_trips_through_run_state_json() {
 
 #[test]
 fn relic_reward_applies_on_next_combat_start() {
-    let run = win_fixture_combat();
+    let mut run = win_fixture_combat();
+    run.reward.as_mut().expect("reward").relic_offer = Some(Relic::OddlySmoothStone);
     let run = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic");
     let mut run = run;
     let combat = run.init_combat(sts_core::CombatState::initial_fixture());
