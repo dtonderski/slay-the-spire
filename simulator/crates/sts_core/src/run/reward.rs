@@ -1,4 +1,3 @@
-use super::state::REWARD_GOLD_AMOUNT;
 use crate::{
     card::{CardInstance, CardRarity},
     combat::{apply_combat_action, CombatPhase},
@@ -14,6 +13,8 @@ use crate::{
 };
 
 const REWARD_CARD_COUNT: usize = 3;
+const NORMAL_COMBAT_GOLD_MIN: i32 = 10;
+const NORMAL_COMBAT_GOLD_MAX: i32 = 20;
 
 /// Deterministic fixed pool used in early milestones before RNG wiring.
 #[must_use]
@@ -142,16 +143,27 @@ pub fn target_card_reward_choices(
     choices
 }
 
+pub fn target_normal_combat_gold(rng: &mut StsRng) -> i32 {
+    rng.random_int_range(NORMAL_COMBAT_GOLD_MIN, NORMAL_COMBAT_GOLD_MAX)
+}
+
 pub fn enter_reward_screen(run: &mut RunState) {
     let next_card_id = run.next_card_instance_id();
-    let mut rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
-    let choices = target_card_reward_choices(&mut rng, &mut run.card_rarity_factor, next_card_id);
-    run.card_rng_counter = rng.counter();
+    let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
+    let choices =
+        target_card_reward_choices(&mut card_rng, &mut run.card_rarity_factor, next_card_id);
+    run.card_rng_counter = card_rng.counter();
+
+    let mut treasure_rng =
+        StsRng::with_counter(run.treasure_rng_seed as i64, run.treasure_rng_counter);
+    let gold_offer = target_normal_combat_gold(&mut treasure_rng);
+    run.treasure_rng_counter = treasure_rng.counter();
+
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices,
-        gold_offer: REWARD_GOLD_AMOUNT,
+        gold_offer,
         potion_offer: if run.potions.len() < MAX_POTIONS {
             Some(Potion::Fire)
         } else {
@@ -451,7 +463,7 @@ mod tests {
         assert!(run.combat.is_none());
         let reward = run.reward.expect("reward screen present");
         assert_eq!(reward.choices.len(), 3);
-        assert_eq!(reward.gold_offer, REWARD_GOLD_AMOUNT);
+        assert_eq!(reward.gold_offer, 11);
         assert_eq!(reward.potion_offer, Some(Potion::Fire));
         assert_eq!(reward.relic_offer, Some(Relic::OddlySmoothStone));
         assert!(reward
@@ -515,7 +527,7 @@ mod tests {
         assert_eq!(next.phase, RunPhase::Reward);
         assert_eq!(next.reward.as_ref().expect("reward").gold_offer, 0);
         assert_eq!(next.deck, deck_before);
-        assert_eq!(next.gold, gold_before + REWARD_GOLD_AMOUNT);
+        assert_eq!(next.gold, gold_before + 11);
     }
 
     #[test]
@@ -573,9 +585,30 @@ mod tests {
 
         assert_eq!(run.phase, RunPhase::Idle);
         assert!(run.reward.is_none());
-        assert_eq!(run.gold, crate::STARTING_GOLD + REWARD_GOLD_AMOUNT);
+        assert_eq!(run.gold, crate::STARTING_GOLD + 11);
         assert_eq!(run.potions, vec![Potion::Fire]);
         assert_eq!(run.relics, vec![Relic::OddlySmoothStone]);
+    }
+
+    #[test]
+    fn normal_combat_gold_uses_target_treasure_rng_range() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        assert_eq!(target_normal_combat_gold(&mut rng), 19);
+        assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
+    fn combat_win_persists_treasure_rng_counter() {
+        let mut run = winning_combat_run();
+
+        run.treasure_rng_seed = 22_079_335_079;
+        run.treasure_rng_counter = 0;
+        enter_reward_screen(&mut run);
+
+        let reward = run.reward.expect("reward screen present");
+        assert_eq!(reward.gold_offer, 19);
+        assert_eq!(run.treasure_rng_counter, 1);
     }
 
     #[test]
