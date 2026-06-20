@@ -4,7 +4,7 @@ use crate::{
     content::cards::{ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
     content::reward_pool::{RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
-    potion::{Potion, MAX_POTIONS},
+    potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
     relic::Relic,
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::apply_potion_action,
@@ -15,6 +15,7 @@ use crate::{
 const REWARD_CARD_COUNT: usize = 3;
 const NORMAL_COMBAT_GOLD_MIN: i32 = 10;
 const NORMAL_COMBAT_GOLD_MAX: i32 = 20;
+const BASE_POTION_DROP_CHANCE: i32 = 40;
 
 /// Deterministic fixed pool used in early milestones before RNG wiring.
 #[must_use]
@@ -147,6 +148,46 @@ pub fn target_normal_combat_gold(rng: &mut StsRng) -> i32 {
     rng.random_int_range(NORMAL_COMBAT_GOLD_MIN, NORMAL_COMBAT_GOLD_MAX)
 }
 
+fn target_random_potion(rng: &mut StsRng) -> Potion {
+    let rarity = match rng.random_int_range(0, 99) {
+        roll if roll < 65 => PotionRarity::Common,
+        roll if roll < 90 => PotionRarity::Uncommon,
+        _ => PotionRarity::Rare,
+    };
+
+    loop {
+        let index = rng.random_int((IRONCLAD_POTION_POOL.len() - 1) as i32) as usize;
+        let potion = IRONCLAD_POTION_POOL[index];
+        if potion.rarity() == rarity {
+            return potion;
+        }
+    }
+}
+
+pub fn target_potion_reward_offer(
+    rng: &mut StsRng,
+    potion_chance: &mut i32,
+    reward_count: usize,
+    potion_belt_count: usize,
+) -> Option<Potion> {
+    if potion_belt_count >= MAX_POTIONS {
+        return None;
+    }
+
+    let mut chance = BASE_POTION_DROP_CHANCE + *potion_chance;
+    if reward_count >= 4 {
+        chance = 0;
+    }
+
+    if rng.random_int(99) >= chance {
+        *potion_chance += 10;
+        None
+    } else {
+        *potion_chance -= 10;
+        Some(target_random_potion(rng))
+    }
+}
+
 pub fn enter_reward_screen(run: &mut RunState) {
     let next_card_id = run.next_card_instance_id();
     let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
@@ -159,16 +200,21 @@ pub fn enter_reward_screen(run: &mut RunState) {
     let gold_offer = target_normal_combat_gold(&mut treasure_rng);
     run.treasure_rng_counter = treasure_rng.counter();
 
+    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+    let potion_offer = target_potion_reward_offer(
+        &mut potion_rng,
+        &mut run.potion_chance,
+        1 + 1,
+        run.potions.len(),
+    );
+    run.potion_rng_counter = potion_rng.counter();
+
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices,
         gold_offer,
-        potion_offer: if run.potions.len() < MAX_POTIONS {
-            Some(Potion::Fire)
-        } else {
-            None
-        },
+        potion_offer,
         relic_offer: if run.relics.contains(&Relic::OddlySmoothStone) {
             None
         } else {
@@ -464,7 +510,9 @@ mod tests {
         let reward = run.reward.expect("reward screen present");
         assert_eq!(reward.choices.len(), 3);
         assert_eq!(reward.gold_offer, 11);
-        assert_eq!(reward.potion_offer, Some(Potion::Fire));
+        assert_eq!(reward.potion_offer, None);
+        assert_eq!(run.potion_chance, 10);
+        assert_eq!(run.potion_rng_counter, 1);
         assert_eq!(reward.relic_offer, Some(Relic::OddlySmoothStone));
         assert!(reward
             .choices
@@ -542,7 +590,8 @@ mod tests {
 
     #[test]
     fn take_potion_reward_adds_fire_potion_to_belt() {
-        let run = winning_combat_run();
+        let mut run = winning_combat_run();
+        run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
         let potions_before = run.potions.len();
 
         let next = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
@@ -557,6 +606,7 @@ mod tests {
     fn take_potion_reward_rejects_full_belt() {
         let mut run = winning_combat_run();
         run.potions = vec![Potion::Fire, Potion::Fire, Potion::Fire];
+        run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
 
         let err = apply_run_action(&run, RunAction::TakePotionReward).expect_err("belt full");
 
@@ -576,7 +626,8 @@ mod tests {
 
     #[test]
     fn multiple_reward_offers_can_be_taken_before_skip() {
-        let run = winning_combat_run();
+        let mut run = winning_combat_run();
+        run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
 
         let run = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
         let run = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
@@ -596,6 +647,30 @@ mod tests {
 
         assert_eq!(target_normal_combat_gold(&mut rng), 19);
         assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
+    fn target_potion_reward_miss_increases_chance_and_consumes_drop_roll() {
+        let mut rng = StsRng::new(0);
+        let mut potion_chance = 0;
+
+        let offer = target_potion_reward_offer(&mut rng, &mut potion_chance, 2, 0);
+
+        assert_eq!(offer, None);
+        assert_eq!(potion_chance, 10);
+        assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
+    fn target_potion_reward_hit_decreases_chance_and_rolls_pool() {
+        let mut rng = StsRng::new(0);
+        let mut potion_chance = 70;
+
+        let offer = target_potion_reward_offer(&mut rng, &mut potion_chance, 2, 0);
+
+        assert!(offer.is_some());
+        assert_eq!(potion_chance, 60);
+        assert!(rng.counter() > 1);
     }
 
     #[test]

@@ -20,7 +20,7 @@ fn combat_win_transitions_to_reward_phase() {
     let reward = run.reward.as_ref().expect("reward screen");
     assert_eq!(reward.choices.len(), 3);
     assert_eq!(reward.gold_offer, 11);
-    assert_eq!(reward.potion_offer, Some(Potion::Fire));
+    assert_eq!(reward.potion_offer, None);
     assert_eq!(reward.relic_offer, Some(Relic::OddlySmoothStone));
 }
 
@@ -82,7 +82,8 @@ fn take_gold_reward_adds_fixed_amount_without_changing_deck() {
 
 #[test]
 fn take_potion_reward_adds_to_belt_and_consumes_potion_offer() {
-    let run = win_fixture_combat();
+    let mut run = win_fixture_combat();
+    run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
 
     let after = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
 
@@ -104,7 +105,8 @@ fn take_relic_reward_adds_oddly_smooth_stone_and_consumes_relic_offer() {
 
 #[test]
 fn multiple_reward_offers_can_be_collected_before_skip() {
-    let run = win_fixture_combat();
+    let mut run = win_fixture_combat();
+    run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
     let gold_offer = run.reward.as_ref().expect("reward").gold_offer;
 
     let run = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");

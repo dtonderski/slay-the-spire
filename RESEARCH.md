@@ -338,3 +338,11 @@ Next implementation evidence needed:
 - Extend map parity from full VERIFY01/CODEX04 topology/edge/room-symbol parity, fixed rows, desired room counts, shuffled room-list order, and `FixedMap` traversal into later reachable node choices.
 - Extend source-backed encounter selection from decoded normal-list generation to room execution, elite generation, alternate unreached group constructors, and the full first-three-fight seed-start path.
 - Extend floor-offset `monsterHpRng` validation to alternate Small Slimes/louse branches and additional captured seeds.
+
+## Milestone 24 Potion Reward Evidence
+
+Source inspected: `%TEMP%\sts_lightspeed\src\game\GameContext.cpp`, `%TEMP%\sts_lightspeed\src\game\Game.cpp`, and `%TEMP%\sts_lightspeed\include\constants\Potions.h`.
+
+Normal reward potion drops are driven by `GameContext::addPotionRewards`: start from `chance = 40 + potionChance`, force `chance = 0` once the reward screen already has four rewards, roll `potionRng.random(99)`, add 10 to `potionChance` on miss, and subtract 10 on hit. A hit calls `returnRandomPotion(potionRng, cc)`.
+
+`returnRandomPotion` rolls rarity with `potionRng.random(0, 99)`: `<65` common, `<90` uncommon, otherwise rare. It then repeatedly calls `getRandomPotion`, which rolls an index with `potionRng.random(PotionPool::poolSize - 1)`, until the selected potion has the requested rarity. The Ironclad pool has 33 entries in target order, beginning `BloodPotion`, `ElixirPotion`, `HeartOfIron`, `Block Potion`, `Dexterity Potion`, `Energy Potion`, `Explosive Potion`, `Fire Potion`.
