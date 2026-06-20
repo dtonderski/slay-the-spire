@@ -1955,8 +1955,8 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "cardRewardRng".to_owned(),
             save_counter: Some("card_seed_count".to_owned()),
-            status: "source_backed_modeled_pool".to_owned(),
-            reason: "card reward rarity rolls use target-style cardRng.random(99) + cardRarityFactor thresholds, common/rare factor mutation, duplicate rerolls, and StsRng counter consumption over the currently modeled Ironclad pool; full 72-card pool coverage remains pending".to_owned(),
+            status: "source_backed_full_pool".to_owned(),
+            reason: "card reward rarity rolls use target-style cardRng.random(99) + cardRarityFactor thresholds, common/rare factor mutation, duplicate rerolls, and StsRng counter consumption over the full 72-card Ironclad reward pool; many pool entries are RNG-only until their card mechanics are implemented".to_owned(),
         },
         RngBoundary {
             stream: "rewardGoldRng".to_owned(),
