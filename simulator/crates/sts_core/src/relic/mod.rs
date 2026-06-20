@@ -48,6 +48,15 @@ pub struct RelicCounters {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelicTier {
+    Common,
+    Uncommon,
+    Rare,
+    Boss,
+    Shop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Relic {
     Vajra,
     OddlySmoothStone,

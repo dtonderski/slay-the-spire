@@ -1967,8 +1967,8 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "relicRng".to_owned(),
             save_counter: Some("relic_seed_count".to_owned()),
-            status: "unwired".to_owned(),
-            reason: "relic rewards and Neow relic results are not game-compatible".to_owned(),
+            status: "source_backed_tier_rolls".to_owned(),
+            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; target relic pool initialization, Java-shuffled tier pools, pool popping, spawn filtering, and Neow relic results remain unwired".to_owned(),
         },
         RngBoundary {
             stream: "potionRng".to_owned(),
@@ -2491,6 +2491,8 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         potion_rng_seed: 0,
         potion_rng_counter: 0,
         potion_chance: 0,
+        relic_rng_seed: 0,
+        relic_rng_counter: 0,
         ascension: int(game, "ascension_level") as u8,
     })
 }
@@ -2526,6 +2528,8 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         potion_rng_seed: 0,
         potion_rng_counter: 0,
         potion_chance: 0,
+        relic_rng_seed: 0,
+        relic_rng_counter: 0,
         ascension: int(game, "ascension_level") as u8,
     })
 }

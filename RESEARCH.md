@@ -346,3 +346,11 @@ Source inspected: `%TEMP%\sts_lightspeed\src\game\GameContext.cpp`, `%TEMP%\sts_
 Normal reward potion drops are driven by `GameContext::addPotionRewards`: start from `chance = 40 + potionChance`, force `chance = 0` once the reward screen already has four rewards, roll `potionRng.random(99)`, add 10 to `potionChance` on miss, and subtract 10 on hit. A hit calls `returnRandomPotion(potionRng, cc)`.
 
 `returnRandomPotion` rolls rarity with `potionRng.random(0, 99)`: `<65` common, `<90` uncommon, otherwise rare. It then repeatedly calls `getRandomPotion`, which rolls an index with `potionRng.random(PotionPool::poolSize - 1)`, until the selected potion has the requested rarity. The Ironclad pool has 33 entries in target order, beginning `BloodPotion`, `ElixirPotion`, `HeartOfIron`, `Block Potion`, `Dexterity Potion`, `Energy Potion`, `Explosive Potion`, `Fire Potion`.
+
+## Milestone 24 Relic Reward Evidence
+
+Source inspected: `%TEMP%\sts_lightspeed\src\game\Game.cpp`, `%TEMP%\sts_lightspeed\src\game\GameContext.cpp`, and `%TEMP%\sts_lightspeed\include\constants\RelicPools.h`.
+
+`returnRandomRelicTier(relicRng, act)` rolls `relicRng.random(0, 99)`. Acts 1-3 use 50% common, 33% uncommon, and 17% rare; Act 4 uses 0% common and 100% uncommon. `returnRandomRelicTierElite(relicRng)` rolls `relicRng.random(99)` with `<50` common, `>82` rare, otherwise uncommon.
+
+Normal monster `createCombatReward()` does not add any relic. Elite rewards call `returnRandomRelic(returnRandomRelicTierElite(relicRng))`. Relic pool selection itself is more involved: `initRelics()` fills class-specific common/uncommon/rare/shop/boss pools and shuffles each with Java `Collections.shuffle` using `java::Random(relicRng.nextLong())`; `returnRandomRelic` then pops from the front for normal rewards, with fallbacks for empty pools and spawn filters.
