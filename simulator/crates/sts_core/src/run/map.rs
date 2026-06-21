@@ -4,6 +4,7 @@ use crate::{
 };
 
 use super::shop::enter_shop_screen;
+use super::event::enter_event_screen;
 
 fn current_room_kind(run: &RunState) -> Option<RoomKind> {
     run.map.as_ref().and_then(|map_state| {
@@ -48,6 +49,8 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
         next.phase = RunPhase::Rest;
     } else if current_room_kind(&next) == Some(RoomKind::Shop) {
         enter_shop_screen(&mut next);
+    } else if current_room_kind(&next) == Some(RoomKind::Event) {
+        enter_event_screen(&mut next);
     }
 
     Ok(next)

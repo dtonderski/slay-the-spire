@@ -1,15 +1,89 @@
 use crate::{
-    rng::{RngStream, SimulatorRng},
+    content::cards::upgrade_content_id,
+    rng::{JavaRng, StsRng},
     EventAction, RunPhase, RunState, SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
-const EVENT_POOL: [Event; 1] = [Event::GoldenShrine];
+pub const SHINING_LIGHT_HP_PERCENT: f32 = 0.20;
+pub const SHRINE_CHANCE: f32 = 0.25;
+
+#[must_use]
+pub fn shining_light_hp_loss(max_hp: i32) -> i32 {
+    (max_hp as f32 * SHINING_LIGHT_HP_PERCENT).round() as i32
+}
+
+fn upgrade_random_deck_cards(run: &mut RunState, max_count: usize) {
+    let mut upgradeable: Vec<usize> = run
+        .deck
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| {
+            upgrade_content_id(card.content_id)
+                .is_some()
+                .then_some(index)
+        })
+        .collect();
+    if upgradeable.is_empty() {
+        return;
+    }
+
+    let mut misc_rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let shuffle_seed = misc_rng.random_long();
+    run.misc_rng_counter = misc_rng.counter();
+
+    JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
+
+    for index in upgradeable.into_iter().take(max_count) {
+        let upgraded_content_id = upgrade_content_id(run.deck[index].content_id)
+            .expect("upgradeable card validated before shuffle");
+        run.deck[index].content_id = upgraded_content_id;
+    }
+}
+
+const ACT1_EVENTS: [Event; 11] = [
+    Event::BigFish,
+    Event::TheCleric,
+    Event::DeadAdventurer,
+    Event::GoldenIdol,
+    Event::WingStatue,
+    Event::WorldOfGoop,
+    Event::TheSsssserpent,
+    Event::LivingWall,
+    Event::HypnotizingColoredMushrooms,
+    Event::ScrapOoze,
+    Event::ShiningLight,
+];
+
+const ACT1_SHRINES: [Event; 6] = [
+    Event::GoldenShrine,
+    Event::Transmorgrifier,
+    Event::Purifier,
+    Event::UpgradeShrine,
+    Event::WheelOfChange,
+    Event::MatchAndKeep,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     GoldenShrine,
+    BigFish,
+    TheCleric,
+    DeadAdventurer,
+    GoldenIdol,
+    WingStatue,
+    WorldOfGoop,
+    TheSsssserpent,
+    LivingWall,
+    HypnotizingColoredMushrooms,
+    ScrapOoze,
+    ShiningLight,
+    Transmorgrifier,
+    Purifier,
+    UpgradeShrine,
+    WheelOfChange,
+    MatchAndKeep,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +95,45 @@ pub struct EventChoice {
 pub struct EventScreen {
     pub event: Event,
     pub choices: Vec<EventChoice>,
+}
+
+fn ensure_act1_event_lists(run: &mut RunState) {
+    if run.act1_event_list.is_empty() {
+        run.act1_event_list = ACT1_EVENTS.to_vec();
+    }
+    if run.act1_shrine_list.is_empty() {
+        run.act1_shrine_list = ACT1_SHRINES.to_vec();
+    }
+}
+
+fn pick_from_list(rng: &mut StsRng, list: &mut Vec<Event>) -> Event {
+    let idx = rng.random_int((list.len() - 1) as i32) as usize;
+    list.remove(idx)
+}
+
+fn get_shrine(run: &mut RunState, rng: &mut StsRng) -> Event {
+    let mut candidates = run.act1_shrine_list.clone();
+    if candidates.is_empty() {
+        return pick_from_list(rng, &mut run.act1_event_list);
+    }
+    let event = pick_from_list(rng, &mut candidates);
+    run.act1_shrine_list = candidates;
+    event
+}
+
+fn get_event(run: &mut RunState, rng: &mut StsRng) -> Event {
+    if run.act1_event_list.is_empty() {
+        return get_shrine(run, rng);
+    }
+    pick_from_list(rng, &mut run.act1_event_list)
+}
+
+fn generate_event(run: &mut RunState, rng: &mut StsRng) -> Event {
+    if rng.random_float_range(0.0, 1.0) < SHRINE_CHANCE && !run.act1_shrine_list.is_empty() {
+        get_shrine(run, rng)
+    } else {
+        get_event(run, rng)
+    }
 }
 
 #[must_use]
@@ -39,9 +152,10 @@ pub fn enter_fixed_event_screen(run: &mut RunState) {
 }
 
 pub fn enter_event_screen(run: &mut RunState) {
-    let mut rng = SimulatorRng::new(run.event_rng_seed);
-    let event = EVENT_POOL[rng.next_usize(RngStream::Event, "event_screen", EVENT_POOL.len())];
-    run.event_rng_seed = rng.seed_state();
+    ensure_act1_event_lists(run);
+    let mut rng = StsRng::with_counter(run.event_rng_seed as i64, run.event_rng_counter);
+    let event = generate_event(run, &mut rng);
+    run.event_rng_counter = rng.counter();
     run.phase = RunPhase::Event;
     run.event = Some(event_screen(event));
 }
@@ -50,6 +164,46 @@ pub fn enter_event_screen(run: &mut RunState) {
 pub fn event_screen(event: Event) -> EventScreen {
     match event {
         Event::GoldenShrine => fixed_event_screen(),
+        Event::Purifier => EventScreen {
+            event,
+            choices: vec![EventChoice {
+                label: "Purify".to_owned(),
+            }],
+        },
+        Event::UpgradeShrine => EventScreen {
+            event,
+            choices: vec![EventChoice {
+                label: "Upgrade".to_owned(),
+            }],
+        },
+        Event::TheCleric => EventScreen {
+            event,
+            choices: vec![
+                EventChoice {
+                    label: "Heal".to_owned(),
+                },
+                EventChoice {
+                    label: "Remove Curse".to_owned(),
+                },
+            ],
+        },
+        Event::ShiningLight => EventScreen {
+            event,
+            choices: vec![
+                EventChoice {
+                    label: "Enter the light".to_owned(),
+                },
+                EventChoice {
+                    label: "Leave".to_owned(),
+                },
+            ],
+        },
+        _ => EventScreen {
+            event,
+            choices: vec![EventChoice {
+                label: "Continue".to_owned(),
+            }],
+        },
     }
 }
 
@@ -104,7 +258,36 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        _ => unreachable!("validated fixed event action"),
+        (Event::TheCleric, EventAction::Choose { choice_index: 0 }) => {
+            let heal = next.player_max_hp * 25 / 100;
+            next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        (Event::ShiningLight, EventAction::Choose { choice_index: 0 }) => {
+            let loss = shining_light_hp_loss(next.player_max_hp);
+            next.player_hp = (next.player_hp - loss).max(0);
+            upgrade_random_deck_cards(&mut next, 2);
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        (Event::ShiningLight, EventAction::Choose { choice_index: 1 }) => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        (Event::Purifier | Event::UpgradeShrine, EventAction::Choose { choice_index: 0 }) => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        (_, EventAction::Choose { choice_index: 0 }) => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        _ => {
+            return Err(SimError::IllegalAction(
+                "event choice is not implemented for this event",
+            ));
+        }
     }
 
     Ok(next)
@@ -134,19 +317,34 @@ mod tests {
         enter_event_screen(&mut second);
 
         assert_eq!(first.event, second.event);
-        assert_eq!(first.event_rng_seed, second.event_rng_seed);
+        assert_eq!(first.event_rng_counter, second.event_rng_counter);
+        assert_eq!(first.act1_event_list, second.act1_event_list);
     }
 
     #[test]
-    fn event_screen_selection_advances_event_rng_seed() {
+    fn event_screen_selection_advances_event_rng_counter() {
         let mut run = RunState::map_fixture();
+        run.event_rng_seed = 7;
 
         enter_event_screen(&mut run);
 
-        assert_ne!(run.event_rng_seed, 0);
-        assert_eq!(
-            run.event.as_ref().map(|event| event.event),
-            Some(Event::GoldenShrine)
+        assert!(run.event_rng_counter >= 1);
+        assert!(
+            run.act1_event_list.len() < ACT1_EVENTS.len()
+                || run.act1_shrine_list.len() < ACT1_SHRINES.len()
+        );
+    }
+
+    #[test]
+    fn act1_event_pool_removes_selected_events() {
+        let mut run = RunState::map_fixture();
+        run.event_rng_seed = 22_079_335_079;
+
+        enter_event_screen(&mut run);
+
+        assert!(
+            run.act1_event_list.len() + run.act1_shrine_list.len()
+                < ACT1_EVENTS.len() + ACT1_SHRINES.len()
         );
     }
 
@@ -190,6 +388,57 @@ mod tests {
             err,
             SimError::IllegalAction("event choice is not available")
         );
+    }
+
+    #[test]
+    fn shining_light_hp_loss_rounds_twenty_percent_of_max_hp() {
+        assert_eq!(shining_light_hp_loss(80), 16);
+        assert_eq!(shining_light_hp_loss(79), 16);
+    }
+
+    #[test]
+    fn shining_light_enter_costs_hp_and_upgrades_two_cards() {
+        use crate::content::cards::{ANGER_ID, ANGER_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID};
+        use crate::CardId;
+        use crate::CardInstance;
+
+        let mut run = RunState::map_fixture();
+        run.misc_rng_seed = 7;
+        run.deck = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), ANGER_ID),
+        ];
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::ShiningLight));
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("enter");
+
+        assert_eq!(
+            after.player_hp,
+            run.player_hp - shining_light_hp_loss(run.player_max_hp)
+        );
+        assert_eq!(after.deck[0].content_id, STRIKE_R_PLUS_ID);
+        assert_eq!(after.deck[1].content_id, ANGER_PLUS_ID);
+        assert_eq!(after.phase, RunPhase::Idle);
+        assert!(after.event.is_none());
+        assert!(after.misc_rng_counter > run.misc_rng_counter);
+    }
+
+    #[test]
+    fn shining_light_leave_exits_without_changes() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::ShiningLight));
+        let hp_before = run.player_hp;
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("leave");
+
+        assert_eq!(after.player_hp, hp_before);
+        assert_eq!(after.deck, run.deck);
+        assert_eq!(after.phase, RunPhase::Idle);
+        assert!(after.event.is_none());
     }
 
     #[test]

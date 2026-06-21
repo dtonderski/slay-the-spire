@@ -118,6 +118,28 @@ pub struct RunState {
     #[serde(default)]
     pub relic_pools: Option<RelicPoolState>,
     #[serde(default)]
+    pub relic_keys: Vec<RelicKey>,
+    #[serde(default)]
+    pub merchant_rng_seed: u64,
+    #[serde(default)]
+    pub merchant_rng_counter: u32,
+    #[serde(default)]
+    pub event_rng_counter: u32,
+    #[serde(default)]
+    pub misc_rng_seed: u64,
+    #[serde(default)]
+    pub misc_rng_counter: u32,
+    #[serde(default)]
+    pub current_floor: i32,
+    #[serde(default)]
+    pub current_act: i32,
+    #[serde(default)]
+    pub shop_remove_count: u32,
+    #[serde(default)]
+    pub act1_event_list: Vec<super::event::Event>,
+    #[serde(default)]
+    pub act1_shrine_list: Vec<super::event::Event>,
+    #[serde(default)]
     pub ascension: u8,
 }
 
@@ -145,6 +167,11 @@ pub struct RewardScreen {
     pub relic_offer: Option<Relic>,
     #[serde(default)]
     pub relic_key_offer: Option<RelicKey>,
+    #[serde(default)]
+    pub card_reward_active: bool,
+    /// Normal combat rewards defer card RNG until the player opens the card screen.
+    #[serde(default)]
+    pub card_reward_pending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,11 +183,17 @@ pub enum RunAction {
     TakeGoldReward,
     TakePotionReward,
     TakeRelicReward,
+    OpenCardReward,
+    SkipPotionReward,
     BuyShopCard {
         slot: usize,
     },
-    BuyShopRelic,
-    BuyShopPotion,
+    BuyShopRelic {
+        slot: usize,
+    },
+    BuyShopPotion {
+        slot: usize,
+    },
     UsePotion {
         slot: usize,
         target: Option<MonsterId>,
@@ -233,6 +266,17 @@ impl RunState {
             relic_rng_seed: 0,
             relic_rng_counter: 0,
             relic_pools: None,
+            relic_keys: Vec::new(),
+            merchant_rng_seed: 0,
+            merchant_rng_counter: 0,
+            event_rng_counter: 0,
+            misc_rng_seed: 0,
+            misc_rng_counter: 0,
+            current_floor: 0,
+            current_act: 1,
+            shop_remove_count: 0,
+            act1_event_list: Vec::new(),
+            act1_shrine_list: Vec::new(),
             ascension,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
@@ -270,6 +314,17 @@ impl RunState {
             relic_rng_seed: 0,
             relic_rng_counter: 0,
             relic_pools: None,
+            relic_keys: Vec::new(),
+            merchant_rng_seed: 0,
+            merchant_rng_counter: 0,
+            event_rng_counter: 0,
+            misc_rng_seed: 0,
+            misc_rng_counter: 0,
+            current_floor: 0,
+            current_act: 1,
+            shop_remove_count: 0,
+            act1_event_list: Vec::new(),
+            act1_shrine_list: Vec::new(),
             ascension: 0,
         }
     }
@@ -312,6 +367,14 @@ impl RunState {
             .max()
             .unwrap_or(0)
             + 1
+    }
+
+    pub fn gain_relic_key(&mut self, key: RelicKey) {
+        if let Some(relic) = Relic::from_key(key) {
+            self.gain_relic(relic);
+        } else {
+            self.relic_keys.push(key);
+        }
     }
 
     pub fn gain_relic(&mut self, relic: Relic) {
@@ -367,16 +430,32 @@ impl RunState {
                 if reward.relic_offer.is_none() && reward.relic_key_offer.is_none() {
                     return Err(SimError::IllegalAction("no relic reward offered"));
                 }
-                let Some(relic) = reward
-                    .relic_offer
-                    .or_else(|| reward.relic_key_offer.and_then(Relic::from_key))
-                else {
-                    return Err(SimError::IllegalAction(
-                        "relic reward effect is not implemented",
-                    ));
-                };
-                if self.relics.contains(&relic) {
-                    return Err(SimError::IllegalAction("relic already owned"));
+                if let Some(relic) = reward.relic_offer {
+                    if self.relics.contains(&relic) {
+                        return Err(SimError::IllegalAction("relic already owned"));
+                    }
+                }
+                if let Some(key) = reward.relic_key_offer {
+                    if self.relics.iter().any(|relic| relic.key() == key)
+                        || self.relic_keys.contains(&key)
+                    {
+                        return Err(SimError::IllegalAction("relic already owned"));
+                    }
+                }
+                Ok(())
+            }
+            RunAction::OpenCardReward => {
+                if !reward.card_reward_pending {
+                    return Err(SimError::IllegalAction("no card reward offered"));
+                }
+                if reward.card_reward_active {
+                    return Err(SimError::IllegalAction("card reward already open"));
+                }
+                Ok(())
+            }
+            RunAction::SkipPotionReward => {
+                if reward.potion_offer.is_none() {
+                    return Err(SimError::IllegalAction("no potion reward offered"));
                 }
                 Ok(())
             }
@@ -387,7 +466,9 @@ impl RunState {
                     Err(SimError::UnknownCard(card_id))
                 }
             }
-            RunAction::BuyShopCard { .. } | RunAction::BuyShopRelic | RunAction::BuyShopPotion => {
+            RunAction::BuyShopCard { .. }
+            | RunAction::BuyShopRelic { .. }
+            | RunAction::BuyShopPotion { .. } => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
             RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {

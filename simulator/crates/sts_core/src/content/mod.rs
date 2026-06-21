@@ -5,3 +5,4 @@ pub mod deck;
 pub mod encounters;
 pub mod monsters;
 pub mod reward_pool;
+pub mod shop_pool;

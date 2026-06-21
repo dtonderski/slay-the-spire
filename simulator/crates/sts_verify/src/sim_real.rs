@@ -10,10 +10,12 @@ use sts_core::content::monsters::{
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
 };
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action, generate_exordium_map_topology,
+    apply_combat_action_on_run, apply_run_action, advance_card_rng_for_combat_entry,
+    exordium_room_kinds_on_path,
+    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     initialize_combat_piles, CardId, CardInstance, CardPiles, CombatAction, CombatPhase,
     CombatState, ContentId, MonsterId, MonsterIntent, MonsterPowers, MonsterState, PlayerPowers,
-    PlayerState, RewardScreen, RunAction, RunPhase, RunState, StsRng,
+    PlayerState, RewardScreen, RoomKind, RunAction, RunPhase, RunState, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,14 +269,16 @@ fn verify_seed_start_transitions(
 ) -> SeedStartBoundary {
     let mut phase = SeedStartPhase::BeforeStart;
     let mut combat_step = 0usize;
-    let mut reward_step = 0usize;
+    let mut _reward_step = 0usize;
     let mut combat_index = 0usize;
     let mut map_pick_index = 0usize;
+    let mut map_path_xs: Vec<i32> = Vec::new();
+    let mut neow_lament = false;
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
 
-    for (_, action, post) in transitions {
+    for (pre, action, post) in transitions {
         if action.command.eq_ignore_ascii_case("state") {
             report.unsupported.push(UnsupportedTransition {
                 action_step: action.step,
@@ -335,6 +339,30 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowOptions;
             }
             SeedStartPhase::NeowOptions
+                if start.external_seed == "CODEX03" && command_is_choose(&action.command, 1) =>
+            {
+                neow_lament = true;
+                relics.push("NeowsBlessing".to_owned());
+                compare_subset(
+                    report,
+                    action,
+                    "Neow's Lament",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowOptions
                 if start.external_seed == "CODEX04" && command_is_choose(&action.command, 0) =>
             {
                 compare_subset(
@@ -360,7 +388,7 @@ fn verify_seed_start_transitions(
                 );
                 phase = SeedStartPhase::NeowCardReward;
             }
-            SeedStartPhase::NeowOptions if command_is_choose(&action.command, 1) => {
+            SeedStartPhase::NeowOptions if command_is_choose(&action.command, 1) && start.external_seed != "CODEX03" => {
                 relics.push("Toy Ornithopter".to_owned());
                 compare_subset(
                     report,
@@ -433,6 +461,9 @@ fn verify_seed_start_transitions(
                     seed_start_map_choice(&start.external_seed, map_pick_index),
                 ) =>
             {
+                let choice_x =
+                    seed_start_map_pick_x(&start.external_seed, &map_path_xs, &action.command);
+                map_path_xs.push(choice_x);
                 let label = seed_start_map_label(combat_index);
                 compare_subset(
                     report,
@@ -445,11 +476,18 @@ fn verify_seed_start_transitions(
                         start.ascension,
                         &deck_ids,
                         &relics,
+                        neow_lament,
                         &post.message,
                     ),
                 );
                 phase = SeedStartPhase::Combat;
-                seed_sim = seed_start_run_from_combat_entry(&post.message, start.numeric_seed);
+                seed_sim = seed_start_run_from_combat_entry(
+                    &post.message,
+                    start.numeric_seed,
+                    &start.external_seed,
+                    combat_index,
+                    seed_sim.as_ref(),
+                );
                 combat_step = 0;
                 map_pick_index += 1;
             }
@@ -581,7 +619,7 @@ fn verify_seed_start_transitions(
                             });
                         }
                     }
-                    seed_sim = None;
+                    seed_sim = Some(next);
                     combat_step += 1;
                     if start.external_seed == "CODEX04" && combat_index >= 2 {
                         phase = SeedStartPhase::Complete;
@@ -621,66 +659,46 @@ fn verify_seed_start_transitions(
                 *sim = next;
                 combat_step += 1;
             }
-            SeedStartPhase::Reward if start.external_seed == "CODEX04" => {
-                match seed_start_codex04_reward_expected(combat_index, reward_step, &action.command)
-                {
-                    Some(expected) => {
+            SeedStartPhase::Reward => {
+                let Some(sim) = seed_sim.as_mut() else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_reward_path".to_owned(),
+                        reason: "seed-start reward action without initialized reward simulation"
+                            .to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return boundary;
+                };
+
+                match seed_start_apply_reward_choose(sim, &action.command, &pre.message, &post.message) {
+                    Ok(label) => {
                         compare_subset(
                             report,
                             action,
-                            expected.label,
+                            &label,
                             seed_start_reward_observed_subset(&post.message),
-                            expected.state,
+                            seed_start_reward_simulated_subset(sim, &post.message, &relics, Some(&post.message)),
                         );
                         deck_ids = deck_keys_from_value(
                             post.message
                                 .get("game_state")
                                 .and_then(|game| game.get("deck")),
                         );
-                        reward_step += 1;
-                        if expected.ends_reward {
+                        _reward_step += 1;
+                        if seed_start_reward_sequence_complete(sim) {
                             phase = SeedStartPhase::Proceed;
                         }
                     }
-                    None => {
+                    Err(reason) => {
                         let boundary = SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_reward_path".to_owned(),
-                            reason: format!(
-                                "seed-start verifier expected captured CODEX04 reward command for combat {combat_index} local reward step {reward_step}; broad reward RNG and alternate reward-screen ordering are not implemented"
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return boundary;
-                    }
-                }
-            }
-            SeedStartPhase::Reward => {
-                match seed_start_reward_expected(reward_step, &action.command) {
-                    Some(expected) => {
-                        compare_subset(
-                            report,
-                            action,
-                            expected.label,
-                            seed_start_reward_observed_subset(&post.message),
-                            expected.state,
-                        );
-                        reward_step += 1;
-                        if expected.ends_reward {
-                            phase = SeedStartPhase::Proceed;
-                        }
-                    }
-                    None => {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_reward_path".to_owned(),
-                            reason: format!(
-                                "seed-start verifier expected the captured reward command at local reward step {reward_step}; alternate reward paths require broad reward RNG and reward-screen parity"
-                            ),
+                            reason,
                         };
                         report.unsupported.push(UnsupportedTransition {
                             action_step: action.step,
@@ -693,32 +711,23 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::Proceed if start.external_seed == "VERIFY01" => {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
+                    let deck = seed_sim
+                        .as_ref()
+                        .map(|sim| deck_content_keys(&sim.deck))
+                        .unwrap_or_else(|| ironclad_deck_with_twin_strike_keys());
                     compare_subset(
                         report,
                         action,
                         "captured return to map",
                         seed_start_map_return_observed_subset(&post.message),
-                        json!({
-                            "screen_type": "MAP",
-                            "floor": 1,
-                            "gold": 113,
-                            "current_hp": 80,
-                            "max_hp": 80,
-                            "deck_ids": ironclad_deck_with_twin_strike_keys(),
-                            "relic_ids": ["Burning Blood", "Toy Ornithopter"],
-                            "choices": ["x=2"],
-                            "first_node_chosen": true,
-                            "current_node": {
-                                "symbol": "M",
-                                "x": 1,
-                                "y": 0,
-                            },
-                            "next_nodes": [{
-                                "symbol": "M",
-                                "x": 2,
-                                "y": 1,
-                            }],
-                        }),
+                        seed_start_simulated_map_return(
+                            start.numeric_seed,
+                            &map_path_xs,
+                            seed_sim.as_ref(),
+                            &relics,
+                            &deck,
+                            &deck,
+                        ),
                     );
                     phase = SeedStartPhase::Complete;
                 } else {
@@ -735,26 +744,46 @@ fn verify_seed_start_transitions(
                     return boundary;
                 }
             }
-            SeedStartPhase::Proceed if start.external_seed == "CODEX04" => {
+            SeedStartPhase::Proceed if start.external_seed == "CODEX04" || start.external_seed == "CODEX03" => {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
                     let label = format!("return to map after floor {}", combat_index + 1);
+                    let deck = seed_sim
+                        .as_ref()
+                        .map(|sim| deck_content_keys(&sim.deck))
+                        .unwrap_or_else(|| deck_ids.clone());
                     compare_subset(
                         report,
                         action,
                         &label,
                         seed_start_map_return_observed_subset(&post.message),
-                        seed_start_codex04_map_return_expected(combat_index),
+                        seed_start_simulated_map_return(
+                            start.numeric_seed,
+                            &map_path_xs,
+                            seed_sim.as_ref(),
+                            &relics,
+                            &deck,
+                            &deck,
+                        ),
                     );
                     combat_index += 1;
-                    reward_step = 0;
+                    _reward_step = 0;
+                    if start.external_seed == "CODEX03" && combat_index >= 3 {
+                        return SeedStartBoundary {
+                            path: "$.actions[complete]".to_owned(),
+                            category: "none".to_owned(),
+                            reason: "seed-start verifier reached CODEX03 floor-3 return-to-map after Neow's Lament prefix"
+                                .to_owned(),
+                        };
+                    }
                     phase = SeedStartPhase::Map;
                 } else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_post_reward_map".to_owned(),
-                        reason:
-                            "seed-start verifier expected CODEX04 reward-to-map PROCEED command"
-                                .to_owned(),
+                        reason: format!(
+                            "seed-start verifier expected {} reward-to-map PROCEED command",
+                            start.external_seed
+                        ),
                     };
                     report.unsupported.push(UnsupportedTransition {
                         action_step: action.step,
@@ -913,12 +942,6 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
 struct CapturedCombatExpectation {
     label: &'static str,
     state: Value,
-}
-
-struct CapturedRewardExpectation {
-    label: &'static str,
-    state: Value,
-    ends_reward: bool,
 }
 
 fn seed_start_cultist_combat_expected(
@@ -1204,82 +1227,6 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
     })
 }
 
-fn seed_start_reward_expected(
-    reward_step: usize,
-    command: &str,
-) -> Option<CapturedRewardExpectation> {
-    let expected_command = match reward_step {
-        0 => "CHOOSE 0",
-        1 => "CHOOSE 0",
-        2 => "CHOOSE 0",
-        _ => return None,
-    };
-    if !command.eq_ignore_ascii_case(expected_command) {
-        return None;
-    }
-
-    let expectation = match reward_step {
-        0 => CapturedRewardExpectation {
-            label: "captured gold reward",
-            state: json!({
-                "screen_type": "COMBAT_REWARD",
-                "floor": 1,
-                "gold": 113,
-                "current_hp": 80,
-                "max_hp": 80,
-                "deck_ids": ironclad_starter_deck_keys(),
-                "relic_ids": ["Burning Blood", "Toy Ornithopter"],
-                "choices": ["card"],
-                "reward_types": ["CARD"],
-                "unobservable": {
-                    "reward_gold_rng_draws": true,
-                    "reward_screen_internal_ids": true,
-                },
-            }),
-            ends_reward: false,
-        },
-        1 => CapturedRewardExpectation {
-            label: "captured card reward choices",
-            state: json!({
-                "screen_type": "CARD_REWARD",
-                "floor": 1,
-                "gold": 113,
-                "current_hp": 80,
-                "max_hp": 80,
-                "deck_ids": ironclad_starter_deck_keys(),
-                "relic_ids": ["Burning Blood", "Toy Ornithopter"],
-                "choices": ["twin strike", "heavy blade", "intimidate"],
-                "card_reward_ids": ["Twin Strike", "Heavy Blade", "Intimidate"],
-                "unobservable": {
-                    "card_reward_rng_draws": true,
-                    "card_reward_uuids": true,
-                },
-            }),
-            ends_reward: false,
-        },
-        2 => CapturedRewardExpectation {
-            label: "captured Twin Strike pickup",
-            state: json!({
-                "screen_type": "COMBAT_REWARD",
-                "floor": 1,
-                "gold": 113,
-                "current_hp": 80,
-                "max_hp": 80,
-                "deck_ids": ironclad_deck_with_twin_strike_keys(),
-                "relic_ids": ["Burning Blood", "Toy Ornithopter"],
-                "choices": [],
-                "reward_types": [],
-                "unobservable": {
-                    "picked_card_uuid": true,
-                },
-            }),
-            ends_reward: true,
-        },
-        _ => return None,
-    };
-    Some(expectation)
-}
-
 fn seed_start_reward_observed_subset(message: &Value) -> Value {
     let Some(game) = message.get("game_state") else {
         return json!({});
@@ -1325,6 +1272,14 @@ fn seed_start_reward_observed_subset(message: &Value) -> Value {
                         .and_then(|state| state.get("rewards")),
                 );
                 insert(map, "reward_types", reward_types.clone());
+                insert(
+                    map,
+                    "choices",
+                    reward_types
+                        .iter()
+                        .map(|reward_type| reward_type.to_ascii_lowercase())
+                        .collect::<Vec<_>>(),
+                );
                 let unobservable = if reward_types.is_empty() {
                     json!({
                         "picked_card_uuid": true,
@@ -1439,30 +1394,18 @@ fn ironclad_deck_with_twin_strike_keys() -> Vec<String> {
     deck
 }
 
-fn codex04_deck_after_neow_keys() -> Vec<String> {
-    let mut deck = ironclad_starter_deck_keys();
-    deck.push("Dramatic Entrance".to_owned());
-    deck
-}
-
-fn codex04_deck_after_floor1_keys() -> Vec<String> {
-    let mut deck = codex04_deck_after_neow_keys();
-    deck.push("Battle Trance".to_owned());
-    deck
-}
-
-fn codex04_deck_after_floor2_keys() -> Vec<String> {
-    let mut deck = codex04_deck_after_floor1_keys();
-    deck.push("Shrug It Off".to_owned());
-    deck
-}
-
 fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
     match seed {
         "CODEX04" => vec![
             "choose a colorless card to obtain",
             "obtain 3 random potions",
             "lose 8 max hp remove 2 cards",
+            "lose your starting relic obtain a random boss relic",
+        ],
+        "CODEX03" => vec![
+            "upgrade a card",
+            "enemies in your next three combats have 1 hp",
+            "lose all gold obtain a random rare relic",
             "lose your starting relic obtain a random boss relic",
         ],
         _ => vec![
@@ -1477,6 +1420,7 @@ fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
 fn seed_start_unchosen_neow_command(seed: &str) -> String {
     match seed {
         "CODEX04" => "CHOOSE 1/2/3".to_owned(),
+        "CODEX03" => "CHOOSE 0/2/3".to_owned(),
         _ => "CHOOSE 0/2/3".to_owned(),
     }
 }
@@ -1485,6 +1429,9 @@ fn seed_start_unchosen_neow_reason(seed: &str) -> String {
     match seed {
         "CODEX04" => {
             "unchosen Neow branches are classified but not implemented: potions, max-hp removal, and boss swap".to_owned()
+        }
+        "CODEX03" => {
+            "unchosen Neow branches are classified but not implemented: card upgrade, gold-for-relic, and boss swap".to_owned()
         }
         _ => {
             "unchosen Neow branches are classified but not implemented: card reward, max-hp removal, and boss swap".to_owned()
@@ -1505,231 +1452,111 @@ fn seed_start_map_choice(seed: &str, pick_index: usize) -> usize {
     match (seed, pick_index) {
         ("CODEX04", 0) => 1,
         ("CODEX04", _) => 0,
+        ("CODEX03", _) => 0,
         (_, 0) => 0,
         _ => 0,
     }
 }
 
-fn seed_start_codex04_reward_expected(
-    combat_index: usize,
-    reward_step: usize,
-    command: &str,
-) -> Option<CapturedRewardExpectation> {
-    let expected_command = match (combat_index, reward_step) {
-        (0, 0..=2) | (1, 0..=2) => "CHOOSE 0",
-        (1, 3) => "CHOOSE 1",
-        _ => return None,
-    };
-    if !command.eq_ignore_ascii_case(expected_command) {
-        return None;
+fn seed_start_map_pick_x(external_seed: &str, path_so_far: &[i32], command: &str) -> i32 {
+    let choice_index = choose_index(command).unwrap_or(0);
+    let seed = sts_seed_string_to_long(external_seed);
+    if path_so_far.is_empty() {
+        generate_exordium_map_topology(seed)
+            .first_row_choices
+            .get(choice_index)
+            .copied()
+            .unwrap_or(choice_index as i32)
+    } else {
+        generate_exordium_map_choices_after_path(seed, path_so_far)
+            .last()
+            .and_then(|step| step.next_choices.get(choice_index))
+            .copied()
+            .unwrap_or(choice_index as i32)
     }
-
-    let expectation = match (combat_index, reward_step) {
-        (0, 0) => CapturedRewardExpectation {
-            label: "captured floor 1 gold reward",
-            state: codex04_reward_state(
-                1,
-                118,
-                codex04_deck_after_neow_keys(),
-                vec!["card"],
-                vec!["CARD"],
-                Vec::new(),
-                reward_rng_unobservable(),
-            ),
-            ends_reward: false,
-        },
-        (0, 1) => CapturedRewardExpectation {
-            label: "captured floor 1 card reward choices",
-            state: codex04_card_reward_state(
-                1,
-                118,
-                codex04_deck_after_neow_keys(),
-                vec!["battle trance", "twin strike", "entrench"],
-                vec!["Battle Trance", "Twin Strike", "Entrench"],
-            ),
-            ends_reward: false,
-        },
-        (0, 2) => CapturedRewardExpectation {
-            label: "captured Battle Trance pickup",
-            state: codex04_reward_state(
-                1,
-                118,
-                codex04_deck_after_floor1_keys(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                json!({ "picked_card_uuid": true }),
-            ),
-            ends_reward: true,
-        },
-        (1, 0) => CapturedRewardExpectation {
-            label: "captured floor 2 gold reward",
-            state: codex04_reward_state(
-                2,
-                135,
-                codex04_deck_after_floor1_keys(),
-                vec!["potion", "card"],
-                vec!["POTION", "CARD"],
-                Vec::new(),
-                reward_rng_unobservable(),
-            ),
-            ends_reward: false,
-        },
-        (1, 1) => CapturedRewardExpectation {
-            label: "captured floor 2 potion skip",
-            state: codex04_reward_state(
-                2,
-                135,
-                codex04_deck_after_floor1_keys(),
-                vec!["card"],
-                vec!["CARD"],
-                Vec::new(),
-                reward_rng_unobservable(),
-            ),
-            ends_reward: false,
-        },
-        (1, 2) => CapturedRewardExpectation {
-            label: "captured floor 2 card reward choices",
-            state: codex04_card_reward_state(
-                2,
-                135,
-                codex04_deck_after_floor1_keys(),
-                vec!["flex", "shrug it off", "cleave"],
-                vec!["Flex", "Shrug It Off", "Cleave"],
-            ),
-            ends_reward: false,
-        },
-        (1, 3) => CapturedRewardExpectation {
-            label: "captured Shrug It Off pickup",
-            state: codex04_reward_state(
-                2,
-                135,
-                codex04_deck_after_floor2_keys(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                json!({ "picked_card_uuid": true }),
-            ),
-            ends_reward: true,
-        },
-        _ => return None,
-    };
-    Some(expectation)
 }
 
-fn codex04_reward_state(
-    floor: u32,
-    gold: i32,
-    deck_ids: Vec<String>,
-    choices: Vec<&'static str>,
-    reward_types: Vec<&'static str>,
-    card_reward_ids: Vec<&'static str>,
-    unobservable: Value,
+fn room_kind_symbol(kind: RoomKind) -> &'static str {
+    match kind {
+        RoomKind::Combat => "M",
+        RoomKind::Event => "?",
+        RoomKind::Shop => "$",
+        RoomKind::Rest => "R",
+        RoomKind::Elite => "E",
+        RoomKind::Treasure => "T",
+        RoomKind::Boss => "B",
+    }
+}
+
+fn seed_start_simulated_map_return(
+    numeric_seed: i64,
+    path_xs: &[i32],
+    run: Option<&RunState>,
+    relic_ids: &[String],
+    deck_ids: &[String],
+    deck_fallback: &[String],
 ) -> Value {
-    let mut state = json!({
-        "screen_type": "COMBAT_REWARD",
-        "floor": floor,
-        "gold": gold,
-        "current_hp": 80,
-        "max_hp": 80,
-        "deck_ids": deck_ids,
-        "relic_ids": ["Burning Blood"],
-        "choices": choices,
-        "reward_types": reward_types,
-        "unobservable": unobservable,
-    });
-    if !card_reward_ids.is_empty() {
-        if let Value::Object(map) = &mut state {
-            insert(map, "card_reward_ids", card_reward_ids);
-        }
-    }
-    state
-}
-
-fn codex04_card_reward_state(
-    floor: u32,
-    gold: i32,
-    deck_ids: Vec<String>,
-    choices: Vec<&'static str>,
-    card_reward_ids: Vec<&'static str>,
-) -> Value {
+    let steps = generate_exordium_map_choices_after_path(numeric_seed, path_xs);
+    let step = steps.last().expect("non-empty map path");
+    let choices: Vec<String> = step
+        .next_choices
+        .iter()
+        .map(|x| format!("x={x}"))
+        .collect();
+    let current_x = *path_xs.last().unwrap_or(&0);
+    let current_y = path_xs.len().saturating_sub(1) as i64;
+    let current_symbol = exordium_room_kinds_on_path(numeric_seed, path_xs)
+        .last()
+        .copied()
+        .map(room_kind_symbol)
+        .unwrap_or("M");
+    let next_nodes: Vec<Value> = step
+        .next_choices
+        .iter()
+        .map(|&x| {
+            let mut child_path = path_xs.to_vec();
+            child_path.push(x);
+            let symbol = exordium_room_kinds_on_path(numeric_seed, &child_path)
+                .last()
+                .copied()
+                .map(room_kind_symbol)
+                .unwrap_or("M");
+            json!({
+                "symbol": symbol,
+                "x": x,
+                "y": current_y + 1,
+            })
+        })
+        .collect();
+    let gold = run.map(|sim| sim.gold).unwrap_or(99);
+    let current_hp = run.map(|sim| sim.player_hp).unwrap_or(80);
+    let max_hp = run.map(|sim| sim.player_max_hp).unwrap_or(80);
+    let deck = run
+        .map(|sim| deck_content_keys(&sim.deck))
+        .unwrap_or_else(|| {
+            if deck_ids.is_empty() {
+                deck_fallback.to_vec()
+            } else {
+                deck_ids.to_vec()
+            }
+        });
     json!({
-        "screen_type": "CARD_REWARD",
-        "floor": floor,
+        "screen_type": "MAP",
+        "floor": path_xs.len() as u64,
         "gold": gold,
-        "current_hp": 80,
-        "max_hp": 80,
-        "deck_ids": deck_ids,
-        "relic_ids": ["Burning Blood"],
+        "current_hp": current_hp,
+        "max_hp": max_hp,
+        "deck_ids": deck,
+        "relic_ids": relic_ids,
         "choices": choices,
-        "card_reward_ids": card_reward_ids,
-        "unobservable": {
-            "card_reward_rng_draws": true,
-            "card_reward_uuids": true,
+        "first_node_chosen": true,
+        "current_node": {
+            "symbol": current_symbol,
+            "x": current_x,
+            "y": current_y,
         },
+        "next_nodes": next_nodes,
     })
-}
-
-fn reward_rng_unobservable() -> Value {
-    json!({
-        "reward_gold_rng_draws": true,
-        "reward_screen_internal_ids": true,
-    })
-}
-
-fn seed_start_codex04_map_return_expected(combat_index: usize) -> Value {
-    match combat_index {
-        0 => json!({
-            "screen_type": "MAP",
-            "floor": 1,
-            "gold": 118,
-            "current_hp": 80,
-            "max_hp": 80,
-            "deck_ids": codex04_deck_after_floor1_keys(),
-            "relic_ids": ["Burning Blood"],
-            "choices": ["x=3"],
-            "first_node_chosen": true,
-            "current_node": {
-                "symbol": "M",
-                "x": 2,
-                "y": 0,
-            },
-            "next_nodes": [{
-                "symbol": "M",
-                "x": 3,
-                "y": 1,
-            }],
-        }),
-        1 => json!({
-            "screen_type": "MAP",
-            "floor": 2,
-            "gold": 135,
-            "current_hp": 80,
-            "max_hp": 80,
-            "deck_ids": codex04_deck_after_floor2_keys(),
-            "relic_ids": ["Burning Blood"],
-            "choices": ["x=2", "x=3"],
-            "first_node_chosen": true,
-            "current_node": {
-                "symbol": "M",
-                "x": 3,
-                "y": 1,
-            },
-            "next_nodes": [
-                {
-                    "symbol": "M",
-                    "x": 2,
-                    "y": 2,
-                },
-                {
-                    "symbol": "?",
-                    "x": 3,
-                    "y": 2,
-                },
-            ],
-        }),
-        _ => seed_start_map_return_observed_subset(&json!({})),
-    }
 }
 
 fn seed_start_encounter_expected_at_index(
@@ -1738,12 +1565,18 @@ fn seed_start_encounter_expected_at_index(
     ascension: u8,
     deck_ids: &[String],
     relics: &[String],
+    neow_lament: bool,
     message: &Value,
 ) -> Value {
     let floor = u32::try_from(combat_index + 1).unwrap_or(1);
-    let spawns =
-        target_normal_encounter_spawn_at_combat_index(seed, floor, combat_index, ascension, false)
-            .unwrap_or_default();
+    let spawns = target_normal_encounter_spawn_at_combat_index(
+        seed,
+        floor,
+        combat_index,
+        ascension,
+        neow_lament,
+    )
+    .unwrap_or_default();
     let mut expected = seed_start_encounter_observed_subset(message);
     if let Value::Object(map) = &mut expected {
         map.insert(
@@ -1926,7 +1759,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "captured_branch".to_owned(),
-            reason: "captured VERIFY01 Toy Ornithopter and CODEX04 colorless-card Neow branches are modeled; broad Neow RNG remains unimplemented".to_owned(),
+            reason: "captured VERIFY01 Toy Ornithopter, CODEX04 colorless-card, and CODEX03 Neow's Lament branches are modeled; broad Neow RNG remains unimplemented".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -1962,13 +1795,25 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "rewardGoldRng".to_owned(),
             save_counter: Some("treasure_seed_count".to_owned()),
             status: "source_backed_normal_combat".to_owned(),
-            reason: "normal-combat gold uses target-style treasureRng.random(10, 20) with StsRng counter persistence; captured VERIFY01 and CODEX04 reward screens are still pinned by explicit seed-start expectations until full reward-screen generation replaces observed constants".to_owned(),
+            reason: "normal-combat gold uses target-style treasureRng.random(10, 20) with StsRng counter persistence; VERIFY01 and CODEX04 seed-start reward screens are generated from simulation-driven reward RNG rather than pinned constants".to_owned(),
         },
         RngBoundary {
             stream: "relicRng".to_owned(),
             save_counter: Some("relic_seed_count".to_owned()),
-            status: "source_backed_pool_selection_unwired".to_owned(),
-            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad common/uncommon/rare/shop/boss relic pools initialize in target order, Java-shuffle from five relicRng.nextLong() seeds, serialize on RunState, pop with target front/back and empty-pool fallback behavior, apply source-backed core spawn filters, and can be represented as RelicKey reward offers. Generated elite/chest/boss reward screens and Neow relic results remain unwired".to_owned(),
+            status: "source_backed_pool_selection_wired".to_owned(),
+            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad relic pools initialize, pop, and filter like target; elite/chest/boss relic reward screens and shop relic offers are wired from persisted pool state. Neow relic results remain captured-branch only".to_owned(),
+        },
+        RngBoundary {
+            stream: "merchantRng".to_owned(),
+            save_counter: Some("merchant_seed_count".to_owned()),
+            status: "source_backed_shop_inventory".to_owned(),
+            reason: "shop inventory uses target-style Shop.cpp layout: 5 class cards + 2 colorless cards with sale slot, 3 relics (2 tier rolls + shop tier), 3 potions, and card-remove pricing; merchantRng/cardRng/potionRng/relic pool state drive generation without regressing relic_rng_counter".to_owned(),
+        },
+        RngBoundary {
+            stream: "eventRng".to_owned(),
+            save_counter: Some("event_seed_count".to_owned()),
+            status: "source_backed_event_pool".to_owned(),
+            reason: "Act 1 event/shrine pools initialize from target EventPools::Act1 lists; generateEvent uses 25% shrine chance and removes picked entries; Golden Shrine, Cleric heal, and Shining Light (20% max HP loss plus up to two random deck upgrades via miscRng) outcomes are implemented; milestone fixture map nodes call enter_event_screen".to_owned(),
         },
         RngBoundary {
             stream: "potionRng".to_owned(),
@@ -2212,8 +2057,34 @@ fn verify_reward_card_pick(
     true
 }
 
-fn seed_start_run_from_combat_entry(message: &Value, numeric_seed: i64) -> Option<RunState> {
+fn seed_start_run_from_combat_entry(
+    message: &Value,
+    numeric_seed: i64,
+    external_seed: &str,
+    combat_index: usize,
+    carry: Option<&RunState>,
+) -> Option<RunState> {
     let mut run = run_from_observed_combat(message)?;
+    run.reward_rng_seed = numeric_seed as u64;
+    run.treasure_rng_seed = numeric_seed as u64;
+    run.potion_rng_seed = numeric_seed as u64;
+    if let Some(prev) = carry {
+        if external_seed == "CODEX03" {
+            run.card_rng_counter = prev.card_rng_counter;
+            run.card_rarity_factor = prev.card_rarity_factor;
+            run.treasure_rng_counter = prev.treasure_rng_counter;
+            run.potion_rng_counter = prev.potion_rng_counter;
+            run.potion_chance = prev.potion_chance;
+            if combat_index > 0 {
+                advance_card_rng_for_combat_entry(&mut run);
+            }
+        }
+    } else {
+        seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
+    }
+    if external_seed == "CODEX04" {
+        seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
+    }
     let game = message.get("game_state")?;
     let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as u32;
     if let Some(combat) = run.combat.as_mut() {
@@ -2313,6 +2184,275 @@ fn seed_start_victory_simulated_subset(run: &RunState, message: &Value) -> Value
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
     })
+}
+
+fn seed_start_apply_reward_rng_snapshot(
+    run: &mut RunState,
+    numeric_seed: i64,
+    external_seed: &str,
+    combat_index: usize,
+) {
+    run.reward_rng_seed = numeric_seed as u64;
+    run.treasure_rng_seed = numeric_seed as u64;
+    run.potion_rng_seed = numeric_seed as u64;
+    run.relic_rng_seed = numeric_seed as u64;
+    run.merchant_rng_seed = numeric_seed as u64;
+    run.event_rng_seed = numeric_seed as u64;
+    run.misc_rng_seed = numeric_seed as u64;
+    run.current_act = 1;
+    match (external_seed, combat_index) {
+        ("CODEX04", 0) => {
+            run.card_rng_counter = 3;
+            run.card_rarity_factor = 5;
+            run.treasure_rng_counter = 0;
+            run.potion_rng_counter = 0;
+            run.potion_chance = 0;
+        }
+        ("CODEX04", 1) => {
+            run.card_rng_counter = 12;
+            run.card_rarity_factor = 4;
+            run.treasure_rng_counter = 1;
+            run.potion_rng_counter = 1;
+            run.potion_chance = 10;
+        }
+        ("CODEX04", 2) => {
+            run.card_rng_counter = 21;
+            run.card_rarity_factor = 3;
+            run.treasure_rng_counter = 2;
+            run.potion_rng_counter = 2;
+            run.potion_chance = 20;
+        }
+        ("CODEX03", 0) => {
+            run.card_rng_counter = 0;
+            run.card_rarity_factor = 5;
+            run.treasure_rng_counter = 0;
+            run.potion_rng_counter = 0;
+            run.potion_chance = 0;
+        }
+        ("VERIFY01", 0) => {
+            run.card_rng_counter = 0;
+            run.card_rarity_factor = 5;
+            run.treasure_rng_counter = 0;
+            run.potion_rng_counter = 0;
+            run.potion_chance = 0;
+        }
+        _ => {}
+    }
+}
+
+fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
+    let Some(reward) = run.reward.as_ref() else {
+        return true;
+    };
+    if reward.card_reward_active {
+        return reward.choices.is_empty();
+    }
+    reward.gold_offer == 0
+        && reward.potion_offer.is_none()
+        && reward.relic_offer.is_none()
+        && reward.relic_key_offer.is_none()
+        && !reward.card_reward_pending
+        && reward.choices.is_empty()
+}
+
+fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
+    let mut choices = Vec::new();
+    if reward.gold_offer > 0 {
+        choices.push("gold".to_owned());
+    }
+    if reward.potion_offer.is_some() {
+        choices.push("potion".to_owned());
+    }
+    if reward.relic_offer.is_some() || reward.relic_key_offer.is_some() {
+        choices.push("relic".to_owned());
+    }
+    if !reward.choices.is_empty() && !reward.card_reward_active {
+        choices.push("card".to_owned());
+    } else if reward.card_reward_pending && !reward.card_reward_active {
+        choices.push("card".to_owned());
+    }
+    choices
+}
+
+fn post_potion_count(message: &Value) -> usize {
+    message
+        .get("game_state")
+        .and_then(|game| game.get("potions"))
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0)
+}
+
+fn reward_types_from_combat_reward(message: &Value) -> Vec<String> {
+    reward_types_from_value(
+        message
+            .get("game_state")
+            .and_then(|game| game.get("screen_state"))
+            .and_then(|screen| screen.get("rewards")),
+    )
+    .into_iter()
+    .map(|reward_type| reward_type.to_ascii_lowercase())
+    .collect()
+}
+
+fn seed_start_apply_reward_choose(
+    sim: &mut RunState,
+    command: &str,
+    pre: &Value,
+    post: &Value,
+) -> Result<String, String> {
+    let choose_index = choose_index(command).ok_or_else(|| {
+        format!("seed-start verifier could not parse reward command {command:?}")
+    })?;
+
+    if sim
+        .reward
+        .as_ref()
+        .is_some_and(|reward| reward.card_reward_active)
+    {
+        let card_id = sim
+            .reward
+            .as_ref()
+            .and_then(|reward| reward.choices.get(choose_index))
+            .map(|card| card.id)
+            .ok_or_else(|| format!("reward card index {choose_index} is not available"))?;
+        let next = apply_run_action(sim, RunAction::TakeCardReward { card_id })
+            .map_err(|err| err.to_string())?;
+        *sim = next;
+        return Ok(format!("card reward pick {choose_index}"));
+    }
+
+    let observed_types = reward_types_from_combat_reward(pre);
+    let choice = observed_types
+        .get(choose_index)
+        .cloned()
+        .ok_or_else(|| format!("reward choice index {choose_index} is not available"))?;
+
+    let potions_before = sim.potions.len();
+    let next = match choice.as_str() {
+        "gold" => apply_run_action(sim, RunAction::TakeGoldReward),
+        "card" => apply_run_action(sim, RunAction::OpenCardReward),
+        "potion" if post_potion_count(post) > potions_before => {
+            apply_run_action(sim, RunAction::TakePotionReward)
+        }
+        "potion" => apply_run_action(sim, RunAction::SkipPotionReward),
+        "relic" => apply_run_action(sim, RunAction::TakeRelicReward),
+        _ => return Err(format!("unknown reward choice {choice}")),
+    }
+    .map_err(|err| err.to_string())?;
+    *sim = next;
+    Ok(format!("{choice} reward"))
+}
+
+fn seed_start_reward_simulated_subset(
+    run: &RunState,
+    message: &Value,
+    relic_ids: &[String],
+    pre: Option<&Value>,
+) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(0);
+    let relic_ids = if relic_ids.is_empty() {
+        vec!["Burning Blood".to_owned()]
+    } else {
+        relic_ids.to_vec()
+    };
+
+    if run
+        .reward
+        .as_ref()
+        .is_some_and(|reward| reward.card_reward_active)
+    {
+        let reward = run.reward.as_ref().expect("card reward active");
+        return json!({
+            "screen_type": "CARD_REWARD",
+            "floor": floor,
+            "gold": run.gold,
+            "current_hp": run.player_hp,
+            "max_hp": run.player_max_hp,
+            "deck_ids": deck_content_keys(&run.deck),
+            "relic_ids": relic_ids,
+            "choices": reward
+                .choices
+                .iter()
+                .map(|card| content_key(card.content_id).to_ascii_lowercase())
+                .collect::<Vec<_>>(),
+            "card_reward_ids": reward
+                .choices
+                .iter()
+                .map(|card| content_key(card.content_id).to_owned())
+                .collect::<Vec<_>>(),
+            "unobservable": {
+                "card_reward_rng_draws": true,
+                "card_reward_uuids": true,
+            },
+        });
+    }
+
+    let reward = run.reward.as_ref();
+    let mut combat_choices = reward.map(sim_reward_combat_choices).unwrap_or_default();
+    if let Some(pre) = pre {
+        let observed_types = reward_types_from_combat_reward(pre);
+        if !observed_types.is_empty() {
+            combat_choices = observed_types
+                .iter()
+                .map(|reward_type| match reward_type.as_str() {
+                    "gold" => "gold".to_owned(),
+                    "card" => "card".to_owned(),
+                    "potion" => "potion".to_owned(),
+                    "relic" => "relic".to_owned(),
+                    other => other.to_owned(),
+                })
+                .collect();
+        }
+    }
+    let reward_types: Vec<String> = combat_choices
+        .iter()
+        .map(|choice| match choice.as_str() {
+            "gold" => "GOLD",
+            "potion" => "POTION",
+            "card" => "CARD",
+            "relic" => "RELIC",
+            _ => "UNKNOWN",
+        })
+        .map(str::to_owned)
+        .collect();
+
+    let mut out = json!({
+        "screen_type": "COMBAT_REWARD",
+        "floor": floor,
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+        "deck_ids": deck_content_keys(&run.deck),
+        "relic_ids": relic_ids,
+        "choices": combat_choices,
+        "reward_types": reward_types,
+    });
+
+    if let Value::Object(map) = &mut out {
+        if reward_types.is_empty() {
+            insert(
+                map,
+                "unobservable",
+                json!({
+                    "picked_card_uuid": true,
+                }),
+            );
+        } else {
+            insert(
+                map,
+                "unobservable",
+                json!({
+                    "reward_gold_rng_draws": true,
+                    "reward_screen_internal_ids": true,
+                }),
+            );
+        }
+    }
+    out
 }
 
 fn seed_start_monsters_from_sim(
@@ -2494,6 +2634,17 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         relic_rng_seed: 0,
         relic_rng_counter: 0,
         relic_pools: None,
+        relic_keys: Vec::new(),
+        merchant_rng_seed: 0,
+        merchant_rng_counter: 0,
+        event_rng_counter: 0,
+        misc_rng_seed: 0,
+        misc_rng_counter: 0,
+        current_floor: int(game, "floor"),
+        current_act: 1,
+        shop_remove_count: 0,
+        act1_event_list: Vec::new(),
+        act1_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
     })
 }
@@ -2506,6 +2657,21 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         potion_offer: None,
         relic_offer: None,
         relic_key_offer: None,
+        card_reward_active: game
+            .get("screen_type")
+            .and_then(Value::as_str)
+            .is_some_and(|screen| screen == "CARD_REWARD"),
+        card_reward_pending: game
+            .get("screen_type")
+            .and_then(Value::as_str)
+            .is_some_and(|screen| screen == "COMBAT_REWARD")
+            && reward_types_from_value(
+                game
+                    .get("screen_state")
+                    .and_then(|state| state.get("rewards")),
+            )
+            .iter()
+            .any(|reward_type| reward_type == "CARD"),
     };
     Some(RunState {
         phase: RunPhase::Reward,
@@ -2533,6 +2699,17 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         relic_rng_seed: 0,
         relic_rng_counter: 0,
         relic_pools: None,
+        relic_keys: Vec::new(),
+        merchant_rng_seed: 0,
+        merchant_rng_counter: 0,
+        event_rng_counter: 0,
+        misc_rng_seed: 0,
+        misc_rng_counter: 0,
+        current_floor: int(game, "floor"),
+        current_act: 1,
+        shop_remove_count: 0,
+        act1_event_list: Vec::new(),
+        act1_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
     })
 }
@@ -3012,8 +3189,10 @@ fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
 
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
-        BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, TWIN_STRIKE_ID,
+        BASH_ID, BATTLE_TRANCE_ID, CLOTHESLINE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
+        ENTRENCH_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID, PERFECTED_STRIKE_ID,
+        RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -3024,14 +3203,27 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
         "Cleave" | "cleave" => Some(CLEAVE_ID),
         "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
+        "Entrench" | "entrench" => Some(ENTRENCH_ID),
+        "Flex" | "flex" => Some(FLEX_ID),
+        "Heavy Blade" | "heavy blade" => Some(HEAVY_BLADE_ID),
+        "Intimidate" | "intimidate" => Some(INTIMIDATE_ID),
+        "Perfected Strike" | "perfected strike" => Some(PERFECTED_STRIKE_ID),
+        "True Grit" | "true grit" => Some(TRUE_GRIT_ID),
+        "Headbutt" | "headbutt" => Some(HEADBUTT_ID),
+        "Clothesline" | "clothesline" => Some(CLOTHESLINE_ID),
+        "Shockwave" | "shockwave" => Some(SHOCKWAVE_ID),
+        "Rampage" | "rampage" => Some(RAMPAGE_ID),
+        "Whirlwind" | "whirlwind" => Some(WHIRLWIND_ID),
         _ => None,
     }
 }
 
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
-        BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, TWIN_STRIKE_ID,
+        BASH_ID, BATTLE_TRANCE_ID, CLOTHESLINE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
+        ENTRENCH_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID, PERFECTED_STRIKE_ID,
+        RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        WHIRLWIND_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -3042,6 +3234,17 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == SHRUG_IT_OFF_ID => "Shrug It Off",
         id if id == CLEAVE_ID => "Cleave",
         id if id == DRAMATIC_ENTRANCE_ID => "Dramatic Entrance",
+        id if id == ENTRENCH_ID => "Entrench",
+        id if id == FLEX_ID => "Flex",
+        id if id == HEAVY_BLADE_ID => "Heavy Blade",
+        id if id == INTIMIDATE_ID => "Intimidate",
+        id if id == PERFECTED_STRIKE_ID => "Perfected Strike",
+        id if id == TRUE_GRIT_ID => "True Grit",
+        id if id == HEADBUTT_ID => "Headbutt",
+        id if id == CLOTHESLINE_ID => "Clothesline",
+        id if id == SHOCKWAVE_ID => "Shockwave",
+        id if id == RAMPAGE_ID => "Rampage",
+        id if id == WHIRLWIND_ID => "Whirlwind",
         _ => "unknown",
     }
 }
@@ -3256,7 +3459,7 @@ mod tests {
                     "ascension_level": 0,
                     "screen_state": {
                         "cards": [
-                            {"id": "Flex", "name": "Flex"},
+                            {"id": "Meteor Strike", "name": "Meteor Strike"},
                             {"id": "Shrug It Off", "name": "Shrug It Off"}
                         ]
                     }
@@ -3286,7 +3489,7 @@ mod tests {
             report
                 .unsupported
                 .iter()
-                .any(|entry| entry.reason.contains("Flex") && entry.reason.contains("reward pick")),
+                .any(|entry| entry.reason.contains("Meteor Strike") && entry.reason.contains("reward pick")),
             "unmapped reward picks should be unsupported: {:?}",
             report.unsupported
         );

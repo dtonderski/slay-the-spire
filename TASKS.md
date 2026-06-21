@@ -967,7 +967,7 @@ Follow-up (M24+): remove post-END pile resync once innate/extra-card master-deck
 
 ## Milestone 24: Reward, Potion, Relic, Shop, Rest, and Event RNG Parity
 
-Status: in progress. The CODEX04 seed-start verifier now checks captured floor-1/floor-2 reward screens and pickup mutations against explicit expected states rather than observed-state echoing: 19/17 gold pickups, Battle Trance and Shrug It Off card reward screens/picks, potion skip, deck mutations, and post-reward map returns are pinned with `unexpected_diffs=0`. Card reward RNG control flow is now source-backed from `sts_lightspeed` / target behavior over the full 72-card Ironclad reward pool: `cardRng.random(99) + cardRarityFactor`, rare/uncommon/common thresholds, common/rare factor mutation, duplicate rerolls, and target `StsRng` counter consumption are tested. Normal-combat gold uses target-style `treasureRng.random(10, 20)` with a persisted `treasure_seed_count`-style counter. Normal reward potion drops are source-backed for `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Normal monster rewards no longer offer relics, matching target `createCombatReward`. Relic tier rolls are source-backed for normal/chest-style and elite reward thresholds with persisted `relic_seed_count`; Ironclad common/uncommon/rare/shop/boss relic pools now initialize in target order and Java-shuffle from five `relicRng.nextLong()` seeds. Hidden pool state is serialized on `RunState`; pool popping and core spawn filters match target front/back removal, empty-pool fallbacks, Circlet/Red Circlet exhaustion, and floor/shop/bottled/starter-upgrade/campfire gates. Reward screens can carry RNG-accurate `RelicKey` offers separately from implemented relic effects. Elite/chest/boss relic reward generation and broader reward/shop/rest/event cases remain pending. Many reward-pool cards, potions, and relics are RNG-only until their mechanics are implemented.
+Status: complete for captured reward RNG and source-backed shop/event generation. VERIFY01/CODEX04 seed-start reward screens are simulation-driven from `cardRng`, `treasureRng`, `potionRng`, and persisted relic pools. Elite/chest/boss relic rewards pop from pools without regressing `relic_rng_counter` after initialization. Shop generation matches `sts_lightspeed` `Shop.cpp` (7 cards, 3 relics, 3 potions, sale slot, remove cost) with `relic_key`-only shop relic ownership. Act 1 event/shrine pools use target `generateEvent` selection with implemented outcomes for Golden Shrine, Cleric heal, and Shining Light (20% max HP loss plus up to two random deck upgrades via `miscRng`). Nightly parity runs VERIFY01 and CODEX04 with `unexpected_diffs=0`. Captured CommunicationMod shop/event/rest traces are not in the passing nightly set. Unmapped shop colorless cards use synthetic IDs for pool-index RNG only. Post-reward map-return pins in the seed-start verifier and CODEX03 Neow's Lament remain Milestone 25.
 
 Goal: make post-combat and non-combat room outcomes seed-start compatible for captured Act 1 paths.
 
@@ -994,6 +994,8 @@ Do not implement:
 
 ## Milestone 25: Full Ironclad Act 1 Seed-Start Parity
 
+Status: core complete for the three representative seed-start traces (VERIFY01, CODEX04, CODEX03). Nightly parity includes all three with `unexpected_diffs=0`. Divergence minimization CLI and seed-start hidden-state documentation are in `VERIFICATION.md`. Deferred: Act 1 boss reward when a captured trace reaches it.
+
 Goal: for a selected set of Ironclad A0 seeds, replay Act 1 from seed plus controller actions without observed-state restoration.
 
 Tasks:
@@ -1015,3 +1017,382 @@ Do not implement:
 - Defect/Silent/Watcher parity
 - Act 2/3 parity
 - claims for arbitrary mods
+
+## Milestone 26: Clean M25 Baseline
+
+Status: complete. Scratch/debug artifacts were removed from the tracked baseline, nightly parity passed, and the M25 seed-start regression gate is ready for M27 trace expansion.
+
+Goal: turn the current M25 state into a clean, committed regression baseline before adding more simulator surface.
+
+Tasks:
+
+- remove scratch files and unused debugging artifacts
+- ensure nightly parity is the documented regression gate
+- verify `VERIFY01`, `CODEX04`, and `CODEX03` seed-start traces still pass
+- update `STATUS.md` with the clean baseline and next selected trace need
+- commit the M25 baseline with a concise message
+
+Acceptance tests:
+
+- working tree contains no accidental scratch files
+- `scripts/nightly_parity.ps1` passes
+- no M26 changes add new simulator behavior
+
+Do not implement:
+
+- new card, relic, monster, room, or RNG mechanics
+- new trace-specific verifier shortcuts
+
+## Milestone 27: Full Act 1 Trace Through Boss Reward
+
+Status: planned.
+
+Goal: replay one captured Ironclad A0 Act 1 trace from `START` through Act 1 boss reward without observed-state restoration.
+
+Tasks:
+
+- capture or select a trace that reaches Act 1 boss reward
+- add the trace to the CommunicationMod corpus
+- implement only the missing mechanics required by the trace
+- verify every action from `START` through Act 1 boss reward in seed-start mode
+- add the trace to nightly parity once passing
+
+Acceptance tests:
+
+- selected trace reports `seed_start.expected_failure=false`
+- selected trace reports `unexpected_diffs=0`
+- first unsupported boundary, if any, is outside the declared Act 1 boss reward scope
+
+Do not implement:
+
+- Act 2 room execution
+- arbitrary boss reward generalization beyond captured evidence
+
+## Milestone 28: Act 1 Non-Combat Room Trace Coverage
+
+Status: planned.
+
+Goal: verify shop, rest, chest, and event room execution from captured seed-start traces.
+
+Tasks:
+
+- capture or select traces that enter shop, rest, chest, and at least two events
+- verify room entry, choices, rewards, removals, upgrades, and map return
+- replace any remaining room-specific observed-state restoration in the selected traces
+- add explicit expected-failing boundaries for unselected event choices
+- add passing room traces to nightly parity
+
+Acceptance tests:
+
+- at least one shop trace passes through purchase/removal or exit
+- at least one rest trace passes through heal or smith
+- at least one chest trace passes through reward pickup
+- at least two event traces pass through selected outcomes
+- all passing traces report `unexpected_diffs=0`
+
+Do not implement:
+
+- all event choices
+- all shop/relic/card mechanics unless reached by selected traces
+
+## Milestone 29: Act 1 Elites and Bosses
+
+Status: planned.
+
+Goal: verify Act 1 elite and boss combats, including move RNG and special mechanics, from captured seed-start traces.
+
+Tasks:
+
+- capture or select traces covering Gremlin Nob, Lagavulin, and Sentries
+- capture or select traces covering Slime Boss, Guardian, and Hexaghost over time
+- implement missing elite and boss AI, move RNG, summons, split, sleep, mode, and special mechanics reached by the traces
+- verify reward transitions after elite and boss combats
+- add passing elite/boss traces to nightly parity
+
+Acceptance tests:
+
+- each Act 1 elite has at least one passing seed-start trace
+- at least one Act 1 boss has a passing seed-start trace through boss reward
+- monster HP, block, powers, intents, piles, rewards, and player state match with `unexpected_diffs=0`
+
+Do not implement:
+
+- Act 2/3 elites or bosses
+- arbitrary Ascension-specific boss variants beyond selected trace scope
+
+## Milestone 30: Ironclad Card Completion Pass
+
+Status: planned.
+
+Goal: make every Ironclad card and upgrade generated by reward, shop, event, or transform playable by the simulator.
+
+Tasks:
+
+- inventory all Ironclad cards and upgrades against implemented card definitions
+- implement missing card effects, target rules, costs, upgrades, exhaust/retain/discard interactions, generated cards, and X-cost behavior
+- replace RNG-only card placeholders with real definitions where they can enter the deck
+- add focused unit tests for each newly implemented card family
+- add captured trace coverage for high-risk cards when available
+
+Acceptance tests:
+
+- no Ironclad card in the reward/shop/event/transform pools maps to `UnknownContent`
+- generated cards can be drawn and played according to target rules
+- card unit tests cover base and upgraded forms
+
+Do not implement:
+
+- Defect/Silent/Watcher cards
+- relic/card combo exhaustiveness beyond Ironclad-visible behavior
+
+## Milestone 31: Potion Completion Pass
+
+Status: planned.
+
+Goal: implement all potion use effects and legality rules reachable by Ironclad runs.
+
+Tasks:
+
+- inventory all Ironclad-available potions against implemented potion effects
+- implement targeting, combat/non-combat legality, belt behavior, discard, and use effects
+- implement RNG-affecting potion behavior
+- verify potion-heavy captured traces where available
+- add unit tests for each potion effect
+
+Acceptance tests:
+
+- every potion in the Ironclad reward pool can be used or rejected with target-compatible legality
+- potion use mutates player, monsters, deck, hand, piles, or RNG counters according to target behavior
+- potion-heavy captured traces do not produce unexpected diffs inside implemented scope
+
+Do not implement:
+
+- modded potions
+- character-specific potion effects for other characters except shared behavior
+
+## Milestone 32: Relic Completion Pass
+
+Status: planned.
+
+Goal: implement all Ironclad-available relic hooks needed for full-run simulation.
+
+Tasks:
+
+- inventory relic pool entries against implemented pickup, combat, turn, reward, shop, and event hooks
+- implement missing common, uncommon, rare, shop, event, and boss relic effects reachable by Ironclad
+- model relic counters and persistence fields
+- verify relic-heavy captured traces where available
+- add unit tests for each relic hook family
+
+Acceptance tests:
+
+- every Ironclad-available relic can be gained without placeholder semantics
+- implemented relics apply pickup, start-combat, card-play, damage, turn, reward, and room hooks at target timing
+- relic counters round-trip through run/combat state
+
+Do not implement:
+
+- modded relics
+- non-Ironclad-only interactions unless shared relic behavior requires them
+
+## Milestone 33: Neow Generalization
+
+Status: planned.
+
+Goal: replace captured-branch Neow handling with source-backed option generation and reward application for Ironclad A0.
+
+Tasks:
+
+- decode target Neow option generation and reward selection
+- implement all Ironclad A0 Neow options, costs, and rewards
+- replace captured-branch-only verifier handling
+- add seed-start tests for several seeds with different option sets
+- document any remaining unobservable Neow assumptions
+
+Acceptance tests:
+
+- selected Neow traces pass without captured-branch special cases
+- unchosen Neow branches are generated from source-backed logic
+- Neow RNG boundaries no longer report captured-branch-only status for Ironclad A0
+
+Do not implement:
+
+- all ascension-specific Neow variants unless needed for A0 parity
+- boss-swap downstream relic interactions beyond Ironclad A0 scope
+
+## Milestone 34: Shuffle and Deck Generalization
+
+Status: planned.
+
+Goal: remove trace fallback for opening piles and post-END pile resync.
+
+Tasks:
+
+- decode remaining master-deck ordering for innate, extra-card, transformed, removed, upgraded, and obtained cards
+- derive opening piles from seed and deck state for all selected traces
+- remove post-END pile resync scaffolding
+- add regression tests for starter-only, innate-card, colorless-card, and modified-deck openings
+- update RNG boundary docs once fallback is removed
+
+Acceptance tests:
+
+- seed-start combat setup never restores hand/draw/discard/exhaust piles from trace for selected Ironclad traces
+- no post-END pile resync is required for passing traces
+- shuffle RNG counters and pile orders match captured CommunicationMod states
+
+Do not implement:
+
+- non-Ironclad deck-order special cases
+- modded card pools
+
+## Milestone 35: Full Act 1 Corpus
+
+Status: planned.
+
+Goal: prove Act 1 robustness across a diverse Ironclad A0 corpus.
+
+Tasks:
+
+- collect 5-10 full Act 1 Ironclad A0 traces with varied Neow choices, paths, shops, events, elites, bosses, relics, cards, and potions
+- add all passing traces to nightly parity
+- minimize and store failing prefixes for unresolved divergences
+- document formally waived unobservable assumptions
+- ensure no selected trace uses observed-state restoration
+
+Acceptance tests:
+
+- selected Act 1 traces pass through Act 1 boss reward with `seed_start.expected_failure=false`
+- all passing traces report `unexpected_diffs=0`
+- nightly parity fails on any regression in the Act 1 corpus
+
+Do not implement:
+
+- Act 2 progression
+- arbitrary seed win-rate claims
+
+## Milestone 36: Act 2 Support
+
+Status: planned.
+
+Goal: extend source-backed seed-start parity through Act 2 boss reward for at least one Ironclad A0 trace.
+
+Tasks:
+
+- implement Act 2 map generation, room pools, events, encounters, elites, bosses, rewards, shops, rests, and chests as reached by selected traces
+- capture or select at least one trace through Act 2 boss reward
+- add Act 2 monster AI and special mechanics reached by the trace
+- add divergence minimization for Act 2-specific failures
+- add passing Act 2 trace to nightly parity
+
+Acceptance tests:
+
+- selected trace passes from `START` through Act 2 boss reward
+- Act 2 map, encounter, reward, and room RNG boundaries are source-backed or explicitly scoped
+- `unexpected_diffs=0` for the selected passing Act 2 trace
+
+Do not implement:
+
+- Act 3 progression
+- all Act 2 branches not reached by selected traces
+
+## Milestone 37: Act 3 Support
+
+Status: planned.
+
+Goal: extend source-backed seed-start parity through Act 3 boss reward or heart-key transition for at least one Ironclad A0 trace.
+
+Tasks:
+
+- implement Act 3 map generation, room pools, events, encounters, elites, bosses, rewards, shops, rests, and chests as reached by selected traces
+- capture or select at least one trace through Act 3 boss reward
+- add Act 3 monster AI and special mechanics reached by the trace
+- verify boss reward and end-of-act transition
+- add passing Act 3 trace to nightly parity
+
+Acceptance tests:
+
+- selected trace passes from `START` through Act 3 boss reward or declared heart-key transition
+- Act 3 RNG boundaries are source-backed or explicitly scoped
+- `unexpected_diffs=0` for the selected passing Act 3 trace
+
+Do not implement:
+
+- Act 4 unless selected trace reaches it
+- non-Ironclad characters
+
+## Milestone 38: Act 4 Support
+
+Status: planned.
+
+Goal: simulate Ironclad Act 4 through end-of-run for captured heart runs.
+
+Tasks:
+
+- implement key acquisition effects and constraints
+- implement Act 4 map/room sequence, final shop/rest handling, Shield and Spear, and Heart
+- implement Beat of Death, Invincible, artifact, buff, debuff, and multi-enemy special mechanics reached by selected traces
+- capture or select at least one Heart run
+- add passing Act 4 trace to nightly parity
+
+Acceptance tests:
+
+- selected trace passes from `START` through run completion
+- Shield/Spear and Heart state transitions match captured states
+- end-of-run resolution is represented in verifier output
+
+Do not implement:
+
+- non-heart ending variants beyond selected trace evidence
+- score/stat screens unless needed for trace parity
+
+## Milestone 39: Broad Ironclad Regression Corpus
+
+Status: planned.
+
+Goal: make complete Ironclad A0 seed-start parity robust across a broad corpus.
+
+Tasks:
+
+- collect a corpus of complete Ironclad A0 traces with diverse seeds, routes, bosses, relics, shops, events, cards, potions, and endings
+- run the corpus in nightly parity without observed-state restoration
+- require minimized failing prefixes for every new unexpected diff
+- track coverage by card, relic, potion, monster, event, and room type
+- document remaining unsupported surfaces as explicit non-goals
+
+Acceptance tests:
+
+- all selected full-run traces pass with `seed_start.expected_failure=false`
+- all selected full-run traces report `unexpected_diffs=0`
+- corpus coverage reports include major Ironclad cards, relics, potions, monsters, events, and bosses
+
+Do not implement:
+
+- win-rate claims
+- arbitrary mod support
+- non-Ironclad parity
+
+## Milestone 40: Full Ironclad Simulator Readiness
+
+Status: planned.
+
+Goal: declare the scoped full Ironclad simulator ready for unmodded A0 trace replay.
+
+Tasks:
+
+- audit all Ironclad card, potion, relic, monster, event, room, map, reward, shop, rest, and RNG surfaces
+- remove or formally waive all captured-branch and trace-fallback scaffolding in the supported scope
+- publish a clear support matrix for implemented, waived, and unsupported surfaces
+- run the full regression corpus and nightly parity
+- document how to capture new traces and triage divergences
+
+Acceptance tests:
+
+- support matrix has no unknown Ironclad A0 core-game surfaces inside declared scope
+- full regression corpus passes with `unexpected_diffs=0`
+- verifier documentation explains remaining assumptions and how to reproduce parity checks
+
+Do not implement:
+
+- ascension expansion beyond A0
+- Defect/Silent/Watcher parity
+- modded-game support

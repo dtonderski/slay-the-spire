@@ -18,10 +18,14 @@ fn combat_win_transitions_to_reward_phase() {
 
     assert_eq!(run.phase, RunPhase::Reward);
     let reward = run.reward.as_ref().expect("reward screen");
-    assert_eq!(reward.choices.len(), 3);
+    assert!(reward.choices.is_empty());
+    assert!(reward.card_reward_pending);
     assert_eq!(reward.gold_offer, 11);
     assert_eq!(reward.potion_offer, None);
     assert_eq!(reward.relic_offer, None);
+
+    let run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
+    assert_eq!(run.reward.as_ref().expect("reward").choices.len(), 3);
 }
 
 #[test]
@@ -50,7 +54,7 @@ fn reward_card_choices_are_deterministic_for_seed() {
 
 #[test]
 fn take_card_reward_appends_selected_card_to_master_deck() {
-    let run = win_fixture_combat();
+    let run = open_reward_cards(win_fixture_combat());
     let deck_len = run.deck.len();
     let chosen = run.reward.as_ref().expect("reward screen").choices[0].id;
     let chosen_content = run.reward.as_ref().expect("reward screen").choices[0].content_id;
@@ -160,6 +164,10 @@ fn win_fixture_combat() -> RunState {
         },
     )
     .expect("strike wins combat")
+}
+
+fn open_reward_cards(run: RunState) -> RunState {
+    apply_run_action(&run, RunAction::OpenCardReward).expect("open cards")
 }
 
 fn hand_card_id(

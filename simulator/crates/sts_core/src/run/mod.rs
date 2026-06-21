@@ -18,12 +18,18 @@ pub use rest::{
     REST_HEAL_PERCENT,
 };
 pub use reward::{
-    apply_combat_action_on_run, apply_run_action, card_reward_choices, enter_reward_screen,
-    fixed_card_reward_choices,
+    advance_card_rng_for_combat_entry, apply_combat_action_on_run, apply_run_action,
+    card_reward_choices,
+    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
+    enter_elite_relic_reward_screen, enter_normal_combat_reward_screen, enter_reward_screen,
+    fixed_card_reward_choices, target_card_reward_choices, target_elite_relic_tier,
+    target_normal_combat_gold, target_potion_reward_offer, target_random_potion,
+    target_relic_tier, CombatRewardKind,
 };
 pub use shop::{
-    apply_shop_action, enter_shop_screen, fixed_shop_screen, legal_shop_actions,
-    validate_shop_action, ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen,
-    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
+    apply_shop_action, enter_shop_screen, fixed_shop_screen, generate_shop_screen,
+    legal_shop_actions, shop_card_rarity_roll, shop_relic_tier_roll, validate_shop_action,
+    ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen, SHOP_ANGER_PRICE,
+    SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
 };
 pub use state::{RewardScreen, RunAction, RunPhase, RunState, REWARD_GOLD_AMOUNT, STARTING_GOLD};

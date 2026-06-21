@@ -485,9 +485,9 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         "Bash",
         "Strike_R",
         "captured Cultist lethal Strike",
-        "captured gold reward",
-        "captured card reward choices",
-        "captured Twin Strike pickup",
+        "gold reward",
+        "card reward",
+        "card reward pick 0",
         "captured return to map",
     ] {
         assert!(
@@ -676,14 +676,14 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
         "Dramatic Entrance",
         "map floor 2 monster node",
         "map floor 3 monster node",
-        "captured floor 1 gold reward",
-        "captured floor 1 card reward choices",
-        "captured Battle Trance pickup",
+        "gold reward",
+        "card reward",
+        "card reward pick 0",
         "return to map after floor 1",
-        "captured floor 2 gold reward",
-        "captured floor 2 potion skip",
-        "captured floor 2 card reward choices",
-        "captured Shrug It Off pickup",
+        "gold reward",
+        "potion reward",
+        "card reward",
+        "card reward pick 1",
         "return to map after floor 2",
     ] {
         assert!(
@@ -719,6 +719,43 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
             .map(|entry| entry.encounter_key.as_str())
             .collect::<Vec<_>>(),
         vec!["Cultist", "Small Slimes", "2 Louse"]
+    );
+}
+
+#[test]
+fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(report.unexpected_diffs.is_empty());
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(!seed_start.expected_failure);
+    assert_eq!(seed_start.start_command.external_seed, "CODEX03");
+    assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_078);
+    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.category, "none");
+    assert!(seed_start
+        .first_boundary
+        .reason
+        .contains("floor-3 return-to-map"));
+
+    let m22 = seed_start
+        .m22_encounter_report
+        .as_ref()
+        .expect("m22 encounter report");
+    assert!(m22.mismatches.is_empty(), "m22 mismatches: {:?}", m22.mismatches);
+    assert_eq!(m22.verified_entries.len(), 3);
+    assert_eq!(
+        m22.verified_entries
+            .iter()
+            .map(|entry| entry.encounter_key.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Jaw Worm", "Cultist", "2 Louse"]
     );
 }
 

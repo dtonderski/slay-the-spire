@@ -4,6 +4,7 @@
 pub mod diff;
 pub mod importer;
 pub mod m22;
+pub mod minimize;
 pub mod normalize;
 pub mod seed;
 pub mod sim_real;
@@ -13,6 +14,10 @@ pub use diff::canonical_diff;
 pub use importer::{observations_from_trace, ImportedTraceStep};
 pub use m22::{
     verify_m22_encounter_spawn_prefix, M22EncounterEntry, M22EncounterMismatch, M22EncounterReport,
+};
+pub use minimize::{
+    minimize_communication_mod_trace, serialize_communication_mod_trace, MinimizeError,
+    MinimizeFailureKind, MinimizeReport,
 };
 pub use normalize::{
     normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,

@@ -22,13 +22,12 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     monster.block -= blocked;
     monster.hp -= amount - blocked;
 
-    if monster.powers.curl_up > 0 {
-        monster.block += monster.powers.curl_up;
-        monster.powers.curl_up = 0;
-    }
-
     if monster.hp <= 0 {
         monster.alive = false;
+        monster.block = 0;
+    } else if monster.powers.curl_up > 0 {
+        monster.block += monster.powers.curl_up;
+        monster.powers.curl_up = 0;
     }
 }
 
@@ -62,6 +61,33 @@ pub fn reflect_spikes_to_player(player: &mut PlayerState, spikes: i32) {
 mod tests {
     use super::*;
     use crate::{content::monsters::FIXED_SIMPLE_MONSTER_ID, MonsterId};
+
+    #[test]
+    fn curl_up_does_not_leave_block_on_lethal_damage() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 1,
+            block: 0,
+            alive: true,
+            powers: crate::MonsterPowers {
+                curl_up: 3,
+                ..Default::default()
+            },
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            rolled_attack_damage: None,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_unmodified_damage_to_monster(&mut monster, 5);
+
+        assert!(!monster.alive);
+        assert_eq!(monster.block, 0);
+    }
 
     #[test]
     fn damage_consumes_block_before_hp() {
