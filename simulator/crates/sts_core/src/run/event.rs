@@ -1,8 +1,14 @@
 use crate::{
-    content::cards::upgrade_content_id,
+    content::cards::{upgrade_content_id, REGRET_ID},
+    relic::RelicKey,
     rng::{JavaRng, StsRng},
     EventAction, RunPhase, RunState, SimError, SimResult,
 };
+
+pub const SCRAP_OOZE_REACH_HP_LOSS: i32 = 3;
+pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
+pub const SCRAP_OOZE_REACH_RELIC_CHANCE: i32 = 25;
+pub const SCRAP_OOZE_DEEPER_RELIC_CHANCE: i32 = 35;
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
@@ -95,15 +101,76 @@ pub struct EventChoice {
 pub struct EventScreen {
     pub event: Event,
     pub choices: Vec<EventChoice>,
+    #[serde(default)]
+    pub stage: u32,
+}
+
+fn scrap_ooze_choices(stage: u32) -> Vec<EventChoice> {
+    match stage {
+        0 => vec![
+            EventChoice {
+                label: "Reach Inside".to_owned(),
+            },
+            EventChoice {
+                label: "Leave".to_owned(),
+            },
+        ],
+        1 => vec![
+            EventChoice {
+                label: "Deeper".to_owned(),
+            },
+            EventChoice {
+                label: "Leave".to_owned(),
+            },
+        ],
+        _ => vec![EventChoice {
+            label: "Leave".to_owned(),
+        }],
+    }
+}
+
+fn big_fish_choices(stage: u32) -> Vec<EventChoice> {
+    if stage == 0 {
+        vec![
+            EventChoice {
+                label: "Banana".to_owned(),
+            },
+            EventChoice {
+                label: "Donut".to_owned(),
+            },
+            EventChoice {
+                label: "Box".to_owned(),
+            },
+        ]
+    } else {
+        vec![EventChoice {
+            label: "Leave".to_owned(),
+        }]
+    }
+}
+
+fn roll_scrap_ooze_relic(run: &mut RunState, threshold: i32) -> bool {
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let roll = rng.random_int(99);
+    run.misc_rng_counter = rng.counter();
+    roll < threshold
+}
+
+fn initialize_act1_event_pools(run: &mut RunState) {
+    if !run.act1_event_list.is_empty() {
+        return;
+    }
+    let mut events = ACT1_EVENTS.to_vec();
+    let mut shrines = ACT1_SHRINES.to_vec();
+    let mut rng = StsRng::new(run.event_rng_seed as i64);
+    JavaRng::new(rng.random_long()).collections_shuffle(&mut events);
+    JavaRng::new(rng.random_long()).collections_shuffle(&mut shrines);
+    run.act1_event_list = events;
+    run.act1_shrine_list = shrines;
 }
 
 fn ensure_act1_event_lists(run: &mut RunState) {
-    if run.act1_event_list.is_empty() {
-        run.act1_event_list = ACT1_EVENTS.to_vec();
-    }
-    if run.act1_shrine_list.is_empty() {
-        run.act1_shrine_list = ACT1_SHRINES.to_vec();
-    }
+    initialize_act1_event_pools(run);
 }
 
 fn pick_from_list(rng: &mut StsRng, list: &mut Vec<Event>) -> Event {
@@ -143,6 +210,7 @@ pub fn fixed_event_screen() -> EventScreen {
         choices: vec![EventChoice {
             label: "Pray".to_owned(),
         }],
+        stage: 0,
     }
 }
 
@@ -169,12 +237,14 @@ pub fn event_screen(event: Event) -> EventScreen {
             choices: vec![EventChoice {
                 label: "Purify".to_owned(),
             }],
+            stage: 0,
         },
         Event::UpgradeShrine => EventScreen {
             event,
             choices: vec![EventChoice {
                 label: "Upgrade".to_owned(),
             }],
+            stage: 0,
         },
         Event::TheCleric => EventScreen {
             event,
@@ -186,6 +256,7 @@ pub fn event_screen(event: Event) -> EventScreen {
                     label: "Remove Curse".to_owned(),
                 },
             ],
+            stage: 0,
         },
         Event::ShiningLight => EventScreen {
             event,
@@ -197,12 +268,24 @@ pub fn event_screen(event: Event) -> EventScreen {
                     label: "Leave".to_owned(),
                 },
             ],
+            stage: 0,
+        },
+        Event::ScrapOoze => EventScreen {
+            event,
+            choices: scrap_ooze_choices(0),
+            stage: 0,
+        },
+        Event::BigFish => EventScreen {
+            event,
+            choices: big_fish_choices(0),
+            stage: 0,
         },
         _ => EventScreen {
             event,
             choices: vec![EventChoice {
                 label: "Continue".to_owned(),
             }],
+            stage: 0,
         },
     }
 }
@@ -247,39 +330,124 @@ pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<(
     }
 }
 
+fn scrap_ooze_success(next: &mut RunState) {
+    if !next
+        .relic_keys
+        .iter()
+        .any(|key| *key == RelicKey::DreamCatcher)
+    {
+        next.gain_relic_key(RelicKey::DreamCatcher);
+    }
+    next.event = Some(EventScreen {
+        event: Event::ScrapOoze,
+        choices: scrap_ooze_choices(2),
+        stage: 2,
+    });
+}
+
 pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunState> {
     validate_event_action(run, action)?;
 
     let mut next = run.clone();
-    let event = next.event.as_ref().expect("validated event screen").event;
-    match (event, action) {
-        (Event::GoldenShrine, EventAction::Choose { choice_index: 0 }) => {
+    let screen = next.event.as_ref().expect("validated event screen").clone();
+    let EventAction::Choose { choice_index } = action;
+
+    match screen.event {
+        Event::GoldenShrine if choice_index == 0 => {
             next.gold += GOLDEN_SHRINE_GOLD;
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        (Event::TheCleric, EventAction::Choose { choice_index: 0 }) => {
+        Event::TheCleric if choice_index == 0 => {
             let heal = next.player_max_hp * 25 / 100;
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        (Event::ShiningLight, EventAction::Choose { choice_index: 0 }) => {
+        Event::ShiningLight if choice_index == 0 => {
             let loss = shining_light_hp_loss(next.player_max_hp);
             next.player_hp = (next.player_hp - loss).max(0);
             upgrade_random_deck_cards(&mut next, 2);
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        (Event::ShiningLight, EventAction::Choose { choice_index: 1 }) => {
+        Event::ShiningLight if choice_index == 1 => {
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        (Event::Purifier | Event::UpgradeShrine, EventAction::Choose { choice_index: 0 }) => {
+        Event::Purifier | Event::UpgradeShrine if choice_index == 0 => {
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        (_, EventAction::Choose { choice_index: 0 }) => {
+        Event::ScrapOoze => match screen.stage {
+            0 if choice_index == 0 => {
+                next.player_hp = (next.player_hp - SCRAP_OOZE_REACH_HP_LOSS).max(0);
+                if roll_scrap_ooze_relic(&mut next, SCRAP_OOZE_REACH_RELIC_CHANCE) {
+                    scrap_ooze_success(&mut next);
+                } else {
+                    next.event = Some(EventScreen {
+                        event: Event::ScrapOoze,
+                        choices: scrap_ooze_choices(1),
+                        stage: 1,
+                    });
+                }
+            }
+            0 if choice_index == 1 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            1 if choice_index == 0 => {
+                next.player_hp = (next.player_hp - SCRAP_OOZE_DEEPER_HP_LOSS).max(0);
+                if roll_scrap_ooze_relic(&mut next, SCRAP_OOZE_DEEPER_RELIC_CHANCE) {
+                    scrap_ooze_success(&mut next);
+                } else {
+                    next.event = Some(EventScreen {
+                        event: Event::ScrapOoze,
+                        choices: scrap_ooze_choices(1),
+                        stage: 1,
+                    });
+                }
+            }
+            1 if choice_index == 1 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            2 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Scrap Ooze",
+                ));
+            }
+        },
+        Event::BigFish => match screen.stage {
+            0 if choice_index == 2 => {
+                next.gain_relic_key(RelicKey::ToxicEgg);
+                next.event = Some(EventScreen {
+                    event: Event::BigFish,
+                    choices: big_fish_choices(1),
+                    stage: 1,
+                });
+            }
+            0 => {
+                return Err(SimError::IllegalAction(
+                    "only the Big Fish box choice is implemented",
+                ));
+            }
+            1 if choice_index == 0 => {
+                next.gain_deck_card(REGRET_ID);
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Big Fish",
+                ));
+            }
+        },
+        _ if choice_index == 0 => {
             next.phase = RunPhase::Idle;
             next.event = None;
         }
@@ -452,5 +620,108 @@ mod tests {
             err,
             SimError::IllegalAction("event actions require event phase")
         );
+    }
+
+    #[test]
+    fn big_fish_box_grants_toxic_egg_and_regret() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::BigFish));
+
+        let after = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("box");
+
+        assert!(after
+            .relic_keys
+            .contains(&RelicKey::ToxicEgg));
+        assert!(!after.deck.iter().any(|card| card.content_id == REGRET_ID));
+        assert_eq!(after.event.as_ref().unwrap().stage, 1);
+
+        let done =
+            apply_event_action(&after, EventAction::Choose { choice_index: 0 }).expect("leave");
+
+        assert_eq!(done.phase, RunPhase::Idle);
+        assert!(done.event.is_none());
+        assert!(done.deck.iter().any(|card| card.content_id == REGRET_ID));
+    }
+
+    #[test]
+    fn test_scrap_ooze_first_reach_fails_at_misc_counter() {
+        let mut run = RunState::map_fixture();
+        run.misc_rng_seed = 1_218_623;
+        run.player_hp = 75;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::ScrapOoze));
+
+        let mut fail_counter = None;
+        for counter in 0..128 {
+            let mut trial = run.clone();
+            trial.misc_rng_counter = counter;
+            let after_reach =
+                apply_event_action(&trial, EventAction::Choose { choice_index: 0 }).expect("reach");
+            if after_reach.event.as_ref().unwrap().stage == 1 {
+                fail_counter = Some(counter);
+                break;
+            }
+        }
+        let fail_counter = fail_counter.expect("fail counter");
+        eprintln!("scrap_ooze_fail_counter={fail_counter}");
+        assert!(fail_counter > 0);
+    }
+
+    #[test]
+    fn test_scrap_ooze_misc_counter_for_test_seed() {
+        let mut run = RunState::map_fixture();
+        run.misc_rng_seed = 1_218_623;
+        run.player_hp = 75;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::ScrapOoze));
+
+        let mut found = None;
+        for counter in 0..32 {
+            let mut trial = run.clone();
+            trial.misc_rng_counter = counter;
+            let after_reach =
+                apply_event_action(&trial, EventAction::Choose { choice_index: 0 }).expect("reach");
+            let after_deeper = apply_event_action(&after_reach, EventAction::Choose { choice_index: 0 })
+                .expect("deeper");
+            if after_deeper.relic_keys.contains(&RelicKey::DreamCatcher) {
+                found = Some(counter);
+                break;
+            }
+        }
+        assert_eq!(found, Some(0), "misc counter {:?}", found);
+    }
+
+    #[test]
+    fn test_seed_first_two_events_are_scrap_ooze_then_big_fish() {
+        let mut run = RunState::map_fixture();
+        run.event_rng_seed = 1_218_623;
+        run.misc_rng_seed = 1_218_623;
+
+        let mut first_counter = None;
+        for counter in 0..32 {
+            let mut trial = run.clone();
+            trial.event_rng_counter = counter;
+            enter_event_screen(&mut trial);
+            if trial.event.as_ref().unwrap().event == Event::ScrapOoze {
+                first_counter = Some(counter);
+                break;
+            }
+        }
+        let first_counter = first_counter.expect("scrap ooze counter");
+        assert!(
+            first_counter <= 5,
+            "unexpected scrap ooze counter {first_counter}"
+        );
+        run.event_rng_counter = first_counter;
+
+        enter_event_screen(&mut run);
+        assert_eq!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
+
+        run.phase = RunPhase::Idle;
+        run.event = None;
+        enter_event_screen(&mut run);
+        assert_eq!(run.event.as_ref().unwrap().event, Event::BigFish);
     }
 }

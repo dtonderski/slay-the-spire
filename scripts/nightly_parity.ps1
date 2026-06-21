@@ -28,6 +28,9 @@ try {
     & $cargo run -q -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-45-23-530Z.jsonl
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+    & $cargo run -q -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-21T09-57-10-380Z.jsonl
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     & $cargo run -q -p sts_verify -- parity ..\verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

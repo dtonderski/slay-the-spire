@@ -289,10 +289,7 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
     }
 
     for (slot, offer) in shop.relics.iter().enumerate() {
-        if !offer.sold
-            && run.gold >= offer.price
-            && !owns_relic_key(run, offer.relic_key)
-        {
+        if !offer.sold && run.gold >= offer.price && !owns_relic_key(run, offer.relic_key) {
             actions.push(RunAction::BuyShopRelic { slot });
         }
     }
@@ -413,7 +410,9 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{content::cards::ANGER_ID, map::RoomKind, Relic, MapAction, MapNodeId, VAJRA_STRENGTH};
+    use crate::{
+        content::cards::ANGER_ID, map::RoomKind, MapAction, MapNodeId, Relic, VAJRA_STRENGTH,
+    };
 
     fn shop_run() -> RunState {
         let mut run = RunState::map_fixture();
@@ -526,8 +525,8 @@ mod tests {
     fn buy_shop_relic_rejects_insufficient_gold() {
         let run = shop_run();
 
-        let err =
-            apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 }).expect_err("cannot afford");
+        let err = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
+            .expect_err("cannot afford");
 
         assert_eq!(err, SimError::IllegalAction("not enough gold"));
     }
@@ -576,8 +575,8 @@ mod tests {
         let mut run = shop_run();
         run.gold = SHOP_FIRE_POTION_PRICE - 1;
 
-        let err =
-            apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect_err("cannot afford");
+        let err = apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 })
+            .expect_err("cannot afford");
 
         assert_eq!(err, SimError::IllegalAction("not enough gold"));
     }

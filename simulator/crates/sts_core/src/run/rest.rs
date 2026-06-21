@@ -1,6 +1,11 @@
 use crate::{
-    content::cards::upgrade_content_id, Relic, RestAction, RunPhase, RunState, SimError, SimResult,
+    content::cards::upgrade_content_id,
+    relic::RelicKey,
+    Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
+
+use super::reward::roll_pending_card_reward_choices;
+use crate::RewardScreen;
 
 pub const REST_HEAL_PERCENT: i32 = 30;
 
@@ -69,7 +74,22 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         RestAction::Heal => {
             let heal = rest_heal_amount(next.player_max_hp);
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
-            next.phase = RunPhase::Idle;
+            if next.relic_keys.iter().any(|key| *key == RelicKey::DreamCatcher) {
+                next.phase = RunPhase::Reward;
+                next.reward = Some(RewardScreen {
+                    choices: Vec::new(),
+                    gold_offer: 0,
+                    potion_offer: None,
+                    relic_offer: None,
+                    relic_key_offer: None,
+                    card_reward_active: false,
+                    card_reward_pending: true,
+                });
+                roll_pending_card_reward_choices(&mut next);
+                next.reward.as_mut().expect("rest card reward").card_reward_active = true;
+            } else {
+                next.phase = RunPhase::Idle;
+            }
         }
         RestAction::Smith { card_id } => {
             let upgraded_content_id = next

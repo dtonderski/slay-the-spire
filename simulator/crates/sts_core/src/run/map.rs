@@ -3,8 +3,8 @@ use crate::{
     RunPhase, RunState, SimError, SimResult,
 };
 
-use super::shop::enter_shop_screen;
 use super::event::enter_event_screen;
+use super::shop::enter_shop_screen;
 
 fn current_room_kind(run: &RunState) -> Option<RoomKind> {
     run.map.as_ref().and_then(|map_state| {

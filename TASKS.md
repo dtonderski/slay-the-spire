@@ -1045,7 +1045,7 @@ Do not implement:
 
 ## Milestone 27: Full Act 1 Trace Through Boss Reward
 
-Status: planned.
+Status: complete.
 
 Goal: replay one captured Ironclad A0 Act 1 trace from `START` through Act 1 boss reward without observed-state restoration.
 
@@ -1063,6 +1063,8 @@ Acceptance tests:
 - selected trace reports `seed_start.expected_failure=false`
 - selected trace reports `unexpected_diffs=0`
 - first unsupported boundary, if any, is outside the declared Act 1 boss reward scope
+
+Completed with `trace-2026-06-21T09-57-10-380Z.jsonl` (seed `TEST`): seed-start passes through boss relic Cursed Key and pre–Act-2 map return; nightly parity and `test_seed_start_full_act1_boss_relic_prefix` added.
 
 Do not implement:
 

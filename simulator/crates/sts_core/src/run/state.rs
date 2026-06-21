@@ -369,6 +369,11 @@ impl RunState {
             + 1
     }
 
+    pub fn gain_deck_card(&mut self, content_id: ContentId) {
+        let id = CardId::new(self.next_card_instance_id());
+        self.deck.push(CardInstance::new(id, content_id));
+    }
+
     pub fn gain_relic_key(&mut self, key: RelicKey) {
         if let Some(relic) = Relic::from_key(key) {
             self.gain_relic(relic);
