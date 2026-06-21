@@ -2,13 +2,14 @@ use std::{env, fs, process::exit};
 
 use sts_verify::{
     canonical_diff, corpus_path, import_communication_mod_trace, load_corpus_file,
-    verify_communication_mod_trace_with_mode, VerificationMode,
+    minimize_communication_mod_trace, verify_communication_mod_trace_with_mode, MinimizeError,
+    VerificationMode,
 };
 
 fn main() {
     let mut args = env::args().skip(1);
     let Some(command) = args.next() else {
-        eprintln!("usage: sts_verify <trace|diff|parity> ...");
+        eprintln!("usage: sts_verify <trace|diff|parity|minimize|corpus> ...");
         exit(1);
     };
 
@@ -222,6 +223,98 @@ fn main() {
                     }
                 }
                 exit(2);
+            }
+        }
+        "minimize" => {
+            let mut mode = VerificationMode::SeedStart;
+            let mut output_path: Option<String> = None;
+            let mut path: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--mode" => {
+                        let Some(mode_name) = args.next() else {
+                            eprintln!(
+                                "usage: sts_verify minimize [--mode observed-state|seed-start] [-o path] <trace.jsonl>"
+                            );
+                            exit(1);
+                        };
+                        mode = match mode_name.as_str() {
+                            "observed-state" => VerificationMode::ObservedState,
+                            "seed-start" => VerificationMode::SeedStart,
+                            _ => {
+                                eprintln!("unknown minimize mode: {mode_name}");
+                                exit(1);
+                            }
+                        };
+                    }
+                    "-o" | "--output" => {
+                        output_path = Some(args.next().unwrap_or_else(|| {
+                            eprintln!("usage: sts_verify minimize [-o path] <trace.jsonl>");
+                            exit(1);
+                        }));
+                    }
+                    other if other.starts_with('-') => {
+                        eprintln!("unknown minimize flag: {other}");
+                        exit(1);
+                    }
+                    other => {
+                        path = Some(other.to_owned());
+                        break;
+                    }
+                }
+            }
+            let Some(path) = path else {
+                eprintln!(
+                    "usage: sts_verify minimize [--mode observed-state|seed-start] [-o path] <trace.jsonl>"
+                );
+                exit(1);
+            };
+            let content = fs::read_to_string(&path).unwrap_or_else(|err| {
+                eprintln!("failed to read {path}: {err}");
+                exit(1);
+            });
+            let report = minimize_communication_mod_trace(&content, mode).unwrap_or_else(|err| {
+                match err {
+                    MinimizeError::NoFailure => {
+                        eprintln!("minimize: {err}");
+                        exit(0);
+                    }
+                    MinimizeError::Parse(parse_err) => {
+                        eprintln!("failed to minimize trace: {parse_err}");
+                        exit(1);
+                    }
+                }
+            });
+            eprintln!("minimize.mode={:?}", report.mode);
+            eprintln!("minimize.failure_kind={:?}", report.failure_kind);
+            eprintln!("minimize.failure_step={}", report.failure_step);
+            eprintln!("minimize.failure_command=\"{}\"", report.failure_command);
+            eprintln!("minimize.failure_label=\"{}\"", report.failure_label);
+            eprintln!(
+                "minimize.actions={} (from {})",
+                report.minimized_action_count, report.original_action_count
+            );
+            if let Some(category) = &report.boundary_category {
+                eprintln!("minimize.boundary_category={category}");
+            }
+            if let Some(reason) = &report.boundary_reason {
+                eprintln!("minimize.boundary_reason={reason}");
+            }
+            for line in &report.failure_diffs {
+                eprintln!("minimize.diff {line}");
+            }
+            if let Some(out) = output_path {
+                if out == "-" {
+                    print!("{}", report.minimized_trace);
+                } else {
+                    fs::write(&out, &report.minimized_trace).unwrap_or_else(|err| {
+                        eprintln!("failed to write {out}: {err}");
+                        exit(1);
+                    });
+                    eprintln!("minimize.wrote={out}");
+                }
+            } else {
+                print!("{}", report.minimized_trace);
             }
         }
         "corpus" => {

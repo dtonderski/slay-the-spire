@@ -11,7 +11,8 @@ const commandPath = path.join(sessionDir, "next_command.txt");
 const statePath = path.join(sessionDir, "current_state.json");
 const summaryPath = path.join(sessionDir, "summary.json");
 const statusPath = path.join(sessionDir, "status.json");
-const autoStateMs = Number.parseInt(process.env.TRACE_AUTO_STATE_MS ?? "1000", 10);
+const autoStateMs = Number.parseInt(process.env.TRACE_AUTO_STATE_MS ?? "0", 10);
+let exiting = false;
 
 fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(sessionDir, { recursive: true });
@@ -35,6 +36,22 @@ function writeRecord(record) {
 
 function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function markExit(reason, details = {}) {
+  if (exiting) return;
+  exiting = true;
+  const endedAt = new Date().toISOString();
+  const record = { type: "metadata", event: "exit", reason, ended_at: endedAt, ...details };
+  writeRecord(record);
+  writeJson(statusPath, {
+    step,
+    status: "exited",
+    reason,
+    trace_path: tracePath,
+    ended_at: endedAt,
+    ...details,
+  });
 }
 
 function summarize(message) {
@@ -120,10 +137,16 @@ async function waitForCommand(message) {
   const started = Date.now();
   while (true) {
     if (fs.existsSync(commandPath)) {
-      const command = fs.readFileSync(commandPath, "utf8").trim();
-      fs.unlinkSync(commandPath);
-      if (command) {
-        return command;
+      try {
+        const command = fs.readFileSync(commandPath, "utf8").trim();
+        fs.unlinkSync(commandPath);
+        if (command) {
+          return command;
+        }
+      } catch (error) {
+        if (error.code !== "EBUSY" && error.code !== "EPERM") {
+          throw error;
+        }
       }
     }
     if (Number.isFinite(autoStateMs) && autoStateMs > 0 && Date.now() - started >= autoStateMs) {
@@ -200,8 +223,19 @@ rl.on("line", (line) => {
   pendingLines.push(line);
   void drainQueue();
 });
+rl.on("close", () => {
+  markExit("stdin_closed");
+});
 
 process.on("exit", () => {
-  writeRecord({ type: "metadata", event: "exit", ended_at: new Date().toISOString() });
+  markExit("process_exit");
   logStream.end();
+});
+process.on("uncaughtException", (error) => {
+  markExit("uncaught_exception", { error: error.stack ?? error.message });
+  process.exitCode = 1;
+});
+process.on("unhandledRejection", (error) => {
+  markExit("unhandled_rejection", { error: String(error?.stack ?? error) });
+  process.exitCode = 1;
 });

@@ -170,6 +170,11 @@ impl StsRng {
         ((self.next_long() >> 40) as f64 * 5.960_464_477_539_063e-8) as f32
     }
 
+    pub fn random_float_range(&mut self, min_inclusive: f32, max_inclusive: f32) -> f32 {
+        assert!(max_inclusive >= min_inclusive, "STS RNG float range must be ordered");
+        min_inclusive + self.random_float() * (max_inclusive - min_inclusive)
+    }
+
     pub fn random_long(&mut self) -> i64 {
         self.counter += 1;
         self.next_long() as i64

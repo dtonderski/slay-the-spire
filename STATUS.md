@@ -8,11 +8,11 @@
 - Ascension modifiers A0-A20 (config, elites, damage, HP, Bane, deadly enemies, double boss)
 
 ### Run / Meta
-- Reward screen with rarity-weighted RNG card choices; potion/relic take actions
-- Shop: buy Anger, Vajra relic, Fire Potion (fixed prices)
-- Potions: Fire, Block, Fear, Gamble
-- Events: fixed Golden Shrine event with availability and placeholder RNG checks
-- Rest: heal, smith, card removal; fixed + generated map placeholder with A1+ elite nodes
+- Reward screen with source-backed card/gold/potion/relic RNG; elite/chest/boss relic reward screens from persisted pools
+- Shop: full target-style inventory (7 cards, 3 relics, 3 potions, remove service) via `merchantRng`/`cardRng`/`potionRng` and relic pools; legacy fixed Anger/Vajra/Fire fixture when `merchant_rng_seed == 0`
+- Potions: Fire, Block, Fear, Gamble; full 33-potion Ironclad reward pool for drops
+- Events: Act 1 event/shrine pools with `generateEvent` shrine chance; map event rooms call `enter_event_screen`; Shining Light costs 20% max HP and upgrades up to two random upgradeable deck cards
+- Rest: heal, smith, card removal (deterministic heal amount; no RNG)
 
 ### Relics / Potions
 - Common simple relic: Strawberry pickup HP bonus
@@ -78,23 +78,33 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 Expected result: `unexpected_diffs=0`, `seed_start.expected_failure=false`, verified labels through floor-3 combat completion and return-to-map steps, and `seed_start.first_boundary.path=$.actions[complete]`.
 
-Current fidelity limit: VERIFY01 seed-start uses source-backed starter opening piles from `shuffleRng(seed + floor)`. CODEX04 seed-start verifies floor 1–3 combat with simulation-driven replay; captured floor-1/floor-2 reward screens, pickups, potion skip, and post-reward map returns are pinned against explicit expected states. Card reward RNG control flow now uses target-style `cardRng`, `cardRarityFactor`, and the full 72-card Ironclad reward pool; normal-combat gold now uses target-style `treasureRng.random(10, 20)`. Many pool entries are RNG-only until their card mechanics are implemented. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match, post-END pile resync remains interim scaffolding, and relic pool popping/reward wiring plus broader reward RNG remains pending Milestone 24 work.
+Current fidelity limit: VERIFY01, CODEX04, and CODEX03 seed-start traces pass with `unexpected_diffs=0` through their declared completion boundaries (CODEX03 ends after floor-3 return-to-map; CODEX04 after floor-3 combat completion). Post-reward map returns are simulation-driven from captured map topology. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match; post-END pile resync remains interim scaffolding. Captured shop/event/rest CommunicationMod traces and Act 1 boss reward remain outside the passing nightly set.
 
 ### Tests
 - `cargo test` passing
+- Nightly parity (`scripts/nightly_parity.ps1`) runs VERIFY01, CODEX04, and CODEX03 seed-start traces with `unexpected_diffs=0`
 
 ## Current Captured Controller Trace
 
 `verification/corpus/communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl` imports successfully with 42 states and 41 actions. Observed-state parity verifies floor 1–3 combat (Cultist, Small Slimes, 2 Louse), Dramatic Entrance, Battle Trance path cards, multiple `END` turns, and reward screens with `unexpected_diffs=0`. Unsupported commands are classified for Neow/map/seed-start gaps only.
 
+`verification/corpus/communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl` (CODEX03) seed-start replay covers Neow's Lament, three combats (Jaw Worm, Cultist, 2 Louse), simulation-driven rewards/map returns, and ends after floor-3 return-to-map with `unexpected_diffs=0`.
+
 ## Next Task
 
-Continue Milestone 24: generate elite/chest/boss relic reward screens from the persisted relic pool state and broaden reward RNG beyond normal-combat gold, then expand shop/rest/event parity as traces reach those rooms.
+Begin Milestone 27: capture or select an Ironclad A0 trace that reaches Act 1 boss reward, then make seed-start replay pass from `START` through that boss reward without observed-state restoration.
+
+## Milestone 26 Notes
+
+Milestone 26 is complete. The scratch `_tmp_test.rs` debugging artifact was removed, nightly parity passed, and the M25 seed-start regression gate is ready to use as the clean baseline for M27.
+
+## Milestone 25 Notes
+
+VERIFY01, CODEX04, and CODEX03 seed-start traces pass with `unexpected_diffs=0` through their declared completion boundaries. Nightly parity (`scripts/nightly_parity.ps1`) runs all three. Use `sts_verify minimize` to produce prefix traces under `verification/corpus/bugs/` when debugging new failures. Seed-start hidden-state assumptions are documented in `VERIFICATION.md` (shuffle fallback, pile resync, UUID fields, deferred card reward, combat-entry `cardRng` +3).
 
 ## Milestone 24 Notes
 
-Normal reward potion drops are now source-backed for `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Remaining M24 work is relic reward wiring, broader reward contexts, shop/rest/event RNG, and replacing any captured reward constants that are still pinned directly in the seed-start verifier.
-Relic tier rolls are now source-backed for normal/chest-style and elite thresholds with persisted `relic_seed_count`; Ironclad common/uncommon/rare/shop/boss pool initialization uses target-order pools and Java `Collections.shuffle` seeded by five `relicRng.nextLong()` calls. Hidden relic pool state is serialized on `RunState`; pool popping follows target front/back removal, empty-pool fallbacks, Circlet/Red Circlet exhaustion, and source-backed spawn filters for floor/shop/bottled/starter-upgrade/campfire gates. Reward screens can now carry RNG-accurate `RelicKey` offers separately from implemented relic effects. Generated elite/chest/boss relic reward screens are still pending.
+Milestone 24 is complete for captured reward RNG and source-backed shop/event generation. Normal-combat and elite/chest/boss relic rewards use target-style RNG over persisted pools without corrupting `relic_rng_counter` after pool initialization. Shop generation mirrors `sts_lightspeed` `Shop.cpp` (7 cards, 3 relics, 3 potions, sale slot, remove pricing) with `relic_key`-only shop relic ownership. Act 1 events use target pool lists with shrine roll; Golden Shrine, Cleric heal, and Shining Light (HP cost + random upgrades) have implemented outcomes. Seed-start VERIFY01/CODEX04 reward verification is simulation-driven; nightly parity includes both traces. Captured shop/event/rest CommunicationMod traces are not in the passing nightly set. Unmapped shop colorless cards are RNG placeholders until mapped. Post-reward map-return pins and CODEX03 remain Milestone 25.
 
 ## Milestone 20 Notes
 
@@ -106,7 +116,7 @@ CODEX04 seed-start verification now covers the captured Neow colorless-card bran
 
 ## Milestone 22 Notes
 
-Milestone 22 is complete for the available captured evidence. Act 1 map, normal encounter selection, and monster spawn parity are source-backed for `VERIFY01`, `CODEX04`, and `CODEX03`. Full captured map topology/edges/room symbols match for all three seeds. Map-choice prefixes and chosen combat paths are pinned, including CODEX04 `[2, 3, 2]`, CODEX03 `[1, 0, 1]`, and VERIFY01 `[1, 2]` with captured nodes entering combat rooms. Normal encounter list generation covers weak/strong pools, first-strong exclusions, and no-repeat-last-two retries; room execution maps combat index to list entries via `normal_encounter_key_at_combat_index`. Target spawn state at combat entry covers Cultist, Jaw Worm, Small Slimes, and 2 Louse with floor-offset `monsterHpRng`, `miscRng` louse kind selection, and post-HP/bite Curl Up rolls from the decoded 3–7 range. Seed-start reports include `m22_encounter_report`; CODEX04 and CODEX03 each have three captured verified combat-entry rosters, while VERIFY01 has one captured verified entry plus two clearly separated source-backed predictions because that trace ends after the first combat reward. CODEX04 seed-start now reaches floor-3 combat completion; CODEX03 full seed-start replay remains outside the passing set because its Neow's Lament/reward branch is not implemented end to end.
+Milestone 22 is complete for the available captured evidence. Act 1 map, normal encounter selection, and monster spawn parity are source-backed for `VERIFY01`, `CODEX04`, and `CODEX03`. Full captured map topology/edges/room symbols match for all three seeds. Map-choice prefixes and chosen combat paths are pinned, including CODEX04 `[2, 3, 2]`, CODEX03 `[1, 0, 1]`, and VERIFY01 `[1, 2]` with captured nodes entering combat rooms. Normal encounter list generation covers weak/strong pools, first-strong exclusions, and no-repeat-last-two retries; room execution maps combat index to list entries via `normal_encounter_key_at_combat_index`. Target spawn state at combat entry covers Cultist, Jaw Worm, Small Slimes, and 2 Louse with floor-offset `monsterHpRng`, `miscRng` louse kind selection, and post-HP/bite Curl Up rolls from the decoded 3–7 range. Seed-start reports include `m22_encounter_report`; CODEX04 and CODEX03 each have three captured verified combat-entry rosters, while VERIFY01 has one captured verified entry plus two clearly separated source-backed predictions because that trace ends after the first combat reward. CODEX04 seed-start now reaches floor-3 combat completion; CODEX03 seed-start replays Neow's Lament through floor-3 return-to-map with `unexpected_diffs=0`.
 
 ## Milestone 23 Notes
 

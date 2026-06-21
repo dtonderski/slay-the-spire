@@ -36,14 +36,13 @@ cargo run -p sts_verify -- parity ..\verification\corpus\communication_mod\trace
 
 This mode restores simulator state from each observed real pre-state, applies the matching CommunicationMod action, and compares a supported canonical post-state subset. It verifies the captured trace's supported combat/reward mechanics: Bash, Strike, Defend, end turn, Cultist attack/ritual behavior where currently modeled, Burning Blood heal, gold reward pickup, and Twin Strike pickup.
 
-Observed-state mode does not verify seed-start RNG parity. Use seed-start mode for the captured `VERIFY01` trace. Broad game-compatible RNG remains bounded to the captured branches and must stay classified until later work implements it generally:
+Observed-state mode does not verify seed-start RNG parity. Use seed-start mode for the captured `VERIFY01` and `CODEX04` traces. Observed-state combat still classifies reward-offer generation as unsupported at combat victory; seed-start mode verifies reward offers and pickups from simulation-driven RNG. Broad game-compatible RNG remains bounded to captured branches for Neow, map return after rewards, and unreached paths:
 
-- `START IRONCLAD 0 VERIFY01` seed/bootstrap parity
-- Neow option/reward RNG
-- map generation and node RNG
+- `START IRONCLAD 0 VERIFY01` / `CODEX04` seed/bootstrap parity
+- Neow option/reward RNG (captured branches only; CODEX03 Lament pending)
+- map generation and node RNG (post-reward map returns still pinned in seed-start verifier)
 - encounter selection and monster HP RNG
-- exact reward gold/card RNG
-- unmodeled reward cards such as Heavy Blade and Intimidate
+- shop/rest/event captured-trace verification (rest heal is deterministic; shop/event RNG implemented in `sts_core` but no captured CommunicationMod shop/event traces in the nightly passing set)
 
 Current seed-start harness command:
 
@@ -52,7 +51,7 @@ cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
 ```
 
-This mode parses the real `START IRONCLAD 0 VERIFY01` command and verifies the captured Ironclad A0 trace through return to map without restoring from observed pre-state. It verifies the selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, captured reward offer, gold pickup, card reward choices, Twin Strike pickup, and post-reward `PROCEED`. For the captured trace, it reports `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
+This mode parses the real `START IRONCLAD 0 VERIFY01` command and verifies the captured Ironclad A0 trace through return to map without restoring from observed pre-state. It verifies the selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, simulation-driven reward offers, gold pickup, card reward choices, Twin Strike pickup, and post-reward `PROCEED`. For the captured trace, it reports `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
 
 The same seed-start mode also covers the captured `CODEX04` path through the first three combats:
 
@@ -61,9 +60,47 @@ cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
 ```
 
-For `CODEX04`, it verifies talk, the captured colorless-card reward choices `Deep Breath`, `Dramatic Entrance`, and `Jack Of All Trades`, picking `Dramatic Entrance`, leaving Neow with that card in the deck, entering the captured map path, and replaying through floor-3 combat completion with `seed_start.expected_failure=false` and `unexpected_diffs=0`. Seed-start output also includes `seed_start.m22_encounter_report`, which separates captured verified combat-entry spawn state from source-backed predictions: CODEX04 and CODEX03 have three captured verified combat-entry rosters, while VERIFY01 has one captured verified entry plus two source-backed predictions because the available VERIFY01 trace ends after the first combat reward. The corpus tests separately pin captured map/encounter targets so exact map, encounter, and monster HP RNG work has executable targets even when full seed-start replay is not yet implemented for a branch such as CODEX03 Neow's Lament.
+For `CODEX04`, it verifies talk, the captured colorless-card reward choices `Deep Breath`, `Dramatic Entrance`, and `Jack Of All Trades`, picking `Dramatic Entrance`, leaving Neow with that card in the deck, entering the captured map path, simulation-driven floor-1/floor-2 reward screens (gold, card, potion skip), and replaying through floor-3 combat completion with `seed_start.expected_failure=false` and `unexpected_diffs=0`. For `CODEX03`, seed-start replay covers Neow's Lament, three normal combats, deferred card-reward RNG (rolled when the player opens the card screen), combat-entry `cardRng` advancement, simulation-driven rewards and map returns, and ends after floor-3 return-to-map with `unexpected_diffs=0`.
 
-The seed-start report includes named RNG boundaries for the captured traces: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, and potion streams. Save-counter names are included where current research identifies likely real save fields. Captured branches are modeled narrowly: VERIFY01's Toy Ornithopter branch through the captured post-reward map return, CODEX04's colorless-card branch through floor-3 combat completion, and CODEX03's Neow's Lament branch for captured map/encounter/spawn evidence but not full seed-start replay. Map RNG now has source-backed Act 1 topology choices from target `MapGenerator` with `mapRng = seed + actNum`, fixed target rows 0 combat, 8 treasure, and 14 rest, bytecode-backed room list construction, and full VERIFY01/CODEX04/CODEX03 captured room-symbol placement. Encounter selection now has source-backed Exordium normal-list generation for weak encounters, strong encounter weights, first-strong exclusions, no-repeat-last-two retries, and combat-index room execution. Monster HP now has a source-backed target `RandomXS128` wrapper, decoded ranges for the reached Act 1 monsters, floor-offset `monsterHpRng = seed + floorNum`, Small Slimes variant/HP parity, louse kind/HP/bite/Curl Up parity, and Jaw Worm/Cultist HP parity across captured prefixes. Card reward RNG control flow is source-backed from inspected `sts_lightspeed` / target behavior for `cardRng.random(99) + cardRarityFactor`, rarity thresholds, factor mutation, duplicate rerolls, and the full 72-card Ironclad reward pool; normal-combat gold uses target-style `treasureRng.random(10, 20)` with counter persistence; normal reward potion drops use target-style `potionRng.random(99)`, persisted `potionChance`, target rarity thresholds, and the full 33-potion Ironclad reward pool. Relic tier rolls, initial Ironclad relic pool Java shuffles, hidden pool state, pool popping, source-backed core spawn filters, and `RelicKey` reward offer representation are modeled, but generated elite/chest/boss relic reward screens remain pending. Many pool entries are RNG-only until their mechanics are implemented. Broad real-game Neow, elite encounter selection, alternate unreached branches, shop/rest/event RNG, potion use effects, and broader reward cases remain later milestone work.
+```powershell
+cd simulator
+cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-45-23-530Z.jsonl
+```
+
+Seed-start output also includes `seed_start.m22_encounter_report`, which separates captured verified combat-entry spawn state from source-backed predictions: CODEX04 and CODEX03 have three captured verified combat-entry rosters, while VERIFY01 has one captured verified entry plus two source-backed predictions because the available VERIFY01 trace ends after the first combat reward.
+
+The seed-start report includes named RNG boundaries for the captured traces: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, merchant, event, potion, and misc streams. Normal-combat card rewards defer `cardRng` draws until `OpenCardReward`; each subsequent combat entry advances `cardRng` three times before the next deferred roll (Neow colorless-card pickup accounts for the first +3 on CODEX04). Normal-combat and relic reward RNG are source-backed and verified in seed-start mode for VERIFY01/CODEX04/CODEX03. Shop `merchantRng` and Act 1 `eventRng` pool selection are implemented in `sts_core`; rest-site heal is deterministic (30% max HP, no RNG). Captured CommunicationMod shop/event/rest traces are not in the nightly passing set—M24 evidence for those boundaries is core implementation plus source alignment, not trace replay. Unmapped colorless shop pool cards receive synthetic `ContentId`s for pool-index RNG parity; buying them is allowed but playing them may fail until the card is mapped. Post-reward map returns in the seed-start verifier are simulation-driven from captured map topology and chosen path coordinates.
+
+### Divergence minimization
+
+When a trace fails parity, build a prefix JSONL that reproduces the first failure:
+
+```powershell
+cd simulator
+cargo run -p sts_verify -- minimize --mode seed-start -o ..\verification\corpus\bugs\my-bug.jsonl ..\verification\corpus\communication_mod\trace.jsonl
+```
+
+`minimize` runs parity, finds the first `unexpected_diff` or expected-failure boundary, and writes metadata plus all state/action lines through that step. Summary fields go to stderr; the minimized trace goes to stdout or `-o`. Passing traces exit 0 with `minimize: trace has no unexpected diff or expected-failure boundary to minimize`.
+
+### Seed-start hidden and waived fields
+
+Fields below are excluded from comparison or treated as unsupported rather than silently equated. Each has a named reason in verifier output or subset `unobservable` markers.
+
+| Area | Treatment | Reason |
+|------|-----------|--------|
+| Opening hand/draw piles with innate or Neow-granted cards | Trace fallback when `shuffleRng(seed+floor)` mismatch | Master-deck instance order for innate/extra cards not fully decoded |
+| Post-`END` pile layout | `sync_combat_from_observed_after_end` resync | Draw/shuffle/discard order after end-turn not yet seed-stable with extras |
+| `shuffle_rng_draws` on combat compare | `unobservable` when draw pile length is 5 | CommunicationMod export order vs simulator top-of-pile semantics |
+| Card reward UUIDs / internal reward IDs | `unobservable` on CARD_REWARD and COMBAT_REWARD | Simulator uses sequential `CardId`; trace uses game UUIDs |
+| Reward gold RNG draw count | `unobservable` on COMBAT_REWARD | Draw count not exported by CommunicationMod |
+| Picked card UUID after reward | `unobservable` on empty COMBAT_REWARD | Same UUID gap as deck cards |
+| Neow branches not taken in trace | `unsupported` with named reason | Broad Neow RNG not modeled; only captured branches wired |
+| `cardRng` +3 per combat entry | Hidden counter advance, inferred from captured traces | Not exported; validated indirectly via reward card offers |
+| Deferred card reward timing | Sim rolls on `OpenCardReward`, not combat victory | Matches game UI; counter position not observable mid-screen |
+| Shop/event/rest captured traces | Outside nightly seed-start set | Room execution not in passing scope |
+| Act 1 boss reward | No passing captured trace | VERIFY01/CODEX03/CODEX04 prefixes end earlier |
+
+Never strip these fields from snapshots to force a pass. Comparisons use subset diffing with explicit `unobservable` keys removed in `seed_start_normalize_combat_compare`.
 
 Seed conversion status:
 
