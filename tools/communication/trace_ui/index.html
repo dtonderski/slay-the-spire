@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>STS Trace UI</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>STS Trace UI</h1>
+          <p id="tracePath">No trace loaded</p>
+        </div>
+        <div class="toolbar">
+          <button data-command="state">State</button>
+          <button data-command="END">End</button>
+          <button data-command="PROCEED">Proceed</button>
+          <button data-command="CONFIRM">Confirm</button>
+        </div>
+      </header>
+
+      <section class="grid">
+        <article>
+          <h2>Run</h2>
+          <dl id="runInfo"></dl>
+        </article>
+
+        <article>
+          <h2>Choices</h2>
+          <div id="choices" class="buttonList"></div>
+        </article>
+
+        <article>
+          <h2>Hand</h2>
+          <div id="hand" class="buttonList"></div>
+        </article>
+
+        <article>
+          <h2>Monsters</h2>
+          <div id="monsters"></div>
+        </article>
+
+        <article id="potionsArticle" hidden>
+          <h2>Potions</h2>
+          <div id="potions" class="buttonList"></div>
+        </article>
+      </section>
+
+      <section class="commandBox">
+        <input id="commandInput" autocomplete="off" placeholder="Command, e.g. PLAY 2 0" />
+        <button id="sendCommand">Send</button>
+      </section>
+
+      <section class="commandBox">
+        <select id="characterSelect">
+          <option value="IRONCLAD">Ironclad</option>
+        </select>
+        <input id="ascensionInput" type="number" min="0" max="20" value="0" aria-label="Ascension" />
+        <input id="seedInput" autocomplete="off" placeholder="Seed, e.g. CODEX07" />
+        <button id="startRun">Start Run</button>
+      </section>
+
+      <pre id="raw"></pre>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

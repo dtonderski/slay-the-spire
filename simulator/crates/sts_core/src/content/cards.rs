@@ -50,6 +50,7 @@ pub const DUAL_WIELD_PLUS_ID: ContentId = ContentId::new(41);
 pub const SEARING_BLOW_ID: ContentId = ContentId::new(42);
 pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
+pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -855,6 +856,21 @@ pub const DRAMATIC_ENTRANCE: CardDefinition = CardDefinition {
     },
 };
 
+pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
+    id: SWIFT_STRIKE_ID,
+    key: "Swift Strike",
+    name: "Swift Strike",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 5] = [WOUND, DAZED, BURN, SLIMED, ASCENDERS_BANE];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
@@ -895,7 +911,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 45] = [
+pub const ALL_CARDS: [CardDefinition; 46] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -941,6 +957,7 @@ pub const ALL_CARDS: [CardDefinition; 45] = [
     SEARING_BLOW,
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
+    SWIFT_STRIKE,
 ];
 
 #[must_use]

@@ -1,0 +1,163 @@
+:root {
+  color-scheme: dark;
+  font-family: Arial, sans-serif;
+  background: #161819;
+  color: #e8ecef;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+h2 {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+#tracePath {
+  margin-top: 6px;
+  color: #aab4bc;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.toolbar,
+.buttonList,
+.commandBox {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+article {
+  border: 1px solid #333a40;
+  border-radius: 6px;
+  padding: 12px;
+  background: #1f2326;
+}
+
+button {
+  border: 1px solid #48525b;
+  border-radius: 5px;
+  background: #2b3238;
+  color: #f4f7f9;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #39434b;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+
+dt {
+  color: #aab4bc;
+}
+
+dd {
+  margin: 0;
+}
+
+.monster {
+  padding: 6px 0;
+  border-bottom: 1px solid #333a40;
+}
+
+.monster:last-child {
+  border-bottom: 0;
+}
+
+.cardCommand {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 0;
+  border-bottom: 1px solid #333a40;
+}
+
+.cardCommand:last-child {
+  border-bottom: 0;
+}
+
+.cardLabel {
+  color: #d7dde2;
+  font-weight: 600;
+}
+
+.commandBox {
+  margin: 14px 0;
+}
+
+input {
+  flex: 1;
+  min-width: 220px;
+  border: 1px solid #48525b;
+  border-radius: 5px;
+  background: #111315;
+  color: #f4f7f9;
+  padding: 9px 10px;
+}
+
+select {
+  border: 1px solid #48525b;
+  border-radius: 5px;
+  background: #111315;
+  color: #f4f7f9;
+  padding: 9px 10px;
+}
+
+input[type="number"] {
+  flex: 0 0 80px;
+  min-width: 80px;
+}
+
+pre {
+  overflow: auto;
+  max-height: 360px;
+  padding: 12px;
+  border-radius: 6px;
+  background: #0f1113;
+  border: 1px solid #333a40;
+}
