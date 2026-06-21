@@ -149,6 +149,10 @@ mod tests {
             generate_exordium_weak_encounters(22_079_335_078),
             vec!["Jaw Worm", "Cultist", "2 Louse"]
         );
+        assert_eq!(
+            generate_exordium_weak_encounters(1_218_623),
+            vec!["2 Louse", "Small Slimes", "Cultist"]
+        );
     }
 
     #[test]

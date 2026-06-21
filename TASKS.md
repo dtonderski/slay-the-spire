@@ -1051,11 +1051,12 @@ Goal: replay one captured Ironclad A0 Act 1 trace from `START` through Act 1 bos
 
 Tasks:
 
-- capture or select a trace that reaches Act 1 boss reward
-- add the trace to the CommunicationMod corpus
-- implement only the missing mechanics required by the trace
-- verify every action from `START` through Act 1 boss reward in seed-start mode
-- add the trace to nightly parity once passing
+- **27.0 Trace selection and floor-1 prefix**: capture or select a trace that reaches Act 1 boss reward, add it to the CommunicationMod corpus, and verify `START` through floor-1 reward return-to-map in seed-start mode.
+- **27.1 TEST floor-2 parity**: eliminate the earliest TEST trace divergence after floor-1 return-to-map; verify floor-2 map entry, combat, reward handling, and return-to-map.
+- **27.2 TEST non-combat path parity**: verify the next shop/rest/chest/event segment reached by the TEST trace, implementing only selected-outcome mechanics reached by the trace.
+- **27.3 TEST elite segment parity**: verify the first elite path segment reached by the TEST trace, including combat, rewards, and map return.
+- **27.4 TEST boss reward parity**: verify boss combat completion, boss chest, boss relic reward, and stop before Act 2 room execution.
+- add the trace to nightly parity once the full M27 acceptance tests pass.
 
 Acceptance tests:
 

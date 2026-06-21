@@ -725,7 +725,7 @@ fn flex_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDequ
     ]))
 }
 
-fn spot_weakness_weak_amount(definition: &CardDefinition) -> i32 {
+fn spot_weakness_strength_amount(definition: &CardDefinition) -> i32 {
     if definition.id == SPOT_WEAKNESS_PLUS_ID {
         4
     } else {
@@ -756,15 +756,9 @@ fn spot_weakness_queue(
     ]);
 
     if any_monster_intends_attack(state) {
-        let weak_amount = spot_weakness_weak_amount(definition);
-        for monster in &state.monsters {
-            if monster.alive {
-                queue.push_back(InternalAction::ApplyWeak {
-                    target: monster.id,
-                    amount: weak_amount,
-                });
-            }
-        }
+        queue.push_back(InternalAction::GainStrength {
+            amount: spot_weakness_strength_amount(definition),
+        });
     }
 
     queue.push_back(InternalAction::MoveCard {
@@ -2318,7 +2312,7 @@ mod tests {
     }
 
     #[test]
-    fn spot_weakness_applies_three_weak_when_enemy_intends_attack() {
+    fn spot_weakness_grants_three_strength_when_enemy_intends_attack() {
         let state = hand_only(SPOT_WEAKNESS_ID);
 
         let next = apply_combat_action(
@@ -2331,7 +2325,8 @@ mod tests {
         .expect("Spot Weakness applies");
 
         assert_eq!(next.player.energy, state.player.energy - 1);
-        assert_eq!(next.monsters[0].powers.weak, 3);
+        assert_eq!(next.player.powers.strength, 3);
+        assert_eq!(next.monsters[0].powers.weak, 0);
     }
 
     #[test]
@@ -2348,11 +2343,11 @@ mod tests {
         )
         .expect("Spot Weakness applies");
 
-        assert_eq!(next.monsters[0].powers.weak, 0);
+        assert_eq!(next.player.powers.strength, 0);
     }
 
     #[test]
-    fn spot_weakness_plus_applies_four_weak() {
+    fn spot_weakness_plus_grants_four_strength() {
         let state = hand_only(SPOT_WEAKNESS_PLUS_ID);
 
         let next = apply_combat_action(
@@ -2364,15 +2359,17 @@ mod tests {
         )
         .expect("Spot Weakness+ applies");
 
-        assert_eq!(next.monsters[0].powers.weak, 4);
+        assert_eq!(next.player.powers.strength, 4);
     }
 
     #[test]
-    fn spot_weakness_reduces_monster_attack_damage() {
+    fn spot_weakness_boosts_follow_up_attack_damage() {
         let mut state = CombatState::initial_fixture();
-        state.piles.hand = vec![CardInstance::new(CardId::new(20), SPOT_WEAKNESS_ID)];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SPOT_WEAKNESS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
         state.piles.draw_pile.clear();
-        state.player.hp = 40;
 
         let after_spot = apply_combat_action(
             &state,
@@ -2382,11 +2379,18 @@ mod tests {
             },
         )
         .expect("Spot Weakness applies");
-        assert_eq!(after_spot.monsters[0].powers.weak, 3);
+        assert_eq!(after_spot.player.powers.strength, 3);
 
-        let after_turn = crate::combat::end_player_turn(&after_spot);
+        let after_strike = apply_combat_action(
+            &after_spot,
+            CombatAction::PlayCard {
+                card_id: CardId::new(21),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike applies");
 
-        assert_eq!(after_turn.player.hp, 36);
+        assert_eq!(after_strike.monsters[0].hp, state.monsters[0].hp - 9);
     }
 
     #[test]

@@ -150,6 +150,10 @@ pub const JAW_WORM_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(40, 44);
 pub const JAW_WORM_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(42, 46);
 pub const SPIKE_SLIME_S_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(10, 14);
 pub const SPIKE_SLIME_S_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(11, 15);
+pub const ACID_SLIME_S_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(8, 12);
+pub const ACID_SLIME_S_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(9, 13);
+pub const SPIKE_SLIME_M_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(28, 32);
+pub const SPIKE_SLIME_M_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(29, 34);
 pub const ACID_SLIME_M_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(28, 32);
 pub const ACID_SLIME_M_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(29, 34);
 pub const LOUSE_NORMAL_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(10, 15);
@@ -366,6 +370,24 @@ pub fn target_spike_slime_s_hp_range(ascension: u8) -> MonsterHpRange {
 }
 
 #[must_use]
+pub fn target_acid_slime_s_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        ACID_SLIME_S_A7_HP_RANGE
+    } else {
+        ACID_SLIME_S_A0_HP_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_spike_slime_m_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 7 {
+        SPIKE_SLIME_M_A7_HP_RANGE
+    } else {
+        SPIKE_SLIME_M_A0_HP_RANGE
+    }
+}
+
+#[must_use]
 pub fn target_acid_slime_m_hp_range(ascension: u8) -> MonsterHpRange {
     if ascension >= 7 {
         ACID_SLIME_M_A7_HP_RANGE
@@ -443,7 +465,19 @@ pub fn target_small_slimes_hp_rolls(
                 },
             ])
         }
-        SmallSlimesVariant::AcidSmallSpikeMedium => None,
+        SmallSlimesVariant::AcidSmallSpikeMedium => {
+            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            Some(vec![
+                TargetMonsterHp {
+                    name: "Acid Slime (S)",
+                    hp: target_acid_slime_s_hp_range(ascension).roll(&mut hp_rng),
+                },
+                TargetMonsterHp {
+                    name: "Spike Slime (M)",
+                    hp: target_spike_slime_m_hp_range(ascension).roll(&mut hp_rng),
+                },
+            ])
+        }
     }
 }
 
@@ -601,8 +635,8 @@ pub fn content_id_from_game_monster_id(game_id: &str) -> ContentId {
     match game_id {
         "Cultist" => CULTIST_ID,
         "JawWorm" => JAW_WORM_ID,
-        "SpikeSlime_S" | "Spike Slime (S)" => SPIKE_SLIME_ID,
-        "AcidSlime_M" | "Acid Slime (M)" => ACID_SLIME_ID,
+        "SpikeSlime_S" | "SpikeSlime_M" | "Spike Slime (S)" | "Spike Slime (M)" => SPIKE_SLIME_ID,
+        "AcidSlime_S" | "AcidSlime_M" | "Acid Slime (S)" | "Acid Slime (M)" => ACID_SLIME_ID,
         "FuzzyLouseDefensive" | "LouseDefensive" => GREEN_LOUSE_ID,
         "FuzzyLouseNormal" | "LouseNormal" => RED_LOUSE_ID,
         _ => CULTIST_ID,
@@ -1084,6 +1118,16 @@ mod tests {
             target_spike_slime_s_hp_range(7),
             MonsterHpRange::new(11, 15)
         );
+        assert_eq!(target_acid_slime_s_hp_range(0), MonsterHpRange::new(8, 12));
+        assert_eq!(target_acid_slime_s_hp_range(7), MonsterHpRange::new(9, 13));
+        assert_eq!(
+            target_spike_slime_m_hp_range(0),
+            MonsterHpRange::new(28, 32)
+        );
+        assert_eq!(
+            target_spike_slime_m_hp_range(7),
+            MonsterHpRange::new(29, 34)
+        );
         assert_eq!(target_acid_slime_m_hp_range(0), MonsterHpRange::new(28, 32));
         assert_eq!(target_acid_slime_m_hp_range(7), MonsterHpRange::new(29, 34));
         assert_eq!(target_louse_normal_hp_range(0), MonsterHpRange::new(10, 15));
@@ -1193,6 +1237,27 @@ mod tests {
                 TargetMonsterHp {
                     name: "Acid Slime (M)",
                     hp: 32,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn floor_two_test_small_slimes_variant_and_hp_match_trace() {
+        assert_eq!(
+            target_small_slimes_variant(1_218_623, 2),
+            SmallSlimesVariant::AcidSmallSpikeMedium
+        );
+        assert_eq!(
+            target_small_slimes_hp_rolls(1_218_623, 2, 0).expect("decoded reached variant"),
+            vec![
+                TargetMonsterHp {
+                    name: "Acid Slime (S)",
+                    hp: 10,
+                },
+                TargetMonsterHp {
+                    name: "Spike Slime (M)",
+                    hp: 29,
                 },
             ]
         );
