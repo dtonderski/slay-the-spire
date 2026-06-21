@@ -92,7 +92,7 @@ Current fidelity limit: VERIFY01, CODEX04, and CODEX03 seed-start traces pass wi
 
 ## Next Task
 
-Continue Milestone 27 from the new TEST trace. The trace has been captured and selected; seed-start replay now verifies `START` through floor-1 reward completion and return-to-map setup with `unexpected_diffs=0` up to the floor-2 path boundary. The next unsupported slice is broader floor-2+ execution: exact TEST encounter path/reward RNG through non-combat rooms, additional reward-card mappings/mechanics, and later elite/boss handling.
+Continue Milestone 27 from the new TEST trace. The trace has been captured and selected; seed-start replay now verifies `START` through floor-2 reward completion and return-to-map setup with `unexpected_diffs=0` up to the floor-3 non-combat path boundary. The next unsupported slice is TEST non-combat/event path execution, followed by later elite/boss handling.
 
 Selected M27 trace:
 
@@ -101,11 +101,11 @@ cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-21T09-57-10-380Z.jsonl
 ```
 
-Current expected result: `unexpected_diffs=0` through the verified floor-1 prefix, then `seed_start.expected_failure=true` at the next unsupported TEST path segment.
+Current expected result: `unexpected_diffs=0` through the verified floor-2 prefix, then `seed_start.expected_failure=true` at the next unsupported TEST path segment.
 
 ## Milestone 27 Notes
 
-Milestone 27 is in progress. Captured full Act 1 TEST trace `trace-2026-06-21T09-57-10-380Z.jsonl` reaches boss reward and Act 2 map. Added captured TEST Neow colorless branch (`Deep Breath` / `Swift Strike` / `Jack Of All Trades`), Swift Strike card content/mapping, TEST map path picks, and TEST post-Neow reward RNG offset for the first combat. Focused seed-start parity verifies through floor-1 combat, gold/potion/card rewards, Spot Weakness pickup, and reward-to-map with `unexpected_diffs=0` before the next larger floor-2+ mechanics boundary.
+Milestone 27 is in progress. Captured full Act 1 TEST trace `trace-2026-06-21T09-57-10-380Z.jsonl` reaches boss reward and Act 2 map. M27.0 is complete. M27.1 is complete for TEST floor-2 parity: seed-start verifies through floor-2 Small Slimes entry, combat actions, gold/card rewards, Thunderclap pickup, and return-to-map with `unexpected_diffs=0`. Fixes included the Acid Slime (S) + Spike Slime (M) constructor variant, Spot Weakness granting player Strength instead of monster Weak, `Slimed` verifier pile mapping, TEST reward RNG counter carry-forward, and floor-2 reward card mappings. The next boundary is floor 3 non-combat/event execution.
 
 ## Milestone 26 Notes
 

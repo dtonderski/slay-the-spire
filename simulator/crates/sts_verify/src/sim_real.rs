@@ -2133,7 +2133,7 @@ fn seed_start_run_from_combat_entry(
     run.treasure_rng_seed = numeric_seed as u64;
     run.potion_rng_seed = numeric_seed as u64;
     if let Some(prev) = carry {
-        if external_seed == "CODEX03" {
+        if matches!(external_seed, "CODEX03" | "TEST") {
             run.card_rng_counter = prev.card_rng_counter;
             run.card_rarity_factor = prev.card_rarity_factor;
             run.treasure_rng_counter = prev.treasure_rng_counter;
@@ -2536,17 +2536,23 @@ fn seed_start_monsters_from_sim(
         .iter()
         .enumerate()
         .map(|(index, monster)| {
+            let observed_monster = observed.and_then(|monsters| monsters.get(index));
             let max_hp = observed
                 .and_then(|monsters| monsters.get(index))
                 .map(|monster| int(monster, "max_hp"))
                 .unwrap_or(monster.hp);
+            let name = observed_monster
+                .and_then(|monster| monster.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| seed_start_trace_monster_name(monster.content_id).to_owned());
             let strength = (monster.powers.strength - monster.powers.ritual).max(0);
             let vulnerable = monster.powers.vulnerable;
             if end_turn_snapshot {
                 let _ = vulnerable;
             }
             json!({
-                "name": seed_start_trace_monster_name(monster.content_id),
+                "name": name,
                 "current_hp": monster.hp.max(0),
                 "max_hp": max_hp,
                 "block": monster.block,
@@ -3260,13 +3266,18 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
         ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID,
-        PERFECTED_STRIKE_ID, RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
-        STRIKE_R_ID, SWIFT_STRIKE_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WHIRLWIND_ID,
+        METALLICIZE_ID, PERFECTED_STRIKE_ID, RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, WARCRY_ID, WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
         "Defend_R" | "Defend" => Some(DEFEND_R_ID),
         "Bash" => Some(BASH_ID),
+        "Slimed" | "slimed" => Some(SLIMED_ID),
+        "Thunderclap" | "thunderclap" => Some(THUNDERCLAP_ID),
+        "Warcry" | "warcry" => Some(WARCRY_ID),
+        "Metallicize" | "metallicize" => Some(METALLICIZE_ID),
         "Twin Strike" | "twin strike" => Some(TWIN_STRIKE_ID),
         "Battle Trance" | "battle trance" => Some(BATTLE_TRANCE_ID),
         "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
@@ -3294,13 +3305,18 @@ fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
         ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID,
-        PERFECTED_STRIKE_ID, RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
-        STRIKE_R_ID, SWIFT_STRIKE_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WHIRLWIND_ID,
+        METALLICIZE_ID, PERFECTED_STRIKE_ID, RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, WARCRY_ID, WHIRLWIND_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
         id if id == DEFEND_R_ID => "Defend_R",
         id if id == BASH_ID => "Bash",
+        id if id == SLIMED_ID => "Slimed",
+        id if id == THUNDERCLAP_ID => "Thunderclap",
+        id if id == WARCRY_ID => "Warcry",
+        id if id == METALLICIZE_ID => "Metallicize",
         id if id == TWIN_STRIKE_ID => "Twin Strike",
         id if id == BATTLE_TRANCE_ID => "Battle Trance",
         id if id == SHRUG_IT_OFF_ID => "Shrug It Off",
