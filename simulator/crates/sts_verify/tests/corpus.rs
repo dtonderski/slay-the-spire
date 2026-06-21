@@ -748,7 +748,11 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
         .m22_encounter_report
         .as_ref()
         .expect("m22 encounter report");
-    assert!(m22.mismatches.is_empty(), "m22 mismatches: {:?}", m22.mismatches);
+    assert!(
+        m22.mismatches.is_empty(),
+        "m22 mismatches: {:?}",
+        m22.mismatches
+    );
     assert_eq!(m22.verified_entries.len(), 3);
     assert_eq!(
         m22.verified_entries
@@ -757,6 +761,33 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
             .collect::<Vec<_>>(),
         vec!["Jaw Worm", "Cultist", "2 Louse"]
     );
+}
+
+#[test]
+fn test_seed_start_full_act1_boss_relic_prefix() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(!seed_start.expected_failure);
+    assert_eq!(seed_start.start_command.external_seed, "TEST");
+    assert_eq!(seed_start.start_command.numeric_seed, 1_218_623);
+    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.category, "none");
+    assert!(seed_start
+        .first_boundary
+        .reason
+        .contains("boss relic return-to-map"));
 }
 
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {

@@ -171,7 +171,10 @@ impl StsRng {
     }
 
     pub fn random_float_range(&mut self, min_inclusive: f32, max_inclusive: f32) -> f32 {
-        assert!(max_inclusive >= min_inclusive, "STS RNG float range must be ordered");
+        assert!(
+            max_inclusive >= min_inclusive,
+            "STS RNG float range must be ordered"
+        );
         min_inclusive + self.random_float() * (max_inclusive - min_inclusive)
     }
 

@@ -12,6 +12,7 @@ pub const WOUND_ID: ContentId = ContentId::new(4);
 pub const DAZED_ID: ContentId = ContentId::new(5);
 pub const BURN_ID: ContentId = ContentId::new(6);
 pub const SLIMED_ID: ContentId = ContentId::new(7);
+pub const REGRET_ID: ContentId = ContentId::new(62);
 pub const ASCENDERS_BANE_ID: ContentId = ContentId::new(61);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
 pub const RETAIN_DEFEND_ID: ContentId = ContentId::new(9);
@@ -250,6 +251,27 @@ pub const BURN: CardDefinition = CardDefinition {
         ethereal: false,
         exhaust: false,
         retain: false,
+    },
+};
+
+pub const REGRET: CardDefinition = CardDefinition {
+    id: REGRET_ID,
+    key: "Regret",
+    name: "Regret",
+    cost: 0,
+    card_type: CardType::Status,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: true,
     },
 };
 
@@ -911,7 +933,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 46] = [
+pub const ALL_CARDS: [CardDefinition; 47] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -920,6 +942,7 @@ pub const ALL_CARDS: [CardDefinition; 46] = [
     DAZED,
     BURN,
     SLIMED,
+    REGRET,
     ASCENDERS_BANE,
     ETHEREAL_STRIKE,
     RETAIN_DEFEND,

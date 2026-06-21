@@ -273,8 +273,8 @@ fn main() {
                 eprintln!("failed to read {path}: {err}");
                 exit(1);
             });
-            let report = minimize_communication_mod_trace(&content, mode).unwrap_or_else(|err| {
-                match err {
+            let report =
+                minimize_communication_mod_trace(&content, mode).unwrap_or_else(|err| match err {
                     MinimizeError::NoFailure => {
                         eprintln!("minimize: {err}");
                         exit(0);
@@ -283,8 +283,7 @@ fn main() {
                         eprintln!("failed to minimize trace: {parse_err}");
                         exit(1);
                     }
-                }
-            });
+                });
             eprintln!("minimize.mode={:?}", report.mode);
             eprintln!("minimize.failure_kind={:?}", report.failure_kind);
             eprintln!("minimize.failure_step={}", report.failure_step);

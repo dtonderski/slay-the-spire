@@ -37,7 +37,10 @@ pub enum MinimizeError {
 impl std::fmt::Display for MinimizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NoFailure => write!(f, "trace has no unexpected diff or expected-failure boundary to minimize"),
+            Self::NoFailure => write!(
+                f,
+                "trace has no unexpected diff or expected-failure boundary to minimize"
+            ),
             Self::Parse(err) => write!(f, "{err}"),
         }
     }
@@ -157,18 +160,16 @@ fn minimized_metadata(
         ended_at: None,
         event: None,
     });
-    metadata.event = Some(format!(
-        "minimized_to_step={failure_step}; mode={mode:?}"
-    ));
+    metadata.event = Some(format!("minimized_to_step={failure_step}; mode={mode:?}"));
     metadata
 }
 
-pub fn serialize_communication_mod_trace(
-    metadata: &TraceMetadata,
-    lines: &[TraceLine],
-) -> String {
+pub fn serialize_communication_mod_trace(metadata: &TraceMetadata, lines: &[TraceLine]) -> String {
     let mut out = String::new();
-    out.push_str(&serde_json::to_string(&TraceLine::Metadata(metadata.clone())).expect("metadata serializes"));
+    out.push_str(
+        &serde_json::to_string(&TraceLine::Metadata(metadata.clone()))
+            .expect("metadata serializes"),
+    );
     out.push('\n');
     for line in lines {
         out.push_str(&serde_json::to_string(line).expect("trace line serializes"));
@@ -238,7 +239,12 @@ mod tests {
         let full_report =
             verify_communication_mod_trace_with_mode(&content, VerificationMode::SeedStart)
                 .expect("report");
-        if full_report.unexpected_diffs.is_empty() && !full_report.seed_start.as_ref().is_some_and(|s| s.expected_failure) {
+        if full_report.unexpected_diffs.is_empty()
+            && !full_report
+                .seed_start
+                .as_ref()
+                .is_some_and(|s| s.expected_failure)
+        {
             return;
         }
         let report = minimize_communication_mod_trace(&content, VerificationMode::SeedStart)
@@ -246,13 +252,10 @@ mod tests {
         assert!(report.minimized_action_count <= report.original_action_count);
         assert!(report.minimized_trace.contains("\"type\":\"metadata\""));
         let reparsed = import_communication_mod_trace(&report.minimized_trace).expect("reparses");
-        assert!(reparsed
-            .lines
-            .iter()
-            .all(|line| match line {
-                TraceLine::State(state) => state.step <= report.failure_step,
-                TraceLine::Action(action) => action.step <= report.failure_step,
-                TraceLine::Metadata(_) => true,
-            }));
+        assert!(reparsed.lines.iter().all(|line| match line {
+            TraceLine::State(state) => state.step <= report.failure_step,
+            TraceLine::Action(action) => action.step <= report.failure_step,
+            TraceLine::Metadata(_) => true,
+        }));
     }
 }

@@ -5,8 +5,8 @@ use sts_core::{
     content::character::IRONCLAD_A0_BASE_HP,
     enter_event_screen, enter_fixed_event_screen, legal_event_actions, legal_map_actions_on_run,
     legal_rest_actions, legal_shop_actions, rest_heal_amount, Event, EventAction, MapAction,
-    MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction, RunPhase, RunState, SimError,
-    FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE,
+    MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction, RunPhase, RunState,
+    SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE,
     SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 

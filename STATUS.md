@@ -92,20 +92,20 @@ Current fidelity limit: VERIFY01, CODEX04, and CODEX03 seed-start traces pass wi
 
 ## Next Task
 
-Continue Milestone 27 from the new TEST trace. The trace has been captured and selected; seed-start replay now verifies `START` through floor-2 reward completion and return-to-map setup with `unexpected_diffs=0` up to the floor-3 non-combat path boundary. The next unsupported slice is TEST non-combat/event path execution, followed by later elite/boss handling.
+Milestone 27 is complete for the selected TEST trace. Seed-start replay verifies the full Act 1 path from `START` through boss relic reward (Cursed Key) and return-to-map before Act 2 with `unexpected_diffs=0`.
 
-Selected M27 trace:
+Verification command:
 
 ```powershell
 cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-21T09-57-10-380Z.jsonl
 ```
 
-Current expected result: `unexpected_diffs=0` through the verified floor-2 prefix, then `seed_start.expected_failure=true` at the next unsupported TEST path segment.
+Expected result: `seed_start.expected_failure=false`, `unexpected_diffs=0`, `seed_start.first_boundary.path=$.actions[complete]`.
 
 ## Milestone 27 Notes
 
-Milestone 27 is in progress. Captured full Act 1 TEST trace `trace-2026-06-21T09-57-10-380Z.jsonl` reaches boss reward and Act 2 map. M27.0 is complete. M27.1 is complete for TEST floor-2 parity: seed-start verifies through floor-2 Small Slimes entry, combat actions, gold/card rewards, Thunderclap pickup, and return-to-map with `unexpected_diffs=0`. Fixes included the Acid Slime (S) + Spike Slime (M) constructor variant, Spot Weakness granting player Strength instead of monster Weak, `Slimed` verifier pile mapping, TEST reward RNG counter carry-forward, and floor-2 reward card mappings. The next boundary is floor 3 non-combat/event execution.
+Milestone 27 is complete for `trace-2026-06-21T09-57-10-380Z.jsonl` (seed `TEST` / numeric `1_218_623`). Seed-start verifies through Act 1 boss relic pickup and pre–Act-2 map return with `unexpected_diffs=0`. Coverage includes events (Scrap Ooze, Big Fish), normal/elite combats, rest/treasure/shop rooms, potion/hand-select/reward flows, Guardian boss combat (observed-state sync), boss chest, and Cursed Key boss relic reward. The trace is in nightly parity (`scripts/nightly_parity.ps1`) and `sts_verify/tests/corpus.rs`.
 
 ## Milestone 26 Notes
 
