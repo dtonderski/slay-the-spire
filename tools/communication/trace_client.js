@@ -139,7 +139,13 @@ async function waitForCommand(message) {
     if (fs.existsSync(commandPath)) {
       try {
         const command = fs.readFileSync(commandPath, "utf8").trim();
-        fs.unlinkSync(commandPath);
+        try {
+          fs.unlinkSync(commandPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") {
+            throw error;
+          }
+        }
         if (command) {
           return command;
         }

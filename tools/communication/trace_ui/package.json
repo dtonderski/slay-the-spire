@@ -1,0 +1,9 @@
+{
+  "name": "sts-trace-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Small browser UI for controlling CommunicationMod trace collection.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

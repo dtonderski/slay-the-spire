@@ -10,12 +10,12 @@ use sts_core::content::monsters::{
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
 };
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action, advance_card_rng_for_combat_entry,
-    exordium_room_kinds_on_path,
-    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    initialize_combat_piles, CardId, CardInstance, CardPiles, CombatAction, CombatPhase,
-    CombatState, ContentId, MonsterId, MonsterIntent, MonsterPowers, MonsterState, PlayerPowers,
-    PlayerState, RewardScreen, RoomKind, RunAction, RunPhase, RunState, StsRng,
+    advance_card_rng_for_combat_entry, apply_combat_action_on_run, apply_run_action,
+    exordium_room_kinds_on_path, generate_exordium_map_choices_after_path,
+    generate_exordium_map_topology, initialize_combat_piles, CardId, CardInstance, CardPiles,
+    CombatAction, CombatPhase, CombatState, ContentId, MonsterId, MonsterIntent, MonsterPowers,
+    MonsterState, PlayerPowers, PlayerState, RewardScreen, RoomKind, RunAction, RunPhase, RunState,
+    StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -363,7 +363,8 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
-                if start.external_seed == "CODEX04" && command_is_choose(&action.command, 0) =>
+                if seed_start_is_colorless_neow_branch(&start.external_seed)
+                    && command_is_choose(&action.command, 0) =>
             {
                 compare_subset(
                     report,
@@ -378,8 +379,8 @@ fn verify_seed_start_transitions(
                         "max_hp": 80,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
-                        "choices": ["deep breath", "dramatic entrance", "jack of all trades"],
-                        "card_reward_ids": ["Deep Breath", "Dramatic Entrance", "Jack Of All Trades"],
+                        "choices": seed_start_colorless_neow_choice_names(&start.external_seed),
+                        "card_reward_ids": seed_start_colorless_neow_card_ids(&start.external_seed),
                         "unobservable": {
                             "card_reward_rng_draws": true,
                             "card_reward_uuids": true,
@@ -388,7 +389,9 @@ fn verify_seed_start_transitions(
                 );
                 phase = SeedStartPhase::NeowCardReward;
             }
-            SeedStartPhase::NeowOptions if command_is_choose(&action.command, 1) && start.external_seed != "CODEX03" => {
+            SeedStartPhase::NeowOptions
+                if command_is_choose(&action.command, 1) && start.external_seed != "CODEX03" =>
+            {
                 relics.push("Toy Ornithopter".to_owned());
                 compare_subset(
                     report,
@@ -414,12 +417,17 @@ fn verify_seed_start_transitions(
                 });
                 phase = SeedStartPhase::NeowLeave;
             }
-            SeedStartPhase::NeowCardReward if command_is_choose(&action.command, 1) => {
-                deck_ids.push("Dramatic Entrance".to_owned());
+            SeedStartPhase::NeowCardReward
+                if seed_start_colorless_pick_card(&start.external_seed, &action.command)
+                    .is_some() =>
+            {
+                let picked_card =
+                    seed_start_colorless_pick_card(&start.external_seed, &action.command).unwrap();
+                deck_ids.push(picked_card.to_owned());
                 compare_subset(
                     report,
                     action,
-                    "Neow Dramatic Entrance pickup",
+                    seed_start_colorless_pick_label(&start.external_seed),
                     seed_start_observed_subset(&post.message),
                     json!({
                         "screen_type": "EVENT",
@@ -675,14 +683,24 @@ fn verify_seed_start_transitions(
                     return boundary;
                 };
 
-                match seed_start_apply_reward_choose(sim, &action.command, &pre.message, &post.message) {
+                match seed_start_apply_reward_choose(
+                    sim,
+                    &action.command,
+                    &pre.message,
+                    &post.message,
+                ) {
                     Ok(label) => {
                         compare_subset(
                             report,
                             action,
                             &label,
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(sim, &post.message, &relics, Some(&post.message)),
+                            seed_start_reward_simulated_subset(
+                                sim,
+                                &post.message,
+                                &relics,
+                                Some(&post.message),
+                            ),
                         );
                         deck_ids = deck_keys_from_value(
                             post.message
@@ -744,7 +762,9 @@ fn verify_seed_start_transitions(
                     return boundary;
                 }
             }
-            SeedStartPhase::Proceed if start.external_seed == "CODEX04" || start.external_seed == "CODEX03" => {
+            SeedStartPhase::Proceed
+                if matches!(start.external_seed.as_str(), "CODEX04" | "CODEX03" | "TEST") =>
+            {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
                     let label = format!("return to map after floor {}", combat_index + 1);
                     let deck = seed_sim
@@ -1396,6 +1416,12 @@ fn ironclad_deck_with_twin_strike_keys() -> Vec<String> {
 
 fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
     match seed {
+        "TEST" => vec![
+            "choose a colorless card to obtain",
+            "enemies in your next three combats have 1 hp",
+            "lose 8 max hp obtain a random rare relic",
+            "lose your starting relic obtain a random boss relic",
+        ],
         "CODEX04" => vec![
             "choose a colorless card to obtain",
             "obtain 3 random potions",
@@ -1417,8 +1443,42 @@ fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
     }
 }
 
+fn seed_start_is_colorless_neow_branch(seed: &str) -> bool {
+    matches!(seed, "CODEX04" | "TEST")
+}
+
+fn seed_start_colorless_neow_choice_names(seed: &str) -> Vec<&'static str> {
+    match seed {
+        "TEST" => vec!["deep breath", "swift strike", "jack of all trades"],
+        _ => vec!["deep breath", "dramatic entrance", "jack of all trades"],
+    }
+}
+
+fn seed_start_colorless_neow_card_ids(seed: &str) -> Vec<&'static str> {
+    match seed {
+        "TEST" => vec!["Deep Breath", "Swift Strike", "Jack Of All Trades"],
+        _ => vec!["Deep Breath", "Dramatic Entrance", "Jack Of All Trades"],
+    }
+}
+
+fn seed_start_colorless_pick_card(seed: &str, command: &str) -> Option<&'static str> {
+    match seed {
+        "CODEX04" if command_is_choose(command, 1) => Some("Dramatic Entrance"),
+        "TEST" if command_is_choose(command, 1) => Some("Swift Strike"),
+        _ => None,
+    }
+}
+
+fn seed_start_colorless_pick_label(seed: &str) -> &'static str {
+    match seed {
+        "TEST" => "Neow Swift Strike pickup",
+        _ => "Neow Dramatic Entrance pickup",
+    }
+}
+
 fn seed_start_unchosen_neow_command(seed: &str) -> String {
     match seed {
+        "TEST" => "CHOOSE 1/2/3".to_owned(),
         "CODEX04" => "CHOOSE 1/2/3".to_owned(),
         "CODEX03" => "CHOOSE 0/2/3".to_owned(),
         _ => "CHOOSE 0/2/3".to_owned(),
@@ -1427,6 +1487,9 @@ fn seed_start_unchosen_neow_command(seed: &str) -> String {
 
 fn seed_start_unchosen_neow_reason(seed: &str) -> String {
     match seed {
+        "TEST" => {
+            "unchosen Neow branches are classified but not implemented: Neow's Lament, max-hp rare relic, and boss swap".to_owned()
+        }
         "CODEX04" => {
             "unchosen Neow branches are classified but not implemented: potions, max-hp removal, and boss swap".to_owned()
         }
@@ -1453,6 +1516,11 @@ fn seed_start_map_choice(seed: &str, pick_index: usize) -> usize {
         ("CODEX04", 0) => 1,
         ("CODEX04", _) => 0,
         ("CODEX03", _) => 0,
+        ("TEST", 0) => 1,
+        ("TEST", 4) => 1,
+        ("TEST", 11) => 1,
+        ("TEST", 12) => 1,
+        ("TEST", _) => 0,
         (_, 0) => 0,
         _ => 0,
     }
@@ -1498,11 +1566,7 @@ fn seed_start_simulated_map_return(
 ) -> Value {
     let steps = generate_exordium_map_choices_after_path(numeric_seed, path_xs);
     let step = steps.last().expect("non-empty map path");
-    let choices: Vec<String> = step
-        .next_choices
-        .iter()
-        .map(|x| format!("x={x}"))
-        .collect();
+    let choices: Vec<String> = step.next_choices.iter().map(|x| format!("x={x}")).collect();
     let current_x = *path_xs.last().unwrap_or(&0);
     let current_y = path_xs.len().saturating_sub(1) as i64;
     let current_symbol = exordium_room_kinds_on_path(numeric_seed, path_xs)
@@ -2208,6 +2272,13 @@ fn seed_start_apply_reward_rng_snapshot(
             run.potion_rng_counter = 0;
             run.potion_chance = 0;
         }
+        ("TEST", 0) => {
+            run.card_rng_counter = 3;
+            run.card_rarity_factor = 5;
+            run.treasure_rng_counter = 0;
+            run.potion_rng_counter = 0;
+            run.potion_chance = 0;
+        }
         ("CODEX04", 1) => {
             run.card_rng_counter = 12;
             run.card_rarity_factor = 4;
@@ -2301,9 +2372,8 @@ fn seed_start_apply_reward_choose(
     pre: &Value,
     post: &Value,
 ) -> Result<String, String> {
-    let choose_index = choose_index(command).ok_or_else(|| {
-        format!("seed-start verifier could not parse reward command {command:?}")
-    })?;
+    let choose_index = choose_index(command)
+        .ok_or_else(|| format!("seed-start verifier could not parse reward command {command:?}"))?;
 
     if sim
         .reward
@@ -2666,8 +2736,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
             .and_then(Value::as_str)
             .is_some_and(|screen| screen == "COMBAT_REWARD")
             && reward_types_from_value(
-                game
-                    .get("screen_state")
+                game.get("screen_state")
                     .and_then(|state| state.get("rewards")),
             )
             .iter()
@@ -3189,10 +3258,10 @@ fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
 
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
-        BASH_ID, BATTLE_TRANCE_ID, CLOTHESLINE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        ENTRENCH_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID, PERFECTED_STRIKE_ID,
-        RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        WHIRLWIND_ID,
+        BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
+        ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID,
+        PERFECTED_STRIKE_ID, RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -3203,8 +3272,11 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
         "Cleave" | "cleave" => Some(CLEAVE_ID),
         "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
+        "Swift Strike" | "swift strike" => Some(SWIFT_STRIKE_ID),
         "Entrench" | "entrench" => Some(ENTRENCH_ID),
+        "Fire Breathing" | "fire breathing" => Some(FIRE_BREATHING_ID),
         "Flex" | "flex" => Some(FLEX_ID),
+        "Spot Weakness" | "spot weakness" => Some(SPOT_WEAKNESS_ID),
         "Heavy Blade" | "heavy blade" => Some(HEAVY_BLADE_ID),
         "Intimidate" | "intimidate" => Some(INTIMIDATE_ID),
         "Perfected Strike" | "perfected strike" => Some(PERFECTED_STRIKE_ID),
@@ -3220,10 +3292,10 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
-        BASH_ID, BATTLE_TRANCE_ID, CLOTHESLINE_ID, CLEAVE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        ENTRENCH_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID, PERFECTED_STRIKE_ID,
-        RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        WHIRLWIND_ID,
+        BASH_ID, BATTLE_TRANCE_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
+        ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID,
+        PERFECTED_STRIKE_ID, RAMPAGE_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WHIRLWIND_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -3234,8 +3306,11 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == SHRUG_IT_OFF_ID => "Shrug It Off",
         id if id == CLEAVE_ID => "Cleave",
         id if id == DRAMATIC_ENTRANCE_ID => "Dramatic Entrance",
+        id if id == SWIFT_STRIKE_ID => "Swift Strike",
         id if id == ENTRENCH_ID => "Entrench",
+        id if id == FIRE_BREATHING_ID => "Fire Breathing",
         id if id == FLEX_ID => "Flex",
+        id if id == SPOT_WEAKNESS_ID => "Spot Weakness",
         id if id == HEAVY_BLADE_ID => "Heavy Blade",
         id if id == INTIMIDATE_ID => "Intimidate",
         id if id == PERFECTED_STRIKE_ID => "Perfected Strike",
@@ -3489,7 +3564,8 @@ mod tests {
             report
                 .unsupported
                 .iter()
-                .any(|entry| entry.reason.contains("Meteor Strike") && entry.reason.contains("reward pick")),
+                .any(|entry| entry.reason.contains("Meteor Strike")
+                    && entry.reason.contains("reward pick")),
             "unmapped reward picks should be unsupported: {:?}",
             report.unsupported
         );
