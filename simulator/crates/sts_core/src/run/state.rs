@@ -143,6 +143,8 @@ pub struct RunState {
     pub act1_shrine_list: Vec<super::event::Event>,
     #[serde(default)]
     pub ascension: u8,
+    #[serde(default)]
+    pub treasure_room: Option<super::reward::TreasureRoomState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -284,6 +286,7 @@ impl RunState {
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
             ascension,
+            treasure_room: None,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
         run.player_hp = combat.player.hp;
@@ -333,7 +336,14 @@ impl RunState {
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
             ascension: 0,
+            treasure_room: None,
         }
+    }
+
+    pub fn reinit_misc_rng_for_floor(&mut self) {
+        let base = self.reward_rng_seed as i64;
+        self.misc_rng_seed = base.wrapping_add(i64::from(self.current_floor)) as u64;
+        self.misc_rng_counter = 0;
     }
 
     pub fn ensure_ironclad_relic_pools(&mut self) {
@@ -395,6 +405,7 @@ impl RunState {
     }
 
     pub fn gain_relic_key(&mut self, key: RelicKey) {
+        self.ensure_ironclad_relic_pools();
         if let Some(pools) = self.relic_pools.as_mut() {
             pools.remove_relic(key);
         }

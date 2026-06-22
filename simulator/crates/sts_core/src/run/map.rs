@@ -4,6 +4,7 @@ use crate::{
 };
 
 use super::event::enter_event_screen;
+use super::reward::setup_treasure_room;
 use super::shop::enter_shop_room;
 
 fn current_room_kind(run: &RunState) -> Option<RoomKind> {
@@ -49,6 +50,8 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
         next.phase = RunPhase::Rest;
     } else if current_room_kind(&next) == Some(RoomKind::Shop) {
         enter_shop_room(&mut next);
+    } else if current_room_kind(&next) == Some(RoomKind::Treasure) {
+        setup_treasure_room(&mut next);
     } else if current_room_kind(&next) == Some(RoomKind::Event) {
         enter_event_screen(&mut next);
     }

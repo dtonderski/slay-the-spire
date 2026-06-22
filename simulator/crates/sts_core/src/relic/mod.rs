@@ -424,6 +424,25 @@ impl RelicPoolState {
         self.return_random_relic_from(tier, context, false)
     }
 
+    pub fn return_random_screenless_relic(
+        &mut self,
+        tier: RelicTier,
+        context: &RelicSpawnContext,
+    ) -> RelicKey {
+        loop {
+            let relic = self.return_random_relic(tier, context);
+            if !matches!(
+                relic,
+                RelicKey::BottledFlame
+                    | RelicKey::BottledLightning
+                    | RelicKey::BottledTornado
+                    | RelicKey::Whetstone
+            ) {
+                return relic;
+            }
+        }
+    }
+
     fn return_random_relic_from(
         &mut self,
         tier: RelicTier,

@@ -24,6 +24,88 @@ pub enum CombatRewardKind {
 const REWARD_CARD_COUNT: usize = 3;
 const NORMAL_COMBAT_GOLD_MIN: i32 = 10;
 const NORMAL_COMBAT_GOLD_MAX: i32 = 20;
+const SMALL_CHEST_CHANCE: i32 = 50;
+const MEDIUM_CHEST_CHANCE: i32 = 33;
+const CHEST_GOLD_CHANCES: [i32; 3] = [50, 35, 50];
+const CHEST_RELIC_COMMON_CHANCES: [i32; 3] = [75, 35, 0];
+const CHEST_RELIC_UNCOMMON_CHANCES: [i32; 3] = [25, 50, 75];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ChestSize {
+    Small,
+    Medium,
+    Large,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TreasureRoomState {
+    pub chest_size: ChestSize,
+    pub relic_tier: RelicTier,
+    pub have_gold: bool,
+}
+
+fn target_chest_size(rng: &mut StsRng) -> ChestSize {
+    let roll = rng.random_int(99);
+    if roll < SMALL_CHEST_CHANCE {
+        ChestSize::Small
+    } else if roll < SMALL_CHEST_CHANCE + MEDIUM_CHEST_CHANCE {
+        ChestSize::Medium
+    } else {
+        ChestSize::Large
+    }
+}
+
+fn target_chest_relic_tier(chest_size: ChestSize, roll: i32) -> RelicTier {
+    let index = match chest_size {
+        ChestSize::Small => 0,
+        ChestSize::Medium => 1,
+        ChestSize::Large => 2,
+    };
+    let common_chance = CHEST_RELIC_COMMON_CHANCES[index];
+    let uncommon_chance = CHEST_RELIC_UNCOMMON_CHANCES[index];
+    if roll < common_chance {
+        RelicTier::Common
+    } else if roll < common_chance + uncommon_chance {
+        RelicTier::Uncommon
+    } else {
+        RelicTier::Rare
+    }
+}
+
+pub fn setup_treasure_room(run: &mut RunState) {
+    let mut treasure_rng =
+        StsRng::with_counter(run.treasure_rng_seed as i64, run.treasure_rng_counter);
+    let chest_size = target_chest_size(&mut treasure_rng);
+    let roll = treasure_rng.random_int(99);
+    let have_gold = roll < CHEST_GOLD_CHANCES[match chest_size {
+        ChestSize::Small => 0,
+        ChestSize::Medium => 1,
+        ChestSize::Large => 2,
+    }];
+    let relic_tier = target_chest_relic_tier(chest_size, roll);
+    run.treasure_rng_counter = treasure_rng.counter();
+    run.treasure_room = Some(TreasureRoomState {
+        chest_size,
+        relic_tier,
+        have_gold,
+    });
+}
+
+pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> RelicKey {
+    run.ensure_ironclad_relic_pools();
+    let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
+    let tier = target_relic_tier(&mut relic_rng, act);
+    run.relic_rng_counter = relic_rng.counter();
+    roll_screenless_relic_reward(run, tier)
+}
+
+fn roll_screenless_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
+    run.ensure_ironclad_relic_pools();
+    let context = run.relic_spawn_context(run.current_floor, false);
+    let pools = run.relic_pools.as_mut().expect("relic pools initialized");
+    pools.return_random_screenless_relic(tier, &context)
+}
+
 const BASE_POTION_DROP_CHANCE: i32 = 40;
 const ACT_4: i32 = 4;
 
@@ -231,6 +313,7 @@ fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
 }
 
 pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
+    run.ensure_ironclad_relic_pools();
     let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
     let tier = match kind {
         CombatRewardKind::Elite => target_elite_relic_tier(&mut relic_rng),
@@ -359,7 +442,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     let potion_offer = target_potion_reward_offer(
         &mut potion_rng,
         &mut run.potion_chance,
-        1 + 1,
+        1,
         run.potions.len(),
     );
     run.potion_rng_counter = potion_rng.counter();
@@ -393,6 +476,15 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let key = roll_relic_reward(run, tier);
     let relic_offer = Relic::from_key(key);
 
+    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+    let _elite_potion_roll = target_potion_reward_offer(
+        &mut potion_rng,
+        &mut run.potion_chance,
+        2,
+        run.potions.len(),
+    );
+    run.potion_rng_counter = potion_rng.counter();
+
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -415,7 +507,32 @@ pub fn enter_elite_relic_reward_screen(run: &mut RunState) {
 }
 
 pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
-    enter_relic_reward_screen(run, CombatRewardKind::Chest);
+    if run.treasure_room.is_none() {
+        setup_treasure_room(run);
+    }
+    let tier = run
+        .treasure_room
+        .as_ref()
+        .expect("treasure room must be initialized before opening chest")
+        .relic_tier;
+    let key = roll_relic_reward(run, tier);
+    let relic_offer = Relic::from_key(key);
+
+    run.phase = RunPhase::Reward;
+    run.combat = None;
+    run.reward = Some(RewardScreen {
+        choices: Vec::new(),
+        gold_offer: 0,
+        potion_offer: None,
+        relic_offer,
+        relic_key_offer: if relic_offer.is_some() {
+            None
+        } else {
+            Some(key)
+        },
+        card_reward_active: false,
+        card_reward_pending: false,
+    });
 }
 
 pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimResult<RunState> {

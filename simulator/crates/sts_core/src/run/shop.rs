@@ -792,4 +792,99 @@ mod tests {
             SimError::IllegalAction("shop actions require shop phase")
         );
     }
+
+    #[test]
+    fn test_seed_shop_inventory_matches_trace() {
+        use crate::run::{
+            event::{apply_event_action, enter_event_screen, Event},
+            reward::{
+                enter_chest_relic_reward_screen, enter_elite_combat_reward_screen,
+                enter_normal_combat_reward_screen, setup_treasure_room,
+            },
+        };
+        use crate::EventAction;
+
+        const TEST: i64 = 1_218_623;
+        let mut run = RunState::map_fixture();
+        for field in [
+            &mut run.reward_rng_seed,
+            &mut run.treasure_rng_seed,
+            &mut run.potion_rng_seed,
+            &mut run.relic_rng_seed,
+            &mut run.merchant_rng_seed,
+            &mut run.event_rng_seed,
+            &mut run.misc_rng_seed,
+        ] {
+            *field = TEST as u64;
+        }
+
+        run.event_rng_counter = 24;
+        run.current_floor = 3;
+        enter_event_screen(&mut run);
+        assert_eq!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+
+        run.current_floor = 4;
+        enter_event_screen(&mut run);
+        assert_eq!(run.event.as_ref().unwrap().event, Event::BigFish);
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 2 }).unwrap();
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+
+        let combats: [(i32, bool); 8] = [
+            (1, false),
+            (2, false),
+            (5, false),
+            (6, true),
+            (8, false),
+            (10, true),
+            (11, false),
+            (12, false),
+        ];
+        for (floor, elite) in combats {
+            run.current_floor = floor;
+            if elite {
+                enter_elite_combat_reward_screen(&mut run);
+                if let Some(key) = run.reward.as_ref().and_then(|r| r.relic_key_offer) {
+                    run.gain_relic_key(key);
+                }
+            } else {
+                enter_normal_combat_reward_screen(&mut run);
+            }
+            run.reward = None;
+        }
+
+        run.current_floor = 9;
+        setup_treasure_room(&mut run);
+        enter_chest_relic_reward_screen(&mut run);
+        if let Some(key) = run.reward.as_ref().and_then(|r| r.relic_key_offer) {
+            run.gain_relic_key(key);
+        }
+        run.reward = None;
+
+        run.current_floor = 13;
+        open_shop_merchant(&mut run);
+        let shop = run.shop.expect("shop");
+
+        let relic_keys: Vec<_> = shop
+            .relics
+            .iter()
+            .map(|offer| offer.relic_key)
+            .collect();
+        assert_eq!(
+            relic_keys,
+            [
+                RelicKey::Whetstone,
+                RelicKey::Orichalcum,
+                RelicKey::MembershipCard
+            ]
+        );
+
+        let potions: Vec<_> = shop.potions.iter().map(|offer| offer.potion).collect();
+        assert_eq!(
+            potions,
+            [Potion::EntropicBrew, Potion::Energy, Potion::Fear]
+        );
+    }
 }

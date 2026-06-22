@@ -80,9 +80,9 @@ Expected result: `unexpected_diffs=0`, `seed_start.expected_failure=false`, veri
 
 Current fidelity limit: VERIFY01, CODEX04, and CODEX03 seed-start traces pass with `unexpected_diffs=0` through their declared completion boundaries (CODEX03 ends after floor-3 return-to-map; CODEX04 after floor-3 combat completion). Post-reward map returns are simulation-driven from captured map topology. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match; post-END pile resync remains interim scaffolding. Act 1 boss reward remains outside the passing nightly set for VERIFY01/CODEX04/CODEX03.
 
-Milestone 28 is in progress. The TEST trace now fails honestly instead of using counter search or observed-state reconstruction. Current seed-start result for `trace-2026-06-21T09-57-10-380Z.jsonl` is `unexpected_diffs=0`, `seed_start.expected_failure=true`, and `seed_start.first_boundary.category=unsupported_shop_rng_divergence` at step 168. Dream Catcher rest-card reward now reproduces from carried `cardRng`. Shop relic generation now uses target `returnRandomRelicEnd`, prices each relic before rolling the next slot, and prunes gained/already-owned relics from pools. The remaining fix is to make carried shop relic/potion pool state reproduce the observed TEST shop inventory directly.
+Milestone 28 is complete for shop inventory parity on the TEST trace. Seed-start replay for `trace-2026-06-21T09-57-10-380Z.jsonl` now verifies through Act 1 boss relic return-to-map with `seed_start.expected_failure=false` and `seed_start.first_boundary.category=none`. Shop entry at step 168 reproduces Whetstone, Orichalcum, Membership Card and Entropic Brew, Energy Potion, Fear Potion from source-backed relic/potion pool state (treasure-room setup, event relic RNG, per-floor `miscRng`, elite potion rolls, and run-start relic pool init). Five post-purchase shop UI diffs remain after step 168 (purchase/purge slot refresh).
 
-Milestone 27 is complete for the same TEST trace through Act 1 boss relic pickup and pre–Act-2 map return with `unexpected_diffs=0`. Coverage includes events, normal/elite combats, rest/treasure/shop rooms, potion/hand-select/reward flows, Guardian boss combat (observed-state sync), boss chest, and Cursed Key boss relic reward. The trace is in nightly parity (`scripts/nightly_parity.ps1`) and `sts_verify/tests/corpus.rs`.
+Milestone 27 is complete for the same TEST trace through Act 1 boss relic pickup and pre–Act-2 map return with `unexpected_diffs=0` through step 168. Coverage includes events, normal/elite combats, rest/treasure/shop rooms, potion/hand-select/reward flows, Guardian boss combat (observed-state sync), boss chest, and Cursed Key boss relic reward. The trace is in nightly parity (`scripts/nightly_parity.ps1`) and `sts_verify/tests/corpus.rs`.
 
 ### Tests
 - `cargo test` passing
@@ -96,20 +96,18 @@ Milestone 27 is complete for the same TEST trace through Act 1 boss relic pickup
 
 ## Next Task
 
-Continue Milestone 28 by fixing the first honest TEST trace RNG divergence: shop inventory at step 168. Counter-search and observed-state reconstruction are not allowed verifier mechanisms. Confirm the remaining mismatch against target relic/potion pool population order and potion counter carry, not by searching counters.
-
-Verification command:
+Continue shop post-purchase parity on the TEST trace (steps 170+): sold-slot choice labels, gold after multi-buy, and purge-grid refresh. Verification command:
 
 ```powershell
 cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-21T09-57-10-380Z.jsonl
 ```
 
-Current expected result: `unexpected_diffs=0`, `seed_start.expected_failure=true`, and `seed_start.first_boundary.category=unsupported_shop_rng_divergence` at step 168 until carried shop RNG/pool state is fixed.
+Current expected result: `seed_start.expected_failure=false`, `seed_start.first_boundary.category=none`, no unexpected diffs through shop entry step 168; five remaining diffs on later shop purchases/purge.
 
 ## Milestone 28 Notes
 
-Milestone 28 is in progress for `trace-2026-06-21T09-57-10-380Z.jsonl`. Event, combat, rest, chest, and pre-shop prefix coverage now reaches the shop node with `unexpected_diffs=0`, then stops at an expected `unsupported_shop_rng_divergence` boundary because the shop inventory does not yet reproduce from carried relic/potion pool state. Source-backed shop fixes already landed for relic end-pool draws, relic slot RNG/pricing order, and owned-relic pool pruning.
+Milestone 28 is complete for shop inventory parity on `trace-2026-06-21T09-57-10-380Z.jsonl`. Source-backed fixes: `setupTreasureRoom` chest tier from `treasureRng` (no `relicRng` tier roll on open), Scrap Ooze/Big Fish event relics via `returnRandomScreenlessRelic`, per-floor `miscRng = Random(seed + floorNum)` on event entry, relic pool init at run start (`ensure_ironclad_relic_pools` before tier rolls), elite combat potion rolls, and normal-combat `addPotionRewards` reward count. Shop step 168 verifies Whetstone/Orichalcum/Membership Card and Entropic Brew/Energy/Fear potions without counter search or observed pool reconstruction.
 
 ## Milestone 27 Notes
 
