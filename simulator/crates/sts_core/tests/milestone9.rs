@@ -1,9 +1,9 @@
 use sts_core::{
     apply_event_action, apply_map_action_on_run, apply_rest_action, apply_run_action,
+    content::cards::upgrade_content_id,
     content::cards::ANGER_ID,
     content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    content::cards::upgrade_content_id,
     enter_event_screen, enter_fixed_event_screen, leave_shop_room, legal_event_actions,
     legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, Event,
     EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction,
@@ -74,7 +74,11 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
         Some(RoomKind::Rest)
     );
     let mut expected = vec![RestAction::Heal];
-    if run.deck.iter().any(|card| upgrade_content_id(card.content_id).is_some()) {
+    if run
+        .deck
+        .iter()
+        .any(|card| upgrade_content_id(card.content_id).is_some())
+    {
         expected.push(RestAction::OpenSmith);
     }
     for card in &run.deck {

@@ -9,19 +9,19 @@ use serde_json::{json, Value};
 use sts_core::content::monsters::{
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
 };
+use sts_core::potion::Potion;
 use sts_core::{
-    advance_card_rng_for_combat_entry, apply_combat_action_on_run, apply_event_action,
-    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, confirm_grid,
-    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen, enter_elite_combat_reward_screen,
-    enter_event_screen, enter_normal_combat_reward_screen, enter_shop_room, exordium_room_kinds_on_path,
-    generate_exordium_map_choices_after_path, generate_exordium_map_topology, initialize_combat_piles,
-    leave_shop_merchant, leave_shop_room, select_grid_card,
+    apply_combat_action_on_run, apply_event_action, apply_rest_action, apply_run_action,
+    apply_shop_action, cancel_grid, confirm_grid, enter_boss_relic_reward_screen,
+    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
+    enter_normal_combat_reward_screen, enter_shop_room, exordium_room_kinds_on_path,
+    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
+    initialize_combat_piles, leave_shop_merchant, leave_shop_room, select_grid_card,
     shop_action_for_choice_index, CardId, CardInstance, CardPiles, CombatAction, CombatPhase,
     CombatState, ContentId, EventAction, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
-    PlayerPowers, PlayerState, RelicKey, RewardScreen, RoomKind, RunAction, RunPhase, RunState,
-    RestAction, StsRng,
+    PlayerPowers, PlayerState, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase,
+    RunState, StsRng,
 };
-use sts_core::potion::Potion;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimRealReport {
@@ -474,10 +474,10 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::Map
                 if screen_type(&pre.message) == Some("MAP")
-                && command_is_choose(
-                    &action.command,
-                    seed_start_map_choice(&start.external_seed, map_pick_index),
-                ) =>
+                    && command_is_choose(
+                        &action.command,
+                        seed_start_map_choice(&start.external_seed, map_pick_index),
+                    ) =>
             {
                 let choice_x =
                     seed_start_map_pick_x(&start.external_seed, &map_path_xs, &action.command);
@@ -532,13 +532,7 @@ fn verify_seed_start_transitions(
                                 &post.message,
                             )
                         };
-                        compare_subset(
-                            report,
-                            action,
-                            &label,
-                            expected,
-                            actual,
-                        );
+                        compare_subset(report, action, &label, expected, actual);
                         phase = SeedStartPhase::Combat;
                         seed_sim = seed_start_run_from_combat_entry(
                             &post.message,
@@ -556,13 +550,7 @@ fn verify_seed_start_transitions(
                             map.insert("deck_ids".to_owned(), json!(deck_ids));
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
-                        compare_subset(
-                            report,
-                            action,
-                            &label,
-                            expected.clone(),
-                            expected,
-                        );
+                        compare_subset(report, action, &label, expected.clone(), expected);
                         elite_combat = true;
                         elite_index += 1;
                         phase = SeedStartPhase::Combat;
@@ -641,13 +629,7 @@ fn verify_seed_start_transitions(
                             map.insert("deck_ids".to_owned(), json!(deck_ids));
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
-                        compare_subset(
-                            report,
-                            action,
-                            &label,
-                            expected.clone(),
-                            expected,
-                        );
+                        compare_subset(report, action, &label, expected.clone(), expected);
                         observed_combat_sync = true;
                         phase = SeedStartPhase::Combat;
                         seed_sim = seed_start_run_from_combat_entry(
@@ -800,7 +782,9 @@ fn verify_seed_start_transitions(
                 let next = if screen_type(&pre.message) == Some("REST") {
                     match choose_index {
                         0 => apply_rest_action(sim, RestAction::Heal).map_err(|e| e.to_string()),
-                        1 => apply_rest_action(sim, RestAction::OpenSmith).map_err(|e| e.to_string()),
+                        1 => {
+                            apply_rest_action(sim, RestAction::OpenSmith).map_err(|e| e.to_string())
+                        }
                         _ => Err("unsupported rest choice".to_owned()),
                     }
                 } else if screen_type(&pre.message) == Some("CARD_REWARD") {
@@ -827,20 +811,20 @@ fn verify_seed_start_transitions(
                     });
                     return boundary;
                 };
-                let (observed, simulated, label) = if screen_type(&post.message) == Some("CARD_REWARD")
-                {
-                    (
-                        seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
-                        "rest card reward",
-                    )
-                } else {
-                    (
-                        seed_start_rest_observed_subset(&post.message),
-                        seed_start_rest_simulated_subset(&next, &relics),
-                        "rest choice",
-                    )
-                };
+                let (observed, simulated, label) =
+                    if screen_type(&post.message) == Some("CARD_REWARD") {
+                        (
+                            seed_start_reward_observed_subset(&post.message),
+                            seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                            "rest card reward",
+                        )
+                    } else {
+                        (
+                            seed_start_rest_observed_subset(&post.message),
+                            seed_start_rest_simulated_subset(&next, &relics),
+                            "rest choice",
+                        )
+                    };
                 let diff_count_before = report.unexpected_diffs.len();
                 compare_subset(report, action, label, observed, simulated);
                 if label == "rest card reward" && report.unexpected_diffs.len() > diff_count_before
@@ -892,10 +876,12 @@ fn verify_seed_start_transitions(
                             .to_owned(),
                     };
                 };
-                let Ok(next) = apply_event_action(sim, EventAction::Choose {
-                    choice_index: choose_index,
-                })
-                else {
+                let Ok(next) = apply_event_action(
+                    sim,
+                    EventAction::Choose {
+                        choice_index: choose_index,
+                    },
+                ) else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_event_path".to_owned(),
@@ -964,8 +950,9 @@ fn verify_seed_start_transitions(
                         let boundary = SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat action without initialized combat simulation"
-                                .to_owned(),
+                            reason:
+                                "seed-start combat action without initialized combat simulation"
+                                    .to_owned(),
                         };
                         report.unsupported.push(UnsupportedTransition {
                             action_step: action.step,
@@ -1507,7 +1494,10 @@ fn verify_seed_start_transitions(
                             Err(err) => Err(err.to_string()),
                         }
                     } else {
-                        Err(format!("unsupported shop choose in {:?}", screen_type(&pre.message)))
+                        Err(format!(
+                            "unsupported shop choose in {:?}",
+                            screen_type(&pre.message)
+                        ))
                     };
                     let Ok(next) = next else {
                         let boundary = SeedStartBoundary {
@@ -1577,7 +1567,9 @@ fn verify_seed_start_transitions(
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
                     category: "unsupported_shop_path".to_owned(),
-                    reason: format!("seed-start verifier does not support shop command {command:?}"),
+                    reason: format!(
+                        "seed-start verifier does not support shop command {command:?}"
+                    ),
                 };
                 report.unsupported.push(UnsupportedTransition {
                     action_step: action.step,
@@ -2625,7 +2617,11 @@ fn seed_start_grid_simulated_subset(run: &RunState, relic_ids: &[String]) -> Val
 }
 
 fn reward_card_id_from_choose(run: &RunState, choose_index: usize) -> Option<CardId> {
-    run.reward.as_ref()?.choices.get(choose_index).map(|card| card.id)
+    run.reward
+        .as_ref()?
+        .choices
+        .get(choose_index)
+        .map(|card| card.id)
 }
 
 fn seed_start_sync_run_from_observed(run: &mut RunState, message: &Value) {
@@ -2655,24 +2651,22 @@ fn seed_start_sync_reward_offers_from_observed(run: &mut RunState, message: &Val
     for offer in rewards {
         match offer.get("reward_type").and_then(Value::as_str) {
             Some("GOLD") => {
-                reward.gold_offer = offer
-                    .get("gold")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0) as i32;
+                reward.gold_offer = offer.get("gold").and_then(Value::as_i64).unwrap_or(0) as i32;
             }
             Some("POTION") => {
                 reward.potion_offer = Some(Potion::Energy);
             }
             Some("RELIC") => {
-                reward.relic_key_offer = offer
-                    .get("relic")
-                    .and_then(Value::as_object)
-                    .and_then(|relic| {
-                        relic
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .and_then(relic_key_from_trace_name)
-                    });
+                reward.relic_key_offer =
+                    offer
+                        .get("relic")
+                        .and_then(Value::as_object)
+                        .and_then(|relic| {
+                            relic
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .and_then(relic_key_from_trace_name)
+                        });
             }
             Some("CARD") => {
                 reward.card_reward_pending = true;
@@ -2684,22 +2678,38 @@ fn seed_start_sync_reward_offers_from_observed(run: &mut RunState, message: &Val
         .iter()
         .filter_map(|offer| offer.get("reward_type").and_then(Value::as_str))
         .collect();
-    if !reward_types.iter().any(|kind| kind.eq_ignore_ascii_case("GOLD")) {
+    if !reward_types
+        .iter()
+        .any(|kind| kind.eq_ignore_ascii_case("GOLD"))
+    {
         reward.gold_offer = 0;
     }
-    if !reward_types.iter().any(|kind| kind.eq_ignore_ascii_case("POTION")) {
+    if !reward_types
+        .iter()
+        .any(|kind| kind.eq_ignore_ascii_case("POTION"))
+    {
         reward.potion_offer = None;
     }
-    if !reward_types.iter().any(|kind| kind.eq_ignore_ascii_case("RELIC")) {
+    if !reward_types
+        .iter()
+        .any(|kind| kind.eq_ignore_ascii_case("RELIC"))
+    {
         reward.relic_offer = None;
         reward.relic_key_offer = None;
     }
-    if !reward_types.iter().any(|kind| kind.eq_ignore_ascii_case("CARD")) {
+    if !reward_types
+        .iter()
+        .any(|kind| kind.eq_ignore_ascii_case("CARD"))
+    {
         reward.card_reward_pending = false;
     }
 }
 
-fn seed_start_pin_test_elite_relic_reward(run: &mut RunState, external_seed: &str, elite_index: usize) {
+fn seed_start_pin_test_elite_relic_reward(
+    run: &mut RunState,
+    external_seed: &str,
+    elite_index: usize,
+) {
     if external_seed != "TEST" || elite_index != 1 {
         return;
     }
@@ -2776,13 +2786,7 @@ fn seed_start_handle_proceed_to_map(
             &deck,
         )
     };
-    compare_subset(
-        report,
-        action,
-        &label,
-        observed,
-        simulated,
-    );
+    compare_subset(report, action, &label, observed, simulated);
     seed_start_test_pop_last_diff(report, action, &start.external_seed);
     *combat_index += 1;
     *reward_step = 0;
@@ -3260,7 +3264,11 @@ fn seed_start_carried_run(
     run
 }
 
-fn seed_start_prepare_event_entry(run: &mut RunState, external_seed: &str, event_room_index: usize) {
+fn seed_start_prepare_event_entry(
+    run: &mut RunState,
+    external_seed: &str,
+    event_room_index: usize,
+) {
     run.current_floor += 1;
     if external_seed == "TEST" && event_room_index == 0 {
         run.event_rng_counter = 24;
@@ -3308,9 +3316,8 @@ fn deck_instances_from_keys(deck_ids: &[String]) -> Vec<CardInstance> {
         .iter()
         .enumerate()
         .filter_map(|(index, key)| {
-            content_id_from_key(key).map(|content_id| {
-                CardInstance::new(CardId::new(index as u64 + 1), content_id)
-            })
+            content_id_from_key(key)
+                .map(|content_id| CardInstance::new(CardId::new(index as u64 + 1), content_id))
         })
         .collect()
 }
@@ -3655,9 +3662,6 @@ fn seed_start_run_from_combat_entry(
             run.event_rng_counter = prev.event_rng_counter;
             run.act1_event_list = prev.act1_event_list.clone();
             run.act1_shrine_list = prev.act1_shrine_list.clone();
-            if combat_index > 0 {
-                advance_card_rng_for_combat_entry(&mut run);
-            }
         }
     } else {
         seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
@@ -3919,15 +3923,6 @@ fn seed_start_apply_reward_choose(
         .as_ref()
         .is_some_and(|reward| reward.card_reward_active)
     {
-        if external_seed == "TEST" {
-            if let Some(game) = pre.get("game_state") {
-                if game.get("screen_type").and_then(Value::as_str) == Some("CARD_REWARD") {
-                    if let Some(reward) = sim.reward.as_mut() {
-                        reward.choices = reward_choices_from_observed(game);
-                    }
-                }
-            }
-        }
         let card_id = sim
             .reward
             .as_ref()
@@ -3947,7 +3942,7 @@ fn seed_start_apply_reward_choose(
         .ok_or_else(|| format!("reward choice index {choose_index} is not available"))?;
 
     let potions_before = sim.potions.len();
-    let mut next = match choice.as_str() {
+    let next = match choice.as_str() {
         "stolen_gold" => {
             let amount = reward_gold_at_reward_type(pre, "STOLEN_GOLD");
             let mut next = sim.clone();
@@ -3983,15 +3978,6 @@ fn seed_start_apply_reward_choose(
         _ => return Err(format!("unknown reward choice {choice}")),
     }
     .map_err(|err| err.to_string())?;
-    if choice == "card" && external_seed == "TEST" {
-        if let Some(game) = post.get("game_state") {
-            if game.get("screen_type").and_then(Value::as_str) == Some("CARD_REWARD") {
-                if let Some(reward) = next.reward.as_mut() {
-                    reward.choices = reward_choices_from_observed(game);
-                }
-            }
-        }
-    }
     *sim = next;
     if choice == "relic" && external_seed == "TEST" {
         seed_start_sync_relic_keys_from_observed(sim, post);
@@ -4858,12 +4844,12 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
-        BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID,
-        DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        ARMAMENTS_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLEAVE_ID, CLOTHESLINE_ID,
+        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -4908,12 +4894,13 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        COMBUST_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+        COMBUST_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID,
+        FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WILD_STRIKE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
