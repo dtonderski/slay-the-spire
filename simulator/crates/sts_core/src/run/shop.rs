@@ -3,7 +3,7 @@ use crate::{
     content::cards::ANGER_ID,
     content::shop_pool::{
         assign_random_class_card_excluding, random_class_card_of_type_and_rarity,
-        random_colorless_from_pool, roll_card_rarity_shop,
+        random_colorless_from_pool, roll_card_rarity_shop, shop_card_price_rarity,
     },
     ids::CardId,
     potion::{Potion, MAX_POTIONS},
@@ -84,6 +84,17 @@ fn card_price_for_rarity(rarity: CardRarity, merchant_rng: &mut StsRng) -> i32 {
         CardRarity::Rare => SHOP_CARD_RARE_PRICE,
     };
     let factor = merchant_rng.random_float_range(0.9, 1.1);
+    (base as f32 * factor) as i32
+}
+
+fn colorless_card_price_for_rarity(rarity: CardRarity, merchant_rng: &mut StsRng) -> i32 {
+    // Target `AbstractCard.getPrice` bases, not shop class-card bases.
+    let base = match rarity {
+        CardRarity::Common => SHOP_CARD_COMMON_PRICE,
+        CardRarity::Uncommon => SHOP_POTION_UNCOMMON_PRICE,
+        CardRarity::Rare => 150,
+    };
+    let factor = merchant_rng.random_float_range(0.9, 1.1);
     (base as f32 * factor).round() as i32
 }
 
@@ -154,6 +165,45 @@ fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relic_keys.contains(&key) || run.relics.iter().any(|relic| relic.key() == key)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShopPick {
+    Purge,
+    BuyCard(usize),
+    BuyRelic(usize),
+    BuyPotion(usize),
+}
+
+#[must_use]
+pub fn affordable_shop_picks(run: &RunState) -> Vec<ShopPick> {
+    let Some(shop) = run.shop.as_ref() else {
+        return Vec::new();
+    };
+    if run.card_grid.is_some() {
+        return Vec::new();
+    }
+
+    let mut picks = Vec::new();
+    if run.shop_remove_count == 0 && run.gold >= shop.remove_cost {
+        picks.push(ShopPick::Purge);
+    }
+    for (slot, offer) in shop.cards.iter().enumerate() {
+        if !offer.sold && run.gold >= offer.price {
+            picks.push(ShopPick::BuyCard(slot));
+        }
+    }
+    for (slot, offer) in shop.relics.iter().enumerate() {
+        if !offer.sold && run.gold >= offer.price && !owns_relic_key(run, offer.relic_key) {
+            picks.push(ShopPick::BuyRelic(slot));
+        }
+    }
+    for (slot, offer) in shop.potions.iter().enumerate() {
+        if !offer.sold && run.gold >= offer.price && run.potions.len() < MAX_POTIONS {
+            picks.push(ShopPick::BuyPotion(slot));
+        }
+    }
+    picks
+}
+
 fn roll_shop_relic(run: &mut RunState, tier: RelicTier) -> RelicKey {
     run.ensure_ironclad_relic_pools();
     let context = run.relic_spawn_context(run.current_floor, true);
@@ -211,12 +261,14 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
     run.card_rng_counter = card_rng.counter();
 
     for i in 0..5 {
-        prices[i] = card_price_for_rarity(rarities[i], &mut merchant_rng);
+        prices[i] =
+            card_price_for_rarity(shop_card_price_rarity(card_contents[i]), &mut merchant_rng);
     }
-    prices[5] = (card_price_for_rarity(CardRarity::Uncommon, &mut merchant_rng) as f32 * 1.2)
+    prices[5] = (colorless_card_price_for_rarity(CardRarity::Uncommon, &mut merchant_rng) as f32
+        * 1.2)
         .round() as i32;
-    prices[6] =
-        (card_price_for_rarity(CardRarity::Rare, &mut merchant_rng) as f32 * 1.2).round() as i32;
+    prices[6] = (colorless_card_price_for_rarity(CardRarity::Rare, &mut merchant_rng) as f32 * 1.2)
+        .round() as i32;
 
     let sale_slot = merchant_rng.random_int(4) as usize;
     prices[sale_slot] /= 2;
@@ -332,27 +384,24 @@ pub fn leave_shop_room(run: &mut RunState) {
 
 #[must_use]
 pub fn shop_choice_labels(run: &RunState) -> Vec<String> {
-    let Some(shop) = run.shop.as_ref() else {
-        return vec!["shop".to_owned()];
-    };
-
-    let mut labels = vec!["purge".to_owned()];
-    for offer in &shop.cards {
-        if !offer.sold {
-            labels.push(format!("card{}", offer.card.content_id.get()));
-        }
-    }
-    for offer in &shop.relics {
-        if !offer.sold {
-            labels.push(format!("{:?}", offer.relic_key).to_ascii_lowercase());
-        }
-    }
-    for offer in &shop.potions {
-        if !offer.sold {
-            labels.push(format!("{:?}", offer.potion).to_ascii_lowercase());
-        }
-    }
-    labels
+    affordable_shop_picks(run)
+        .into_iter()
+        .map(|pick| match pick {
+            ShopPick::Purge => "purge".to_owned(),
+            ShopPick::BuyCard(slot) => {
+                let shop = run.shop.as_ref().expect("shop pick without shop");
+                format!("card{}", shop.cards[slot].card.content_id.get())
+            }
+            ShopPick::BuyRelic(slot) => {
+                let shop = run.shop.as_ref().expect("shop pick without shop");
+                format!("{:?}", shop.relics[slot].relic_key).to_ascii_lowercase()
+            }
+            ShopPick::BuyPotion(slot) => {
+                let shop = run.shop.as_ref().expect("shop pick without shop");
+                format!("{:?}", shop.potions[slot].potion).to_ascii_lowercase()
+            }
+        })
+        .collect()
 }
 
 #[must_use]
@@ -533,49 +582,13 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
 
 /// Map CommunicationMod `CHOOSE index` on `SHOP_SCREEN` to a shop action.
 pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimResult<RunAction> {
-    let labels = shop_choice_labels(run);
-    let label = labels
-        .get(choice_index)
-        .ok_or(SimError::IllegalAction("shop choice out of range"))?;
-
-    if label == "purge" {
-        return Ok(RunAction::OpenShopRemove);
+    match affordable_shop_picks(run).get(choice_index) {
+        Some(ShopPick::Purge) => Ok(RunAction::OpenShopRemove),
+        Some(ShopPick::BuyCard(slot)) => Ok(RunAction::BuyShopCard { slot: *slot }),
+        Some(ShopPick::BuyRelic(slot)) => Ok(RunAction::BuyShopRelic { slot: *slot }),
+        Some(ShopPick::BuyPotion(slot)) => Ok(RunAction::BuyShopPotion { slot: *slot }),
+        None => Err(SimError::IllegalAction("shop choice out of range")),
     }
-
-    let Some(shop) = run.shop.as_ref() else {
-        return Err(SimError::IllegalAction("shop screen is missing"));
-    };
-
-    let mut index = 1usize;
-    for (slot, offer) in shop.cards.iter().enumerate() {
-        if offer.sold {
-            continue;
-        }
-        if index == choice_index {
-            return Ok(RunAction::BuyShopCard { slot });
-        }
-        index += 1;
-    }
-    for (slot, offer) in shop.relics.iter().enumerate() {
-        if offer.sold {
-            continue;
-        }
-        if index == choice_index {
-            return Ok(RunAction::BuyShopRelic { slot });
-        }
-        index += 1;
-    }
-    for (slot, offer) in shop.potions.iter().enumerate() {
-        if offer.sold {
-            continue;
-        }
-        if index == choice_index {
-            return Ok(RunAction::BuyShopPotion { slot });
-        }
-        index += 1;
-    }
-
-    Err(SimError::IllegalAction("shop choice out of range"))
 }
 
 #[cfg(test)]
@@ -867,11 +880,7 @@ mod tests {
         open_shop_merchant(&mut run);
         let shop = run.shop.expect("shop");
 
-        let relic_keys: Vec<_> = shop
-            .relics
-            .iter()
-            .map(|offer| offer.relic_key)
-            .collect();
+        let relic_keys: Vec<_> = shop.relics.iter().map(|offer| offer.relic_key).collect();
         assert_eq!(
             relic_keys,
             [

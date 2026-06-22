@@ -11,8 +11,8 @@ use sts_core::content::monsters::{
 };
 use sts_core::potion::Potion;
 use sts_core::{
-    apply_combat_action_on_run, apply_event_action, apply_rest_action, apply_run_action,
-    apply_shop_action, cancel_grid, confirm_grid, enter_boss_relic_reward_screen,
+    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_rest_action,
+    apply_run_action, apply_shop_action, cancel_grid, confirm_grid, enter_boss_relic_reward_screen,
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
     enter_normal_combat_reward_screen, enter_shop_room, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
@@ -20,7 +20,7 @@ use sts_core::{
     shop_action_for_choice_index, CardId, CardInstance, CardPiles, CombatAction, CombatPhase,
     CombatState, ContentId, EventAction, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
     PlayerPowers, PlayerState, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase,
-    RunState, StsRng,
+    RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2442,29 +2442,24 @@ fn seed_start_shop_room_simulated_subset(run: &RunState, relic_ids: &[String]) -
 }
 
 fn seed_start_shop_trace_choice_labels(run: &RunState) -> Vec<String> {
-    let Some(shop) = run.shop.as_ref() else {
-        return vec!["shop".to_owned()];
-    };
-    let mut labels = Vec::new();
-    if run.card_grid.is_none() && run.shop_remove_count == 0 {
-        labels.push("purge".to_owned());
-    }
-    for offer in &shop.cards {
-        if !offer.sold {
-            labels.push(shop_card_trace_label(run, offer.card.content_id));
-        }
-    }
-    for offer in &shop.relics {
-        if !offer.sold {
-            labels.push(relic_key_trace_name(offer.relic_key).to_ascii_lowercase());
-        }
-    }
-    for offer in &shop.potions {
-        if !offer.sold {
-            labels.push(potion_trace_label(offer.potion));
-        }
-    }
-    labels
+    affordable_shop_picks(run)
+        .into_iter()
+        .map(|pick| match pick {
+            ShopPick::Purge => "purge".to_owned(),
+            ShopPick::BuyCard(slot) => {
+                let shop = run.shop.as_ref().expect("shop pick without shop");
+                shop_card_trace_label(run, shop.cards[slot].card.content_id)
+            }
+            ShopPick::BuyRelic(slot) => {
+                let shop = run.shop.as_ref().expect("shop pick without shop");
+                relic_key_trace_name(shop.relics[slot].relic_key).to_ascii_lowercase()
+            }
+            ShopPick::BuyPotion(slot) => {
+                let shop = run.shop.as_ref().expect("shop pick without shop");
+                potion_trace_label(shop.potions[slot].potion)
+            }
+        })
+        .collect()
 }
 
 fn potion_trace_label(potion: Potion) -> String {

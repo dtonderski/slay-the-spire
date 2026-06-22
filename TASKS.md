@@ -1045,7 +1045,7 @@ Do not implement:
 
 ## Milestone 27: Full Act 1 Trace Through Boss Reward
 
-Status: in progress.
+Status: complete.
 
 Goal: replay one captured Ironclad A0 Act 1 trace from `START` through Act 1 boss reward without observed-state restoration.
 
@@ -1073,7 +1073,7 @@ Do not implement:
 
 ## Milestone 28: Act 1 Non-Combat Room Trace Coverage
 
-Status: complete.
+Status: in progress.
 
 Goal: verify shop, rest, chest, and event room execution from captured seed-start traces.
 
@@ -1086,6 +1086,7 @@ Tasks:
 - add passing room traces to nightly parity
 - remove counter-search and observed-state reconstruction fallbacks from room verification
 - make the TEST shop inventory derive from carried simulator RNG/pool state only
+- fix shop purchase, purge, and post-buy choice-label parity on the TEST trace (steps 170–176)
 
 Acceptance tests:
 
@@ -1096,9 +1097,13 @@ Acceptance tests:
 - all passing traces report `unexpected_diffs=0`
 - no passing trace uses brute-force RNG counter search or observed shop-screen reconstruction
 
+Progress:
+
+- `trace-2026-06-21T09-57-10-380Z.jsonl`: full seed-start parity through Act 1 boss relic return-to-map with `unexpected_diffs=0` (`test_seed_start_full_act1_boss_relic_prefix`). Shop entry inventory from carried pool state (`test_seed_start_m28_shop_entry_parity`); purchase/purge through step 176 via `affordable_shop_picks`, library-rarity class pricing, colorless `getPrice` bases, and membership/sale gold. Nightly parity includes this trace.
+
 Current blocker:
 
-- `trace-2026-06-21T09-57-10-380Z.jsonl` reaches the shop node with `unexpected_diffs=0` but `seed_start.expected_failure=true`; first boundary is `unsupported_shop_rng_divergence` at step 168 because carried shop relic/potion pool state does not yet reproduce the observed shop inventory. Dream Catcher rest-card reward now reproduces from carried card reward RNG. Source-backed shop fixes are in for `returnRandomRelicEnd`, per-slot relic roll/price order, and pruning owned relics from initialized/gained pools; the remaining work is target relic/potion pool population/counter carry, not counter search.
+- none for M28 on the TEST trace; next milestones per roadmap (additional shop/rest/event captured traces).
 
 Do not implement:
 

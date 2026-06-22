@@ -77,11 +77,12 @@ pub fn setup_treasure_room(run: &mut RunState) {
         StsRng::with_counter(run.treasure_rng_seed as i64, run.treasure_rng_counter);
     let chest_size = target_chest_size(&mut treasure_rng);
     let roll = treasure_rng.random_int(99);
-    let have_gold = roll < CHEST_GOLD_CHANCES[match chest_size {
-        ChestSize::Small => 0,
-        ChestSize::Medium => 1,
-        ChestSize::Large => 2,
-    }];
+    let have_gold = roll
+        < CHEST_GOLD_CHANCES[match chest_size {
+            ChestSize::Small => 0,
+            ChestSize::Medium => 1,
+            ChestSize::Large => 2,
+        }];
     let relic_tier = target_chest_relic_tier(chest_size, roll);
     run.treasure_rng_counter = treasure_rng.counter();
     run.treasure_room = Some(TreasureRoomState {

@@ -55,9 +55,9 @@ pub use relic::{
 };
 pub use rng::{JavaRng, RngDraw, RngStream, SimulatorRng, StsRng};
 pub use run::{
-    advance_card_rng_for_combat_entry, apply_combat_action_on_run, apply_event_action,
-    apply_map_action_on_run, apply_potion_action, apply_rest_action, apply_run_action,
-    apply_shop_action, cancel_grid, card_reward_choices, confirm_grid,
+    advance_card_rng_for_combat_entry, affordable_shop_picks, apply_combat_action_on_run,
+    apply_event_action, apply_map_action_on_run, apply_potion_action, apply_rest_action,
+    apply_run_action, apply_shop_action, cancel_grid, card_reward_choices, confirm_grid,
     enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
     enter_elite_combat_reward_screen, enter_elite_relic_reward_screen, enter_event_screen,
     enter_fixed_event_screen, enter_normal_combat_reward_screen, enter_reward_screen,
@@ -70,7 +70,7 @@ pub use run::{
     target_potion_reward_offer, target_random_potion, target_relic_tier, validate_event_action,
     validate_potion_action, validate_rest_action, validate_shop_action, CardGridScreen,
     CombatRewardKind, Event, EventChoice, EventScreen, GridPurpose, RewardScreen, RunAction,
-    RunPhase, RunState, ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen,
+    RunPhase, RunState, ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen,
     GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE,
     SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
 };
