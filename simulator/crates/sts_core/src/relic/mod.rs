@@ -400,12 +400,28 @@ pub fn initialize_ironclad_relic_pools(relic_rng: &mut StsRng) -> RelicPoolState
 }
 
 impl RelicPoolState {
+    pub fn remove_relic(&mut self, key: RelicKey) {
+        remove_relic_from_pool(&mut self.common, key);
+        remove_relic_from_pool(&mut self.uncommon, key);
+        remove_relic_from_pool(&mut self.rare, key);
+        remove_relic_from_pool(&mut self.shop, key);
+        remove_relic_from_pool(&mut self.boss, key);
+    }
+
     pub fn return_random_relic(
         &mut self,
         tier: RelicTier,
         context: &RelicSpawnContext,
     ) -> RelicKey {
         self.return_random_relic_from(tier, context, true)
+    }
+
+    pub fn return_random_relic_end(
+        &mut self,
+        tier: RelicTier,
+        context: &RelicSpawnContext,
+    ) -> RelicKey {
+        self.return_random_relic_from(tier, context, false)
     }
 
     fn return_random_relic_from(
@@ -446,6 +462,12 @@ fn pop_relic(pool: &mut Vec<RelicKey>, from_front: bool) -> RelicKey {
         pool.remove(0)
     } else {
         pool.pop().expect("pool checked non-empty")
+    }
+}
+
+fn remove_relic_from_pool(pool: &mut Vec<RelicKey>, key: RelicKey) {
+    if let Some(index) = pool.iter().position(|candidate| *candidate == key) {
+        pool.remove(index);
     }
 }
 
@@ -714,6 +736,40 @@ mod tests {
 
         assert_eq!(relic, RelicKey::Anchor);
         assert_eq!(pools.common, vec![RelicKey::Vajra]);
+    }
+
+    #[test]
+    fn return_random_relic_end_pops_from_back_for_requested_tier() {
+        let mut pools = RelicPoolState {
+            common: vec![RelicKey::Anchor, RelicKey::Vajra],
+            uncommon: Vec::new(),
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: Vec::new(),
+        };
+
+        let relic = pools.return_random_relic_end(RelicTier::Common, &RelicSpawnContext::default());
+
+        assert_eq!(relic, RelicKey::Vajra);
+        assert_eq!(pools.common, vec![RelicKey::Anchor]);
+    }
+
+    #[test]
+    fn remove_relic_prunes_key_from_any_pool() {
+        let mut pools = RelicPoolState {
+            common: vec![RelicKey::Anchor],
+            uncommon: vec![RelicKey::ToxicEgg],
+            rare: Vec::new(),
+            shop: vec![RelicKey::MembershipCard],
+            boss: Vec::new(),
+        };
+
+        pools.remove_relic(RelicKey::ToxicEgg);
+        pools.remove_relic(RelicKey::MembershipCard);
+
+        assert_eq!(pools.common, vec![RelicKey::Anchor]);
+        assert!(pools.uncommon.is_empty());
+        assert!(pools.shop.is_empty());
     }
 
     #[test]
