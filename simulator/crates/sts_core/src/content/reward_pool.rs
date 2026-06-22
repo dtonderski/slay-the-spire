@@ -24,11 +24,15 @@ pub struct RewardCardEntry {
     pub rarity: CardRarity,
 }
 
-/// Target source-order Ironclad combat-reward pool grouped by rarity.
+/// Target Ironclad combat-reward pool grouped by the observed target rarity pools.
 ///
 /// Some entries are not yet implemented as playable `CardDefinition`s. They still belong here
 /// because reward RNG indexes into the full target pool before the player can choose a card.
 pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
+    RewardCardEntry {
+        content_id: IMMOLATE_ID,
+        rarity: CardRarity::Rare,
+    },
     RewardCardEntry {
         content_id: ANGER_ID,
         rarity: CardRarity::Common,
@@ -313,10 +317,6 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         content_id: OFFERING_ID,
         rarity: CardRarity::Rare,
     },
-    RewardCardEntry {
-        content_id: IMMOLATE_ID,
-        rarity: CardRarity::Rare,
-    },
 ];
 
 #[must_use]
@@ -325,6 +325,14 @@ pub fn ironclad_reward_content_ids() -> Vec<ContentId> {
         .iter()
         .map(|entry| entry.content_id)
         .collect()
+}
+
+#[must_use]
+pub fn ironclad_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
+    IRONCLAD_REWARD_ENTRIES
+        .iter()
+        .find(|entry| entry.content_id == content_id)
+        .map(|entry| entry.rarity)
 }
 
 #[cfg(test)]

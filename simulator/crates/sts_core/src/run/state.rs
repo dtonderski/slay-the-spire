@@ -485,9 +485,7 @@ impl RunState {
             | RunAction::BuyShopPotion { .. }
             | RunAction::EnterShop
             | RunAction::LeaveShop
-            | RunAction::OpenShopRemove => {
-                Err(SimError::IllegalAction("not a reward action"))
-            }
+            | RunAction::OpenShopRemove => Err(SimError::IllegalAction("not a reward action")),
             RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
                 Err(SimError::IllegalAction("not a reward action"))
             }

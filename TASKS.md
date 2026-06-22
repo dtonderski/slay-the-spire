@@ -1098,7 +1098,7 @@ Acceptance tests:
 
 Current blocker:
 
-- `trace-2026-06-21T09-57-10-380Z.jsonl` reaches the first rest site with `unexpected_diffs=0` but `seed_start.expected_failure=true`; first boundary is `unsupported_card_reward_rng_divergence` at step 91 because carried card reward RNG does not yet reproduce the observed Dream Catcher card reward. Shop inventory RNG/pool divergence is the next known blocker after this.
+- `trace-2026-06-21T09-57-10-380Z.jsonl` reaches the shop node with `unexpected_diffs=0` but `seed_start.expected_failure=true`; first boundary is `unsupported_shop_rng_divergence` at step 168 because carried shop RNG/pool state does not yet reproduce the observed shop inventory. Dream Catcher rest-card reward now reproduces from carried card reward RNG.
 
 Do not implement:
 

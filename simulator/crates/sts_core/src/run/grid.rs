@@ -1,7 +1,5 @@
 use crate::{
-    card::CardInstance,
-    content::cards::upgrade_content_id,
-    RunPhase, RunState, SimError, SimResult,
+    card::CardInstance, content::cards::upgrade_content_id, RunPhase, RunState, SimError, SimResult,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -134,7 +132,9 @@ mod tests {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Shop;
         run.gold = 100;
-        run.shop = Some(super::super::shop::fixed_shop_screen(run.next_card_instance_id()));
+        run.shop = Some(super::super::shop::fixed_shop_screen(
+            run.next_card_instance_id(),
+        ));
         open_shop_remove_grid(&mut run);
         let strike_id = run.deck[0].id;
         let deck_len = run.deck.len();

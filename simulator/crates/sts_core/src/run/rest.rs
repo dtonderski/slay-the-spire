@@ -1,7 +1,6 @@
 use crate::{
-    content::cards::upgrade_content_id,
-    relic::RelicKey,
-    Relic, RestAction, RunPhase, RunState, SimError, SimResult,
+    content::cards::upgrade_content_id, relic::RelicKey, Relic, RestAction, RunPhase, RunState,
+    SimError, SimResult,
 };
 
 use super::grid::open_rest_smith_grid;
@@ -25,7 +24,10 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     if !run.relics.contains(&Relic::CoffeeDripper) {
         actions.push(RestAction::Heal);
     }
-    let has_upgradeable = run.deck.iter().any(|card| upgrade_content_id(card.content_id).is_some());
+    let has_upgradeable = run
+        .deck
+        .iter()
+        .any(|card| upgrade_content_id(card.content_id).is_some());
     if has_upgradeable {
         actions.push(RestAction::OpenSmith);
     }
@@ -81,7 +83,11 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         RestAction::Heal => {
             let heal = rest_heal_amount(next.player_max_hp);
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
-            if next.relic_keys.iter().any(|key| *key == RelicKey::DreamCatcher) {
+            if next
+                .relic_keys
+                .iter()
+                .any(|key| *key == RelicKey::DreamCatcher)
+            {
                 next.phase = RunPhase::Reward;
                 next.reward = Some(RewardScreen {
                     choices: Vec::new(),
@@ -93,7 +99,10 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     card_reward_pending: true,
                 });
                 roll_pending_card_reward_choices(&mut next);
-                next.reward.as_mut().expect("rest card reward").card_reward_active = true;
+                next.reward
+                    .as_mut()
+                    .expect("rest card reward")
+                    .card_reward_active = true;
             } else {
                 next.phase = RunPhase::Idle;
             }
@@ -245,7 +254,11 @@ mod tests {
         );
 
         let mut expected = vec![RestAction::Heal];
-        if run.deck.iter().any(|card| upgrade_content_id(card.content_id).is_some()) {
+        if run
+            .deck
+            .iter()
+            .any(|card| upgrade_content_id(card.content_id).is_some())
+        {
             expected.push(RestAction::OpenSmith);
         }
         for card in &run.deck {

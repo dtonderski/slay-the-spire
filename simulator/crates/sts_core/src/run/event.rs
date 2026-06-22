@@ -628,12 +628,9 @@ mod tests {
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::BigFish));
 
-        let after = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
-            .expect("box");
+        let after = apply_event_action(&run, EventAction::Choose { choice_index: 2 }).expect("box");
 
-        assert!(after
-            .relic_keys
-            .contains(&RelicKey::ToxicEgg));
+        assert!(after.relic_keys.contains(&RelicKey::ToxicEgg));
         assert!(!after.deck.iter().any(|card| card.content_id == REGRET_ID));
         assert_eq!(after.event.as_ref().unwrap().stage, 1);
 
@@ -683,8 +680,9 @@ mod tests {
             trial.misc_rng_counter = counter;
             let after_reach =
                 apply_event_action(&trial, EventAction::Choose { choice_index: 0 }).expect("reach");
-            let after_deeper = apply_event_action(&after_reach, EventAction::Choose { choice_index: 0 })
-                .expect("deeper");
+            let after_deeper =
+                apply_event_action(&after_reach, EventAction::Choose { choice_index: 0 })
+                    .expect("deeper");
             if after_deeper.relic_keys.contains(&RelicKey::DreamCatcher) {
                 found = Some(counter);
                 break;

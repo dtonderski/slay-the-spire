@@ -782,10 +782,13 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
     assert!(seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "TEST");
     assert_eq!(seed_start.start_command.numeric_seed, 1_218_623);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[step=91].command");
+    assert_eq!(
+        seed_start.first_boundary.path,
+        "$.actions[step=168].command"
+    );
     assert_eq!(
         seed_start.first_boundary.category,
-        "unsupported_card_reward_rng_divergence"
+        "unsupported_shop_rng_divergence"
     );
     assert!(seed_start
         .first_boundary
@@ -797,11 +800,7 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
         .iter()
         .map(|step| step.label.as_str())
         .collect();
-    for expected in [
-        "map event node 1",
-        "map event node 2",
-        "event choice",
-    ] {
+    for expected in ["map event node 1", "map event node 2", "event choice"] {
         assert!(
             labels.contains(&expected),
             "missing M28 non-combat verified label {expected}; labels: {labels:?}"

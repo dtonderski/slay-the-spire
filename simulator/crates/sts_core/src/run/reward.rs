@@ -2,15 +2,14 @@ use crate::{
     card::{CardInstance, CardRarity},
     combat::{apply_combat_action, CombatPhase},
     content::cards::{upgrade_content_id, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
-    content::reward_pool::{RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
+    content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
-    ContentId,
     potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
     relic::{Relic, RelicKey, RelicTier},
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::apply_potion_action,
     run::shop::apply_shop_action,
-    CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
+    CombatAction, ContentId, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
 /// Source-backed combat reward categories from target `createCombatReward` variants.
@@ -297,6 +296,7 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
     let mut choices =
         target_card_reward_choices(&mut card_rng, &mut run.card_rarity_factor, next_card_id);
+    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices);
     run.card_rng_counter = card_rng.counter();
     if run.relic_keys.iter().any(|key| *key == RelicKey::ToxicEgg) {
         for choice in &mut choices {
@@ -310,11 +310,26 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     run.reward.as_mut().expect("reward screen present").choices = choices;
 }
 
+fn consume_reward_card_upgrade_rolls(rng: &mut StsRng, choices: &mut [CardInstance]) {
+    for choice in choices {
+        if ironclad_reward_card_rarity(choice.content_id) == Some(CardRarity::Rare) {
+            continue;
+        }
+
+        let upgrades = rng.random_float() < 0.0;
+        if upgrades {
+            if let Some(upgraded) = upgrade_content_id(choice.content_id) {
+                choice.content_id = upgraded;
+            }
+        }
+    }
+}
+
 fn reward_card_is_skill(content_id: ContentId) -> bool {
     use crate::content::cards::{
-        BATTLE_TRANCE_ID, DEFEND_R_ID, ENTRENCH_ID, FLEX_ID, INTIMIDATE_ID, METALLICIZE_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, TRUE_GRIT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, ARMAMENTS_ID,
+        ARMAMENTS_ID, BATTLE_TRANCE_ID, DEFEND_R_ID, ENTRENCH_ID, FLEX_ID, INTIMIDATE_ID,
+        OFFERING_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, TRUE_GRIT_ID, WARCRY_ID,
+        WARCRY_PLUS_ID,
     };
     matches!(
         content_id,
@@ -325,12 +340,11 @@ fn reward_card_is_skill(content_id: ContentId) -> bool {
             | ENTRENCH_ID
             | FLEX_ID
             | INTIMIDATE_ID
-            | METALLICIZE_ID
+            | OFFERING_ID
             | SHOCKWAVE_ID
             | SPOT_WEAKNESS_ID
             | WARCRY_ID
             | WARCRY_PLUS_ID
-            | WHIRLWIND_ID
             | ARMAMENTS_ID
     )
 }
