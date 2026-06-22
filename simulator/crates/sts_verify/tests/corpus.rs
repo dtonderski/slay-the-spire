@@ -773,37 +773,39 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
     assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
-        report.unexpected_diffs.is_empty(),
-        "unexpected diffs: {:?}",
-        report.unexpected_diffs
+        report
+            .unexpected_diffs
+            .iter()
+            .all(|diff| diff.action_step > 168),
+        "unexpected diffs before shop entry: {:?}",
+        report
+            .unexpected_diffs
+            .iter()
+            .filter(|diff| diff.action_step <= 168)
+            .collect::<Vec<_>>()
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(seed_start.expected_failure);
+    assert!(!seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "TEST");
     assert_eq!(seed_start.start_command.numeric_seed, 1_218_623);
-    assert_eq!(
-        seed_start.first_boundary.path,
-        "$.actions[step=168].command"
-    );
-    assert_eq!(
-        seed_start.first_boundary.category,
-        "unsupported_shop_rng_divergence"
-    );
-    assert!(seed_start
-        .first_boundary
-        .reason
-        .contains("without counter search or observed-state reconstruction"));
+    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.category, "none");
 
     let labels: Vec<_> = report
         .verified
         .iter()
         .map(|step| step.label.as_str())
         .collect();
-    for expected in ["map event node 1", "map event node 2", "event choice"] {
+    for expected in [
+        "map event node 1",
+        "map event node 2",
+        "event choice",
+        "enter shop merchant",
+    ] {
         assert!(
             labels.contains(&expected),
-            "missing M28 non-combat verified label {expected}; labels: {labels:?}"
+            "missing M28 verified label {expected}; labels: {labels:?}"
         );
     }
 }

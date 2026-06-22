@@ -28,7 +28,8 @@ pub use reward::{
     enter_elite_combat_reward_screen, enter_elite_relic_reward_screen,
     enter_normal_combat_reward_screen, enter_reward_screen, fixed_card_reward_choices,
     target_card_reward_choices, target_elite_relic_tier, target_normal_combat_gold,
-    target_potion_reward_offer, target_random_potion, target_relic_tier, CombatRewardKind,
+    target_potion_reward_offer, target_random_potion, target_relic_tier, roll_event_relic_reward,
+    setup_treasure_room, CombatRewardKind, TreasureRoomState,
 };
 pub use shop::{
     apply_shop_action, enter_shop_room, enter_shop_screen, fixed_shop_screen, generate_shop_screen,

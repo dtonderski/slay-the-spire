@@ -967,11 +967,6 @@ fn verify_seed_start_transitions(
                         if elite_combat {
                             enter_elite_combat_reward_screen(sim);
                             seed_start_sync_reward_offers_from_observed(sim, &post.message);
-                            seed_start_pin_test_elite_relic_reward(
-                                sim,
-                                &start.external_seed,
-                                elite_index,
-                            );
                             elite_combat = false;
                         } else {
                             enter_normal_combat_reward_screen(sim);
@@ -1532,7 +1527,6 @@ fn verify_seed_start_transitions(
                             seed_start_grid_simulated_subset(&next, &relics),
                         );
                     } else {
-                        let diff_count_before = report.unexpected_diffs.len();
                         compare_subset(
                             report,
                             action,
@@ -1540,22 +1534,6 @@ fn verify_seed_start_transitions(
                             seed_start_shop_observed_subset(&post.message),
                             seed_start_shop_screen_simulated_subset(&next, &relics),
                         );
-                        if label == "enter shop merchant"
-                            && report.unexpected_diffs.len() > diff_count_before
-                        {
-                            report.unexpected_diffs.truncate(diff_count_before);
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_shop_rng_divergence".to_owned(),
-                                reason: "carried card/merchant/potion/relic RNG state does not reproduce the observed TEST shop inventory without counter search or observed-state reconstruction".to_owned(),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return boundary;
-                        }
                     }
                     seed_start_sync_carry_from_run(&next, &mut relics, &mut deck_ids);
                     *sim = next;
@@ -2705,21 +2683,6 @@ fn seed_start_sync_reward_offers_from_observed(run: &mut RunState, message: &Val
     }
 }
 
-fn seed_start_pin_test_elite_relic_reward(
-    run: &mut RunState,
-    external_seed: &str,
-    elite_index: usize,
-) {
-    if external_seed != "TEST" || elite_index != 1 {
-        return;
-    }
-    let Some(reward) = run.reward.as_mut() else {
-        return;
-    };
-    reward.relic_key_offer = Some(RelicKey::FrozenEgg);
-    reward.relic_offer = None;
-}
-
 fn seed_start_test_pop_last_diff(
     report: &mut SimRealReport,
     action: &TraceAction,
@@ -3272,7 +3235,6 @@ fn seed_start_prepare_event_entry(
     run.current_floor += 1;
     if external_seed == "TEST" && event_room_index == 0 {
         run.event_rng_counter = 24;
-        run.misc_rng_counter = 1;
     }
     enter_event_screen(run);
 }
@@ -4292,6 +4254,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
+        treasure_room: None,
     })
 }
 
@@ -4357,6 +4320,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
+        treasure_room: None,
     })
 }
 
