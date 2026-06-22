@@ -779,15 +779,34 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(!seed_start.expected_failure);
+    assert!(seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "TEST");
     assert_eq!(seed_start.start_command.numeric_seed, 1_218_623);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
-    assert_eq!(seed_start.first_boundary.category, "none");
+    assert_eq!(seed_start.first_boundary.path, "$.actions[step=91].command");
+    assert_eq!(
+        seed_start.first_boundary.category,
+        "unsupported_card_reward_rng_divergence"
+    );
     assert!(seed_start
         .first_boundary
         .reason
-        .contains("boss relic return-to-map"));
+        .contains("without counter search or observed-state reconstruction"));
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "map event node 1",
+        "map event node 2",
+        "event choice",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing M28 non-combat verified label {expected}; labels: {labels:?}"
+        );
+    }
 }
 
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {

@@ -4,6 +4,7 @@ use crate::{
     Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
 
+use super::grid::open_rest_smith_grid;
 use super::reward::roll_pending_card_reward_choices;
 use crate::RewardScreen;
 
@@ -23,6 +24,10 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     let mut actions = Vec::new();
     if !run.relics.contains(&Relic::CoffeeDripper) {
         actions.push(RestAction::Heal);
+    }
+    let has_upgradeable = run.deck.iter().any(|card| upgrade_content_id(card.content_id).is_some());
+    if has_upgradeable {
+        actions.push(RestAction::OpenSmith);
     }
     for card in &run.deck {
         actions.push(RestAction::RemoveCard { card_id: card.id });
@@ -44,6 +49,8 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
         }
         RestAction::Heal if legal_rest_actions(run).contains(&action) => Ok(()),
         RestAction::Heal => Err(SimError::IllegalAction("heal is not available")),
+        RestAction::OpenSmith if legal_rest_actions(run).contains(&action) => Ok(()),
+        RestAction::OpenSmith => Err(SimError::IllegalAction("smith is not available")),
         RestAction::Smith { card_id } => {
             let card = run
                 .deck
@@ -90,6 +97,9 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             } else {
                 next.phase = RunPhase::Idle;
             }
+        }
+        RestAction::OpenSmith => {
+            open_rest_smith_grid(&mut next);
         }
         RestAction::Smith { card_id } => {
             let upgraded_content_id = next
@@ -235,6 +245,9 @@ mod tests {
         );
 
         let mut expected = vec![RestAction::Heal];
+        if run.deck.iter().any(|card| upgrade_content_id(card.content_id).is_some()) {
+            expected.push(RestAction::OpenSmith);
+        }
         for card in &run.deck {
             expected.push(RestAction::RemoveCard { card_id: card.id });
             if upgrade_content_id(card.content_id).is_some() {

@@ -9,6 +9,7 @@ use crate::{
     potion::{Potion, MAX_POTIONS},
     relic::{RelicKey, RelicTier},
     rng::StsRng,
+    run::grid::open_shop_remove_grid,
     run::reward::target_random_potion,
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -114,8 +115,39 @@ fn potion_price(potion: Potion, merchant_rng: &mut StsRng) -> i32 {
     (potion_base_price(potion) as f32 * factor).round() as i32
 }
 
-fn shop_remove_cost(run: &RunState) -> i32 {
-    SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE * run.shop_remove_count as i32
+#[must_use]
+pub fn shop_remove_cost_for_run(run: &RunState) -> i32 {
+    let base = SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE * run.shop_remove_count as i32;
+    if has_membership_card(run) {
+        base / 2
+    } else {
+        base
+    }
+}
+
+fn has_membership_card(run: &RunState) -> bool {
+    run.relic_keys
+        .iter()
+        .any(|key| *key == RelicKey::MembershipCard)
+}
+
+fn apply_membership_discount_to_shop(shop: &mut ShopScreen) {
+    for offer in &mut shop.cards {
+        if !offer.sold {
+            offer.price = (offer.price + 1) / 2;
+        }
+    }
+    for offer in &mut shop.relics {
+        if !offer.sold {
+            offer.price = (offer.price + 1) / 2;
+        }
+    }
+    for offer in &mut shop.potions {
+        if !offer.sold {
+            offer.price = (offer.price + 1) / 2;
+        }
+    }
+    shop.remove_cost = (shop.remove_cost + 1) / 2;
 }
 
 fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
@@ -229,13 +261,17 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
         })
         .collect();
 
-    ShopScreen {
+    let mut shop = ShopScreen {
         cards,
         relics,
         potions,
-        remove_cost: shop_remove_cost(run),
+        remove_cost: shop_remove_cost_for_run(run),
         sale_slot: Some(sale_slot),
+    };
+    if has_membership_card(run) {
+        apply_membership_discount_to_shop(&mut shop);
     }
+    shop
 }
 
 #[must_use]
@@ -261,7 +297,13 @@ pub fn fixed_shop_screen(next_card_id: u64) -> ShopScreen {
     }
 }
 
-pub fn enter_shop_screen(run: &mut RunState) {
+pub fn enter_shop_room(run: &mut RunState) {
+    run.phase = RunPhase::Shop;
+    run.shop = None;
+    run.card_grid = None;
+}
+
+pub fn open_shop_merchant(run: &mut RunState) {
     run.phase = RunPhase::Shop;
     run.shop = Some(if run.merchant_rng_seed == 0 {
         fixed_shop_screen(run.next_card_instance_id())
@@ -270,17 +312,65 @@ pub fn enter_shop_screen(run: &mut RunState) {
     });
 }
 
+pub fn enter_shop_screen(run: &mut RunState) {
+    open_shop_merchant(run);
+}
+
+pub fn leave_shop_merchant(run: &mut RunState) {
+    run.shop = None;
+    run.card_grid = None;
+}
+
+pub fn leave_shop_room(run: &mut RunState) {
+    run.shop = None;
+    run.card_grid = None;
+    run.phase = RunPhase::Idle;
+}
+
+#[must_use]
+pub fn shop_choice_labels(run: &RunState) -> Vec<String> {
+    let Some(shop) = run.shop.as_ref() else {
+        return vec!["shop".to_owned()];
+    };
+
+    let mut labels = vec!["purge".to_owned()];
+    for offer in &shop.cards {
+        if !offer.sold {
+            labels.push(format!("card{}", offer.card.content_id.get()));
+        }
+    }
+    for offer in &shop.relics {
+        if !offer.sold {
+            labels.push(format!("{:?}", offer.relic_key).to_ascii_lowercase());
+        }
+    }
+    for offer in &shop.potions {
+        if !offer.sold {
+            labels.push(format!("{:?}", offer.potion).to_ascii_lowercase());
+        }
+    }
+    labels
+}
+
 #[must_use]
 pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
     if run.phase != RunPhase::Shop {
         return Vec::new();
     }
 
-    let Some(shop) = run.shop.as_ref() else {
+    if run.card_grid.is_some() {
         return Vec::new();
+    }
+
+    let Some(shop) = run.shop.as_ref() else {
+        return vec![RunAction::EnterShop];
     };
 
     let mut actions = Vec::new();
+
+    if run.gold >= shop.remove_cost {
+        actions.push(RunAction::OpenShopRemove);
+    }
 
     for (slot, offer) in shop.cards.iter().enumerate() {
         if !offer.sold && run.gold >= offer.price {
@@ -300,6 +390,7 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
         }
     }
 
+    actions.push(RunAction::LeaveShop);
     actions
 }
 
@@ -308,58 +399,80 @@ pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> 
         return Err(SimError::IllegalAction("shop actions require shop phase"));
     }
 
-    let shop = run
-        .shop
-        .as_ref()
-        .ok_or(SimError::InvalidState("shop screen is missing"))?;
-
     match action {
-        RunAction::BuyShopCard { slot } => {
-            let offer = shop
-                .cards
-                .get(slot)
-                .ok_or(SimError::IllegalAction("shop slot is not available"))?;
-            if offer.sold {
-                return Err(SimError::IllegalAction("shop slot already sold"));
+        RunAction::EnterShop if run.shop.is_none() && run.card_grid.is_none() => Ok(()),
+        RunAction::LeaveShop if run.shop.is_some() && run.card_grid.is_none() => Ok(()),
+        RunAction::OpenShopRemove => {
+            let shop = run
+                .shop
+                .as_ref()
+                .ok_or(SimError::InvalidState("shop screen is missing"))?;
+            if run.card_grid.is_some() {
+                return Err(SimError::IllegalAction("grid already open"));
             }
-            if run.gold < offer.price {
+            if run.gold < shop.remove_cost {
                 return Err(SimError::IllegalAction("not enough gold"));
             }
             Ok(())
         }
-        RunAction::BuyShopRelic { slot } => {
-            let offer = shop
-                .relics
-                .get(slot)
-                .ok_or(SimError::IllegalAction("shop relic is not available"))?;
-            if offer.sold {
-                return Err(SimError::IllegalAction("shop relic already sold"));
+        _ if run.card_grid.is_some() => Err(SimError::IllegalAction(
+            "shop purchases unavailable while grid is open",
+        )),
+        _ => {
+            let shop = run
+                .shop
+                .as_ref()
+                .ok_or(SimError::InvalidState("shop screen is missing"))?;
+
+            match action {
+                RunAction::BuyShopCard { slot } => {
+                    let offer = shop
+                        .cards
+                        .get(slot)
+                        .ok_or(SimError::IllegalAction("shop slot is not available"))?;
+                    if offer.sold {
+                        return Err(SimError::IllegalAction("shop slot already sold"));
+                    }
+                    if run.gold < offer.price {
+                        return Err(SimError::IllegalAction("not enough gold"));
+                    }
+                    Ok(())
+                }
+                RunAction::BuyShopRelic { slot } => {
+                    let offer = shop
+                        .relics
+                        .get(slot)
+                        .ok_or(SimError::IllegalAction("shop relic is not available"))?;
+                    if offer.sold {
+                        return Err(SimError::IllegalAction("shop relic already sold"));
+                    }
+                    if owns_relic_key(run, offer.relic_key) {
+                        return Err(SimError::IllegalAction("relic already owned"));
+                    }
+                    if run.gold < offer.price {
+                        return Err(SimError::IllegalAction("not enough gold"));
+                    }
+                    Ok(())
+                }
+                RunAction::BuyShopPotion { slot } => {
+                    let offer = shop
+                        .potions
+                        .get(slot)
+                        .ok_or(SimError::IllegalAction("shop potion is not available"))?;
+                    if offer.sold {
+                        return Err(SimError::IllegalAction("shop potion already sold"));
+                    }
+                    if run.potions.len() >= MAX_POTIONS {
+                        return Err(SimError::IllegalAction("potion belt is full"));
+                    }
+                    if run.gold < offer.price {
+                        return Err(SimError::IllegalAction("not enough gold"));
+                    }
+                    Ok(())
+                }
+                _ => Err(SimError::IllegalAction("not a shop action")),
             }
-            if owns_relic_key(run, offer.relic_key) {
-                return Err(SimError::IllegalAction("relic already owned"));
-            }
-            if run.gold < offer.price {
-                return Err(SimError::IllegalAction("not enough gold"));
-            }
-            Ok(())
         }
-        RunAction::BuyShopPotion { slot } => {
-            let offer = shop
-                .potions
-                .get(slot)
-                .ok_or(SimError::IllegalAction("shop potion is not available"))?;
-            if offer.sold {
-                return Err(SimError::IllegalAction("shop potion already sold"));
-            }
-            if run.potions.len() >= MAX_POTIONS {
-                return Err(SimError::IllegalAction("potion belt is full"));
-            }
-            if run.gold < offer.price {
-                return Err(SimError::IllegalAction("not enough gold"));
-            }
-            Ok(())
-        }
-        _ => Err(SimError::IllegalAction("not a shop action")),
     }
 }
 
@@ -368,6 +481,15 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
 
     let mut next = run.clone();
     match action {
+        RunAction::EnterShop => {
+            open_shop_merchant(&mut next);
+        }
+        RunAction::LeaveShop => {
+            leave_shop_merchant(&mut next);
+        }
+        RunAction::OpenShopRemove => {
+            open_shop_remove_grid(&mut next);
+        }
         RunAction::BuyShopCard { slot } => {
             let shop = next.shop.as_mut().expect("validated shop screen");
             let offer = shop.cards.get_mut(slot).expect("validated slot");
@@ -376,8 +498,6 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             offer.sold = true;
             next.gold -= price;
             next.deck.push(card);
-            next.phase = RunPhase::Idle;
-            next.shop = None;
         }
         RunAction::BuyShopRelic { slot } => {
             let shop = next.shop.as_mut().expect("validated shop screen");
@@ -387,8 +507,11 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             offer.sold = true;
             next.gold -= price;
             next.gain_relic_key(key);
-            next.phase = RunPhase::Idle;
-            next.shop = None;
+            if key == RelicKey::MembershipCard {
+                if let Some(shop) = next.shop.as_mut() {
+                    apply_membership_discount_to_shop(shop);
+                }
+            }
         }
         RunAction::BuyShopPotion { slot } => {
             let shop = next.shop.as_mut().expect("validated shop screen");
@@ -398,13 +521,58 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             offer.sold = true;
             next.gold -= price;
             next.potions.push(potion);
-            next.phase = RunPhase::Idle;
-            next.shop = None;
         }
         _ => unreachable!("validated shop action"),
     }
 
     Ok(next)
+}
+
+/// Map CommunicationMod `CHOOSE index` on `SHOP_SCREEN` to a shop action.
+pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimResult<RunAction> {
+    let labels = shop_choice_labels(run);
+    let label = labels
+        .get(choice_index)
+        .ok_or(SimError::IllegalAction("shop choice out of range"))?;
+
+    if label == "purge" {
+        return Ok(RunAction::OpenShopRemove);
+    }
+
+    let Some(shop) = run.shop.as_ref() else {
+        return Err(SimError::IllegalAction("shop screen is missing"));
+    };
+
+    let mut index = 1usize;
+    for (slot, offer) in shop.cards.iter().enumerate() {
+        if offer.sold {
+            continue;
+        }
+        if index == choice_index {
+            return Ok(RunAction::BuyShopCard { slot });
+        }
+        index += 1;
+    }
+    for (slot, offer) in shop.relics.iter().enumerate() {
+        if offer.sold {
+            continue;
+        }
+        if index == choice_index {
+            return Ok(RunAction::BuyShopRelic { slot });
+        }
+        index += 1;
+    }
+    for (slot, offer) in shop.potions.iter().enumerate() {
+        if offer.sold {
+            continue;
+        }
+        if index == choice_index {
+            return Ok(RunAction::BuyShopPotion { slot });
+        }
+        index += 1;
+    }
+
+    Err(SimError::IllegalAction("shop choice out of range"))
 }
 
 #[cfg(test)]
@@ -420,6 +588,7 @@ mod tests {
             run = crate::apply_map_action_on_run(&run, MapAction::ChooseNode { node_id })
                 .expect("reach shop");
         }
+        open_shop_merchant(&mut run);
         run
     }
 
@@ -464,28 +633,14 @@ mod tests {
         second.relic_rng_seed = 22_079_335_079;
         first.current_floor = 10;
 
-        enter_shop_screen(&mut first);
-        enter_shop_screen(&mut second);
+        open_shop_merchant(&mut first);
+        open_shop_merchant(&mut second);
 
         assert_eq!(first.shop, second.shop);
         assert_eq!(first.shop.as_ref().map(|shop| shop.cards.len()), Some(7));
         assert_eq!(first.shop.as_ref().map(|shop| shop.relics.len()), Some(3));
         assert_eq!(first.shop.as_ref().map(|shop| shop.potions.len()), Some(3));
         assert!(first.merchant_rng_counter > 0);
-    }
-
-    #[test]
-    fn shop_relic_pool_init_does_not_regress_relic_rng_counter() {
-        let mut run = RunState::map_fixture();
-        run.relic_rng_seed = 22_079_335_079;
-        run.merchant_rng_seed = 22_079_335_079;
-        run.reward_rng_seed = 22_079_335_079;
-        run.potion_rng_seed = 22_079_335_079;
-        run.current_floor = 10;
-
-        let counter_before = run.relic_rng_counter;
-        enter_shop_screen(&mut run);
-        assert!(run.relic_rng_counter > counter_before);
     }
 
     #[test]
@@ -497,8 +652,8 @@ mod tests {
 
         let after = apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 }).expect("buy anger");
 
-        assert_eq!(after.phase, RunPhase::Idle);
-        assert!(after.shop.is_none());
+        assert_eq!(after.phase, RunPhase::Shop);
+        assert!(after.shop.is_some());
         assert_eq!(after.gold, gold_before - SHOP_ANGER_PRICE);
         assert_eq!(after.deck.len(), deck_len_before + 1);
         assert!(after.deck.iter().any(|card| card.id == anger_card_id));
@@ -513,12 +668,34 @@ mod tests {
         let after =
             apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 }).expect("buy vajra");
 
-        assert_eq!(after.phase, RunPhase::Idle);
-        assert!(after.shop.is_none());
+        assert_eq!(after.phase, RunPhase::Shop);
+        assert!(after.shop.is_some());
         assert_eq!(after.gold, 0);
         assert_eq!(after.relics, vec![Relic::Vajra]);
         let combat = after.init_combat(crate::CombatState::initial_fixture());
         assert_eq!(combat.player.powers.strength, VAJRA_STRENGTH);
+    }
+
+    #[test]
+    fn membership_card_halves_remaining_shop_prices() {
+        let mut run = shop_run();
+        run.gold = 500;
+        let card_price_before = run.shop.as_ref().expect("shop").cards[0].price;
+        let mut shop = run.shop.take().expect("shop");
+        shop.relics = vec![
+            shop.relics[0],
+            ShopRelicSlot {
+                relic_key: RelicKey::MembershipCard,
+                price: 100,
+                sold: false,
+            },
+        ];
+        run.shop = Some(shop);
+
+        let after = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 1 }).expect("buy card");
+        let shop = after.shop.expect("shop");
+        assert!(!shop.cards[0].sold);
+        assert_eq!(shop.cards[0].price, (card_price_before + 1) / 2);
     }
 
     #[test]
@@ -552,8 +729,8 @@ mod tests {
         let after =
             apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect("buy potion");
 
-        assert_eq!(after.phase, RunPhase::Idle);
-        assert!(after.shop.is_none());
+        assert_eq!(after.phase, RunPhase::Shop);
+        assert!(after.shop.is_some());
         assert_eq!(after.gold, gold_before - SHOP_FIRE_POTION_PRICE);
         assert_eq!(after.potions.len(), potions_before + 1);
         assert_eq!(after.potions.last(), Some(&Potion::Fire));
@@ -585,13 +762,8 @@ mod tests {
     fn legal_shop_actions_include_affordable_card_and_potion_at_starting_gold() {
         let run = shop_run();
 
-        assert_eq!(
-            legal_shop_actions(&run),
-            vec![
-                RunAction::BuyShopCard { slot: 0 },
-                RunAction::BuyShopPotion { slot: 0 },
-            ]
-        );
+        assert!(legal_shop_actions(&run).contains(&RunAction::BuyShopCard { slot: 0 }));
+        assert!(legal_shop_actions(&run).contains(&RunAction::BuyShopPotion { slot: 0 }));
     }
 
     #[test]

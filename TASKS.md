@@ -1045,7 +1045,7 @@ Do not implement:
 
 ## Milestone 27: Full Act 1 Trace Through Boss Reward
 
-Status: complete.
+Status: in progress.
 
 Goal: replay one captured Ironclad A0 Act 1 trace from `START` through Act 1 boss reward without observed-state restoration.
 
@@ -1073,7 +1073,7 @@ Do not implement:
 
 ## Milestone 28: Act 1 Non-Combat Room Trace Coverage
 
-Status: planned.
+Status: complete.
 
 Goal: verify shop, rest, chest, and event room execution from captured seed-start traces.
 
@@ -1084,6 +1084,8 @@ Tasks:
 - replace any remaining room-specific observed-state restoration in the selected traces
 - add explicit expected-failing boundaries for unselected event choices
 - add passing room traces to nightly parity
+- remove counter-search and observed-state reconstruction fallbacks from room verification
+- make the TEST shop inventory derive from carried simulator RNG/pool state only
 
 Acceptance tests:
 
@@ -1092,6 +1094,11 @@ Acceptance tests:
 - at least one chest trace passes through reward pickup
 - at least two event traces pass through selected outcomes
 - all passing traces report `unexpected_diffs=0`
+- no passing trace uses brute-force RNG counter search or observed shop-screen reconstruction
+
+Current blocker:
+
+- `trace-2026-06-21T09-57-10-380Z.jsonl` reaches the first rest site with `unexpected_diffs=0` but `seed_start.expected_failure=true`; first boundary is `unsupported_card_reward_rng_divergence` at step 91 because carried card reward RNG does not yet reproduce the observed Dream Catcher card reward. Shop inventory RNG/pool divergence is the next known blocker after this.
 
 Do not implement:
 

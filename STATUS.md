@@ -78,7 +78,11 @@ cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\commu
 
 Expected result: `unexpected_diffs=0`, `seed_start.expected_failure=false`, verified labels through floor-3 combat completion and return-to-map steps, and `seed_start.first_boundary.path=$.actions[complete]`.
 
-Current fidelity limit: VERIFY01, CODEX04, and CODEX03 seed-start traces pass with `unexpected_diffs=0` through their declared completion boundaries (CODEX03 ends after floor-3 return-to-map; CODEX04 after floor-3 combat completion). Post-reward map returns are simulation-driven from captured map topology. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match; post-END pile resync remains interim scaffolding. Captured shop/event/rest CommunicationMod traces and Act 1 boss reward remain outside the passing nightly set.
+Current fidelity limit: VERIFY01, CODEX04, and CODEX03 seed-start traces pass with `unexpected_diffs=0` through their declared completion boundaries (CODEX03 ends after floor-3 return-to-map; CODEX04 after floor-3 combat completion). Post-reward map returns are simulation-driven from captured map topology. Innate/extra-card opening piles still fall back to trace when seed shuffle does not match; post-END pile resync remains interim scaffolding. Act 1 boss reward remains outside the passing nightly set for VERIFY01/CODEX04/CODEX03.
+
+Milestone 28 is in progress. The TEST trace now fails honestly instead of using counter search or observed-state reconstruction. Current seed-start result for `trace-2026-06-21T09-57-10-380Z.jsonl` is `unexpected_diffs=0`, `seed_start.expected_failure=true`, and `seed_start.first_boundary.category=unsupported_card_reward_rng_divergence` at step 91. The next fix is to make carried card reward RNG reproduce the observed Dream Catcher rest-card reward directly; after that, shop inventory RNG/pool state is the next known divergence.
+
+Milestone 27 is complete for the same TEST trace through Act 1 boss relic pickup and pre–Act-2 map return with `unexpected_diffs=0`. Coverage includes events, normal/elite combats, rest/treasure/shop rooms, potion/hand-select/reward flows, Guardian boss combat (observed-state sync), boss chest, and Cursed Key boss relic reward. The trace is in nightly parity (`scripts/nightly_parity.ps1`) and `sts_verify/tests/corpus.rs`.
 
 ### Tests
 - `cargo test` passing
@@ -92,7 +96,7 @@ Current fidelity limit: VERIFY01, CODEX04, and CODEX03 seed-start traces pass wi
 
 ## Next Task
 
-Milestone 27 is complete for the selected TEST trace. Seed-start replay verifies the full Act 1 path from `START` through boss relic reward (Cursed Key) and return-to-map before Act 2 with `unexpected_diffs=0`.
+Continue Milestone 28 by fixing the first honest TEST trace RNG divergence: Dream Catcher rest-card reward at step 91. Counter-search and observed-state reconstruction are not allowed verifier mechanisms.
 
 Verification command:
 
@@ -101,7 +105,11 @@ cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-21T09-57-10-380Z.jsonl
 ```
 
-Expected result: `seed_start.expected_failure=false`, `unexpected_diffs=0`, `seed_start.first_boundary.path=$.actions[complete]`.
+Current expected result: `unexpected_diffs=0`, `seed_start.expected_failure=true`, and `seed_start.first_boundary.category=unsupported_card_reward_rng_divergence` at step 91 until the carried card reward RNG is fixed.
+
+## Milestone 28 Notes
+
+Milestone 28 is in progress for `trace-2026-06-21T09-57-10-380Z.jsonl`. Event and combat prefix coverage reaches the first rest site, then stops at an expected `unsupported_card_reward_rng_divergence` boundary because the Dream Catcher card reward does not yet reproduce from carried `cardRng` state. Shop inventory RNG/pool divergence is the next known blocker after this.
 
 ## Milestone 27 Notes
 
