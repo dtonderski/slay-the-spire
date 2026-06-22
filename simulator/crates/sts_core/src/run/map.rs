@@ -4,7 +4,7 @@ use crate::{
 };
 
 use super::event::enter_event_screen;
-use super::shop::enter_shop_screen;
+use super::shop::enter_shop_room;
 
 fn current_room_kind(run: &RunState) -> Option<RoomKind> {
     run.map.as_ref().and_then(|map_state| {
@@ -48,7 +48,7 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     if current_room_kind(&next) == Some(RoomKind::Rest) {
         next.phase = RunPhase::Rest;
     } else if current_room_kind(&next) == Some(RoomKind::Shop) {
-        enter_shop_screen(&mut next);
+        enter_shop_room(&mut next);
     } else if current_room_kind(&next) == Some(RoomKind::Event) {
         enter_event_screen(&mut next);
     }
@@ -59,6 +59,7 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::run::shop::open_shop_merchant;
     use crate::{ids::MapNodeId, map::RoomKind};
 
     #[test]
@@ -136,6 +137,8 @@ mod tests {
                 .map(|node| node.room_kind),
             Some(RoomKind::Shop)
         );
+        assert!(run.shop.is_none());
+        open_shop_merchant(&mut run);
         assert!(run.shop.is_some());
     }
 }

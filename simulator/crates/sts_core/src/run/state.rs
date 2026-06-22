@@ -90,6 +90,8 @@ pub struct RunState {
     pub event: Option<super::event::EventScreen>,
     pub shop: Option<super::shop::ShopScreen>,
     #[serde(default)]
+    pub card_grid: Option<super::grid::CardGridScreen>,
+    #[serde(default)]
     pub relics: Vec<Relic>,
     #[serde(default)]
     pub potions: Vec<Potion>,
@@ -201,6 +203,9 @@ pub enum RunAction {
     DiscardPotion {
         slot: usize,
     },
+    EnterShop,
+    LeaveShop,
+    OpenShopRemove,
 }
 
 impl RunState {
@@ -252,6 +257,7 @@ impl RunState {
             reward: None,
             event: None,
             shop: None,
+            card_grid: None,
             relics,
             potions: Vec::new(),
             event_rng_seed: 0,
@@ -300,6 +306,7 @@ impl RunState {
             reward: None,
             event: None,
             shop: None,
+            card_grid: None,
             relics: Vec::new(),
             potions: Vec::new(),
             event_rng_seed: 0,
@@ -339,10 +346,12 @@ impl RunState {
 
     #[must_use]
     pub fn relic_spawn_context(&self, floor_num: i32, shop_room: bool) -> RelicSpawnContext {
+        let mut owned_relics: Vec<_> = self.relics.iter().map(|relic| relic.key()).collect();
+        owned_relics.extend(self.relic_keys.iter().copied());
         RelicSpawnContext {
             floor_num,
             shop_room,
-            owned_relics: self.relics.iter().map(|relic| relic.key()).collect(),
+            owned_relics,
             has_non_basic_attack: self.deck.iter().any(|card| {
                 card_type_and_rarity(card.content_id).is_some_and(|(card_type, _)| {
                     card_type == CardType::Attack && !is_basic_starter_card(card.content_id)
@@ -473,7 +482,10 @@ impl RunState {
             }
             RunAction::BuyShopCard { .. }
             | RunAction::BuyShopRelic { .. }
-            | RunAction::BuyShopPotion { .. } => {
+            | RunAction::BuyShopPotion { .. }
+            | RunAction::EnterShop
+            | RunAction::LeaveShop
+            | RunAction::OpenShopRemove => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
             RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {

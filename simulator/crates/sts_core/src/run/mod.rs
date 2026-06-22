@@ -1,4 +1,5 @@
 pub mod event;
+pub mod grid;
 pub mod map;
 pub mod potion;
 pub mod rest;
@@ -10,6 +11,10 @@ pub use event::{
     apply_event_action, enter_event_screen, enter_fixed_event_screen, event_screen,
     fixed_event_screen, legal_event_actions, validate_event_action, Event, EventChoice,
     EventScreen, GOLDEN_SHRINE_GOLD,
+};
+pub use grid::{
+    cancel_grid, confirm_grid, open_rest_smith_grid, open_shop_remove_grid, select_grid_card,
+    CardGridScreen, GridPurpose,
 };
 pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
 pub use potion::{apply_potion_action, validate_potion_action};
@@ -26,9 +31,11 @@ pub use reward::{
     CombatRewardKind,
 };
 pub use shop::{
-    apply_shop_action, enter_shop_screen, fixed_shop_screen, generate_shop_screen,
-    legal_shop_actions, shop_card_rarity_roll, shop_relic_tier_roll, validate_shop_action,
-    ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen, SHOP_ANGER_PRICE,
-    SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
+    apply_shop_action, enter_shop_room, enter_shop_screen, fixed_shop_screen, generate_shop_screen,
+    leave_shop_merchant, leave_shop_room, legal_shop_actions, open_shop_merchant,
+    shop_action_for_choice_index, shop_card_rarity_roll, shop_relic_tier_roll,
+    shop_remove_cost_for_run, validate_shop_action, ShopCardSlot, ShopPotionSlot, ShopRelicSlot,
+    ShopScreen, SHOP_ANGER_PRICE, SHOP_BASE_REMOVE_PRICE, SHOP_FIRE_POTION_PRICE,
+    SHOP_VAJRA_PRICE,
 };
 pub use state::{RewardScreen, RunAction, RunPhase, RunState, REWARD_GOLD_AMOUNT, STARTING_GOLD};

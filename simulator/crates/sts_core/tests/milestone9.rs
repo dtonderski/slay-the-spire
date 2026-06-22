@@ -3,11 +3,12 @@ use sts_core::{
     content::cards::ANGER_ID,
     content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    enter_event_screen, enter_fixed_event_screen, legal_event_actions, legal_map_actions_on_run,
-    legal_rest_actions, legal_shop_actions, rest_heal_amount, Event, EventAction, MapAction,
-    MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction, RunPhase, RunState,
-    SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE,
-    SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
+    content::cards::upgrade_content_id,
+    enter_event_screen, enter_fixed_event_screen, leave_shop_room, legal_event_actions,
+    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, Event,
+    EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction,
+    RunPhase, RunState, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE,
+    SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -15,6 +16,12 @@ fn reach_shop_via_left_branch() -> RunState {
     for node_id in [MapNodeId::new(1), MapNodeId::new(3), MapNodeId::new(4)] {
         run = apply_map_action_on_run(&run, MapAction::ChooseNode { node_id }).expect("reach shop");
     }
+    apply_run_action(&run, RunAction::EnterShop).expect("open merchant")
+}
+
+fn leave_shop_merchant_and_room(mut run: RunState) -> RunState {
+    run = apply_run_action(&run, RunAction::LeaveShop).expect("leave merchant");
+    leave_shop_room(&mut run);
     run
 }
 
@@ -67,9 +74,12 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
         Some(RoomKind::Rest)
     );
     let mut expected = vec![RestAction::Heal];
+    if run.deck.iter().any(|card| upgrade_content_id(card.content_id).is_some()) {
+        expected.push(RestAction::OpenSmith);
+    }
     for card in &run.deck {
         expected.push(RestAction::RemoveCard { card_id: card.id });
-        if sts_core::content::cards::upgrade_content_id(card.content_id).is_some() {
+        if upgrade_content_id(card.content_id).is_some() {
             expected.push(RestAction::Smith { card_id: card.id });
         }
     }
@@ -195,8 +205,10 @@ fn entering_shop_room_exposes_anger_and_blocks_map_actions() {
     assert_eq!(
         legal_shop_actions(&run),
         vec![
+            RunAction::OpenShopRemove,
             RunAction::BuyShopCard { slot: 0 },
             RunAction::BuyShopPotion { slot: 0 },
+            RunAction::LeaveShop,
         ]
     );
     assert!(legal_map_actions_on_run(&run).is_empty());
@@ -208,7 +220,9 @@ fn buy_shop_card_then_map_traversal_continues() {
     let gold_before = run.gold;
     let deck_len_before = run.deck.len();
 
-    let run = apply_run_action(&run, RunAction::BuyShopCard { slot: 0 }).expect("buy anger");
+    let run = leave_shop_merchant_and_room(
+        apply_run_action(&run, RunAction::BuyShopCard { slot: 0 }).expect("buy anger"),
+    );
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert!(run.shop.is_none());
@@ -227,7 +241,9 @@ fn buy_shop_card_then_map_traversal_continues() {
 fn buy_shop_potion_adds_fire_potion_to_belt() {
     let run = reach_shop_via_left_branch();
 
-    let run = apply_run_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect("buy potion");
+    let run = leave_shop_merchant_and_room(
+        apply_run_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect("buy potion"),
+    );
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.potions, vec![Potion::Fire]);
@@ -365,7 +381,9 @@ fn buy_shop_relic_adds_vajra_and_applies_on_next_combat() {
     let mut run = reach_shop_via_left_branch();
     run.gold = SHOP_VAJRA_PRICE;
 
-    let run = apply_run_action(&run, RunAction::BuyShopRelic { slot: 0 }).expect("buy vajra");
+    let run = leave_shop_merchant_and_room(
+        apply_run_action(&run, RunAction::BuyShopRelic { slot: 0 }).expect("buy vajra"),
+    );
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.relics, vec![Relic::Vajra]);

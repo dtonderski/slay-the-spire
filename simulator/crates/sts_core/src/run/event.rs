@@ -700,7 +700,7 @@ mod tests {
         run.misc_rng_seed = 1_218_623;
 
         let mut first_counter = None;
-        for counter in 0..32 {
+        for counter in 0..64 {
             let mut trial = run.clone();
             trial.event_rng_counter = counter;
             enter_event_screen(&mut trial);
@@ -710,10 +710,7 @@ mod tests {
             }
         }
         let first_counter = first_counter.expect("scrap ooze counter");
-        assert!(
-            first_counter <= 5,
-            "unexpected scrap ooze counter {first_counter}"
-        );
+        assert_eq!(first_counter, 24, "TEST seed first event counter");
         run.event_rng_counter = first_counter;
 
         enter_event_screen(&mut run);

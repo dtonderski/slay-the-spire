@@ -433,7 +433,10 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
     match action {
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
-        | RunAction::BuyShopPotion { .. } => apply_shop_action(run, action),
+        | RunAction::BuyShopPotion { .. }
+        | RunAction::EnterShop
+        | RunAction::LeaveShop
+        | RunAction::OpenShopRemove => apply_shop_action(run, action),
         RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
             apply_potion_action(run, action)
         }
@@ -508,7 +511,10 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
         }
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
-        | RunAction::BuyShopPotion { .. } => {
+        | RunAction::BuyShopPotion { .. }
+        | RunAction::EnterShop
+        | RunAction::LeaveShop
+        | RunAction::OpenShopRemove => {
             unreachable!("validated reward action")
         }
         RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
