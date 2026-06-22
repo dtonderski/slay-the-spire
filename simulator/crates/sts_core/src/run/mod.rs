@@ -27,15 +27,16 @@ pub use reward::{
     card_reward_choices, enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
     enter_elite_combat_reward_screen, enter_elite_relic_reward_screen,
     enter_normal_combat_reward_screen, enter_reward_screen, fixed_card_reward_choices,
-    target_card_reward_choices, target_elite_relic_tier, target_normal_combat_gold,
-    target_potion_reward_offer, target_random_potion, target_relic_tier, roll_event_relic_reward,
-    setup_treasure_room, CombatRewardKind, TreasureRoomState,
+    roll_event_relic_reward, setup_treasure_room, target_card_reward_choices,
+    target_elite_relic_tier, target_normal_combat_gold, target_potion_reward_offer,
+    target_random_potion, target_relic_tier, CombatRewardKind, TreasureRoomState,
 };
 pub use shop::{
-    apply_shop_action, enter_shop_room, enter_shop_screen, fixed_shop_screen, generate_shop_screen,
-    leave_shop_merchant, leave_shop_room, legal_shop_actions, open_shop_merchant,
-    shop_action_for_choice_index, shop_card_rarity_roll, shop_relic_tier_roll,
-    shop_remove_cost_for_run, validate_shop_action, ShopCardSlot, ShopPotionSlot, ShopRelicSlot,
-    ShopScreen, SHOP_ANGER_PRICE, SHOP_BASE_REMOVE_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
+    affordable_shop_picks, apply_shop_action, enter_shop_room, enter_shop_screen,
+    fixed_shop_screen, generate_shop_screen, leave_shop_merchant, leave_shop_room,
+    legal_shop_actions, open_shop_merchant, shop_action_for_choice_index, shop_card_rarity_roll,
+    shop_relic_tier_roll, shop_remove_cost_for_run, validate_shop_action, ShopCardSlot, ShopPick,
+    ShopPotionSlot, ShopRelicSlot, ShopScreen, SHOP_ANGER_PRICE, SHOP_BASE_REMOVE_PRICE,
+    SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
 };
 pub use state::{RewardScreen, RunAction, RunPhase, RunState, REWARD_GOLD_AMOUNT, STARTING_GOLD};

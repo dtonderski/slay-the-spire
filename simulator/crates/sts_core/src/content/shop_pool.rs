@@ -14,6 +14,7 @@ use crate::content::cards::{
     THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID,
     WILD_STRIKE_ID,
 };
+use crate::content::reward_pool::ironclad_reward_card_rarity;
 use crate::rng::StsRng;
 use crate::ContentId;
 
@@ -273,6 +274,25 @@ pub fn random_colorless_from_pool(rng: &mut StsRng, rarity: CardRarity) -> Conte
     };
     let idx = rng.random_int((pool.len() - 1) as i32) as usize;
     shop_card_content_id(pool[idx])
+}
+
+/// Target shop pricing uses each card's library rarity, not the rolled shop slot rarity.
+#[must_use]
+pub fn shop_card_price_rarity(content_id: ContentId) -> CardRarity {
+    if let Some(rarity) = ironclad_reward_card_rarity(content_id) {
+        return rarity;
+    }
+    for name in COLORLESS_UNCOMMON {
+        if shop_card_content_id(name) == content_id {
+            return CardRarity::Uncommon;
+        }
+    }
+    for name in COLORLESS_RARE {
+        if shop_card_content_id(name) == content_id {
+            return CardRarity::Rare;
+        }
+    }
+    CardRarity::Common
 }
 
 #[must_use]

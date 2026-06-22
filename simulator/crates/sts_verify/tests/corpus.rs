@@ -764,6 +764,37 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
 }
 
 #[test]
+fn test_seed_start_m28_shop_entry_parity() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+
+    let prefix_diffs: Vec<_> = report
+        .unexpected_diffs
+        .iter()
+        .filter(|diff| diff.action_step <= 168)
+        .collect();
+    assert!(
+        prefix_diffs.is_empty(),
+        "unexpected diffs through shop entry (step <= 168): {prefix_diffs:?}"
+    );
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    assert!(
+        labels.contains(&"enter shop merchant"),
+        "missing verified shop entry; labels: {labels:?}"
+    );
+}
+
+#[test]
 fn test_seed_start_full_act1_boss_relic_prefix() {
     let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
@@ -773,16 +804,9 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
     assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
-        report
-            .unexpected_diffs
-            .iter()
-            .all(|diff| diff.action_step > 168),
-        "unexpected diffs before shop entry: {:?}",
-        report
-            .unexpected_diffs
-            .iter()
-            .filter(|diff| diff.action_step <= 168)
-            .collect::<Vec<_>>()
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
@@ -805,7 +829,7 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
     ] {
         assert!(
             labels.contains(&expected),
-            "missing M28 verified label {expected}; labels: {labels:?}"
+            "missing verified label {expected}; labels: {labels:?}"
         );
     }
 }
