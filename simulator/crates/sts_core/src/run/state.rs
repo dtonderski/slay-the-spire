@@ -341,6 +341,17 @@ impl RunState {
             let mut rng = StsRng::with_counter(self.relic_rng_seed as i64, self.relic_rng_counter);
             self.relic_pools = Some(initialize_ironclad_relic_pools(&mut rng));
             self.relic_rng_counter = rng.counter();
+            let owned_keys: Vec<_> = self
+                .relics
+                .iter()
+                .map(|relic| relic.key())
+                .chain(self.relic_keys.iter().copied())
+                .collect();
+            if let Some(pools) = self.relic_pools.as_mut() {
+                for key in owned_keys {
+                    pools.remove_relic(key);
+                }
+            }
         }
     }
 
@@ -384,6 +395,9 @@ impl RunState {
     }
 
     pub fn gain_relic_key(&mut self, key: RelicKey) {
+        if let Some(pools) = self.relic_pools.as_mut() {
+            pools.remove_relic(key);
+        }
         if let Some(relic) = Relic::from_key(key) {
             self.gain_relic(relic);
         } else {
@@ -392,6 +406,9 @@ impl RunState {
     }
 
     pub fn gain_relic(&mut self, relic: Relic) {
+        if let Some(pools) = self.relic_pools.as_mut() {
+            pools.remove_relic(relic.key());
+        }
         self.relics.push(relic);
         match relic {
             Relic::Strawberry => {

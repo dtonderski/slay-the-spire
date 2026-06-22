@@ -160,7 +160,7 @@ fn roll_shop_relic(run: &mut RunState, tier: RelicTier) -> RelicKey {
     run.relic_pools
         .as_mut()
         .expect("relic pools")
-        .return_random_relic(tier, &context)
+        .return_random_relic_end(tier, &context)
 }
 
 #[must_use]
@@ -222,11 +222,8 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
     prices[sale_slot] /= 2;
 
     let mut relics = Vec::with_capacity(3);
-    for tier in [
-        shop_relic_tier_roll(&mut merchant_rng),
-        shop_relic_tier_roll(&mut merchant_rng),
-        RelicTier::Shop,
-    ] {
+    for _ in 0..2 {
+        let tier = shop_relic_tier_roll(&mut merchant_rng);
         let key = roll_shop_relic(run, tier);
         relics.push(ShopRelicSlot {
             relic_key: key,
@@ -234,6 +231,12 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
             sold: false,
         });
     }
+    let key = roll_shop_relic(run, RelicTier::Shop);
+    relics.push(ShopRelicSlot {
+        relic_key: key,
+        price: relic_price(RelicTier::Shop, &mut merchant_rng),
+        sold: false,
+    });
 
     let mut potions = Vec::with_capacity(3);
     for _ in 0..3 {

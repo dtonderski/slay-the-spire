@@ -1098,7 +1098,7 @@ Acceptance tests:
 
 Current blocker:
 
-- `trace-2026-06-21T09-57-10-380Z.jsonl` reaches the shop node with `unexpected_diffs=0` but `seed_start.expected_failure=true`; first boundary is `unsupported_shop_rng_divergence` at step 168 because carried shop RNG/pool state does not yet reproduce the observed shop inventory. Dream Catcher rest-card reward now reproduces from carried card reward RNG.
+- `trace-2026-06-21T09-57-10-380Z.jsonl` reaches the shop node with `unexpected_diffs=0` but `seed_start.expected_failure=true`; first boundary is `unsupported_shop_rng_divergence` at step 168 because carried shop relic/potion pool state does not yet reproduce the observed shop inventory. Dream Catcher rest-card reward now reproduces from carried card reward RNG. Source-backed shop fixes are in for `returnRandomRelicEnd`, per-slot relic roll/price order, and pruning owned relics from initialized/gained pools; the remaining work is target relic/potion pool population/counter carry, not counter search.
 
 Do not implement:
 
