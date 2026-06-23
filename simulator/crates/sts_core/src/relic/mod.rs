@@ -44,6 +44,10 @@ pub const MARK_OF_PAIN_ENERGY: i32 = 1;
 pub const FUSION_HAMMER_ENERGY: i32 = 1;
 /// Energy per turn granted by [Relic::Sozu] on pickup.
 pub const SOZU_ENERGY: i32 = 1;
+/// Energy per turn granted by [Relic::BustedCrown] on pickup.
+pub const BUSTED_CROWN_ENERGY: i32 = 1;
+/// Fewer card reward choices shown by [Relic::BustedCrown].
+pub const BUSTED_CROWN_CARD_REWARD_REDUCTION: usize = 2;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -235,6 +239,8 @@ pub const DU_VU_DOLL_ID: ContentId = ContentId::new(350);
 pub const FUSION_HAMMER_ID: ContentId = ContentId::new(351);
 /// Content id for [Relic::Sozu].
 pub const SOZU_ID: ContentId = ContentId::new(352);
+/// Content id for [Relic::BustedCrown].
+pub const BUSTED_CROWN_ID: ContentId = ContentId::new(353);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -800,6 +806,7 @@ pub enum Relic {
     DuVuDoll,
     FusionHammer,
     Sozu,
+    BustedCrown,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -859,6 +866,7 @@ impl Relic {
             Relic::DuVuDoll => DU_VU_DOLL_ID,
             Relic::FusionHammer => FUSION_HAMMER_ID,
             Relic::Sozu => SOZU_ID,
+            Relic::BustedCrown => BUSTED_CROWN_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -918,6 +926,7 @@ impl Relic {
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
             id if id == SOZU_ID => Some(Relic::Sozu),
+            id if id == BUSTED_CROWN_ID => Some(Relic::BustedCrown),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -1010,6 +1019,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::DuVuDoll => {}
             Relic::FusionHammer => {}
             Relic::Sozu => {}
+            Relic::BustedCrown => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1807,6 +1817,11 @@ mod tests {
         );
         assert_eq!(Relic::Sozu.content_id(), SOZU_ID);
         assert_eq!(Relic::from_content_id(SOZU_ID), Some(Relic::Sozu));
+        assert_eq!(Relic::BustedCrown.content_id(), BUSTED_CROWN_ID);
+        assert_eq!(
+            Relic::from_content_id(BUSTED_CROWN_ID),
+            Some(Relic::BustedCrown)
+        );
     }
 
     #[test]
