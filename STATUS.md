@@ -113,6 +113,7 @@ Overnight collector hardening after the `M290001` run:
 - `overnight_collector.js` rejects commands whose verb is not currently listed in `available_commands`.
 - repeated identical commands on unchanged state fall back conservatively (`SKIP`, `PROCEED`, `LEAVE`, or `state`) and then exit instead of spamming forever.
 - `overnight_supervisor.js` runs the collector in restart loops, validates the current trace after collector exit, and stops with a clear stale-session/bridge-exited reason when STS or CommunicationMod needs manual recovery.
+- `overnight_collector.test.js` covers the known policy regressions: full potion belt reward, repeated card reward fallback, unavailable commands, living target selection, and state-signature changes.
 - `trace_tools.js validate` now reports starts, seeds, room path, encounters, deaths, and act boss metadata for harvested traces.
 
 ```powershell

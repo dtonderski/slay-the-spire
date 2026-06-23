@@ -323,7 +323,22 @@ function tick() {
   writeCommand(command);
 }
 
-log(`overnight collector started at ${root}`);
-log(`seed prefix=${seedPrefix} nextRun=${runIndex} maxRuns=${maxRuns}`);
-setInterval(tick, tickMs);
-tick();
+if (require.main === module) {
+  log(`overnight collector started at ${root}`);
+  log(`seed prefix=${seedPrefix} nextRun=${runIndex} maxRuns=${maxRuns}`);
+  setInterval(tick, tickMs);
+  tick();
+}
+
+module.exports = {
+  cardRewardCommand,
+  choiceIndex,
+  combatCommand,
+  commandIsAvailable,
+  commandVerb,
+  fallbackCommand,
+  mapCommand,
+  nextCommand,
+  rewardCommand,
+  stateSignature,
+};
