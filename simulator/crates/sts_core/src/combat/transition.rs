@@ -23,7 +23,7 @@ use crate::{
     },
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
-    relic::{Relic, CHEMICAL_X_BONUS_X},
+    relic::{strike_damage_with_relics, Relic, CHEMICAL_X_BONUS_X},
     rng::SimulatorRng,
     CardInstance, CombatState, MonsterIntent, MonsterState, SimError, SimResult,
 };
@@ -75,7 +75,12 @@ fn apply_play_card(
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
 
     let queue = match definition.id {
-        STRIKE_R_ID => strike_queue(card_id, target.expect("validated Strike has a target")),
+        STRIKE_R_ID | STRIKE_R_PLUS_ID => strike_queue(
+            state,
+            card_id,
+            target.expect("validated Strike has a target"),
+            definition,
+        ),
         DEFEND_R_ID => defend_queue(card_id, definition),
         BASH_ID => bash_queue(card_id, target.expect("validated Bash has a target")),
         SLIMED_ID => slimed_queue(card_id, target.expect("validated Slimed has a target")),
@@ -203,7 +208,12 @@ fn card_move_destination(definition: &CardDefinition) -> CardPile {
     }
 }
 
-fn strike_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
+fn strike_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: 1 },
@@ -211,7 +221,10 @@ fn strike_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<Intern
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: 6,
+                amount: strike_damage_with_relics(
+                    &state.relics,
+                    definition.values.damage.unwrap_or(0),
+                ),
             },
         },
         InternalAction::MoveCard {
@@ -1956,6 +1969,33 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn strike_dummy_adds_three_damage_to_strike_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::StrikeDummy);
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
+    }
+
+    #[test]
+    fn strike_dummy_adds_three_damage_to_upgraded_strike_cards() {
+        let mut state = hand_only(STRIKE_R_PLUS_ID);
+        state.relics.push(crate::Relic::StrikeDummy);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike+ applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
     }
 
     #[test]
