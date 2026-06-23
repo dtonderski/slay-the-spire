@@ -62,6 +62,26 @@ pub const KUNAI_DEXTERITY: i32 = 1;
 pub const LETTER_OPENER_THRESHOLD: u32 = 3;
 /// Damage dealt by [Relic::LetterOpener] to all enemies.
 pub const LETTER_OPENER_DAMAGE: i32 = 5;
+/// Turns before [Relic::HappyFlower] grants energy.
+pub const HAPPY_FLOWER_THRESHOLD: u32 = 3;
+/// Energy granted by [Relic::HappyFlower].
+pub const HAPPY_FLOWER_ENERGY: i32 = 1;
+/// Block granted by [Relic::Orichalcum] when ending the turn with no block.
+pub const ORICHALCUM_BLOCK: i32 = 6;
+/// Player turn when [Relic::HornCleat] grants block.
+pub const HORN_CLEAT_TURN: u32 = 2;
+/// Block granted by [Relic::HornCleat].
+pub const HORN_CLEAT_BLOCK: i32 = 14;
+/// Player turn when [Relic::CaptainsWheel] grants block.
+pub const CAPTAINS_WHEEL_TURN: u32 = 3;
+/// Block granted by [Relic::CaptainsWheel].
+pub const CAPTAINS_WHEEL_BLOCK: i32 = 18;
+/// Damage dealt by [Relic::MercuryHourglass] to all enemies each turn.
+pub const MERCURY_HOURGLASS_DAMAGE: i32 = 3;
+/// Player turn when [Relic::StoneCalendar] deals damage.
+pub const STONE_CALENDAR_TURN: u32 = 7;
+/// Damage dealt by [Relic::StoneCalendar] to all enemies.
+pub const STONE_CALENDAR_DAMAGE: i32 = 52;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -111,6 +131,18 @@ pub const SHURIKEN_ID: ContentId = ContentId::new(321);
 pub const KUNAI_ID: ContentId = ContentId::new(322);
 /// Content id for [Relic::LetterOpener].
 pub const LETTER_OPENER_ID: ContentId = ContentId::new(323);
+/// Content id for [Relic::HappyFlower].
+pub const HAPPY_FLOWER_ID: ContentId = ContentId::new(324);
+/// Content id for [Relic::Orichalcum].
+pub const ORICHALCUM_ID: ContentId = ContentId::new(325);
+/// Content id for [Relic::HornCleat].
+pub const HORN_CLEAT_ID: ContentId = ContentId::new(326);
+/// Content id for [Relic::CaptainsWheel].
+pub const CAPTAINS_WHEEL_ID: ContentId = ContentId::new(327);
+/// Content id for [Relic::MercuryHourglass].
+pub const MERCURY_HOURGLASS_ID: ContentId = ContentId::new(328);
+/// Content id for [Relic::StoneCalendar].
+pub const STONE_CALENDAR_ID: ContentId = ContentId::new(329);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -126,6 +158,10 @@ pub struct RelicCounters {
     pub kunai_attacks_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub letter_opener_skills_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub player_turns_started: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub happy_flower_turns: u32,
 }
 
 fn is_zero_u32(value: &u32) -> bool {
@@ -643,6 +679,12 @@ pub enum Relic {
     Shuriken,
     Kunai,
     LetterOpener,
+    HappyFlower,
+    Orichalcum,
+    HornCleat,
+    CaptainsWheel,
+    MercuryHourglass,
+    StoneCalendar,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -673,6 +715,12 @@ impl Relic {
             Relic::Shuriken => SHURIKEN_ID,
             Relic::Kunai => KUNAI_ID,
             Relic::LetterOpener => LETTER_OPENER_ID,
+            Relic::HappyFlower => HAPPY_FLOWER_ID,
+            Relic::Orichalcum => ORICHALCUM_ID,
+            Relic::HornCleat => HORN_CLEAT_ID,
+            Relic::CaptainsWheel => CAPTAINS_WHEEL_ID,
+            Relic::MercuryHourglass => MERCURY_HOURGLASS_ID,
+            Relic::StoneCalendar => STONE_CALENDAR_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -703,6 +751,12 @@ impl Relic {
             id if id == SHURIKEN_ID => Some(Relic::Shuriken),
             id if id == KUNAI_ID => Some(Relic::Kunai),
             id if id == LETTER_OPENER_ID => Some(Relic::LetterOpener),
+            id if id == HAPPY_FLOWER_ID => Some(Relic::HappyFlower),
+            id if id == ORICHALCUM_ID => Some(Relic::Orichalcum),
+            id if id == HORN_CLEAT_ID => Some(Relic::HornCleat),
+            id if id == CAPTAINS_WHEEL_ID => Some(Relic::CaptainsWheel),
+            id if id == MERCURY_HOURGLASS_ID => Some(Relic::MercuryHourglass),
+            id if id == STONE_CALENDAR_ID => Some(Relic::StoneCalendar),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -757,6 +811,12 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Shuriken => {}
             Relic::Kunai => {}
             Relic::LetterOpener => {}
+            Relic::HappyFlower => {}
+            Relic::Orichalcum => {}
+            Relic::HornCleat => {}
+            Relic::CaptainsWheel => {}
+            Relic::MercuryHourglass => {}
+            Relic::StoneCalendar => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -766,6 +826,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::IceCream => {}
         }
     }
+
+    apply_start_of_player_turn_relics(combat);
 }
 
 /// Whether player energy should carry over instead of refilling at turn start.
@@ -779,6 +841,61 @@ pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.shuriken_attacks_this_turn = 0;
     state.relic_counters.kunai_attacks_this_turn = 0;
     state.relic_counters.letter_opener_skills_this_turn = 0;
+}
+
+pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
+    if !has_start_of_turn_relic(state) {
+        return;
+    }
+
+    state.relic_counters.player_turns_started += 1;
+
+    if state.relics.contains(&Relic::HappyFlower) {
+        state.relic_counters.happy_flower_turns += 1;
+        if state.relic_counters.happy_flower_turns >= HAPPY_FLOWER_THRESHOLD {
+            state.relic_counters.happy_flower_turns = 0;
+            state.player.energy += HAPPY_FLOWER_ENERGY;
+        }
+    }
+
+    match state.relic_counters.player_turns_started {
+        HORN_CLEAT_TURN if state.relics.contains(&Relic::HornCleat) => {
+            state.player.block += HORN_CLEAT_BLOCK;
+        }
+        CAPTAINS_WHEEL_TURN if state.relics.contains(&Relic::CaptainsWheel) => {
+            state.player.block += CAPTAINS_WHEEL_BLOCK;
+        }
+        _ => {}
+    }
+
+    if state.relics.contains(&Relic::MercuryHourglass) {
+        deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE);
+    }
+}
+
+fn has_start_of_turn_relic(state: &CombatState) -> bool {
+    state.relics.iter().any(|relic| {
+        matches!(
+            relic,
+            Relic::HappyFlower
+                | Relic::HornCleat
+                | Relic::CaptainsWheel
+                | Relic::MercuryHourglass
+                | Relic::StoneCalendar
+        )
+    })
+}
+
+pub fn apply_end_of_player_turn_relics(state: &mut CombatState) {
+    if state.relics.contains(&Relic::Orichalcum) && state.player.block == 0 {
+        state.player.block += ORICHALCUM_BLOCK;
+    }
+
+    if state.relics.contains(&Relic::StoneCalendar)
+        && state.relic_counters.player_turns_started == STONE_CALENDAR_TURN
+    {
+        deal_unmodified_damage_to_living_monsters(state, STONE_CALENDAR_DAMAGE);
+    }
 }
 
 #[must_use]
@@ -834,16 +951,17 @@ pub fn apply_on_card_play_relics(
         state.relic_counters.letter_opener_skills_this_turn += 1;
         if state.relic_counters.letter_opener_skills_this_turn >= LETTER_OPENER_THRESHOLD {
             state.relic_counters.letter_opener_skills_this_turn = 0;
-            for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-                crate::combat::damage::deal_unmodified_damage_to_monster(
-                    monster,
-                    LETTER_OPENER_DAMAGE,
-                );
-            }
+            deal_unmodified_damage_to_living_monsters(state, LETTER_OPENER_DAMAGE);
         }
     }
 
     follow_ups
+}
+
+fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i32) {
+    for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+        crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
+    }
 }
 
 #[cfg(test)]
@@ -1229,6 +1347,12 @@ mod tests {
         assert_eq!(Relic::Shuriken.content_id(), SHURIKEN_ID);
         assert_eq!(Relic::Kunai.content_id(), KUNAI_ID);
         assert_eq!(Relic::LetterOpener.content_id(), LETTER_OPENER_ID);
+        assert_eq!(Relic::HappyFlower.content_id(), HAPPY_FLOWER_ID);
+        assert_eq!(Relic::Orichalcum.content_id(), ORICHALCUM_ID);
+        assert_eq!(Relic::HornCleat.content_id(), HORN_CLEAT_ID);
+        assert_eq!(Relic::CaptainsWheel.content_id(), CAPTAINS_WHEEL_ID);
+        assert_eq!(Relic::MercuryHourglass.content_id(), MERCURY_HOURGLASS_ID);
+        assert_eq!(Relic::StoneCalendar.content_id(), STONE_CALENDAR_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -1291,6 +1415,30 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(LETTER_OPENER_ID),
             Some(Relic::LetterOpener)
+        );
+        assert_eq!(
+            Relic::from_content_id(HAPPY_FLOWER_ID),
+            Some(Relic::HappyFlower)
+        );
+        assert_eq!(
+            Relic::from_content_id(ORICHALCUM_ID),
+            Some(Relic::Orichalcum)
+        );
+        assert_eq!(
+            Relic::from_content_id(HORN_CLEAT_ID),
+            Some(Relic::HornCleat)
+        );
+        assert_eq!(
+            Relic::from_content_id(CAPTAINS_WHEEL_ID),
+            Some(Relic::CaptainsWheel)
+        );
+        assert_eq!(
+            Relic::from_content_id(MERCURY_HOURGLASS_ID),
+            Some(Relic::MercuryHourglass)
+        );
+        assert_eq!(
+            Relic::from_content_id(STONE_CALENDAR_ID),
+            Some(Relic::StoneCalendar)
         );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }
@@ -1442,6 +1590,8 @@ mod tests {
         combat.relic_counters.kunai_attacks_this_turn = 2;
         combat.relic_counters.letter_opener_skills_this_turn = 2;
         combat.relic_counters.nunchaku_attacks_played = 9;
+        combat.relic_counters.player_turns_started = 3;
+        combat.relic_counters.happy_flower_turns = 2;
 
         reset_turn_relic_counters(&mut combat);
 
@@ -1450,6 +1600,102 @@ mod tests {
         assert_eq!(combat.relic_counters.kunai_attacks_this_turn, 0);
         assert_eq!(combat.relic_counters.letter_opener_skills_this_turn, 0);
         assert_eq!(combat.relic_counters.nunchaku_attacks_played, 9);
+        assert_eq!(combat.relic_counters.player_turns_started, 3);
+        assert_eq!(combat.relic_counters.happy_flower_turns, 2);
+    }
+
+    #[test]
+    fn happy_flower_grants_energy_every_third_player_turn() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::HappyFlower];
+        combat.player.energy = 0;
+
+        apply_start_of_player_turn_relics(&mut combat);
+        apply_start_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.player.energy, 0);
+        assert_eq!(combat.relic_counters.happy_flower_turns, 2);
+
+        apply_start_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.player.energy, HAPPY_FLOWER_ENERGY);
+        assert_eq!(combat.relic_counters.happy_flower_turns, 0);
+    }
+
+    #[test]
+    fn defensive_turn_relics_grant_block_on_target_turns() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::HornCleat, Relic::CaptainsWheel];
+
+        apply_start_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.player.block, 0);
+
+        apply_start_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.player.block, HORN_CLEAT_BLOCK);
+
+        combat.player.block = 0;
+        apply_start_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.player.block, CAPTAINS_WHEEL_BLOCK);
+    }
+
+    #[test]
+    fn mercury_hourglass_damages_all_living_monsters_at_turn_start() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::MercuryHourglass];
+        combat
+            .monsters
+            .push(crate::content::monsters::monster_state(
+                &crate::content::monsters::CULTIST_A0,
+                crate::MonsterId::new(2),
+            ));
+        combat.monsters[1].alive = false;
+        let living_hp = combat.monsters[0].hp;
+        let dead_hp = combat.monsters[1].hp;
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.monsters[0].hp, living_hp - MERCURY_HOURGLASS_DAMAGE);
+        assert_eq!(combat.monsters[1].hp, dead_hp);
+    }
+
+    #[test]
+    fn orichalcum_grants_block_only_when_ending_with_no_block() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Orichalcum];
+        combat.player.block = 0;
+
+        apply_end_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.player.block, ORICHALCUM_BLOCK);
+
+        combat.player.block = 2;
+        apply_end_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.player.block, 2);
+    }
+
+    #[test]
+    fn stone_calendar_damages_all_living_monsters_on_seventh_turn_end() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::StoneCalendar];
+        combat.relic_counters.player_turns_started = STONE_CALENDAR_TURN - 1;
+        let hp_before = combat.monsters[0].hp;
+
+        apply_end_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.monsters[0].hp, hp_before);
+
+        combat.relic_counters.player_turns_started = STONE_CALENDAR_TURN;
+        apply_end_of_player_turn_relics(&mut combat);
+        assert_eq!(combat.monsters[0].hp, hp_before - STONE_CALENDAR_DAMAGE);
+    }
+
+    #[test]
+    fn run_combat_entry_counts_first_player_turn_for_turn_relics() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::HappyFlower, Relic::MercuryHourglass];
+        let hp_before = combat.monsters[0].hp;
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::HappyFlower, Relic::MercuryHourglass]);
+
+        assert_eq!(combat.relic_counters.player_turns_started, 1);
+        assert_eq!(combat.relic_counters.happy_flower_turns, 1);
+        assert_eq!(combat.monsters[0].hp, hp_before - MERCURY_HOURGLASS_DAMAGE);
     }
 
     #[test]
@@ -1471,6 +1717,8 @@ mod tests {
             shuriken_attacks_this_turn: 1,
             kunai_attacks_this_turn: 2,
             letter_opener_skills_this_turn: 1,
+            player_turns_started: 6,
+            happy_flower_turns: 2,
         };
 
         let json = serde_json::to_string(&counters).expect("counters serialize");

@@ -109,6 +109,27 @@ mod tests {
             Relic::from_key(RelicKey::LetterOpener),
             Some(Relic::LetterOpener)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::HappyFlower),
+            Some(Relic::HappyFlower)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::Orichalcum),
+            Some(Relic::Orichalcum)
+        );
+        assert_eq!(Relic::from_key(RelicKey::HornCleat), Some(Relic::HornCleat));
+        assert_eq!(
+            Relic::from_key(RelicKey::CaptainsWheel),
+            Some(Relic::CaptainsWheel)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::MercuryHourglass),
+            Some(Relic::MercuryHourglass)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::StoneCalendar),
+            Some(Relic::StoneCalendar)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -591,6 +612,12 @@ impl RunState {
             | Relic::Shuriken
             | Relic::Kunai
             | Relic::LetterOpener
+            | Relic::HappyFlower
+            | Relic::Orichalcum
+            | Relic::HornCleat
+            | Relic::CaptainsWheel
+            | Relic::MercuryHourglass
+            | Relic::StoneCalendar
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -725,6 +752,12 @@ impl Relic {
             Relic::Shuriken => RelicKey::Shuriken,
             Relic::Kunai => RelicKey::Kunai,
             Relic::LetterOpener => RelicKey::LetterOpener,
+            Relic::HappyFlower => RelicKey::HappyFlower,
+            Relic::Orichalcum => RelicKey::Orichalcum,
+            Relic::HornCleat => RelicKey::HornCleat,
+            Relic::CaptainsWheel => RelicKey::CaptainsWheel,
+            Relic::MercuryHourglass => RelicKey::MercuryHourglass,
+            Relic::StoneCalendar => RelicKey::StoneCalendar,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -755,6 +788,12 @@ impl Relic {
             RelicKey::Shuriken => Some(Relic::Shuriken),
             RelicKey::Kunai => Some(Relic::Kunai),
             RelicKey::LetterOpener => Some(Relic::LetterOpener),
+            RelicKey::HappyFlower => Some(Relic::HappyFlower),
+            RelicKey::Orichalcum => Some(Relic::Orichalcum),
+            RelicKey::HornCleat => Some(Relic::HornCleat),
+            RelicKey::CaptainsWheel => Some(Relic::CaptainsWheel),
+            RelicKey::MercuryHourglass => Some(Relic::MercuryHourglass),
+            RelicKey::StoneCalendar => Some(Relic::StoneCalendar),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
