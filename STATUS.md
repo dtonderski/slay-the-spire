@@ -113,9 +113,9 @@ Overnight collector hardening after the `M290001` run:
 - `overnight_collector.js` rejects commands whose verb is not currently listed in `available_commands`.
 - repeated identical commands on unchanged state fall back conservatively (`SKIP`, `PROCEED`, `LEAVE`, or `state`) and then exit instead of spamming forever.
 - stale bridge/session files make the collector exit with a clear idle reason, letting the supervisor validate the partial trace instead of waiting forever.
-- `overnight_supervisor.js` runs the collector in restart loops, validates the current trace after collector exit or stale-session startup, writes a `.valid-prefix.jsonl` salvage file when a trace is missing an action response, logs a compact harvest-quality line, and stops with a clear stale-session/bridge-exited reason when STS or CommunicationMod needs manual recovery.
+- `overnight_supervisor.js` runs the collector in restart loops, validates the current trace after collector exit or stale-session startup, writes a `.valid-prefix.jsonl` salvage file when a trace is missing an action response, logs compact harvest-quality and best-run lines, and stops with a clear stale-session/bridge-exited reason when STS or CommunicationMod needs manual recovery.
 - `overnight_collector.test.js` covers the known policy regressions: full potion belt reward, repeated card reward fallback, unavailable commands, living target selection, and state-signature changes. `overnight_supervisor.test.js` covers stale-session and trace-quality formatting without requiring a live STS process.
-- `trace_tools.js validate` now reports starts, seeds, room path, encounters, deaths, terminal state, elite/boss room coverage, and a simple harvest score for harvested traces.
+- `trace_tools.js validate` now reports starts, seeds, room path, encounters, deaths, terminal state, elite/boss room coverage, and a simple harvest score for harvested traces. `trace_tools.js report` adds per-run summaries and best-run selection for multi-run overnight captures.
 
 ```powershell
 cd simulator

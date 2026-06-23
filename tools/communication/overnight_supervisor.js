@@ -96,6 +96,17 @@ function validateTrace(tracePath) {
   return { ok: result.status === 0, result: parsed };
 }
 
+function reportTrace(tracePath) {
+  if (!tracePath || !fs.existsSync(tracePath)) return null;
+  const result = childProcess.spawnSync(nodeExe, [traceToolsPath, "report", tracePath], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  const parsed = parseValidationOutput(result.stdout);
+  if (parsed?.best_run) log(formatBestRunSummary(parsed.best_run));
+  return parsed;
+}
+
 function validPrefixPath(tracePath) {
   const parsed = path.parse(tracePath);
   return path.join(parsed.dir, `${parsed.name}.valid-prefix${parsed.ext || ".jsonl"}`);
@@ -121,10 +132,16 @@ function trimValidPrefix(tracePath) {
 
 function validateOrTrimTrace(tracePath) {
   const validation = validateTrace(tracePath);
-  if (validation.ok) return { validation, trimmed: null };
+  if (validation.ok) {
+    reportTrace(tracePath);
+    return { validation, trimmed: null };
+  }
   if (!tracePath || !fs.existsSync(tracePath)) return { validation, trimmed: null };
   const trimmed = trimValidPrefix(tracePath);
-  if (trimmed.ok && !trimmed.reused) validateTrace(trimmed.destination);
+  if (trimmed.ok) {
+    if (!trimmed.reused) validateTrace(trimmed.destination);
+    reportTrace(trimmed.destination);
+  }
   return { validation, trimmed };
 }
 
@@ -142,6 +159,24 @@ function formatValidationSummary(summary) {
   const coverage = summary.coverage || {};
   return [
     "trace harvest:",
+    `actions=${summary.actions ?? "?"}`,
+    `maxFloor=${summary.max_floor ?? "?"}`,
+    `elites=${summary.elite_rooms ?? 0}`,
+    `bosses=${summary.boss_rooms ?? 0}`,
+    `deaths=${summary.deaths ?? 0}`,
+    `terminal=${terminal.kind || "unknown"}`,
+    `score=${coverage.score ?? "?"}`,
+  ].join(" ");
+}
+
+function formatBestRunSummary(run) {
+  const summary = run.validation?.summary || {};
+  const terminal = summary.terminal || {};
+  const coverage = summary.coverage || {};
+  return [
+    "best run:",
+    `index=${run.run_index}`,
+    `startStep=${run.start_step}`,
     `actions=${summary.actions ?? "?"}`,
     `maxFloor=${summary.max_floor ?? "?"}`,
     `elites=${summary.elite_rooms ?? 0}`,
@@ -217,6 +252,7 @@ if (require.main === module) {
 module.exports = {
   bridgeLooksStaleFrom,
   currentTracePathFromStatus,
+  formatBestRunSummary,
   formatValidationSummary,
   parseValidationOutput,
   validPrefixPath,

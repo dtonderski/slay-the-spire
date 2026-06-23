@@ -4,6 +4,7 @@ const assert = require("assert");
 const {
   bridgeLooksStaleFrom,
   currentTracePathFromStatus,
+  formatBestRunSummary,
   formatValidationSummary,
   parseValidationOutput,
   validPrefixPath,
@@ -93,6 +94,28 @@ function testValidPrefixPath() {
   );
 }
 
+function testBestRunSummaryFormatting() {
+  const line = formatBestRunSummary({
+    run_index: 1,
+    start_step: 87,
+    validation: {
+      summary: {
+        actions: 225,
+        max_floor: 8,
+        elite_rooms: 1,
+        boss_rooms: 0,
+        deaths: 0,
+        terminal: { kind: "reward_screen" },
+        coverage: { score: 335 },
+      },
+    },
+  });
+  assert.match(line, /index=1/);
+  assert.match(line, /startStep=87/);
+  assert.match(line, /elites=1/);
+  assert.match(line, /score=335/);
+}
+
 testNoSessionFilesAreStale();
 testOldSessionFilesAreStale();
 testExitedBridgeIsStale();
@@ -101,5 +124,6 @@ testTracePathExtraction();
 testValidationOutputParsing();
 testValidationSummaryFormatting();
 testValidPrefixPath();
+testBestRunSummaryFormatting();
 
 console.log("overnight_supervisor tests passed");

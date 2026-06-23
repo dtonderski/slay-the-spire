@@ -6,6 +6,7 @@ const path = require("path");
 function usage() {
   console.error("Usage:");
   console.error("  node tools/communication/trace_tools.js validate <trace.jsonl>");
+  console.error("  node tools/communication/trace_tools.js report <trace.jsonl>");
   console.error("  node tools/communication/trace_tools.js trim-valid-prefix <input.jsonl> <output.jsonl>");
   console.error("  node tools/communication/trace_tools.js extract-run <input.jsonl> <run-index> <output.jsonl>");
   console.error("  node tools/communication/trace_tools.js collapse-card-reward-loop <input.jsonl> <output.jsonl>");
@@ -171,6 +172,55 @@ function summarizeCoverage({ actions, deaths, maxFloor, eliteRooms, bossRooms, l
   };
 }
 
+function startRecords(records) {
+  return records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => record.type === "action" && /^START\s+/i.test(record.command || ""));
+}
+
+function splitRuns(records, sourcePath = "") {
+  const starts = startRecords(records);
+  return starts.map((start, runIndex) => {
+    const next = starts[runIndex + 1];
+    const firstIndex =
+      start.index > 0 && records[start.index - 1].type === "state"
+        ? start.index - 1
+        : start.index;
+    const lastIndex = next ? next.index : records.length;
+    const runRecords = records.slice(firstIndex, lastIndex);
+    const validation = validate(runRecords);
+    return {
+      run_index: runIndex,
+      source_trace: sourcePath ? path.basename(sourcePath) : null,
+      start_step: start.record.step,
+      command: start.record.command,
+      first_line: firstIndex + 1,
+      last_line_exclusive: lastIndex + 1,
+      validation,
+    };
+  });
+}
+
+function bestRun(runs) {
+  if (!runs.length) return null;
+  return [...runs].sort((a, b) => {
+    const aScore = a.validation.summary.coverage?.score ?? Number.NEGATIVE_INFINITY;
+    const bScore = b.validation.summary.coverage?.score ?? Number.NEGATIVE_INFINITY;
+    if (bScore !== aScore) return bScore - aScore;
+    return (b.validation.summary.actions ?? 0) - (a.validation.summary.actions ?? 0);
+  })[0];
+}
+
+function report(records, sourcePath = "") {
+  const validation = validate(records);
+  const runs = splitRuns(records, sourcePath);
+  return {
+    validation,
+    runs,
+    best_run: bestRun(runs),
+  };
+}
+
 function validate(records) {
   const missing = missingActionResponses(records).map(({ record, index }) => ({
     line: index + 1,
@@ -208,9 +258,7 @@ function trimValidPrefix(records, sourcePath) {
 }
 
 function extractRun(records, sourcePath, runIndex) {
-  const starts = records
-    .map((record, index) => ({ record, index }))
-    .filter(({ record }) => record.type === "action" && /^START\s+/i.test(record.command || ""));
+  const starts = startRecords(records);
   const selected = starts[runIndex];
   if (!selected) {
     throw new Error(`run index ${runIndex} not found; found ${starts.length} START actions`);
@@ -304,6 +352,12 @@ if (require.main === module) {
     process.exit(result.ok ? 0 : 1);
   }
 
+  if (command === "report") {
+    const result = report(readTrace(inputPath), inputPath);
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(result.validation.ok ? 0 : 1);
+  }
+
   if (command === "trim-valid-prefix") {
     if (!outputPath) usage();
     const result = trimValidPrefix(readTrace(inputPath), inputPath);
@@ -340,11 +394,15 @@ module.exports = {
   cardRewardSignature,
   collapseCardRewardLoop,
   extractRun,
+  bestRun,
   missingActionResponses,
   readTrace,
+  report,
   summarize,
   summarizeCoverage,
   summarizeTerminal,
+  splitRuns,
+  startRecords,
   trimValidPrefix,
   validate,
 };
