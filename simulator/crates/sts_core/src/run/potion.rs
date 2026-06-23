@@ -35,6 +35,10 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
                 .get(slot)
                 .ok_or(SimError::IllegalAction("potion slot is not available"))?;
 
+            if *potion == Potion::Fairy {
+                return Err(SimError::IllegalAction("Fairy is passive"));
+            }
+
             if potion.requires_combat() {
                 if run.phase != RunPhase::Combat {
                     return Err(SimError::IllegalAction("potion use requires combat phase"));
@@ -658,6 +662,23 @@ mod tests {
             },
         )
         .expect("gamble outside combat");
+    }
+
+    #[test]
+    fn fairy_cannot_be_used_directly() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Fairy);
+
+        let err = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect_err("fairy is passive");
+
+        assert_eq!(err, SimError::IllegalAction("Fairy is passive"));
     }
 
     #[test]

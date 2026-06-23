@@ -4,7 +4,7 @@ use crate::{
     content::cards::{upgrade_content_id, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
-    potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
+    potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL, MAX_POTIONS},
     relic::{Relic, RelicKey, RelicTier},
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::{
@@ -561,8 +561,9 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         .as_ref()
         .ok_or(SimError::InvalidState("combat state is missing"))?;
 
-    let next_combat = apply_combat_action(combat, action)?;
+    let mut next_combat = apply_combat_action(combat, action)?;
     let mut next = run.clone();
+    apply_fairy_if_lethal(&mut next, &mut next_combat);
     next.combat = Some(next_combat.clone());
     next.player_hp = next_combat.player.hp;
     next.player_max_hp = next_combat.player.max_hp;
@@ -572,6 +573,20 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatState) {
+    if combat.player.hp > 0 && combat.phase != CombatPhase::Lost {
+        return;
+    }
+
+    let Some(slot) = run.potions.iter().position(|potion| *potion == Potion::Fairy) else {
+        return;
+    };
+
+    run.potions.remove(slot);
+    combat.player.hp = (combat.player.max_hp * FAIRY_HEAL_PERCENT / 100).max(1);
+    combat.phase = CombatPhase::WaitingForPlayer;
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
@@ -742,6 +757,37 @@ mod tests {
             },
         )
         .expect("strike wins combat")
+    }
+
+    #[test]
+    fn lethal_combat_without_fairy_enters_lost_phase() {
+        let mut run = RunState::combat_fixture();
+        run.combat.as_mut().expect("combat").player.hp = 1;
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+
+        let combat = after.combat.expect("combat state remains");
+        assert_eq!(combat.phase, CombatPhase::Lost);
+        assert!(combat.player.hp <= 0);
+        assert_eq!(after.player_hp, combat.player.hp);
+    }
+
+    #[test]
+    fn fairy_revives_player_from_lethal_combat_damage_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Fairy);
+        run.potions.push(Potion::Fire);
+        run.combat.as_mut().expect("combat").player.hp = 1;
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(combat.player.hp, combat.player.max_hp * FAIRY_HEAL_PERCENT / 100);
+        assert_eq!(after.player_hp, combat.player.hp);
+        assert_eq!(after.potions, vec![Potion::Fire]);
     }
 
     #[test]

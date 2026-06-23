@@ -25,6 +25,7 @@ pub const SWIFT_POTION_DRAW: usize = 3;
 pub const SNECKO_OIL_DRAW: usize = 5;
 pub const GAMBLE_POTION_WIN_GOLD: i32 = 50;
 pub const GAMBLE_POTION_LOSS_GOLD: i32 = 50;
+pub const FAIRY_HEAL_PERCENT: i32 = 30;
 
 /// Content id for [Potion::Fire].
 pub const FIRE_POTION_ID: ContentId = ContentId::new(200);
