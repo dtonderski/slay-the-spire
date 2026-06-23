@@ -147,9 +147,18 @@ function livingMonsterIndex(combat) {
   return best < 0 ? 0 : best;
 }
 
-function cardScore(card, incomingDamage) {
+function cardScore(card, incomingDamage, playerHp = null) {
   const name = String(card.name || "").toLowerCase();
   if (!card.playable) return -1000;
+  const hp = Number.isFinite(playerHp) ? playerHp : Number.POSITIVE_INFINITY;
+  const defensive =
+    name.includes("defend") ||
+    name.includes("shrug") ||
+    name.includes("true grit") ||
+    name.includes("impervious") ||
+    name.includes("power through") ||
+    name.includes("flame barrier");
+  if (incomingDamage > 0 && defensive && (incomingDamage >= 10 || incomingDamage >= hp / 4)) return 92;
   if (name.includes("immolate")) return 100;
   if (name.includes("carnage")) return 95;
   if (name.includes("bash")) return 90;
@@ -160,7 +169,7 @@ function cardScore(card, incomingDamage) {
   if (name.includes("strike")) return 70;
   if (name.includes("anger")) return 68;
   if (name.includes("inflame") || name.includes("metallicize") || name.includes("demon form")) return 65;
-  if (incomingDamage > 0 && (name.includes("defend") || name.includes("shrug") || name.includes("true grit"))) return 60;
+  if (incomingDamage > 0 && defensive) return 60;
   if (name.includes("battle trance") || name.includes("warcry")) return 50;
   if (name.includes("flex") || name.includes("spot weakness")) return 45;
   return card.type === "ATTACK" ? 40 : 10;
@@ -182,11 +191,12 @@ function combatCommand(summary) {
   if (!available.has("play")) return available.has("end") ? "END" : "state";
   const target = livingMonsterIndex(combat);
   const incoming = incomingDamage(combat);
+  const playerHp = summary.current_hp ?? combat.player_hp ?? null;
   const cards = (combat.hand || [])
     .filter((card) => card.playable)
-    .sort((a, b) => cardScore(b, incoming) - cardScore(a, incoming));
+    .sort((a, b) => cardScore(b, incoming, playerHp) - cardScore(a, incoming, playerHp));
   const card = cards[0];
-  if (!card || cardScore(card, incoming) < 0) return available.has("end") ? "END" : "state";
+  if (!card || cardScore(card, incoming, playerHp) < 0) return available.has("end") ? "END" : "state";
   return card.has_target ? `PLAY ${card.index} ${target}` : `PLAY ${card.index}`;
 }
 
@@ -236,6 +246,7 @@ function mapCommand(summary) {
   const available = new Set(summary.available_commands || []);
   if (!available.has("choose")) return "state";
   const choices = summary.choices || [];
+  if (choices.length === 0) return "state";
   let bestIndex = 0;
   let bestScore = Number.NEGATIVE_INFINITY;
   for (let index = 0; index < choices.length; index += 1) {
@@ -293,14 +304,19 @@ function nextCommand(summary) {
   if (screen === "CARD_REWARD") return cardRewardCommand(summary);
   if (screen === "GRID") {
     if (available.has("confirm")) return "CONFIRM";
-    return available.has("choose") ? "CHOOSE 0" : "state";
+    return available.has("choose") && summary.choices?.length ? "CHOOSE 0" : "state";
   }
-  if (screen === "SHOP_ROOM") return available.has("choose") ? "CHOOSE 0" : "state";
-  if (screen === "SHOP_SCREEN") return available.has("leave") ? "LEAVE" : available.has("choose") ? "CHOOSE 0" : "state";
+  if (screen === "SHOP_ROOM") {
+    return available.has("choose") && summary.choices?.length ? "CHOOSE 0" : "state";
+  }
+  if (screen === "SHOP_SCREEN") {
+    if (available.has("leave")) return "LEAVE";
+    return available.has("choose") && summary.choices?.length ? "CHOOSE 0" : "state";
+  }
   if (screen === "REST") {
     if (available.has("proceed")) return "PROCEED";
     const rest = choiceIndex(summary, [/rest/, /heal/]);
-    return available.has("choose") ? `CHOOSE ${rest >= 0 ? rest : 0}` : "state";
+    return available.has("choose") && summary.choices?.length ? `CHOOSE ${rest >= 0 ? rest : 0}` : "state";
   }
   if (screen === "EVENT" || screen === "NONE" && summary.choices?.length) {
     return available.has("choose") ? "CHOOSE 0" : "state";
@@ -398,6 +414,7 @@ if (require.main === module) {
 
 module.exports = {
   cardRewardCommand,
+  cardScore,
   choiceLabel,
   choiceIndex,
   combatCommand,
