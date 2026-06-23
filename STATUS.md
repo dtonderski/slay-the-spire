@@ -84,7 +84,7 @@ Milestone 28 is complete on the TEST trace (`trace-2026-06-21T09-57-10-380Z.json
 
 Milestone 27 is complete for the same TEST trace through Act 1 boss relic pickup and pre–Act-2 map return. Coverage includes events, normal/elite combats, rest/treasure/shop rooms, potion/hand-select/reward flows, Guardian boss combat (observed-state sync), boss chest, and Cursed Key boss relic reward.
 
-Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard test, `test_seed_start_m29_test_elite_boss_without_observed_sync`, with elite/boss observed-state restoration disabled. This slice covers Lagavulin sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, Gremlin Nob coverage in the TEST route, Guardian mode-shift scaffolding, and Act 1 boss relic return through the M27/M28 verifier path. Important carve-out: the TEST Lagavulin fight uses Power Potion; the in-combat potion reward, temporary zero-cost card, and downstream potion-tainted combat state still sync from observed state and are not yet a full card/potion parity claim. M29 is not complete until a structurally complete Sentries seed-start trace is captured and verified; the local `trace-2026-06-21T03-24-47-580Z.jsonl` reaches Sentries but is missing state rows for several actions, so it cannot be accepted as a verifier fixture.
+Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard test, `test_seed_start_m29_test_elite_boss_without_observed_sync`, with elite/boss observed-state restoration disabled. This slice covers Lagavulin sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, Gremlin Nob coverage in the TEST route, Guardian mode-shift scaffolding, and Act 1 boss relic return through the M27/M28 verifier path. Important carve-out: the TEST Lagavulin fight uses Power Potion; the in-combat potion reward, temporary zero-cost card, and downstream potion-tainted combat state still sync from observed state and are not yet a full card/potion parity claim. M29 is not complete until a structurally complete Sentries seed-start trace is captured and verified. The overnight collector produced a structurally valid Sentries prefix, `trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl`, but seed-start verification currently stops at the new `M290001` Neow option branch before reaching the elite.
 
 ### Tests
 - `test_seed_start_m28_shop_entry_parity`, `test_seed_start_full_act1_boss_relic_prefix`, and `test_seed_start_m29_test_elite_boss_without_observed_sync` pass on `trace-2026-06-21T09-57-10-380Z.jsonl`
@@ -100,7 +100,13 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Continue Milestone 29 by capturing a complete seed-start trace that includes Sentries and has a state row after every action. After that, add it to corpus/nightly and verify it with `unexpected_diffs=0`. TEST shop/full-trace verification:
+Continue Milestone 29 by making the harvested `M290001` Sentries prefix usable as a seed-start fixture: implement or classify its Neow branch, then drive verification forward to the Sentries fight and fix the first real elite-combat divergence. The cleaned prefix can be structurally checked with:
+
+```powershell
+node tools\communication\trace_tools.js validate verification\corpus\communication_mod\trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl
+```
+
+Current seed-start verifier result for that prefix: `unexpected_diffs=1` at Neow choices (`$.actions[step=3].command`) and boundary `$.actions[step=4].command`, before map/combat execution. TEST shop/full-trace verification:
 
 ```powershell
 cd simulator

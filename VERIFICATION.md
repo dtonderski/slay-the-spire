@@ -73,6 +73,20 @@ The seed-start report includes named RNG boundaries for the captured traces: see
 
 Milestone 29 currently has a first TEST elite/boss slice rather than full elite/boss parity. `test_seed_start_m29_test_elite_boss_without_observed_sync` disables elite/boss observed-state restoration and verifies the non-potion Lagavulin mechanics reached before the Power Potion branch. The in-combat Power Potion card reward, temporary zero-cost card play, and downstream potion-tainted combat state remain explicit observed-sync boundaries until potion/card temporary-state modeling is split out.
 
+The overnight CommunicationMod collector can harvest longer traces for missing elite coverage. Validate harvested traces before promoting them:
+
+```powershell
+node tools\communication\trace_tools.js validate verification\corpus\communication_mod\<trace>.jsonl
+```
+
+If a run stalls after useful coverage, keep the raw trace and create a documented clean prefix:
+
+```powershell
+node tools\communication\trace_tools.js trim-valid-prefix verification\corpus\communication_mod\<raw>.jsonl verification\corpus\communication_mod\<raw>.valid-prefix.jsonl
+```
+
+`trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl` is the current harvested Sentries candidate. It is structurally valid, but not yet a seed-start passing fixture because verification stops at the unmodeled `M290001` Neow option branch before the map.
+
 ### Divergence minimization
 
 When a trace fails parity, build a prefix JSONL that reproduces the first failure:
