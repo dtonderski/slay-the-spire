@@ -250,6 +250,7 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::Whetstone), Some(Relic::Whetstone));
         assert_eq!(Relic::from_key(RelicKey::WarPaint), Some(Relic::WarPaint));
+        assert_eq!(Relic::from_key(RelicKey::Akabeko), Some(Relic::Akabeko));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1578,7 +1579,8 @@ impl RunState {
             | Relic::SlaversCollar
             | Relic::StrikeDummy
             | Relic::Brimstone
-            | Relic::WhiteBeastStatue => {}
+            | Relic::WhiteBeastStatue
+            | Relic::Akabeko => {}
         }
     }
 
@@ -1814,6 +1816,7 @@ impl Relic {
             Relic::WhiteBeastStatue => RelicKey::WhiteBeastStatue,
             Relic::Whetstone => RelicKey::Whetstone,
             Relic::WarPaint => RelicKey::WarPaint,
+            Relic::Akabeko => RelicKey::Akabeko,
         }
     }
 
@@ -1899,6 +1902,7 @@ impl Relic {
             RelicKey::WhiteBeastStatue => Some(Relic::WhiteBeastStatue),
             RelicKey::Whetstone => Some(Relic::Whetstone),
             RelicKey::WarPaint => Some(Relic::WarPaint),
+            RelicKey::Akabeko => Some(Relic::Akabeko),
             _ => None,
         }
     }

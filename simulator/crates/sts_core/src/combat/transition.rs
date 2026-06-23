@@ -23,7 +23,7 @@ use crate::{
     },
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
-    relic::{strike_damage_with_relics, Relic, CHEMICAL_X_BONUS_X},
+    relic::{strike_damage_with_relics, Relic, AKABEKO_DAMAGE, CHEMICAL_X_BONUS_X},
     rng::SimulatorRng,
     CardInstance, CombatState, MonsterIntent, MonsterState, SimError, SimResult,
 };
@@ -151,11 +151,45 @@ fn apply_play_card(
     };
 
     let mut queue = queue?;
+    apply_akabeko_to_first_attack_queue(state, definition.card_type, card_id, &mut queue);
     if state.duplication_potion_pending {
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
 
     process_internal_queue(state, queue)
+}
+
+fn apply_akabeko_to_first_attack_queue(
+    state: &CombatState,
+    card_type: CardType,
+    card_id: CardId,
+    queue: &mut VecDeque<InternalAction>,
+) {
+    if card_type != CardType::Attack
+        || !state.relics.contains(&Relic::Akabeko)
+        || state.relic_counters.attacks_played_this_combat > 0
+    {
+        return;
+    }
+
+    for action in queue {
+        match action {
+            InternalAction::DealDamage {
+                info:
+                    DamageInfo {
+                        source: DamageSource::Card(source),
+                        amount,
+                        ..
+                    },
+            } if *source == card_id => {
+                *amount += AKABEKO_DAMAGE;
+            }
+            InternalAction::DealDamageAll { source, amount } if *source == card_id => {
+                *amount += AKABEKO_DAMAGE;
+            }
+            _ => {}
+        }
+    }
 }
 
 fn apply_duplication_potion_to_queue(
@@ -1996,6 +2030,47 @@ mod tests {
         .expect("Strike+ applies");
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_first_attack_card() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::Akabeko);
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 14);
+        assert_eq!(next.relic_counters.attacks_played_this_combat, 1);
+    }
+
+    #[test]
+    fn akabeko_does_not_apply_after_first_attack_card() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::Akabeko);
+        state.relic_counters.attacks_played_this_combat = 1;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 6);
+        assert_eq!(next.relic_counters.attacks_played_this_combat, 2);
+    }
+
+    #[test]
+    fn akabeko_bonus_applies_to_each_hit_of_first_multi_hit_attack() {
+        let mut state = hand_only(TWIN_STRIKE_ID);
+        state.relics.push(crate::Relic::Akabeko);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Twin Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 26);
+        assert_eq!(next.relic_counters.attacks_played_this_combat, 1);
     }
 
     #[test]
