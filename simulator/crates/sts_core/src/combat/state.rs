@@ -38,6 +38,9 @@ pub struct CombatState {
     /// Awaiting player choice for Warcry and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
+    /// One-shot flag from Duplication Potion: the next played card resolves twice.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub duplication_potion_pending: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +160,7 @@ impl CombatState {
             shuffle_rng: None,
             potion_card_reward: None,
             hand_select: None,
+            duplication_potion_pending: false,
         }
     }
 
@@ -267,6 +271,10 @@ impl CombatState {
         }
         Ok(())
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn default_player_energy() -> i32 {

@@ -280,6 +280,7 @@ impl Potion {
                 | Potion::Speed
                 | Potion::Swift
                 | Potion::BlessingOfTheForge
+                | Potion::Duplication
                 | Potion::Power
         )
     }
