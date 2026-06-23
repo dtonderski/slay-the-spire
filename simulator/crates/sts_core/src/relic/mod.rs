@@ -74,6 +74,10 @@ pub const CENTENNIAL_PUZZLE_DRAW: usize = 3;
 pub const RUNIC_CUBE_DRAW: usize = 1;
 /// Block granted by [Relic::TheAbacus] whenever the discard pile is shuffled into the draw pile.
 pub const THE_ABACUS_BLOCK: i32 = 6;
+/// Shuffles before [Relic::Sundial] grants energy.
+pub const SUNDIAL_THRESHOLD: u32 = 3;
+/// Energy granted by [Relic::Sundial] every third shuffle.
+pub const SUNDIAL_ENERGY: i32 = 2;
 /// Block granted by [Relic::SelfFormingClay] after HP loss.
 pub const SELF_FORMING_CLAY_BLOCK: i32 = 3;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
@@ -371,6 +375,8 @@ pub const GREMLIN_HORN_ID: ContentId = ContentId::new(386);
 pub const GREMLIN_HORN_ENERGY: i32 = 1;
 /// Cards drawn by [Relic::GremlinHorn] when a monster dies.
 pub const GREMLIN_HORN_DRAW: usize = 1;
+/// Content id for [Relic::Sundial].
+pub const SUNDIAL_ID: ContentId = ContentId::new(387);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -402,6 +408,8 @@ pub struct RelicCounters {
     pub player_turns_started: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub happy_flower_turns: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub sundial_shuffles: u32,
 }
 
 fn is_zero_u32(value: &u32) -> bool {
@@ -987,6 +995,7 @@ pub enum Relic {
     RunicCube,
     TheAbacus,
     GremlinHorn,
+    Sundial,
 }
 
 impl Relic {
@@ -1080,6 +1089,7 @@ impl Relic {
             Relic::RunicCube => RUNIC_CUBE_ID,
             Relic::TheAbacus => THE_ABACUS_ID,
             Relic::GremlinHorn => GREMLIN_HORN_ID,
+            Relic::Sundial => SUNDIAL_ID,
         }
     }
 
@@ -1173,6 +1183,7 @@ impl Relic {
             id if id == RUNIC_CUBE_ID => Some(Relic::RunicCube),
             id if id == THE_ABACUS_ID => Some(Relic::TheAbacus),
             id if id == GREMLIN_HORN_ID => Some(Relic::GremlinHorn),
+            id if id == SUNDIAL_ID => Some(Relic::Sundial),
             _ => None,
         }
     }
@@ -1303,6 +1314,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::RunicCube => {}
             Relic::TheAbacus => {}
             Relic::GremlinHorn => {}
+            Relic::Sundial => {}
         }
     }
 
@@ -1312,6 +1324,12 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
 pub fn apply_shuffle_relics(state: &mut CombatState) {
     if state.relics.contains(&Relic::TheAbacus) {
         state.player.block += THE_ABACUS_BLOCK;
+    }
+    if state.relics.contains(&Relic::Sundial) {
+        state.relic_counters.sundial_shuffles += 1;
+        if state.relic_counters.sundial_shuffles % SUNDIAL_THRESHOLD == 0 {
+            state.player.energy += SUNDIAL_ENERGY;
+        }
     }
 }
 
@@ -2350,6 +2368,8 @@ mod tests {
             Relic::from_content_id(GREMLIN_HORN_ID),
             Some(Relic::GremlinHorn)
         );
+        assert_eq!(Relic::Sundial.content_id(), SUNDIAL_ID);
+        assert_eq!(Relic::from_content_id(SUNDIAL_ID), Some(Relic::Sundial));
     }
 
     #[test]
@@ -2838,6 +2858,7 @@ mod tests {
             attacks_played_last_turn: 1,
             player_turns_started: 6,
             happy_flower_turns: 2,
+            sundial_shuffles: 2,
         };
 
         let json = serde_json::to_string(&counters).expect("counters serialize");
