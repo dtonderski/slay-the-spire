@@ -9,6 +9,7 @@ const sessionDir = path.join(__dirname, "session");
 const statusPath = path.join(sessionDir, "status.json");
 const summaryPath = path.join(sessionDir, "summary.json");
 const logPath = path.join(sessionDir, "overnight_supervisor.log");
+const harvestReportPath = path.join(sessionDir, "harvest_report.json");
 const collectorPath = path.join(__dirname, "overnight_collector.js");
 const traceToolsPath = path.join(__dirname, "trace_tools.js");
 
@@ -31,6 +32,10 @@ function readJson(filePath) {
   } catch {
     return null;
   }
+}
+
+function writeJson(filePath, value) {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function fileAgeMs(filePath) {
@@ -133,8 +138,8 @@ function extractBestRunTrace(tracePath) {
 
 function reportAndExtractBestRun(tracePath) {
   const report = reportTrace(tracePath);
-  if (report?.best_run) extractBestRunTrace(tracePath);
-  return report;
+  const extraction = report?.best_run ? extractBestRunTrace(tracePath) : null;
+  return { report, extraction };
 }
 
 function validPrefixPath(tracePath) {
@@ -163,16 +168,19 @@ function trimValidPrefix(tracePath) {
 function validateOrTrimTrace(tracePath) {
   const validation = validateTrace(tracePath);
   if (validation.ok) {
-    reportAndExtractBestRun(tracePath);
-    return { validation, trimmed: null };
+    const bestRun = reportAndExtractBestRun(tracePath);
+    return { trace_path: tracePath, validation, trimmed: null, best_run: bestRun };
   }
-  if (!tracePath || !fs.existsSync(tracePath)) return { validation, trimmed: null };
+  if (!tracePath || !fs.existsSync(tracePath)) {
+    return { trace_path: tracePath || null, validation, trimmed: null, best_run: null };
+  }
   const trimmed = trimValidPrefix(tracePath);
+  let bestRun = null;
   if (trimmed.ok) {
     if (!trimmed.reused) validateTrace(trimmed.destination);
-    reportAndExtractBestRun(trimmed.destination);
+    bestRun = reportAndExtractBestRun(trimmed.destination);
   }
-  return { validation, trimmed };
+  return { trace_path: tracePath, validation, trimmed, best_run: bestRun };
 }
 
 function parseValidationOutput(output) {
@@ -217,6 +225,66 @@ function formatBestRunSummary(run) {
   ].join(" ");
 }
 
+function compactValidation(validation) {
+  const summary = validation?.result?.summary || {};
+  return {
+    ok: validation?.ok ?? false,
+    missing: validation?.result?.missing || [],
+    actions: summary.actions ?? null,
+    max_floor: summary.max_floor ?? null,
+    elite_rooms: summary.elite_rooms ?? 0,
+    boss_rooms: summary.boss_rooms ?? 0,
+    deaths: summary.deaths ?? 0,
+    terminal: summary.terminal || null,
+    score: summary.coverage?.score ?? null,
+    seeds: summary.seeds || [],
+    act_bosses: summary.act_bosses || [],
+    encounters: summary.encounters || [],
+  };
+}
+
+function compactBestRun(bestRun) {
+  const run = bestRun?.report?.best_run;
+  if (!run) return null;
+  const summary = run.validation?.summary || {};
+  return {
+    run_index: run.run_index,
+    start_step: run.start_step,
+    command: run.command,
+    extracted_path: bestRun.extraction?.destination || null,
+    extracted_reused: bestRun.extraction?.reused ?? false,
+    actions: summary.actions ?? null,
+    max_floor: summary.max_floor ?? null,
+    elite_rooms: summary.elite_rooms ?? 0,
+    boss_rooms: summary.boss_rooms ?? 0,
+    deaths: summary.deaths ?? 0,
+    terminal: summary.terminal || null,
+    score: summary.coverage?.score ?? null,
+    encounters: summary.encounters || [],
+  };
+}
+
+function buildHarvestReport({ reason, traceResult, stale, collectorResult }) {
+  return {
+    updated_at: new Date().toISOString(),
+    reason,
+    stale: stale || null,
+    collector: collectorResult || null,
+    trace_path: traceResult?.trace_path || null,
+    validation: compactValidation(traceResult?.validation),
+    valid_prefix_path: traceResult?.trimmed?.ok ? traceResult.trimmed.destination : null,
+    valid_prefix_reused: traceResult?.trimmed?.reused ?? false,
+    best_run: compactBestRun(traceResult?.best_run),
+  };
+}
+
+function writeHarvestReport(input) {
+  const report = buildHarvestReport(input);
+  writeJson(harvestReportPath, report);
+  log(`harvest report: ${harvestReportPath}`);
+  return report;
+}
+
 function startCollector() {
   const child = childProcess.spawn(nodeExe, [collectorPath], {
     cwd: repoRoot,
@@ -248,7 +316,8 @@ async function main() {
     const stale = bridgeLooksStale();
     if (stale.stale) {
       log(`cannot start collector: ${stale.reason}`);
-      validateOrTrimTrace(currentTracePath());
+      const traceResult = validateOrTrimTrace(currentTracePath());
+      writeHarvestReport({ reason: "stale_before_start", stale, traceResult });
       process.exitCode = 2;
       return;
     }
@@ -259,11 +328,13 @@ async function main() {
     const result = await waitForCollector(collector);
     const afterTrace = currentTracePath() || beforeTrace;
     log(`collector exited code=${result.code} signal=${result.signal || ""}`);
-    validateOrTrimTrace(afterTrace);
+    const traceResult = validateOrTrimTrace(afterTrace);
+    writeHarvestReport({ reason: "collector_exit", collectorResult: result, traceResult });
 
     const afterStale = bridgeLooksStale();
     if (afterStale.stale) {
       log(`stopping supervisor: ${afterStale.reason}`);
+      writeHarvestReport({ reason: "stale_after_collector", stale: afterStale, collectorResult: result, traceResult });
       process.exitCode = result.code || 2;
       return;
     }
@@ -281,7 +352,10 @@ if (require.main === module) {
 
 module.exports = {
   bestRunPath,
+  buildHarvestReport,
   bridgeLooksStaleFrom,
+  compactBestRun,
+  compactValidation,
   currentTracePathFromStatus,
   extractBestRunTrace,
   formatBestRunSummary,
