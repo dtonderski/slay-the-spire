@@ -1,7 +1,9 @@
 use crate::{
     card::{CardInstance, CardType},
     combat::damage::deal_unmodified_damage_to_monster,
-    combat::transition::{choose_hand_select, confirm_hand_select, hand_select_ui_to_hand_index},
+    combat::transition::{
+        choose_hand_select, confirm_hand_select, hand_select_ui_to_hand_index, player_draw_cards,
+    },
     combat::CombatPhase,
     content::shop_pool::discovery_card_choices,
     ids::CardId,
@@ -9,7 +11,7 @@ use crate::{
         Potion, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT, DEXTERITY_POTION_DEXTERITY,
         ENERGY_POTION_ENERGY, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE,
         FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD, GAMBLE_POTION_WIN_GOLD,
-        HEART_OF_IRON_METALLICIZE, STRENGTH_POTION_STRENGTH, WEAK_POTION_WEAK,
+        HEART_OF_IRON_METALLICIZE, STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -202,6 +204,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Strength => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     combat.player.powers.strength += STRENGTH_POTION_STRENGTH;
+                }
+                Potion::Swift => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    player_draw_cards(combat, SWIFT_POTION_DRAW);
                 }
                 Potion::Weak => {
                     let target = target.expect("validated weak potion target");
@@ -519,6 +525,33 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.player.powers.strength, STRENGTH_POTION_STRENGTH);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn swift_potion_draws_three_cards_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Swift);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand.clear();
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), crate::content::cards::STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), crate::content::cards::DEFEND_R_ID),
+            CardInstance::new(CardId::new(12), crate::content::cards::BASH_ID),
+        ];
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use swift potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.piles.hand.len(), SWIFT_POTION_DRAW);
+        assert!(combat.piles.draw_pile.is_empty());
         assert!(after.potions.is_empty());
     }
 
