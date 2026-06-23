@@ -68,6 +68,10 @@ pub struct MonsterState {
     #[serde(default)]
     pub defensive_turns_remaining: u32,
     #[serde(default)]
+    pub mode_shift: i32,
+    #[serde(default)]
+    pub in_defensive_mode: bool,
+    #[serde(default)]
     pub rolled_attack_damage: Option<i32>,
     pub intent: MonsterIntent,
 }
@@ -96,6 +100,7 @@ pub enum MonsterIntent {
     AttackAndBlock { damage: i32, block: i32 },
     StrengthAndBlock { strength: i32, block: i32 },
     ApplyPlayerWeak { amount: i32 },
+    AttackApplyPlayerVulnerable { damage: i32, vulnerable: i32 },
     Sleep,
     SiphonPlayer { strength: i32, dexterity: i32 },
     AddDazedToDiscard { count: i32 },

@@ -10,7 +10,8 @@ use sts_core::{
 };
 use sts_verify::{
     canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
-    verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ManualFixture,
+    verify_communication_mod_trace, verify_seed_start_communication_mod_trace,
+    verify_seed_start_communication_mod_trace_with_options, ManualFixture, SeedStartVerifyOptions,
     VerificationMode,
 };
 
@@ -454,7 +455,11 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(!seed_start.expected_failure);
+    assert!(
+        !seed_start.expected_failure,
+        "seed-start boundary: {:?}",
+        seed_start.first_boundary
+    );
     assert_eq!(seed_start.start_command.action_step, 2);
     assert_eq!(seed_start.start_command.character, "IRONCLAD");
     assert_eq!(seed_start.start_command.ascension, 0);
@@ -651,7 +656,11 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(!seed_start.expected_failure);
+    assert!(
+        !seed_start.expected_failure,
+        "seed-start boundary: {:?}",
+        seed_start.first_boundary
+    );
     assert_eq!(seed_start.start_command.external_seed, "CODEX04");
     assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_079);
     assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
@@ -734,7 +743,11 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(!seed_start.expected_failure);
+    assert!(
+        !seed_start.expected_failure,
+        "seed-start boundary: {:?}",
+        seed_start.first_boundary
+    );
     assert_eq!(seed_start.start_command.external_seed, "CODEX03");
     assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_078);
     assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
@@ -792,6 +805,36 @@ fn test_seed_start_m28_shop_entry_parity() {
         labels.contains(&"enter shop merchant"),
         "missing verified shop entry; labels: {labels:?}"
     );
+}
+
+#[test]
+fn test_seed_start_m29_test_elite_boss_without_observed_sync() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace_with_options(
+        &content,
+        SeedStartVerifyOptions {
+            disable_test_elite_boss_observed_sync: true,
+        },
+    )
+    .expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(
+        !seed_start.expected_failure,
+        "seed-start boundary: {:?}",
+        seed_start.first_boundary
+    );
+    assert_eq!(seed_start.first_boundary.category, "none");
 }
 
 #[test]

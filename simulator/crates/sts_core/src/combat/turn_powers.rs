@@ -1,4 +1,5 @@
 use crate::combat::{CombatState, MonsterState, PlayerState};
+use crate::power::attack_damage_with_vulnerable;
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
     apply_player_end_of_turn_powers(&mut state.player);
@@ -23,15 +24,26 @@ pub fn apply_end_of_monster_turn_powers(monster: &mut MonsterState) {
     if monster.powers.ritual > 0 {
         monster.powers.strength += monster.powers.ritual;
     }
+    if monster.powers.metallicize > 0 {
+        monster.block += monster.powers.metallicize;
+    }
 }
 
 pub fn monster_attack_damage(monster: &MonsterState, base: i32) -> i32 {
-    let with_strength = base + monster.powers.strength;
+    let strength_bonus = monster.powers.strength + monster.powers.anger;
+    let with_strength = (base + strength_bonus).max(0);
     if monster.powers.weak > 0 {
         with_strength * 3 / 4
     } else {
         with_strength
     }
+}
+
+/// Monster attack damage after player vulnerable (1.5x floored per hit).
+#[must_use]
+pub fn monster_damage_to_player(player: &PlayerState, monster: &MonsterState, base: i32) -> i32 {
+    let raw = monster_attack_damage(monster, base);
+    attack_damage_with_vulnerable(raw, player.powers.vulnerable)
 }
 
 #[cfg(test)]
@@ -78,6 +90,16 @@ mod tests {
         apply_end_of_monster_turn_powers(&mut monster);
 
         assert_eq!(monster.powers.strength, 1);
+    }
+
+    #[test]
+    fn monster_metallicize_grants_block_after_monster_turn() {
+        let mut monster = CombatState::initial_fixture().monsters[0].clone();
+        monster.powers.metallicize = 8;
+
+        apply_end_of_monster_turn_powers(&mut monster);
+
+        assert_eq!(monster.block, 8);
     }
 
     #[test]

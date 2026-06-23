@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sts_core::content::monsters::{
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
+    GREMLIN_NOB_ID, GUARDIAN_ID, LAGAVULIN_ID,
 };
 use sts_core::potion::Potion;
 use sts_core::{
@@ -97,6 +98,12 @@ pub struct RngBoundary {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SeedStartVerifyOptions {
+    /// When set, TEST elite and boss combats simulate PLAY/END instead of observed-state sync.
+    pub disable_test_elite_boss_observed_sync: bool,
+}
+
 #[derive(Debug)]
 pub enum SimRealError {
     Trace(serde_json::Error),
@@ -135,16 +142,42 @@ pub fn verify_communication_mod_trace(content: &str) -> Result<SimRealReport, Si
 pub fn verify_seed_start_communication_mod_trace(
     content: &str,
 ) -> Result<SimRealReport, SimRealError> {
-    verify_communication_mod_trace_with_mode(content, VerificationMode::SeedStart)
+    verify_seed_start_communication_mod_trace_with_options(
+        content,
+        SeedStartVerifyOptions::default(),
+    )
+}
+
+pub fn verify_seed_start_communication_mod_trace_with_options(
+    content: &str,
+    options: SeedStartVerifyOptions,
+) -> Result<SimRealReport, SimRealError> {
+    verify_communication_mod_trace_with_mode_and_options(
+        content,
+        VerificationMode::SeedStart,
+        options,
+    )
 }
 
 pub fn verify_communication_mod_trace_with_mode(
     content: &str,
     mode: VerificationMode,
 ) -> Result<SimRealReport, SimRealError> {
+    verify_communication_mod_trace_with_mode_and_options(
+        content,
+        mode,
+        SeedStartVerifyOptions::default(),
+    )
+}
+
+fn verify_communication_mod_trace_with_mode_and_options(
+    content: &str,
+    mode: VerificationMode,
+    options: SeedStartVerifyOptions,
+) -> Result<SimRealReport, SimRealError> {
     match mode {
         VerificationMode::ObservedState => verify_observed_state_trace(content),
-        VerificationMode::SeedStart => verify_seed_start_trace(content),
+        VerificationMode::SeedStart => verify_seed_start_trace(content, options),
     }
 }
 
@@ -193,7 +226,10 @@ fn verify_observed_state_trace(content: &str) -> Result<SimRealReport, SimRealEr
     Ok(report)
 }
 
-fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError> {
+fn verify_seed_start_trace(
+    content: &str,
+    options: SeedStartVerifyOptions,
+) -> Result<SimRealReport, SimRealError> {
     let trace = import_communication_mod_trace(content)?;
     let total_actions = trace
         .lines
@@ -219,7 +255,7 @@ fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError>
         seed_start: None,
     };
 
-    let boundary = verify_seed_start_transitions(&transitions, &start, &mut report);
+    let boundary = verify_seed_start_transitions(&transitions, &start, &mut report, options);
     let expected_failure = boundary.category != "none";
     let m22_encounter_report = Some(crate::m22::verify_m22_encounter_spawn_prefix(
         &trace.lines,
@@ -271,6 +307,7 @@ fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
     report: &mut SimRealReport,
+    options: SeedStartVerifyOptions,
 ) -> SeedStartBoundary {
     let mut phase = SeedStartPhase::BeforeStart;
     let mut combat_step = 0usize;
@@ -281,6 +318,9 @@ fn verify_seed_start_transitions(
     let mut elite_index = 0usize;
     let mut elite_combat = false;
     let mut observed_combat_sync = false;
+    let mut combat_elite_boss_observed_sync = false;
+    let mut in_elite_boss_combat = false;
+    let mut combat_potion_card_observed_sync = false;
     let mut map_path_xs: Vec<i32> = Vec::new();
     let mut neow_lament = false;
     let mut relics = vec!["Burning Blood".to_owned()];
@@ -551,6 +591,10 @@ fn verify_seed_start_transitions(
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
                         compare_subset(report, action, &label, expected.clone(), expected);
+                        combat_elite_boss_observed_sync = !(options
+                            .disable_test_elite_boss_observed_sync
+                            && start.external_seed == "TEST");
+                        in_elite_boss_combat = true;
                         elite_combat = true;
                         elite_index += 1;
                         phase = SeedStartPhase::Combat;
@@ -630,6 +674,10 @@ fn verify_seed_start_transitions(
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
                         compare_subset(report, action, &label, expected.clone(), expected);
+                        combat_elite_boss_observed_sync = !(options
+                            .disable_test_elite_boss_observed_sync
+                            && start.external_seed == "TEST");
+                        in_elite_boss_combat = true;
                         observed_combat_sync = true;
                         phase = SeedStartPhase::Combat;
                         seed_sim = seed_start_run_from_combat_entry(
@@ -939,10 +987,19 @@ fn verify_seed_start_transitions(
                 let command = action.command.trim();
                 let hand_select = screen_type(&pre.message) == Some("HAND_SELECT")
                     || screen_type(&post.message) == Some("HAND_SELECT");
-                let observed_sync = elite_combat
-                    || observed_combat_sync
+                let enters_hand_select = command.starts_with("PLAY")
+                    && screen_type(&post.message) == Some("HAND_SELECT");
+                let combat_card_reward_choose = command.starts_with("CHOOSE")
+                    && screen_type(&pre.message) == Some("CARD_REWARD");
+                let observed_sync = if in_elite_boss_combat {
+                    combat_elite_boss_observed_sync
+                } else {
+                    observed_combat_sync
+                } || combat_potion_card_observed_sync
                     || command.starts_with("POTION")
                     || command.eq_ignore_ascii_case("CONFIRM")
+                    || enters_hand_select
+                    || combat_card_reward_choose
                     || (command.starts_with("CHOOSE") && hand_select);
 
                 if observed_sync {
@@ -968,9 +1025,14 @@ fn verify_seed_start_transitions(
                             enter_elite_combat_reward_screen(sim);
                             seed_start_sync_reward_offers_from_observed(sim, &post.message);
                             elite_combat = false;
+                            combat_elite_boss_observed_sync = false;
+                            in_elite_boss_combat = false;
                         } else {
                             enter_normal_combat_reward_screen(sim);
                             seed_start_sync_reward_offers_from_observed(sim, &post.message);
+                            observed_combat_sync = false;
+                            combat_elite_boss_observed_sync = false;
+                            in_elite_boss_combat = false;
                         }
                         phase = SeedStartPhase::Reward;
                         report.verified.push(VerifiedTransition {
@@ -994,6 +1056,9 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         label: label.to_owned(),
                     });
+                    if combat_card_reward_choose {
+                        combat_potion_card_observed_sync = true;
+                    }
                     combat_step += 1;
                     continue;
                 }
@@ -1137,7 +1202,7 @@ fn verify_seed_start_transitions(
                 };
                 let label = combat_label(command, sim);
                 let strip_piles = command.eq_ignore_ascii_case("END");
-                if strip_piles {
+                if strip_piles && (!in_elite_boss_combat || combat_elite_boss_observed_sync) {
                     sync_combat_from_observed_after_end(&mut next, &post.message);
                 }
                 seed_start_compare_combat_subset(
@@ -4595,6 +4660,7 @@ fn monsters_from_observed(value: Option<&Value>, player: &Value) -> Vec<MonsterS
             let content_id = sts_core::content::monsters::content_id_from_game_monster_id(game_id);
             let rolled_attack_damage = louse_bite_damage_from_observed(monster, content_id);
             let powers = monster_powers_for_replay(monster.get("powers"), player);
+            let replay = elite_boss_replay_fields(monster, content_id, &powers);
             MonsterState {
                 id: MonsterId::new(index as u64 + 1),
                 hp: int(monster, "current_hp"),
@@ -4602,16 +4668,141 @@ fn monsters_from_observed(value: Option<&Value>, player: &Value) -> Vec<MonsterS
                 alive: int(monster, "current_hp") > 0,
                 powers,
                 content_id,
-                moves_executed: moves_executed_from_observed(monster, content_id),
-                sleep_turns_remaining: 0,
-                has_siphoned: false,
+                moves_executed: replay.moves_executed,
+                sleep_turns_remaining: replay.sleep_turns_remaining,
+                has_siphoned: replay.has_siphoned,
                 split_triggered: false,
-                defensive_turns_remaining: 0,
+                defensive_turns_remaining: replay.defensive_turns_remaining,
+                mode_shift: replay.mode_shift,
+                in_defensive_mode: replay.in_defensive_mode,
                 rolled_attack_damage,
-                intent: observed_intent(monster, content_id),
+                intent: replay.intent,
             }
         })
         .collect()
+}
+
+struct EliteBossReplayFields {
+    moves_executed: u32,
+    sleep_turns_remaining: u32,
+    has_siphoned: bool,
+    defensive_turns_remaining: u32,
+    mode_shift: i32,
+    in_defensive_mode: bool,
+    intent: MonsterIntent,
+}
+
+fn elite_boss_replay_fields(
+    monster: &Value,
+    content_id: ContentId,
+    powers: &MonsterPowers,
+) -> EliteBossReplayFields {
+    let intent_str = monster.get("intent").and_then(Value::as_str).unwrap_or("");
+    let damage = int(monster, "move_base_damage");
+
+    match content_id {
+        LAGAVULIN_ID => {
+            let sleep_turns_remaining = if matches!(intent_str, "SLEEP" | "DEBUG") {
+                3
+            } else {
+                0
+            };
+            let has_siphoned = intent_str == "ATTACK";
+            let intent = if sleep_turns_remaining > 0 {
+                MonsterIntent::Sleep
+            } else if !has_siphoned {
+                MonsterIntent::SiphonPlayer {
+                    strength: 2,
+                    dexterity: 2,
+                }
+            } else {
+                MonsterIntent::Attack { damage: 18 }
+            };
+            EliteBossReplayFields {
+                moves_executed: u32::from(has_siphoned),
+                sleep_turns_remaining,
+                has_siphoned,
+                defensive_turns_remaining: 0,
+                mode_shift: 0,
+                in_defensive_mode: false,
+                intent,
+            }
+        }
+        GREMLIN_NOB_ID => {
+            let moves_executed = match (intent_str, damage) {
+                ("DEBUG" | "BUFF", _) => 0,
+                ("ATTACK_DEBUFF", 6) => 0,
+                ("ATTACK", 14) => 1,
+                ("ATTACK_DEBUFF", _) => 2,
+                ("ATTACK", _) => 1,
+                _ => moves_executed_from_observed(monster, content_id),
+            };
+            EliteBossReplayFields {
+                moves_executed,
+                sleep_turns_remaining: 0,
+                has_siphoned: false,
+                defensive_turns_remaining: 0,
+                mode_shift: 0,
+                in_defensive_mode: false,
+                intent: observed_intent(monster, content_id),
+            }
+        }
+        GUARDIAN_ID => {
+            let mode_shift = monster
+                .get("powers")
+                .and_then(Value::as_array)
+                .and_then(|powers| {
+                    powers.iter().find_map(|power| {
+                        if power_id(power).as_deref() == Some("Mode Shift") {
+                            Some(int(power, "amount"))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .unwrap_or(30);
+            let in_defensive_mode = powers.spikes > 0
+                || intent_str == "BUFF"
+                || (intent_str == "ATTACK" && damage == 9);
+            let defensive_turns_remaining = if in_defensive_mode {
+                match (intent_str, damage) {
+                    ("BUFF", _) => 7,
+                    ("ATTACK", 9) => 5,
+                    ("ATTACK", 8) => 3,
+                    _ => 4,
+                }
+            } else {
+                0
+            };
+            EliteBossReplayFields {
+                moves_executed: if in_defensive_mode {
+                    7_u32.saturating_sub(defensive_turns_remaining)
+                } else {
+                    match (intent_str, damage) {
+                        ("DEBUG", _) => 0,
+                        ("ATTACK", 32) => 0,
+                        ("ATTACK", 5) => 1,
+                        _ => 0,
+                    }
+                },
+                sleep_turns_remaining: 0,
+                has_siphoned: false,
+                defensive_turns_remaining,
+                mode_shift,
+                in_defensive_mode,
+                intent: observed_intent(monster, content_id),
+            }
+        }
+        _ => EliteBossReplayFields {
+            moves_executed: moves_executed_from_observed(monster, content_id),
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            intent: observed_intent(monster, content_id),
+        },
+    }
 }
 
 fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Option<i32> {
@@ -4687,9 +4878,11 @@ fn monster_powers(value: Option<&Value>) -> MonsterPowers {
             Some("Vulnerable") => powers.vulnerable = amount,
             Some("Weak") => powers.weak = amount,
             Some("Strength") => powers.strength = amount,
-            Some("Ritual") => powers.ritual = amount,
+            Some("Ritual") | Some("Demon Form") => powers.ritual = amount,
             Some("Sharp Hide") | Some("Spikes") => powers.spikes = amount,
             Some("Curl Up") => powers.curl_up = amount,
+            Some("Anger") => powers.anger = amount,
+            Some("Metallicize") => powers.metallicize = amount,
             _ => {}
         }
     }
@@ -4724,9 +4917,10 @@ fn player_powers(value: Option<&Value>) -> PlayerPowers {
         let amount = int(power, "amount");
         match power_id(power).as_deref() {
             Some("Strength") => powers.strength = amount,
-            Some("Weak") => powers.weak = amount,
+            Some("Weak") | Some("Weakened") => powers.weak = amount,
             Some("Dexterity") => powers.dexterity = amount,
             Some("Frail") => powers.frail = amount,
+            Some("Vulnerable") => powers.vulnerable = amount,
             Some("Ritual") => powers.ritual = amount,
             Some("Metallicize") => powers.metallicize = amount,
             _ => {}
@@ -4804,9 +4998,9 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SHOCKWAVE_ID,
+        DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SHOCKWAVE_ID,
         SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID,
         TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
     };
@@ -4845,7 +5039,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Armaments" | "armaments" => Some(ARMAMENTS_ID),
         "Regret" | "regret" => Some(REGRET_ID),
         "Offering" | "offering" => Some(OFFERING_ID),
-        "Demon Form" | "demon form" => Some(ContentId::new(200)),
+        "Demon Form" | "demon form" => Some(DEMON_FORM_ID),
         _ => None,
     }
 }
@@ -4853,13 +5047,13 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        COMBUST_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID,
-        FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WILD_STRIKE_ID,
+        COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID,
+        FIRE_BREATHING_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        RAMPAGE_ID, REGRET_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -4905,7 +5099,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == POMMEL_STRIKE_ID => "Pommel Strike",
         id if id == POMMEL_STRIKE_PLUS_ID => "Pommel Strike+",
         id if id == REGRET_ID => "Regret",
-        id if id == ContentId::new(200) => "Demon Form",
+        id if id == DEMON_FORM_ID => "Demon Form",
         other if shop_pool_trace_name(other).is_some() => {
             shop_pool_trace_name(other).unwrap_or("unknown")
         }
@@ -5036,6 +5230,7 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::StrengthAndBlock { .. } => "BUFF".to_owned(),
         MonsterIntent::AttackAndBlock { .. } => "ATTACK_BUFF".to_owned(),
         MonsterIntent::ApplyPlayerWeak { .. }
+        | MonsterIntent::AttackApplyPlayerVulnerable { .. }
         | MonsterIntent::AddDazedToDiscard { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
         | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),

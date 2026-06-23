@@ -54,15 +54,18 @@ const HEXAGHOST_INFERNO_DAMAGE: i32 = 2;
 const SLIME_BOSS_SLAM_DAMAGE: i32 = 35;
 const SLIME_BOSS_SPLIT_HP_THRESHOLD: i32 = 70;
 
-const GUARDIAN_DEFENSIVE_TURNS: u32 = 3;
-const GUARDIAN_DEFENSIVE_BLOCK: i32 = 99;
-const GUARDIAN_DEFENSIVE_STRENGTH: i32 = 3;
-const GUARDIAN_FIERCE_BLOW_DAMAGE: i32 = 36;
-const GUARDIAN_ROLL_ATTACK_DAMAGE: i32 = 12;
+const GUARDIAN_MODE_SHIFT_START: i32 = 30;
+const GUARDIAN_MODE_SHIFT_RESET: i32 = 40;
+const GUARDIAN_DEFENSIVE_SEQUENCE_TURNS: u32 = 7;
+const GUARDIAN_DEFENSIVE_BLOCK: i32 = 20;
+const GUARDIAN_DEFENSIVE_SPIKES: i32 = 3;
+const GUARDIAN_CHARGE_DAMAGE: i32 = 32;
+const GUARDIAN_NORMAL_ATTACK_DAMAGE: i32 = 5;
+const GUARDIAN_DEFENSIVE_ATTACK_DAMAGE: i32 = 9;
+const GUARDIAN_DEFENSIVE_COMBO_DAMAGE: i32 = 8;
 
 const GREMLIN_NOB_BITE_DAMAGE: i32 = 6;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 14;
-const GREMLIN_NOB_RUSH_DAMAGE: i32 = 10;
 
 const JAW_WORM_CHOMP_DAMAGE: i32 = 11;
 const JAW_WORM_THRASH_DAMAGE: i32 = 7;
@@ -77,7 +80,7 @@ pub struct MonsterDefinition {
     pub hp: i32,
     pub attack_damage: i32,
     pub ritual_amount: i32,
-    /// Weak applied to the player when they play a skill card while this monster is alive.
+    /// Anger stacks granted to this monster when the player plays a skill (Gremlin Nob).
     pub enrage_weak_on_skill: i32,
     /// Spikes applied at combat start (thorns on attack).
     pub starting_spikes: i32,
@@ -294,7 +297,7 @@ pub const SLIME_BOSS_A0: MonsterDefinition = MonsterDefinition {
     starting_defensive_turns: 0,
 };
 
-/// Act 1 Guardian at ascension 0: 240 HP, defensive charge then fierce blow / roll attack.
+/// Act 1 Guardian at ascension 0: 240 HP, Mode Shift defensive transitions.
 pub const GUARDIAN_A0: MonsterDefinition = MonsterDefinition {
     content_id: GUARDIAN_ID,
     name: "Guardian",
@@ -304,7 +307,7 @@ pub const GUARDIAN_A0: MonsterDefinition = MonsterDefinition {
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
     starting_sleep_turns: 0,
-    starting_defensive_turns: GUARDIAN_DEFENSIVE_TURNS,
+    starting_defensive_turns: 0,
 };
 
 /// Act 1 Spike Slime at ascension 0: 14 HP, Lick (weak) / Spit (attack) cycle.
@@ -690,6 +693,12 @@ pub fn monster_state_for_ascension(
         has_siphoned: false,
         split_triggered: false,
         defensive_turns_remaining: definition.starting_defensive_turns,
+        mode_shift: if definition.content_id == GUARDIAN_ID {
+            GUARDIAN_MODE_SHIFT_START
+        } else {
+            0
+        },
+        in_defensive_mode: false,
         rolled_attack_damage: None,
         intent: prepare_monster_intent_for_monster(
             definition,
@@ -697,6 +706,12 @@ pub fn monster_state_for_ascension(
             definition.starting_sleep_turns,
             false,
             definition.starting_defensive_turns,
+            false,
+            if definition.content_id == GUARDIAN_ID {
+                GUARDIAN_MODE_SHIFT_START
+            } else {
+                0
+            },
             None,
         ),
     }
@@ -731,6 +746,8 @@ pub fn prepare_monster_intent(monster: &MonsterState) -> MonsterIntent {
         monster.sleep_turns_remaining,
         monster.has_siphoned,
         monster.defensive_turns_remaining,
+        monster.in_defensive_mode,
+        monster.mode_shift,
         monster.rolled_attack_damage,
     );
     if let Some(damage) = monster.rolled_attack_damage {
@@ -751,14 +768,17 @@ fn prepare_monster_intent_for_monster(
     sleep_turns_remaining: u32,
     has_siphoned: bool,
     defensive_turns_remaining: u32,
+    in_defensive_mode: bool,
+    mode_shift: i32,
     rolled_attack_damage: Option<i32>,
 ) -> MonsterIntent {
     if definition.content_id == LAGAVULIN_ID {
         return lagavulin_intent(sleep_turns_remaining, has_siphoned);
     }
     if definition.content_id == GUARDIAN_ID {
-        return guardian_intent(defensive_turns_remaining, moves_executed);
+        return guardian_intent(in_defensive_mode, defensive_turns_remaining, moves_executed);
     }
+    let _ = mode_shift;
     prepare_monster_intent_for(definition, moves_executed, rolled_attack_damage)
 }
 
@@ -850,21 +870,89 @@ fn sentry_intent(moves_executed: u32) -> MonsterIntent {
 }
 
 #[must_use]
-fn guardian_intent(defensive_turns_remaining: u32, moves_executed: u32) -> MonsterIntent {
-    if defensive_turns_remaining > 0 {
-        MonsterIntent::DefensiveCharge {
-            block: GUARDIAN_DEFENSIVE_BLOCK,
-            strength: GUARDIAN_DEFENSIVE_STRENGTH,
+fn guardian_intent(
+    in_defensive_mode: bool,
+    defensive_turns_remaining: u32,
+    moves_executed: u32,
+) -> MonsterIntent {
+    if in_defensive_mode {
+        let turn_in_sequence =
+            GUARDIAN_DEFENSIVE_SEQUENCE_TURNS.saturating_sub(defensive_turns_remaining);
+        if turn_in_sequence < 3 {
+            MonsterIntent::Attack {
+                damage: GUARDIAN_DEFENSIVE_ATTACK_DAMAGE,
+            }
+        } else {
+            MonsterIntent::Attack {
+                damage: GUARDIAN_DEFENSIVE_COMBO_DAMAGE,
+            }
         }
     } else {
         match moves_executed % 2 {
             0 => MonsterIntent::Attack {
-                damage: GUARDIAN_FIERCE_BLOW_DAMAGE,
+                damage: GUARDIAN_CHARGE_DAMAGE,
             },
             _ => MonsterIntent::Attack {
-                damage: GUARDIAN_ROLL_ATTACK_DAMAGE,
+                damage: GUARDIAN_NORMAL_ATTACK_DAMAGE,
             },
         }
+    }
+}
+
+/// Enters Guardian defensive mode when Mode Shift reaches zero.
+pub fn enter_guardian_defensive_mode(monster: &mut MonsterState) {
+    if monster.content_id != GUARDIAN_ID || monster.in_defensive_mode {
+        return;
+    }
+    monster.in_defensive_mode = true;
+    monster.defensive_turns_remaining = GUARDIAN_DEFENSIVE_SEQUENCE_TURNS;
+    monster.powers.spikes = GUARDIAN_DEFENSIVE_SPIKES;
+    monster.block += GUARDIAN_DEFENSIVE_BLOCK;
+    monster.mode_shift = 0;
+    monster.intent = guardian_intent(
+        true,
+        monster.defensive_turns_remaining,
+        monster.moves_executed,
+    );
+}
+
+fn exit_guardian_defensive_mode(monster: &mut MonsterState) {
+    if monster.content_id != GUARDIAN_ID || !monster.in_defensive_mode {
+        return;
+    }
+    monster.in_defensive_mode = false;
+    monster.defensive_turns_remaining = 0;
+    monster.powers.spikes = 0;
+    monster.mode_shift = GUARDIAN_MODE_SHIFT_RESET;
+    monster.intent = guardian_intent(false, 0, monster.moves_executed);
+}
+
+/// Decrements Mode Shift when the Guardian loses HP outside defensive mode.
+pub fn guardian_on_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
+    if monster.content_id != GUARDIAN_ID || hp_damage <= 0 || monster.in_defensive_mode {
+        return;
+    }
+    monster.mode_shift -= hp_damage;
+    if monster.mode_shift <= 0 {
+        enter_guardian_defensive_mode(monster);
+    }
+}
+
+fn finish_guardian_defensive_turn(monster: &mut MonsterState) {
+    if monster.content_id != GUARDIAN_ID || !monster.in_defensive_mode {
+        return;
+    }
+    if monster.defensive_turns_remaining > 0 {
+        monster.defensive_turns_remaining -= 1;
+    }
+    if monster.defensive_turns_remaining == 0 {
+        exit_guardian_defensive_mode(monster);
+    } else {
+        monster.intent = guardian_intent(
+            true,
+            monster.defensive_turns_remaining,
+            monster.moves_executed,
+        );
     }
 }
 
@@ -909,9 +997,9 @@ fn lagavulin_intent(sleep_turns_remaining: u32, has_siphoned: bool) -> MonsterIn
     }
 }
 
-/// Wakes a sleeping Lagavulin when damaged and updates its intent for the current turn.
-pub fn wake_lagavulin_on_damage(monster: &mut MonsterState) {
-    if monster.content_id == LAGAVULIN_ID && monster.sleep_turns_remaining > 0 {
+/// Wakes a sleeping Lagavulin when HP damage is dealt and updates its intent for the current turn.
+pub fn wake_lagavulin_on_damage(monster: &mut MonsterState, hp_damage: i32) {
+    if monster.content_id == LAGAVULIN_ID && hp_damage > 0 && monster.sleep_turns_remaining > 0 {
         monster.sleep_turns_remaining = 0;
         monster.intent = lagavulin_intent(monster.sleep_turns_remaining, monster.has_siphoned);
     }
@@ -960,18 +1048,16 @@ pub fn check_slime_boss_split(state: &mut crate::CombatState, monster_id: Monste
     ));
 }
 
-/// Deterministic Gremlin Nob move cycle: Bite → Skull Bash → Rush, keyed on `moves_executed`.
+/// Gremlin Nob move cycle: Bite → Skull Bash (vulnerable), keyed on `moves_executed`.
 #[must_use]
 fn gremlin_nob_intent(moves_executed: u32) -> MonsterIntent {
-    match moves_executed % 3 {
+    match moves_executed % 2 {
         0 => MonsterIntent::Attack {
             damage: GREMLIN_NOB_BITE_DAMAGE,
         },
-        1 => MonsterIntent::Attack {
+        _ => MonsterIntent::AttackApplyPlayerVulnerable {
             damage: GREMLIN_NOB_SKULL_BASH_DAMAGE,
-        },
-        _ => MonsterIntent::Attack {
-            damage: GREMLIN_NOB_RUSH_DAMAGE,
+            vulnerable: 2,
         },
     }
 }
@@ -1000,11 +1086,16 @@ pub fn apply_monster_intent(
     player: &mut crate::PlayerState,
     piles: &mut CardPiles,
     ascension: u8,
+    player_before: &crate::PlayerState,
 ) -> i32 {
+    use crate::combat::turn_powers::monster_damage_to_player;
+
     let config = AscensionConfig::new(ascension);
     let scale_damage = |damage: i32| config.scaled_attack_damage(damage);
     let damage = match monster.intent {
-        MonsterIntent::Attack { damage } => monster_attack_damage(monster, scale_damage(damage)),
+        MonsterIntent::Attack { damage } => {
+            monster_damage_to_player(player_before, monster, scale_damage(damage))
+        }
         MonsterIntent::Block { block } => {
             monster.block += block;
             0
@@ -1015,7 +1106,7 @@ pub fn apply_monster_intent(
         }
         MonsterIntent::AttackAndBlock { damage, block } => {
             monster.block += block;
-            monster_attack_damage(monster, scale_damage(damage))
+            monster_damage_to_player(player_before, monster, scale_damage(damage))
         }
         MonsterIntent::StrengthAndBlock { strength, block } => {
             monster.powers.strength += strength;
@@ -1025,6 +1116,10 @@ pub fn apply_monster_intent(
         MonsterIntent::ApplyPlayerWeak { amount } => {
             player.powers.weak += amount;
             0
+        }
+        MonsterIntent::AttackApplyPlayerVulnerable { damage, vulnerable } => {
+            player.powers.vulnerable += vulnerable;
+            monster_damage_to_player(player_before, monster, scale_damage(damage))
         }
         MonsterIntent::Sleep => {
             if monster.sleep_turns_remaining > 0 {
@@ -1036,8 +1131,8 @@ pub fn apply_monster_intent(
             strength,
             dexterity,
         } => {
-            player.powers.strength = (player.powers.strength - strength).max(0);
-            player.powers.dexterity = (player.powers.dexterity - dexterity).max(0);
+            player.powers.strength -= strength;
+            player.powers.dexterity -= dexterity;
             monster.has_siphoned = true;
             0
         }
@@ -1062,6 +1157,9 @@ pub fn apply_monster_intent(
             0
         }
     };
+    if monster.content_id == GUARDIAN_ID && monster.in_defensive_mode {
+        finish_guardian_defensive_turn(monster);
+    }
     monster.moves_executed += 1;
     damage
 }
@@ -1096,7 +1194,8 @@ mod tests {
     fn apply_intent(monster: &mut MonsterState) -> i32 {
         let mut player = dummy_player();
         let mut piles = dummy_piles();
-        apply_monster_intent(monster, &mut player, &mut piles, 0)
+        let player_before = player.clone();
+        apply_monster_intent(monster, &mut player, &mut piles, 0, &player_before)
     }
 
     #[test]
@@ -1469,7 +1568,7 @@ mod tests {
     }
 
     #[test]
-    fn gremlin_nob_move_selection_cycles_bite_skull_bash_rush() {
+    fn gremlin_nob_move_selection_cycles_bite_skull_bash() {
         let definition = &GREMLIN_NOB_A0;
 
         assert_eq!(
@@ -1480,18 +1579,13 @@ mod tests {
         );
         assert_eq!(
             prepare_monster_intent_for(definition, 1, None),
-            MonsterIntent::Attack {
-                damage: GREMLIN_NOB_SKULL_BASH_DAMAGE
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: GREMLIN_NOB_SKULL_BASH_DAMAGE,
+                vulnerable: 2,
             }
         );
         assert_eq!(
             prepare_monster_intent_for(definition, 2, None),
-            MonsterIntent::Attack {
-                damage: GREMLIN_NOB_RUSH_DAMAGE
-            }
-        );
-        assert_eq!(
-            prepare_monster_intent_for(definition, 3, None),
             MonsterIntent::Attack {
                 damage: GREMLIN_NOB_BITE_DAMAGE
             }
@@ -1617,10 +1711,11 @@ mod tests {
             amount: SPIKE_SLIME_LICK_WEAK,
         };
         let mut player = dummy_player();
+        let player_before = player.clone();
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
             0
         );
         assert_eq!(player.powers.weak, 1);
@@ -1652,10 +1747,11 @@ mod tests {
             amount: ACID_SLIME_WEAK,
         };
         let mut player = dummy_player();
+        let player_before = player.clone();
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
             0
         );
         assert_eq!(player.powers.weak, 1);
@@ -1713,10 +1809,11 @@ mod tests {
         let mut player = dummy_player();
         player.powers.strength = 3;
         player.powers.dexterity = 2;
+        let player_before = player.clone();
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
             0
         );
         assert_eq!(player.powers.strength, 1);
@@ -1728,7 +1825,7 @@ mod tests {
     fn lagavulin_wake_on_damage_clears_sleep_and_sets_siphon_intent() {
         let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
 
-        wake_lagavulin_on_damage(&mut monster);
+        wake_lagavulin_on_damage(&mut monster, 1);
 
         assert_eq!(monster.sleep_turns_remaining, 0);
         assert_eq!(
@@ -1784,10 +1881,11 @@ mod tests {
             count: SENTRY_BEAM_DAZED,
         };
         let mut player = dummy_player();
+        let player_before = player.clone();
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
             0
         );
         assert_eq!(piles.discard_pile.len(), 2);
@@ -1857,10 +1955,11 @@ mod tests {
             damage: HEXAGHOST_INFERNO_DAMAGE,
         };
         let mut player = dummy_player();
+        let player_before = player.clone();
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0),
+            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
             2
         );
         assert_eq!(piles.discard_pile.len(), 3);
@@ -1884,31 +1983,27 @@ mod tests {
     }
 
     #[test]
-    fn guardian_has_two_hundred_forty_hp_and_starts_defensive() {
+    fn guardian_has_two_hundred_forty_hp_and_mode_shift_charge_intent() {
         let monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
 
         assert_eq!(GUARDIAN_A0.hp, 240);
-        assert_eq!(monster.defensive_turns_remaining, GUARDIAN_DEFENSIVE_TURNS);
+        assert_eq!(monster.mode_shift, GUARDIAN_MODE_SHIFT_START);
+        assert!(!monster.in_defensive_mode);
         assert_eq!(
             monster.intent,
-            MonsterIntent::DefensiveCharge {
-                block: GUARDIAN_DEFENSIVE_BLOCK,
-                strength: GUARDIAN_DEFENSIVE_STRENGTH,
+            MonsterIntent::Attack {
+                damage: GUARDIAN_CHARGE_DAMAGE
             }
         );
     }
 
     #[test]
-    fn guardian_defensive_charge_gains_block_and_strength() {
+    fn guardian_mode_shift_triggers_defensive_mode() {
         let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
-        monster.intent = MonsterIntent::DefensiveCharge {
-            block: GUARDIAN_DEFENSIVE_BLOCK,
-            strength: GUARDIAN_DEFENSIVE_STRENGTH,
-        };
+        guardian_on_hp_damage(&mut monster, 30);
 
-        assert_eq!(apply_intent(&mut monster), 0);
-        assert_eq!(monster.block, 99);
-        assert_eq!(monster.powers.strength, 3);
-        assert_eq!(monster.defensive_turns_remaining, 2);
+        assert!(monster.in_defensive_mode);
+        assert_eq!(monster.powers.spikes, GUARDIAN_DEFENSIVE_SPIKES);
+        assert_eq!(monster.block, GUARDIAN_DEFENSIVE_BLOCK);
     }
 }

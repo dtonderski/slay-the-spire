@@ -84,9 +84,12 @@ Milestone 28 is complete on the TEST trace (`trace-2026-06-21T09-57-10-380Z.json
 
 Milestone 27 is complete for the same TEST trace through Act 1 boss relic pickup and pre–Act-2 map return. Coverage includes events, normal/elite combats, rest/treasure/shop rooms, potion/hand-select/reward flows, Guardian boss combat (observed-state sync), boss chest, and Cursed Key boss relic reward.
 
+Milestone 29 is in progress. The first TEST trace elite/boss slice now has a passing guard test, `test_seed_start_m29_test_elite_boss_without_observed_sync`, with elite/boss observed-state restoration disabled. This slice covers Lagavulin sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, and Guardian mode-shift scaffolding. Important carve-out: the TEST Lagavulin fight uses Power Potion; the in-combat potion reward, temporary zero-cost card, and downstream potion-tainted combat state still sync from observed state and are not yet a full card/potion parity claim.
+
 ### Tests
-- `cargo test -p sts_verify` passing with `unexpected_diffs=0` on VERIFY01, CODEX04, CODEX03, and TEST seed-start traces
-- `test_seed_start_m28_shop_entry_parity` and `test_seed_start_full_act1_boss_relic_prefix` pass on `trace-2026-06-21T09-57-10-380Z.jsonl`
+- `test_seed_start_m28_shop_entry_parity`, `test_seed_start_full_act1_boss_relic_prefix`, and `test_seed_start_m29_test_elite_boss_without_observed_sync` pass on `trace-2026-06-21T09-57-10-380Z.jsonl`
+- Focused monster acceptance: `cargo test -p sts_core --test milestone6` passes
+- Full-suite note: `cargo test -p sts_core` and `cargo test -p sts_verify --test corpus` currently expose broader pre-M29/card-pool parity failures; do not treat the M29 slice as full-suite completion.
 - Nightly parity (`scripts/nightly_parity.ps1`) passes including TEST seed-start
 
 ## Current Captured Controller Trace
@@ -97,7 +100,7 @@ Milestone 27 is complete for the same TEST trace through Act 1 boss relic pickup
 
 ## Next Task
 
-Milestone 29 or the next captured trace milestone per `TASKS.md`. TEST shop parity verification:
+Continue Milestone 29 with a non-potion-tainted elite/boss slice, or split out Power Potion temporary-card state before claiming full Lagavulin combat parity. TEST shop/full-trace verification:
 
 ```powershell
 cd simulator

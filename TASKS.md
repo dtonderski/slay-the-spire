@@ -1112,7 +1112,7 @@ Do not implement:
 
 ## Milestone 29: Act 1 Elites and Bosses
 
-Status: planned.
+Status: in progress. First TEST-trace slice is complete: Lagavulin entry, sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, and Guardian mode-shift scaffolding are implemented. `test_seed_start_m29_test_elite_boss_without_observed_sync` passes with elite/boss observed-state restoration disabled, except for explicit UI/potion boundaries.
 
 Goal: verify Act 1 elite and boss combats, including move RNG and special mechanics, from captured seed-start traces.
 
@@ -1123,6 +1123,12 @@ Tasks:
 - implement missing elite and boss AI, move RNG, summons, split, sleep, mode, and special mechanics reached by the traces
 - verify reward transitions after elite and boss combats
 - add passing elite/boss traces to nightly parity
+
+Completed slice:
+
+- TEST Lagavulin prefix verifies without elite observed-state restoration through the pre-Power-Potion combat mechanics.
+- In-combat Power Potion card reward, temporary zero-cost card play, and subsequent potion-tainted combat state still use observed sync and remain outside the elite/boss AI parity claim.
+- Existing TEST full Act 1 trace still passes through boss relic reward via the M27/M28 verifier path.
 
 Acceptance tests:
 

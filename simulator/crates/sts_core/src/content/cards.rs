@@ -503,6 +503,21 @@ pub const DARK_EMBRACE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const DEMON_FORM: CardDefinition = CardDefinition {
+    id: DEMON_FORM_ID,
+    key: "Demon Form",
+    name: "Demon Form",
+    cost: 3,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const POMMEL_STRIKE: CardDefinition = CardDefinition {
     id: POMMEL_STRIKE_ID,
     key: "Pommel Strike",
@@ -893,6 +908,21 @@ pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const THUNDERCLAP: CardDefinition = CardDefinition {
+    id: THUNDERCLAP_ID,
+    key: "Thunderclap",
+    name: "Thunderclap",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(4),
+        block: None,
+        vulnerable: Some(1),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 5] = [WOUND, DAZED, BURN, SLIMED, ASCENDERS_BANE];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
@@ -933,7 +963,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 47] = [
+pub const ALL_CARDS: [CardDefinition; 49] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -957,6 +987,7 @@ pub const ALL_CARDS: [CardDefinition; 47] = [
     BURNING_PACT,
     FEEL_NO_PAIN,
     DARK_EMBRACE,
+    DEMON_FORM,
     POMMEL_STRIKE,
     BATTLE_TRANCE,
     SEEING_RED,
@@ -981,6 +1012,7 @@ pub const ALL_CARDS: [CardDefinition; 47] = [
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
     SWIFT_STRIKE,
+    THUNDERCLAP,
 ];
 
 #[must_use]
