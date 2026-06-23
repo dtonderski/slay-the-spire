@@ -5731,6 +5731,45 @@ mod tests {
     }
 
     #[test]
+    fn m290001_floor2_bash_targets_living_acid_slime_from_observed_state() {
+        let Some(content) = crate::load_corpus_file(
+            "communication_mod/trace-2026-06-23T02-56-19-245Z.run2.valid-prefix.jsonl",
+        ) else {
+            return;
+        };
+        let trace = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&trace.lines).expect("trace transitions");
+        let (pre, action, _post) = transitions
+            .iter()
+            .find(|(_, action, _)| action.step == 29)
+            .expect("step 29 transition");
+        assert_eq!(action.command, "PLAY 5 0");
+
+        let run = run_from_observed_combat(&pre.message).expect("observed combat run");
+        let combat = run.combat.as_ref().expect("combat");
+        assert_eq!(combat.monsters[0].hp, 2);
+        assert!(combat.monsters[0].alive);
+        assert_eq!(combat.monsters[0].id.get(), 1);
+
+        let action = combat_action_from_command(&action.command, combat).expect("combat action");
+        let CombatAction::PlayCard { target, .. } = action else {
+            panic!("expected play-card action");
+        };
+        assert_eq!(target.expect("target").get(), 1);
+        assert!(
+            sts_core::legal_combat_actions(combat).contains(&action),
+            "legal actions: {:?}, parsed action: {:?}",
+            sts_core::legal_combat_actions(combat),
+            action
+        );
+        sts_core::apply_combat_action(combat, action).expect("direct Bash applies");
+        let next = apply_combat_action_on_run(&run, action).expect("Bash applies");
+        let combat = next.combat.as_ref().expect("combat continues");
+        assert!(combat.monsters[0].hp <= 0);
+        assert!(!combat.monsters[0].alive);
+    }
+
+    #[test]
     fn choose_index_parses_nonzero_reward_choice() {
         assert_eq!(choose_index("CHOOSE 2"), Some(2));
     }

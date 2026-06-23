@@ -1009,13 +1009,15 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::ApplyVulnerable { target, amount } => {
-            let monster = living_monster_mut(state, target)?;
-            monster.powers.vulnerable += amount;
+            if let Some(monster) = living_monster_mut_opt(state, target) {
+                monster.powers.vulnerable += amount;
+            }
             Ok(Vec::new())
         }
         InternalAction::ApplyWeak { target, amount } => {
-            let monster = living_monster_mut(state, target)?;
-            monster.powers.weak += amount;
+            if let Some(monster) = living_monster_mut_opt(state, target) {
+                monster.powers.weak += amount;
+            }
             Ok(Vec::new())
         }
         InternalAction::MoveCard { card_id, from, to } => {
@@ -1133,11 +1135,15 @@ fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile
 }
 
 fn living_monster_mut(state: &mut CombatState, target: MonsterId) -> SimResult<&mut MonsterState> {
+    living_monster_mut_opt(state, target)
+        .ok_or(SimError::IllegalAction("target is not a living monster"))
+}
+
+fn living_monster_mut_opt(state: &mut CombatState, target: MonsterId) -> Option<&mut MonsterState> {
     state
         .monsters
         .iter_mut()
         .find(|monster| monster.id == target && monster.alive)
-        .ok_or(SimError::IllegalAction("target is not a living monster"))
 }
 
 fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
@@ -1508,6 +1514,18 @@ mod tests {
         let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
 
         assert_eq!(next.monsters[0].powers.vulnerable, 2);
+    }
+
+    #[test]
+    fn lethal_bash_does_not_fail_when_vulnerable_target_dies() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].hp = 2;
+
+        let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+
+        assert!(next.monsters[0].hp <= 0);
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.phase, CombatPhase::Won);
     }
 
     #[test]
