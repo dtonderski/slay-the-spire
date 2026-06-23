@@ -45,30 +45,39 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function currentTracePath() {
-  const status = readJson(statusPath);
+function currentTracePathFromStatus(status) {
   if (typeof status?.trace_path === "string") return status.trace_path;
   return null;
 }
 
-function bridgeLooksStale() {
-  const summaryAge = fileAgeMs(summaryPath);
-  const statusAge = fileAgeMs(statusPath);
-  const summary = readJson(summaryPath);
-  const status = readJson(statusPath);
+function currentTracePath() {
+  return currentTracePathFromStatus(readJson(statusPath));
+}
+
+function bridgeLooksStaleFrom({ summary, status, summaryAgeMs, statusAgeMs, staleThresholdMs }) {
   if (!summary && !status) {
     return { stale: true, reason: "no session summary/status files" };
   }
-  if (summaryAge > staleMs && statusAge > staleMs) {
+  if (summaryAgeMs > staleThresholdMs && statusAgeMs > staleThresholdMs) {
     return {
       stale: true,
-      reason: `session files stale: summaryAgeMs=${Math.round(summaryAge)} statusAgeMs=${Math.round(statusAge)}`,
+      reason: `session files stale: summaryAgeMs=${Math.round(summaryAgeMs)} statusAgeMs=${Math.round(statusAgeMs)}`,
     };
   }
   if (status?.status === "exited") {
     return { stale: true, reason: `bridge exited: ${status.reason || "unknown"}` };
   }
   return { stale: false, reason: "session active" };
+}
+
+function bridgeLooksStale() {
+  return bridgeLooksStaleFrom({
+    summary: readJson(summaryPath),
+    status: readJson(statusPath),
+    summaryAgeMs: fileAgeMs(summaryPath),
+    statusAgeMs: fileAgeMs(statusPath),
+    staleThresholdMs: staleMs,
+  });
 }
 
 function validateTrace(tracePath) {
@@ -139,7 +148,14 @@ async function main() {
   log(`max supervisor restarts reached: ${maxRestarts}`);
 }
 
-main().catch((error) => {
-  log(`supervisor failed: ${error.stack || error.message}`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    log(`supervisor failed: ${error.stack || error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  bridgeLooksStaleFrom,
+  currentTracePathFromStatus,
+};
