@@ -338,6 +338,35 @@ pub fn ironclad_combat_power_discovery_pool() -> &'static [ContentId] {
     POOL
 }
 
+#[must_use]
+pub fn ironclad_combat_attack_discovery_pool() -> Vec<ContentId> {
+    IRONCLAD_ATTACK_COMMON
+        .iter()
+        .chain(IRONCLAD_ATTACK_UNCOMMON)
+        .chain(IRONCLAD_ATTACK_RARE)
+        .map(|name| shop_card_content_id(name))
+        .collect()
+}
+
+#[must_use]
+pub fn ironclad_combat_skill_discovery_pool() -> Vec<ContentId> {
+    IRONCLAD_SKILL_COMMON
+        .iter()
+        .chain(IRONCLAD_SKILL_UNCOMMON)
+        .chain(IRONCLAD_SKILL_RARE)
+        .map(|name| shop_card_content_id(name))
+        .collect()
+}
+
+#[must_use]
+pub fn colorless_discovery_pool() -> Vec<ContentId> {
+    COLORLESS_UNCOMMON
+        .iter()
+        .chain(COLORLESS_RARE)
+        .map(|name| shop_card_content_id(name))
+        .collect()
+}
+
 /// Target `sts::generateDiscoveryCards` / `DiscoveryAction.generateCardChoices`.
 #[must_use]
 pub fn discovery_card_choices(
@@ -345,11 +374,34 @@ pub fn discovery_card_choices(
     card_type: CardType,
     count: usize,
 ) -> Vec<ContentId> {
-    let pool = match card_type {
+    let owned_pool;
+    let pool: &[ContentId] = match card_type {
+        CardType::Attack => {
+            owned_pool = ironclad_combat_attack_discovery_pool();
+            &owned_pool
+        }
+        CardType::Skill => {
+            owned_pool = ironclad_combat_skill_discovery_pool();
+            &owned_pool
+        }
         CardType::Power => ironclad_combat_power_discovery_pool(),
-        _ => &[],
+        CardType::Status => &[],
     };
     assert!(!pool.is_empty(), "discovery pool must not be empty");
+    let mut choices = Vec::with_capacity(count);
+    while choices.len() < count {
+        let idx = rng.random_int((pool.len() - 1) as i32) as usize;
+        let content_id = pool[idx];
+        if !choices.contains(&content_id) {
+            choices.push(content_id);
+        }
+    }
+    choices
+}
+
+#[must_use]
+pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<ContentId> {
+    let pool = colorless_discovery_pool();
     let mut choices = Vec::with_capacity(count);
     while choices.len() < count {
         let idx = rng.random_int((pool.len() - 1) as i32) as usize;

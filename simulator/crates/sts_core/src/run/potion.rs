@@ -6,7 +6,7 @@ use crate::{
     },
     combat::CombatPhase,
     content::cards::upgrade_content_id,
-    content::shop_pool::discovery_card_choices,
+    content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
     ids::CardId,
     potion::{
         Potion, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT, CULTIST_POTION_RITUAL,
@@ -273,9 +273,15 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.gold = (next.gold - GAMBLE_POTION_LOSS_GOLD).max(0);
                     }
                 }
-                Potion::Power => {
+                Potion::Attack | Potion::Skill | Potion::Colorless | Potion::Power => {
                     let mut rng = next.card_random_rng();
-                    let content_ids = discovery_card_choices(&mut rng, CardType::Power, 3);
+                    let content_ids = match potion {
+                        Potion::Attack => discovery_card_choices(&mut rng, CardType::Attack, 3),
+                        Potion::Skill => discovery_card_choices(&mut rng, CardType::Skill, 3),
+                        Potion::Colorless => colorless_discovery_card_choices(&mut rng, 3),
+                        Potion::Power => discovery_card_choices(&mut rng, CardType::Power, 3),
+                        _ => unreachable!("matched discovery potion"),
+                    };
                     next.card_random_rng_counter = rng.counter();
                     let next_card_id = next.next_card_instance_id();
                     let reward_cards = content_ids
@@ -951,6 +957,69 @@ mod tests {
         .expect_err("fire potion needs target");
 
         assert_eq!(err, SimError::IllegalAction("potion requires a target"));
+    }
+
+    #[test]
+    fn attack_skill_and_colorless_potions_open_unique_card_choices() {
+        for potion in [Potion::Attack, Potion::Skill, Potion::Colorless] {
+            let mut run = RunState::combat_fixture();
+            run.potions.push(potion);
+
+            let after = apply_potion_action(
+                &run,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            )
+            .expect("use discovery potion");
+
+            let choices = after
+                .combat
+                .as_ref()
+                .expect("combat")
+                .potion_card_reward
+                .as_ref()
+                .expect("card choices open");
+            assert_eq!(choices.len(), 3);
+            assert_ne!(choices[0].content_id, choices[1].content_id);
+            assert_ne!(choices[0].content_id, choices[2].content_id);
+            assert_ne!(choices[1].content_id, choices[2].content_id);
+            assert!(after.potions.is_empty());
+        }
+    }
+
+    #[test]
+    fn attack_potion_choice_adds_generated_card_to_hand() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Attack);
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use attack potion");
+        let expected = after
+            .combat
+            .as_ref()
+            .expect("combat")
+            .potion_card_reward
+            .as_ref()
+            .expect("card choices")[0]
+            .content_id;
+
+        let after = apply_combat_card_reward_choice(&after, 0).expect("choose generated card");
+
+        let hand = &after.combat.as_ref().expect("combat").piles.hand;
+        assert!(hand.iter().any(|card| card.content_id == expected));
+        assert!(after
+            .combat
+            .as_ref()
+            .expect("combat")
+            .potion_card_reward
+            .is_none());
     }
 
     #[test]
