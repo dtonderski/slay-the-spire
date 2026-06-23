@@ -522,7 +522,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::relic::RelicKey;
+    use crate::relic::Relic;
 
     #[test]
     fn fixed_event_screen_exposes_golden_shrine_choice() {
@@ -690,12 +690,12 @@ mod tests {
         run.ensure_ironclad_relic_pools();
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::BigFish));
-        let relic_count = run.relic_keys.len();
+        let relic_count = run.relics.len() + run.relic_keys.len();
         assert_eq!(run.event.as_ref().unwrap().event, Event::BigFish);
 
         let after = apply_event_action(&run, EventAction::Choose { choice_index: 2 }).expect("box");
 
-        assert_eq!(after.relic_keys.len(), relic_count + 1);
+        assert_eq!(after.relics.len() + after.relic_keys.len(), relic_count + 1);
         assert!(!after.deck.iter().any(|card| card.content_id == REGRET_ID));
         assert_eq!(after.event.as_ref().unwrap().stage, 1);
 
@@ -770,7 +770,7 @@ mod tests {
         let after_deeper =
             apply_event_action(&after_reach, EventAction::Choose { choice_index: 0 })
                 .expect("deeper");
-        assert!(after_deeper.relic_keys.contains(&RelicKey::DreamCatcher));
+        assert!(after_deeper.relics.contains(&Relic::DreamCatcher));
     }
 
     #[test]

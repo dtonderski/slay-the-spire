@@ -1,6 +1,7 @@
 use crate::{
-    content::cards::upgrade_content_id, relic::RelicKey, Relic, RestAction, RunPhase, RunState,
-    SimError, SimResult,
+    content::cards::upgrade_content_id,
+    relic::{ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, REGAL_PILLOW_HEAL},
+    Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
 
 use super::grid::open_rest_smith_grid;
@@ -81,13 +82,15 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
     let mut next = run.clone();
     match action {
         RestAction::Heal => {
-            let heal = rest_heal_amount(next.player_max_hp);
+            let mut heal = rest_heal_amount(next.player_max_hp);
+            if next.relics.contains(&Relic::RegalPillow) {
+                heal += REGAL_PILLOW_HEAL;
+            }
+            if next.relics.contains(&Relic::EternalFeather) {
+                heal += (next.deck.len() as i32 / 5) * ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS;
+            }
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
-            if next
-                .relic_keys
-                .iter()
-                .any(|key| *key == RelicKey::DreamCatcher)
-            {
+            if next.relics.contains(&Relic::DreamCatcher) {
                 next.phase = RunPhase::Reward;
                 next.reward = Some(RewardScreen {
                     choices: Vec::new(),
@@ -171,6 +174,55 @@ mod tests {
         let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
 
         assert_eq!(after.player_hp, IRONCLAD_A0_BASE_HP);
+    }
+
+    #[test]
+    fn regal_pillow_adds_rest_healing() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.player_hp = 20;
+        run.relics.push(Relic::RegalPillow);
+
+        let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
+
+        assert_eq!(
+            after.player_hp,
+            20 + rest_heal_amount(run.player_max_hp) + REGAL_PILLOW_HEAL
+        );
+    }
+
+    #[test]
+    fn eternal_feather_heals_three_per_five_deck_cards_on_rest() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.player_hp = 20;
+        run.relics.push(Relic::EternalFeather);
+
+        let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
+
+        assert_eq!(
+            after.player_hp,
+            20 + rest_heal_amount(run.player_max_hp) + ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS * 2
+        );
+    }
+
+    #[test]
+    fn dream_catcher_modeled_relic_opens_card_reward_after_rest() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.player_hp = 20;
+        run.relics.push(Relic::DreamCatcher);
+
+        let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
+
+        assert_eq!(after.phase, RunPhase::Reward);
+        assert!(
+            after
+                .reward
+                .as_ref()
+                .expect("dream catcher reward")
+                .card_reward_active
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::{
     },
     ids::CardId,
     potion::Potion,
-    relic::{RelicKey, RelicTier},
+    relic::{Relic, RelicKey, RelicTier},
     rng::StsRng,
     run::grid::open_shop_remove_grid,
     run::reward::target_random_potion,
@@ -365,6 +365,9 @@ pub fn open_shop_merchant(run: &mut RunState) {
     } else {
         generate_shop_screen(run)
     });
+    if run.relics.contains(&Relic::MealTicket) {
+        run.player_hp = (run.player_hp + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp);
+    }
 }
 
 pub fn enter_shop_screen(run: &mut RunState) {
@@ -792,6 +795,22 @@ mod tests {
 
         assert!(legal_shop_actions(&run).contains(&RunAction::BuyShopCard { slot: 0 }));
         assert!(legal_shop_actions(&run).contains(&RunAction::BuyShopPotion { slot: 0 }));
+    }
+
+    #[test]
+    fn meal_ticket_heals_when_shop_merchant_opens() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.player_hp = 40;
+        run.relics.push(Relic::MealTicket);
+
+        open_shop_merchant(&mut run);
+
+        assert_eq!(
+            run.player_hp,
+            (40 + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp)
+        );
+        assert!(run.shop.is_some());
     }
 
     #[test]
