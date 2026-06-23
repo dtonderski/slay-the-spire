@@ -360,12 +360,17 @@ function nextCommand(summary) {
   if (screen === "MAP") return mapCommand(summary);
   if (screen === "COMBAT_REWARD") return rewardCommand(summary);
   if (screen === "CARD_REWARD") return cardRewardCommand(summary);
+  if (screen === "HAND_SELECT") {
+    if (available.has("confirm")) return "CONFIRM";
+    return available.has("choose") && summary.choices?.length ? "CHOOSE 0" : "state";
+  }
   if (screen === "GRID") {
     if (available.has("confirm")) return "CONFIRM";
     return available.has("choose") && summary.choices?.length ? "CHOOSE 0" : "state";
   }
   if (screen === "SHOP_ROOM") {
-    return available.has("choose") && summary.choices?.length ? "CHOOSE 0" : "state";
+    if (available.has("proceed")) return "PROCEED";
+    return "state";
   }
   if (screen === "SHOP_SCREEN") {
     if (available.has("leave")) return "LEAVE";

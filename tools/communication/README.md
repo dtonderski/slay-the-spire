@@ -19,10 +19,12 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 - `overnight_collector.js` watches `session/summary.json` and writes controller commands to `session/next_command.txt`.
 - Its map policy scores only currently visible choices, preferring elites, fights, chests, events, shops, then rests. It does not do route lookahead yet.
 - Its combat policy is intentionally simple, but now prefers blocking over a basic attack when low HP faces heavy incoming damage.
+- It persists pending `START` state so it waits for in-game confirmation before sending another seed, proceeds out of `SHOP_ROOM` after leaving the shop screen, and handles `HAND_SELECT` choose/confirm flows.
 - `run_overnight_collector.cmd` starts the autopilot. It persists the next seed index in `session/overnight_collector_state.json`, so restarts keep moving through seeds.
 - `overnight_preflight.js` checks whether the current bridge/session is fresh and safe for overnight supervision before starting.
 - `run_overnight_preflight.cmd` runs the preflight check.
 - `bridge_probe.js` writes one temporary `state` command and verifies that the active CommunicationMod bridge consumes it. If the command is not consumed, it removes the probe command and exits nonzero.
+- Session `summary.json` and `status.json` include `client_pid`; use this to catch duplicate bridge clients writing conflicting session files.
 - `overnight_supervisor.js` repeatedly runs the collector, validates the active trace after collector exit, writes a `.valid-prefix.jsonl` salvage file when a trace has a missing action response, writes a `.best-run.jsonl` extracted keeper from valid traces, updates `session/harvest_report.json`, logs compact harvest-quality and best-run lines, and stops with a clear reason if the bridge/session files are stale or the bridge has exited.
 - `run_overnight_supervisor.cmd` starts the supervised overnight workflow. Start Slay the Spire with CommunicationMod first.
 - `run_overnight_guarded.cmd` runs preflight first and only starts the supervised overnight workflow if the bridge/session is fresh.

@@ -123,6 +123,10 @@ Overnight collector hardening after the `M290001` run:
 - The overnight collector map policy scores currently visible room choices deterministically, preferring elites, fights, chests, events, shops, then rests. It intentionally does not claim route lookahead until the bridge exposes enough stable map-node context for that.
 - The overnight collector combat policy now has a small survival bias: when low HP faces heavy incoming damage, defensive cards outrank basic attacks. Transient choose-capable screens with no parsed choices now poll state instead of sending `CHOOSE 0`.
 - `bridge_probe.js` is the active bridge liveness check for overnight setup. It writes one temporary `state` command, verifies whether CommunicationMod consumes it, and removes the probe command on failure so stale sessions do not poison the next launch.
+- `trace_client.js`, `summary.json`, and `status.json` now include `client_pid`, which exposed duplicate bridge clients during live collection. Before overnight collection there should be exactly one active bridge client consuming commands.
+- `overnight_collector.js` persists a pending `START` guard so it cannot send a second seed while the previous start transition is still awaiting an in-game confirmation.
+- Live collection on 2026-06-23 produced `trace-2026-06-23T07-42-06-085Z.jsonl`. The raw trace validates at completed boundaries and, as of the latest snapshot, contains 3 starts (`M290005`..`M290007`), 378 completed actions, max floor 10, 3 elite-room entries, 2 deaths, shop/rest/chest/event coverage, and an active floor-7 elite fight. `trace-2026-06-23T07-42-06-085Z.best-run.jsonl` is valid and extracts `M290006`: 105 actions, max floor 10, 1 elite, terminal death.
+- Live fixes from that run: `SHOP_ROOM` now sends `PROCEED` instead of reopening the shop after `LEAVE`, and `HAND_SELECT` now chooses then confirms required card selections. These prevent the observed shop reopen loop and Warcry hand-select polling stall.
 
 ```powershell
 cd simulator
