@@ -4884,7 +4884,7 @@ fn combat_label(command: &str, run: &RunState) -> String {
     key.to_owned()
 }
 
-fn monsters_from_observed(value: Option<&Value>, player: &Value) -> Vec<MonsterState> {
+fn monsters_from_observed(value: Option<&Value>, _player: &Value) -> Vec<MonsterState> {
     let Some(monsters) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -4899,7 +4899,7 @@ fn monsters_from_observed(value: Option<&Value>, player: &Value) -> Vec<MonsterS
                 .unwrap_or("Cultist");
             let content_id = sts_core::content::monsters::content_id_from_game_monster_id(game_id);
             let rolled_attack_damage = louse_bite_damage_from_observed(monster, content_id);
-            let powers = monster_powers_for_replay(monster.get("powers"), player);
+            let powers = monster_powers(monster.get("powers"));
             let replay = elite_boss_replay_fields(monster, content_id, &powers);
             MonsterState {
                 id: MonsterId::new(index as u64 + 1),
@@ -5129,25 +5129,6 @@ fn monster_powers(value: Option<&Value>) -> MonsterPowers {
         }
     }
     powers
-}
-
-fn monster_powers_for_replay(value: Option<&Value>, player: &Value) -> MonsterPowers {
-    let mut powers = monster_powers(value);
-    if player_has_weak(player) {
-        powers.vulnerable = 0;
-    }
-    powers
-}
-
-fn player_has_weak(player: &Value) -> bool {
-    player
-        .get("powers")
-        .and_then(Value::as_array)
-        .is_some_and(|powers| {
-            powers.iter().any(|power| {
-                power_id(power).as_deref() == Some("Weakened") && int(power, "amount") > 0
-            })
-        })
 }
 
 fn player_powers(value: Option<&Value>) -> PlayerPowers {

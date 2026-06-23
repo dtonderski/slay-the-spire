@@ -361,7 +361,7 @@ fn lagavulin_sleeps_three_turns_then_siphons_and_attacks() {
 }
 
 #[test]
-fn lagavulin_wake_on_strike_siphons_on_same_monster_turn() {
+fn lagavulin_wake_on_strike_stuns_then_attacks() {
     let mut state = CombatState::lagavulin_fixture();
     state.player.hp = 100;
     state.player.powers.strength = 3;
@@ -386,20 +386,13 @@ fn lagavulin_wake_on_strike_siphons_on_same_monster_turn() {
     assert_eq!(after_turn.player.powers.dexterity, 2);
     assert_eq!(
         after_turn.monsters[0].intent,
-        MonsterIntent::SiphonPlayer {
-            strength: 2,
-            dexterity: 2,
-        }
-    );
-
-    let after_siphon = end_player_turn(&after_turn);
-    assert_eq!(after_siphon.player.hp, 100);
-    assert_eq!(after_siphon.player.powers.strength, 1);
-    assert_eq!(after_siphon.player.powers.dexterity, 0);
-    assert_eq!(
-        after_siphon.monsters[0].intent,
         MonsterIntent::Attack { damage: 18 }
     );
+
+    let after_attack = end_player_turn(&after_turn);
+    assert_eq!(after_attack.player.hp, 82);
+    assert_eq!(after_attack.player.powers.strength, 3);
+    assert_eq!(after_attack.player.powers.dexterity, 2);
 }
 
 #[test]

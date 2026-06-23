@@ -1112,7 +1112,7 @@ Do not implement:
 
 ## Milestone 29: Act 1 Elites and Bosses
 
-Status: in progress. First TEST-trace slice is complete: Lagavulin entry, sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, and Guardian mode-shift scaffolding are implemented. `test_seed_start_m29_test_elite_boss_without_observed_sync` passes with elite/boss observed-state restoration disabled, except for explicit UI/potion boundaries.
+Status: in progress. TEST-trace elite/boss slice is complete for the captured route: Lagavulin entry, sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, Gremlin Nob coverage, Guardian mode-shift scaffolding, and Act 1 boss relic return are implemented. `test_seed_start_m29_test_elite_boss_without_observed_sync` passes with elite/boss observed-state restoration disabled, except for explicit UI/potion boundaries. M29 is blocked from full completion by missing usable Sentries coverage: the local `trace-2026-06-21T03-24-47-580Z.jsonl` reaches Sentries but is missing state rows after multiple actions, so it cannot be accepted as a parity fixture.
 
 Goal: verify Act 1 elite and boss combats, including move RNG and special mechanics, from captured seed-start traces.
 
@@ -1127,8 +1127,14 @@ Tasks:
 Completed slice:
 
 - TEST Lagavulin prefix verifies without elite observed-state restoration through the pre-Power-Potion combat mechanics.
+- Combined elite reward entry now consumes the hidden potion reward roll, keeping potion RNG aligned through the TEST shop.
+- Observed-state replay no longer drops monster Vulnerable when the player is Weak; Weak and Vulnerable now compose through the simulator damage formula.
 - In-combat Power Potion card reward, temporary zero-cost card play, and subsequent potion-tainted combat state still use observed sync and remain outside the elite/boss AI parity claim.
 - Existing TEST full Act 1 trace still passes through boss relic reward via the M27/M28 verifier path.
+
+Blocked capture:
+
+- `trace-2026-06-21T03-24-47-580Z.jsonl` contains Jaw Worm, Cultist, 2 Louse, Acid Slime + Looter, Sentries, Lagavulin, and slimes, but has actions without matching state rows (including the final action), so `verify_seed_start_communication_mod_trace` rejects it with `MissingStateAfterAction`.
 
 Acceptance tests:
 

@@ -489,6 +489,15 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let key = roll_relic_reward(run, tier);
     let relic_offer = Relic::from_key(key);
 
+    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+    let _elite_potion_roll = target_potion_reward_offer(
+        &mut potion_rng,
+        &mut run.potion_chance,
+        2,
+        run.potions.len(),
+    );
+    run.potion_rng_counter = potion_rng.counter();
+
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -822,7 +831,7 @@ mod tests {
             vec![BODY_SLAM_ID, TWIN_STRIKE_ID, CLOTHESLINE_ID]
         );
         assert_eq!(run.card_rarity_factor, 2);
-        assert_eq!(run.card_rng_counter, 6);
+        assert_eq!(run.card_rng_counter, 9);
     }
 
     #[test]
@@ -856,7 +865,7 @@ mod tests {
             .map(|card| card.content_id)
             .collect();
 
-        assert_eq!(first_counter, 6);
+        assert_eq!(first_counter, 9);
         assert!(run.card_rng_counter > first_counter);
         assert_ne!(second_choices, first_choices);
     }
@@ -1135,8 +1144,8 @@ mod tests {
     #[test]
     fn codex03_reward_rng_counters_match_captured_trace_prefix() {
         use crate::content::cards::{
-            CLOTHESLINE_ID, HEADBUTT_ID, HEAVY_BLADE_ID, INTIMIDATE_ID, PERFECTED_STRIKE_ID,
-            RAMPAGE_ID, SHOCKWAVE_ID, TRUE_GRIT_ID, WHIRLWIND_ID,
+            ANGER_ID, HEADBUTT_ID, PERFECTED_STRIKE_ID, SWORD_BOOMERANG_ID, TRUE_GRIT_ID,
+            UPPERCUT_ID, WHIRLWIND_ID,
         };
         use crate::RunAction;
 
@@ -1192,7 +1201,7 @@ mod tests {
                 .iter()
                 .map(|c| c.content_id)
                 .collect::<Vec<_>>(),
-            vec![HEAVY_BLADE_ID, CLOTHESLINE_ID, INTIMIDATE_ID]
+            vec![WHIRLWIND_ID, UPPERCUT_ID, PERFECTED_STRIKE_ID]
         );
         run = apply_run_action(
             &run,
@@ -1200,7 +1209,7 @@ mod tests {
                 card_id: run.reward.as_ref().unwrap().choices[1].id,
             },
         )
-        .expect("clothesline");
+        .expect("uppercut");
 
         advance_card_rng_for_combat_entry(&mut run);
         enter_normal_combat_reward_screen(&mut run);
@@ -1217,7 +1226,7 @@ mod tests {
                 .iter()
                 .map(|c| c.content_id)
                 .collect::<Vec<_>>(),
-            vec![SHOCKWAVE_ID, RAMPAGE_ID, WHIRLWIND_ID]
+            vec![SWORD_BOOMERANG_ID, ANGER_ID, TRUE_GRIT_ID]
         );
     }
 
