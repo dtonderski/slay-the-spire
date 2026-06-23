@@ -251,6 +251,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         }
                     }
                 }
+                Potion::Duplication => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.duplication_potion_pending = true;
+                }
                 Potion::Weak => {
                     let target = target.expect("validated weak potion target");
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -683,6 +687,25 @@ mod tests {
             combat.player.powers.plated_armor,
             ESSENCE_OF_STEEL_PLATED_ARMOR
         );
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn duplication_potion_sets_next_card_duplicate_flag_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Duplication);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use duplication potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert!(combat.duplication_potion_pending);
         assert!(after.potions.is_empty());
     }
 

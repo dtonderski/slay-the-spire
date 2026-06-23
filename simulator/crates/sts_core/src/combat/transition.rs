@@ -133,7 +133,54 @@ fn apply_play_card(
         ))?,
     };
 
-    process_internal_queue(state, queue?)
+    let mut queue = queue?;
+    if state.duplication_potion_pending {
+        queue = apply_duplication_potion_to_queue(queue, card_id);
+    }
+
+    process_internal_queue(state, queue)
+}
+
+fn apply_duplication_potion_to_queue(
+    mut queue: VecDeque<InternalAction>,
+    card_id: CardId,
+) -> VecDeque<InternalAction> {
+    let mut duplicated_effects = queue
+        .iter()
+        .copied()
+        .filter(|action| is_duplicated_card_effect(*action, card_id))
+        .collect::<VecDeque<_>>();
+
+    let final_move = queue
+        .back()
+        .copied()
+        .filter(|action| is_card_move_for(*action, card_id));
+    if final_move.is_some() {
+        queue.pop_back();
+    }
+
+    queue.push_front(InternalAction::ConsumeDuplicationPotion);
+    queue.append(&mut duplicated_effects);
+    if let Some(action) = final_move {
+        queue.push_back(action);
+    }
+
+    queue
+}
+
+fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
+    !matches!(
+        action,
+        InternalAction::PlayCard { .. }
+            | InternalAction::SpendEnergy { .. }
+            | InternalAction::SpendCardEnergy { .. }
+            | InternalAction::MoveCard { .. }
+            | InternalAction::AwaitHandSelect { .. }
+    ) && !is_card_move_for(action, card_id)
+}
+
+fn is_card_move_for(action: InternalAction, card_id: CardId) -> bool {
+    matches!(action, InternalAction::MoveCard { card_id: moved, .. } if moved == card_id)
 }
 
 fn card_move_destination(definition: &CardDefinition) -> CardPile {
@@ -1023,6 +1070,10 @@ fn apply_internal_action(
     action: InternalAction,
 ) -> SimResult<Vec<InternalAction>> {
     match action {
+        InternalAction::ConsumeDuplicationPotion => {
+            state.duplication_potion_pending = false;
+            Ok(Vec::new())
+        }
         InternalAction::PlayCard { card_id } => {
             let card = find_hand_card(state, card_id)?;
             let definition = get_card_definition(card.content_id)
@@ -1507,6 +1558,30 @@ mod tests {
         let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
 
         assert_eq!(next.player.energy, state.player.energy - 1);
+    }
+
+    #[test]
+    fn duplication_potion_pending_doubles_next_attack_without_extra_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.duplication_potion_pending = true;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(!next.duplication_potion_pending);
+    }
+
+    #[test]
+    fn duplication_potion_pending_doubles_next_skill_block_once() {
+        let mut state = CombatState::initial_fixture();
+        state.duplication_potion_pending = true;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.player.block, state.player.block + 10);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(!next.duplication_potion_pending);
     }
 
     #[test]
