@@ -82,6 +82,8 @@ pub const ORNAMENTAL_FAN_BLOCK: i32 = 4;
 pub const NUNCHAKU_THRESHOLD: u32 = 10;
 /// Energy granted by [Relic::Nunchaku].
 pub const NUNCHAKU_ENERGY: i32 = 1;
+/// Attacks before [Relic::PenNib] doubles the next attack card's damage.
+pub const PEN_NIB_THRESHOLD: u32 = 10;
 /// Attacks in one turn before [Relic::Shuriken] grants strength.
 pub const SHURIKEN_THRESHOLD: u32 = 3;
 /// Strength granted by [Relic::Shuriken].
@@ -345,6 +347,8 @@ pub const WAR_PAINT_ID: ContentId = ContentId::new(378);
 pub const AKABEKO_ID: ContentId = ContentId::new(379);
 /// Content id for [Relic::CentennialPuzzle].
 pub const CENTENNIAL_PUZZLE_ID: ContentId = ContentId::new(380);
+/// Content id for [Relic::PenNib].
+pub const PEN_NIB_ID: ContentId = ContentId::new(381);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -354,6 +358,8 @@ pub struct RelicCounters {
     pub ornamental_fan_attacks_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub nunchaku_attacks_played: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub pen_nib_attacks_played: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub shuriken_attacks_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -953,6 +959,7 @@ pub enum Relic {
     WarPaint,
     Akabeko,
     CentennialPuzzle,
+    PenNib,
 }
 
 impl Relic {
@@ -1040,6 +1047,7 @@ impl Relic {
             Relic::WarPaint => WAR_PAINT_ID,
             Relic::Akabeko => AKABEKO_ID,
             Relic::CentennialPuzzle => CENTENNIAL_PUZZLE_ID,
+            Relic::PenNib => PEN_NIB_ID,
         }
     }
 
@@ -1127,6 +1135,7 @@ impl Relic {
             id if id == WAR_PAINT_ID => Some(Relic::WarPaint),
             id if id == AKABEKO_ID => Some(Relic::Akabeko),
             id if id == CENTENNIAL_PUZZLE_ID => Some(Relic::CentennialPuzzle),
+            id if id == PEN_NIB_ID => Some(Relic::PenNib),
             _ => None,
         }
     }
@@ -1249,6 +1258,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::WarPaint => {}
             Relic::Akabeko => {}
             Relic::CentennialPuzzle => {}
+            Relic::PenNib => {}
         }
     }
 
@@ -1515,6 +1525,13 @@ pub fn apply_on_card_play_relics(
         if state.relic_counters.nunchaku_attacks_played >= NUNCHAKU_THRESHOLD {
             state.relic_counters.nunchaku_attacks_played = 0;
             state.player.energy += NUNCHAKU_ENERGY;
+        }
+    }
+
+    if state.relics.contains(&Relic::PenNib) && card_type == CardType::Attack {
+        state.relic_counters.pen_nib_attacks_played += 1;
+        if state.relic_counters.pen_nib_attacks_played >= PEN_NIB_THRESHOLD {
+            state.relic_counters.pen_nib_attacks_played = 0;
         }
     }
 
@@ -2234,6 +2251,8 @@ mod tests {
             Relic::from_content_id(CENTENNIAL_PUZZLE_ID),
             Some(Relic::CentennialPuzzle)
         );
+        assert_eq!(Relic::PenNib.content_id(), PEN_NIB_ID);
+        assert_eq!(Relic::from_content_id(PEN_NIB_ID), Some(Relic::PenNib));
     }
 
     #[test]
@@ -2711,6 +2730,7 @@ mod tests {
             ink_bottle_cards_played: 7,
             ornamental_fan_attacks_this_turn: 2,
             nunchaku_attacks_played: 9,
+            pen_nib_attacks_played: 8,
             shuriken_attacks_this_turn: 1,
             kunai_attacks_this_turn: 2,
             letter_opener_skills_this_turn: 1,

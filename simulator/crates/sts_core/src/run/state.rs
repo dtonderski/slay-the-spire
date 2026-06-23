@@ -255,6 +255,7 @@ mod tests {
             Relic::from_key(RelicKey::CentennialPuzzle),
             Some(Relic::CentennialPuzzle)
         );
+        assert_eq!(Relic::from_key(RelicKey::PenNib), Some(Relic::PenNib));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1585,7 +1586,8 @@ impl RunState {
             | Relic::Brimstone
             | Relic::WhiteBeastStatue
             | Relic::Akabeko
-            | Relic::CentennialPuzzle => {}
+            | Relic::CentennialPuzzle
+            | Relic::PenNib => {}
         }
     }
 
@@ -1823,6 +1825,7 @@ impl Relic {
             Relic::WarPaint => RelicKey::WarPaint,
             Relic::Akabeko => RelicKey::Akabeko,
             Relic::CentennialPuzzle => RelicKey::CentennialPuzzle,
+            Relic::PenNib => RelicKey::PenNib,
         }
     }
 
@@ -1910,6 +1913,7 @@ impl Relic {
             RelicKey::WarPaint => Some(Relic::WarPaint),
             RelicKey::Akabeko => Some(Relic::Akabeko),
             RelicKey::CentennialPuzzle => Some(Relic::CentennialPuzzle),
+            RelicKey::PenNib => Some(Relic::PenNib),
             _ => None,
         }
     }
