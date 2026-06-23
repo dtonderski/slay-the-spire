@@ -857,6 +857,10 @@ mod tests {
         ];
         for (floor, elite) in combats {
             run.current_floor = floor;
+            if floor == 6 {
+                // The TEST trace uses the floor-1 Power Potion during Lagavulin before the elite reward.
+                run.potions.clear();
+            }
             if elite {
                 enter_elite_combat_reward_screen(&mut run);
                 if let Some(key) = run.reward.as_ref().and_then(|r| r.relic_key_offer) {
@@ -864,6 +868,13 @@ mod tests {
                 }
             } else {
                 enter_normal_combat_reward_screen(&mut run);
+            }
+            if floor == 1 {
+                run = crate::run::apply_run_action(&run, RunAction::TakePotionReward)
+                    .expect("take floor-1 power potion");
+            } else if run.reward.as_ref().and_then(|r| r.potion_offer).is_some() {
+                run = crate::run::apply_run_action(&run, RunAction::SkipPotionReward)
+                    .expect("skip later potion reward");
             }
             run.reward = None;
         }

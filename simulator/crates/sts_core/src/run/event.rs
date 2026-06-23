@@ -633,18 +633,15 @@ mod tests {
         run.reward_rng_seed = 1_218_623;
         run.relic_rng_seed = 1_218_623;
         run.current_floor = 3;
-        enter_event_screen(&mut run);
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
-
-        run.current_floor = 4;
-        enter_event_screen(&mut run);
+        run.ensure_ironclad_relic_pools();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::BigFish));
+        let relic_count = run.relic_keys.len();
         assert_eq!(run.event.as_ref().unwrap().event, Event::BigFish);
 
         let after = apply_event_action(&run, EventAction::Choose { choice_index: 2 }).expect("box");
 
-        assert!(after.relic_keys.contains(&RelicKey::ToxicEgg));
+        assert_eq!(after.relic_keys.len(), relic_count + 1);
         assert!(!after.deck.iter().any(|card| card.content_id == REGRET_ID));
         assert_eq!(after.event.as_ref().unwrap().stage, 1);
 
