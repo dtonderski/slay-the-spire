@@ -281,6 +281,7 @@ impl Potion {
                 | Potion::Swift
                 | Potion::BlessingOfTheForge
                 | Potion::Duplication
+                | Potion::DistilledChaos
                 | Potion::Power
         )
     }

@@ -53,6 +53,17 @@ pub fn apply_combat_action_with_events(
     }
 }
 
+pub fn apply_play_top_draw_card_action(
+    state: &CombatState,
+    target: Option<MonsterId>,
+) -> SimResult<CombatState> {
+    Ok(process_internal_queue(
+        state,
+        VecDeque::from([InternalAction::PlayTopDrawCard { target }]),
+    )?
+    .state)
+}
+
 fn apply_play_card(
     state: &CombatState,
     card_id: CardId,
