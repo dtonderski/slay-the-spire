@@ -18,6 +18,7 @@ use crate::{
         SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
+    run::reward::target_random_potion,
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -278,6 +279,16 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.gold = (next.gold - GAMBLE_POTION_LOSS_GOLD).max(0);
                     }
                 }
+                Potion::EntropicBrew => {
+                    let mut rng = crate::rng::StsRng::with_counter(
+                        next.potion_rng_seed as i64,
+                        next.potion_rng_counter,
+                    );
+                    while next.potions.len() < crate::potion::MAX_POTIONS {
+                        next.potions.push(target_random_potion(&mut rng));
+                    }
+                    next.potion_rng_counter = rng.counter();
+                }
                 Potion::Attack | Potion::Skill | Potion::Colorless | Potion::Power => {
                     let mut rng = next.card_random_rng();
                     let content_ids = match potion {
@@ -410,6 +421,46 @@ mod tests {
         let json = serde_json::to_string(&after).expect("run serializes");
         let restored: RunState = serde_json::from_str(&json).expect("run deserializes");
         assert_eq!(restored.potion_rng_seed, after.potion_rng_seed);
+    }
+
+    #[test]
+    fn entropic_brew_fills_empty_potion_slots_and_advances_rng_counter() {
+        let mut run = RunState::map_fixture();
+        run.potion_rng_seed = 22_079_335_079;
+        run.potion_rng_counter = 0;
+        run.potions.push(Potion::EntropicBrew);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use entropic brew");
+
+        assert_eq!(after.potions.len(), crate::potion::MAX_POTIONS);
+        assert!(after.potion_rng_counter > run.potion_rng_counter);
+    }
+
+    #[test]
+    fn entropic_brew_preserves_existing_potions_while_refilling_open_slots() {
+        let mut run = RunState::map_fixture();
+        run.potion_rng_seed = 22_079_335_079;
+        run.potions = vec![Potion::Fire, Potion::EntropicBrew, Potion::Block];
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 1,
+                target: None,
+            },
+        )
+        .expect("use entropic brew from full belt");
+
+        assert_eq!(after.potions.len(), crate::potion::MAX_POTIONS);
+        assert_eq!(after.potions[0], Potion::Fire);
+        assert_eq!(after.potions[1], Potion::Block);
     }
 
     #[test]
