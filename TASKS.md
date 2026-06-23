@@ -1306,6 +1306,8 @@ Completed slice:
 - implemented Calipers key promotion and end-of-turn block retention, with focused combat-turn tests
 - expanded modeled reward-screen max-HP relics: Singing Bowl
 - implemented Singing Bowl key promotion and explicit open-card-reward max-HP action, with focused reward/state/relic tests
+- expanded modeled X-cost relics: Chemical X
+- implemented Chemical X key promotion and +2 Whirlwind X value, including zero-energy Chemical X play, with focused legal/combat tests
 
 Remaining:
 

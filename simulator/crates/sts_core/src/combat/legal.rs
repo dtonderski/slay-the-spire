@@ -7,7 +7,7 @@ use crate::{
         WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
-    relic::can_play_card_with_relics,
+    relic::{can_play_card_with_relics, Relic},
     SimError, SimResult,
 };
 
@@ -181,7 +181,7 @@ fn card_definition_for_hand_card(
 
 fn is_affordable(state: &CombatState, card_id: CardId, definition: &CardDefinition) -> bool {
     if is_x_cost(definition) {
-        return state.player.energy >= 1;
+        return state.player.energy >= 1 || state.relics.contains(&Relic::ChemicalX);
     }
     state.player.energy >= effective_hand_card_cost(state, card_id)
 }
@@ -866,6 +866,30 @@ mod tests {
                 },
             ),
             Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn whirlwind_is_legal_at_zero_energy_with_chemical_x() {
+        let mut state = hand_with_card(WHIRLWIND_ID);
+        state.player.energy = 0;
+        state.relics.push(Relic::ChemicalX);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Ok(())
         );
     }
 

@@ -23,6 +23,7 @@ use crate::{
     },
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
+    relic::{Relic, CHEMICAL_X_BONUS_X},
     rng::SimulatorRng,
     CardInstance, CombatState, MonsterIntent, MonsterState, SimError, SimResult,
 };
@@ -554,7 +555,12 @@ fn whirlwind_queue(
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     let x = state.player.energy;
-    if x < 1 {
+    let chemical_x_bonus = if state.relics.contains(&Relic::ChemicalX) {
+        CHEMICAL_X_BONUS_X
+    } else {
+        0
+    };
+    if x + chemical_x_bonus < 1 {
         return Err(SimError::IllegalAction(
             "Whirlwind requires at least 1 energy",
         ));
@@ -566,7 +572,7 @@ fn whirlwind_queue(
         InternalAction::SpendEnergy { amount: x },
     ]);
 
-    for _ in 0..x {
+    for _ in 0..(x + chemical_x_bonus) {
         queue.push_back(InternalAction::DealDamageAll {
             source: card_id,
             amount: damage,
@@ -2174,6 +2180,46 @@ mod tests {
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 15);
         assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 15);
+        assert_eq!(next.player.energy, 0);
+    }
+
+    #[test]
+    fn whirlwind_with_chemical_x_adds_two_hits() {
+        let mut state = two_monster_hand(WHIRLWIND_ID);
+        state.relics.push(crate::Relic::ChemicalX);
+        assert_eq!(state.player.energy, 3);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Whirlwind applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 25);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 25);
+        assert_eq!(next.player.energy, 0);
+    }
+
+    #[test]
+    fn zero_energy_whirlwind_with_chemical_x_hits_twice() {
+        let mut state = two_monster_hand(WHIRLWIND_ID);
+        state.player.energy = 0;
+        state.relics.push(crate::Relic::ChemicalX);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Whirlwind applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 10);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 10);
         assert_eq!(next.player.energy, 0);
     }
 

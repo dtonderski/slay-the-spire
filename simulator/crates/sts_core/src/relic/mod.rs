@@ -299,6 +299,10 @@ pub const CALIPERS_ID: ContentId = ContentId::new(367);
 pub const SINGING_BOWL_ID: ContentId = ContentId::new(368);
 /// Max HP granted by [Relic::SingingBowl] when skipping a card reward.
 pub const SINGING_BOWL_MAX_HP: i32 = 2;
+/// Content id for [Relic::ChemicalX].
+pub const CHEMICAL_X_ID: ContentId = ContentId::new(369);
+/// Extra X value granted by [Relic::ChemicalX].
+pub const CHEMICAL_X_BONUS_X: i32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -891,6 +895,7 @@ pub enum Relic {
     InkBottle,
     OrnamentalFan,
     IceCream,
+    ChemicalX,
 }
 
 impl Relic {
@@ -966,6 +971,7 @@ impl Relic {
             Relic::InkBottle => INK_BOTTLE_ID,
             Relic::OrnamentalFan => ORNAMENTAL_FAN_ID,
             Relic::IceCream => ICE_CREAM_ID,
+            Relic::ChemicalX => CHEMICAL_X_ID,
         }
     }
 
@@ -1041,6 +1047,7 @@ impl Relic {
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
             id if id == ORNAMENTAL_FAN_ID => Some(Relic::OrnamentalFan),
             id if id == ICE_CREAM_ID => Some(Relic::IceCream),
+            id if id == CHEMICAL_X_ID => Some(Relic::ChemicalX),
             _ => None,
         }
     }
@@ -1151,6 +1158,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::InkBottle => {}
             Relic::OrnamentalFan => {}
             Relic::IceCream => {}
+            Relic::ChemicalX => {}
         }
     }
 
@@ -2059,6 +2067,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(SINGING_BOWL_ID),
             Some(Relic::SingingBowl)
+        );
+        assert_eq!(Relic::ChemicalX.content_id(), CHEMICAL_X_ID);
+        assert_eq!(
+            Relic::from_content_id(CHEMICAL_X_ID),
+            Some(Relic::ChemicalX)
         );
     }
 
