@@ -1266,6 +1266,8 @@ Completed slice:
 - implemented player Weak/Frail prevention helpers and wired Ginger into monster weak intents with focused relic/monster tests
 - expanded modeled boss energy relics: Mark of Pain
 - implemented Mark of Pain pickup energy and two-Wound deck mutation with focused state/relic tests
+- expanded modeled combat healing relics: Magic Flower
+- implemented source-backed combat-only `MathUtils.round(heal * 1.5)` healing for Blood Vial, Burning/Black Blood, Meat on the Bone, Pantograph, Blood Potion, and Regen with focused tests
 
 Remaining:
 

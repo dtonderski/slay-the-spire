@@ -106,6 +106,10 @@ pub const TUNGSTEN_ROD_REDUCTION: i32 = 1;
 pub const CERAMIC_FISH_GOLD: i32 = 9;
 /// HP healed by [Relic::Pantograph] at the start of boss combat.
 pub const PANTOGRAPH_HEAL: i32 = 25;
+/// Numerator for [Relic::MagicFlower]'s 50% Ironclad healing increase.
+pub const MAGIC_FLOWER_HEAL_NUMERATOR: i32 = 3;
+/// Denominator for [Relic::MagicFlower]'s 50% Ironclad healing increase.
+pub const MAGIC_FLOWER_HEAL_DENOMINATOR: i32 = 2;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -197,6 +201,8 @@ pub const GINGER_ID: ContentId = ContentId::new(342);
 pub const TURNIP_ID: ContentId = ContentId::new(343);
 /// Content id for [Relic::MarkOfPain].
 pub const MARK_OF_PAIN_ID: ContentId = ContentId::new(344);
+/// Content id for [Relic::MagicFlower].
+pub const MAGIC_FLOWER_ID: ContentId = ContentId::new(345);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -754,6 +760,7 @@ pub enum Relic {
     Ginger,
     Turnip,
     MarkOfPain,
+    MagicFlower,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -805,6 +812,7 @@ impl Relic {
             Relic::Ginger => GINGER_ID,
             Relic::Turnip => TURNIP_ID,
             Relic::MarkOfPain => MARK_OF_PAIN_ID,
+            Relic::MagicFlower => MAGIC_FLOWER_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -856,6 +864,7 @@ impl Relic {
             id if id == GINGER_ID => Some(Relic::Ginger),
             id if id == TURNIP_ID => Some(Relic::Turnip),
             id if id == MARK_OF_PAIN_ID => Some(Relic::MarkOfPain),
+            id if id == MAGIC_FLOWER_ID => Some(Relic::MagicFlower),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -870,7 +879,12 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
     for relic in relics {
         match relic {
             Relic::BloodVial => {
-                combat.player.hp = (combat.player.hp + BLOOD_VIAL_HEAL).min(combat.player.max_hp);
+                heal_player_in_combat_with_relics(
+                    &mut combat.player.hp,
+                    combat.player.max_hp,
+                    BLOOD_VIAL_HEAL,
+                    relics,
+                );
             }
             Relic::Vajra => {
                 combat.player.powers.strength += VAJRA_STRENGTH;
@@ -931,6 +945,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Ginger => {}
             Relic::Turnip => {}
             Relic::MarkOfPain => {}
+            Relic::MagicFlower => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -942,6 +957,29 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
     }
 
     apply_start_of_player_turn_relics(combat);
+}
+
+#[must_use]
+pub fn combat_healing_amount_with_relics(base_heal: i32, relics: &[Relic]) -> i32 {
+    if base_heal <= 0 {
+        return base_heal;
+    }
+    if relics.contains(&Relic::MagicFlower) {
+        (base_heal * MAGIC_FLOWER_HEAL_NUMERATOR + MAGIC_FLOWER_HEAL_DENOMINATOR / 2)
+            / MAGIC_FLOWER_HEAL_DENOMINATOR
+    } else {
+        base_heal
+    }
+}
+
+pub fn heal_player_in_combat_with_relics(
+    hp: &mut i32,
+    max_hp: i32,
+    base_heal: i32,
+    relics: &[Relic],
+) {
+    let heal = combat_healing_amount_with_relics(base_heal, relics);
+    *hp = (*hp + heal).min(max_hp);
 }
 
 /// Whether player energy should carry over instead of refilling at turn start.
@@ -1400,6 +1438,33 @@ mod tests {
         combat.player.hp = combat.player.max_hp - 1;
         apply_start_of_combat_relics(&mut combat, &[Relic::BloodVial]);
         assert_eq!(combat.player.hp, combat.player.max_hp);
+    }
+
+    #[test]
+    fn magic_flower_rounds_combat_healing_half_up() {
+        assert_eq!(
+            combat_healing_amount_with_relics(2, &[Relic::MagicFlower]),
+            3
+        );
+        assert_eq!(
+            combat_healing_amount_with_relics(5, &[Relic::MagicFlower]),
+            8
+        );
+        assert_eq!(
+            combat_healing_amount_with_relics(25, &[Relic::MagicFlower]),
+            38
+        );
+        assert_eq!(combat_healing_amount_with_relics(5, &[]), 5);
+    }
+
+    #[test]
+    fn magic_flower_increases_blood_vial_combat_healing() {
+        let mut combat = CombatState::initial_fixture();
+        combat.player.hp = 70;
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::BloodVial, Relic::MagicFlower]);
+
+        assert_eq!(combat.player.hp, 70 + 3);
     }
 
     #[test]

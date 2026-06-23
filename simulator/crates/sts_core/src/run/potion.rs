@@ -322,7 +322,12 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Blood => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     let heal = combat.player.max_hp * BLOOD_POTION_HEAL_PERCENT / 100;
-                    combat.player.hp = (combat.player.hp + heal).min(combat.player.max_hp);
+                    crate::relic::heal_player_in_combat_with_relics(
+                        &mut combat.player.hp,
+                        combat.player.max_hp,
+                        heal,
+                        &combat.relics,
+                    );
                 }
                 Potion::Ancient => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -522,7 +527,7 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{DEFEND_R_ID, STRIKE_R_ID, WOUND_ID},
-        MapNodeId, MonsterId,
+        MapNodeId, MonsterId, Relic,
     };
 
     #[test]
@@ -738,6 +743,28 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.player.hp, 66);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn magic_flower_increases_blood_potion_combat_healing() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Blood);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.relics = vec![Relic::MagicFlower];
+        combat.player.hp = 50;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use blood potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.hp, 74);
         assert!(after.potions.is_empty());
     }
 

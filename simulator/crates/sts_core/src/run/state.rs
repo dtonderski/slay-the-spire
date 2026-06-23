@@ -184,6 +184,10 @@ mod tests {
             Relic::from_key(RelicKey::MarkOfPain),
             Some(Relic::MarkOfPain)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::MagicFlower),
+            Some(Relic::MagicFlower)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -243,6 +247,18 @@ mod tests {
         let combat = run.init_combat(CombatState::initial_fixture());
 
         assert_eq!(combat.player.hp, 20 + PANTOGRAPH_HEAL);
+    }
+
+    #[test]
+    fn magic_flower_increases_pantograph_boss_combat_healing() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map").current_node = MapNodeId::new(6);
+        run.player_hp = 20;
+        run.relics = vec![Relic::Pantograph, Relic::MagicFlower];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(combat.player.hp, 20 + 38);
     }
 
     #[test]
@@ -458,7 +474,12 @@ impl RunState {
         if self.current_room_kind() == Some(RoomKind::Boss)
             && self.relics.contains(&Relic::Pantograph)
         {
-            combat.player.hp = (combat.player.hp + PANTOGRAPH_HEAL).min(combat.player.max_hp);
+            crate::relic::heal_player_in_combat_with_relics(
+                &mut combat.player.hp,
+                combat.player.max_hp,
+                PANTOGRAPH_HEAL,
+                &self.relics,
+            );
         }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
@@ -767,6 +788,7 @@ impl RunState {
             | Relic::Pantograph
             | Relic::Ginger
             | Relic::Turnip
+            | Relic::MagicFlower
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -922,6 +944,7 @@ impl Relic {
             Relic::Ginger => RelicKey::Ginger,
             Relic::Turnip => RelicKey::Turnip,
             Relic::MarkOfPain => RelicKey::MarkOfPain,
+            Relic::MagicFlower => RelicKey::MagicFlower,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -973,6 +996,7 @@ impl Relic {
             RelicKey::Ginger => Some(Relic::Ginger),
             RelicKey::Turnip => Some(Relic::Turnip),
             RelicKey::MarkOfPain => Some(Relic::MarkOfPain),
+            RelicKey::MagicFlower => Some(Relic::MagicFlower),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
