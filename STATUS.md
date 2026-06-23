@@ -10,7 +10,7 @@
 ### Run / Meta
 - Reward screen with source-backed card/gold/potion/relic RNG; elite/chest/boss relic reward screens from persisted pools
 - Shop: full target-style inventory (7 cards, 3 relics, 3 potions, remove service) via `merchantRng`/`cardRng`/`potionRng` and relic pools; legacy fixed Anger/Vajra/Fire fixture when `merchant_rng_seed == 0`
-- Potions: Fire, Block, Fear, Gamble, Power, plus deterministic Blood, Heart of Iron, Dexterity, Energy, Explosive, Strength, Weak, Fruit Juice, Swift, and Flex effects; full 33-potion Ironclad reward pool for drops
+- Potions: Fire, Block, Fear, Gamble, Power, plus deterministic Blood, Heart of Iron, Dexterity, Energy, Explosive, Strength, Weak, Fruit Juice, Swift, Flex, and Blessing of the Forge effects; full 33-potion Ironclad reward pool for drops
 - Events: Act 1 event/shrine pools with `generateEvent` shrine chance; map event rooms call `enter_event_screen`; Shining Light costs 20% max HP and upgrades up to two random upgradeable deck cards
 - Rest: heal, smith, card removal (deterministic heal amount; no RNG)
 
@@ -100,7 +100,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Continue Milestone 31 by implementing the next potion family with source-backed semantics: discovery/card-generation potions (`Attack`, `Skill`, `Colorless`) after adding the missing discovery pools, or remaining temporary/persistent power potions (`Speed`, `Ancient`, `Liquid Bronze`, `Regen`) after adding any missing power fields. The current M31 slice covers deterministic potion effects for Blood, Heart of Iron, Dexterity, Energy, Explosive, Strength, Weak, Fruit Juice, Swift, and Flex.
+Continue Milestone 31 by implementing the next potion family with source-backed semantics: discovery/card-generation potions (`Attack`, `Skill`, `Colorless`) after adding the missing discovery pools, or remaining temporary/persistent power potions (`Speed`, `Ancient`, `Liquid Bronze`, `Regen`) after adding any missing power fields. The current M31 slice covers deterministic potion effects for Blood, Heart of Iron, Dexterity, Energy, Explosive, Strength, Weak, Fruit Juice, Swift, Flex, and Blessing of the Forge.
 
 The previous M29 cleaned single-run prefix can still be structurally checked with:
 

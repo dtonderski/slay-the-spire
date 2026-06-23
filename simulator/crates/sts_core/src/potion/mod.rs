@@ -268,6 +268,7 @@ impl Potion {
                 | Potion::Strength
                 | Potion::Flex
                 | Potion::Swift
+                | Potion::BlessingOfTheForge
                 | Potion::Power
         )
     }
