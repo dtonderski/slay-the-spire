@@ -148,6 +148,8 @@ pub const PRESERVED_INSECT_HP_NUMERATOR: i32 = 3;
 pub const PRESERVED_INSECT_HP_DENOMINATOR: i32 = 4;
 /// Strength granted by [Relic::SlingOfCourage] in elite combats.
 pub const SLING_OF_COURAGE_STRENGTH: i32 = 2;
+/// Gold granted by [Relic::MawBank] when entering a floor before it breaks.
+pub const MAW_BANK_GOLD: i32 = 12;
 /// Max HP granted by [Relic::DarkstonePeriapt] whenever a curse is obtained.
 pub const DARKSTONE_PERIAPT_MAX_HP: i32 = 6;
 /// Strength granted by [Relic::DuVuDoll] per curse in the deck at combat start.
@@ -283,6 +285,8 @@ pub const QUESTION_CARD_ID: ContentId = ContentId::new(362);
 pub const OMAMORI_ID: ContentId = ContentId::new(363);
 /// Content id for [Relic::SlingOfCourage].
 pub const SLING_OF_COURAGE_ID: ContentId = ContentId::new(364);
+/// Content id for [Relic::MawBank].
+pub const MAW_BANK_ID: ContentId = ContentId::new(365);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -854,6 +858,7 @@ pub enum Relic {
     PreservedInsect,
     Omamori,
     SlingOfCourage,
+    MawBank,
     DarkstonePeriapt,
     DuVuDoll,
     FusionHammer,
@@ -925,6 +930,7 @@ impl Relic {
             Relic::PreservedInsect => PRESERVED_INSECT_ID,
             Relic::Omamori => OMAMORI_ID,
             Relic::SlingOfCourage => SLING_OF_COURAGE_ID,
+            Relic::MawBank => MAW_BANK_ID,
             Relic::DarkstonePeriapt => DARKSTONE_PERIAPT_ID,
             Relic::DuVuDoll => DU_VU_DOLL_ID,
             Relic::FusionHammer => FUSION_HAMMER_ID,
@@ -996,6 +1002,7 @@ impl Relic {
             id if id == PRESERVED_INSECT_ID => Some(Relic::PreservedInsect),
             id if id == OMAMORI_ID => Some(Relic::Omamori),
             id if id == SLING_OF_COURAGE_ID => Some(Relic::SlingOfCourage),
+            id if id == MAW_BANK_ID => Some(Relic::MawBank),
             id if id == DARKSTONE_PERIAPT_ID => Some(Relic::DarkstonePeriapt),
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
@@ -1100,6 +1107,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PreservedInsect => {}
             Relic::Omamori => {}
             Relic::SlingOfCourage => {}
+            Relic::MawBank => {}
             Relic::DarkstonePeriapt => {}
             Relic::DuVuDoll => {}
             Relic::FusionHammer => {}
@@ -2014,6 +2022,8 @@ mod tests {
             Relic::from_content_id(SLING_OF_COURAGE_ID),
             Some(Relic::SlingOfCourage)
         );
+        assert_eq!(Relic::MawBank.content_id(), MAW_BANK_ID);
+        assert_eq!(Relic::from_content_id(MAW_BANK_ID), Some(Relic::MawBank));
     }
 
     #[test]

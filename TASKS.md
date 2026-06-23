@@ -1298,6 +1298,8 @@ Completed slice:
 - implemented Omamori key promotion and two-charge curse prevention before deck insertion/card-added relic hooks, with focused state tests
 - expanded modeled elite-combat strength relics: Sling of Courage
 - implemented Sling of Courage key promotion and elite-only combat-start strength, with focused run-state tests
+- expanded modeled floor-entry gold relics: Maw Bank
+- implemented Maw Bank key promotion, +12 gold floor entry, and shop-spend break behavior, with map/shop/grid tests
 
 Remaining:
 
