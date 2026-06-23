@@ -122,6 +122,7 @@ Overnight collector hardening after the `M290001` run:
 - `run_overnight_guarded.cmd` is the safer overnight entry point: it runs preflight and starts the supervisor only when the bridge/session is fresh.
 - The overnight collector map policy scores currently visible room choices deterministically, preferring elites, fights, chests, events, shops, then rests. It intentionally does not claim route lookahead until the bridge exposes enough stable map-node context for that.
 - The overnight collector combat policy now has a small survival bias: when low HP faces heavy incoming damage, defensive cards outrank basic attacks. Transient choose-capable screens with no parsed choices now poll state instead of sending `CHOOSE 0`.
+- `bridge_probe.js` is the active bridge liveness check for overnight setup. It writes one temporary `state` command, verifies whether CommunicationMod consumes it, and removes the probe command on failure so stale sessions do not poison the next launch.
 
 ```powershell
 cd simulator

@@ -22,12 +22,14 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 - `run_overnight_collector.cmd` starts the autopilot. It persists the next seed index in `session/overnight_collector_state.json`, so restarts keep moving through seeds.
 - `overnight_preflight.js` checks whether the current bridge/session is fresh and safe for overnight supervision before starting.
 - `run_overnight_preflight.cmd` runs the preflight check.
+- `bridge_probe.js` writes one temporary `state` command and verifies that the active CommunicationMod bridge consumes it. If the command is not consumed, it removes the probe command and exits nonzero.
 - `overnight_supervisor.js` repeatedly runs the collector, validates the active trace after collector exit, writes a `.valid-prefix.jsonl` salvage file when a trace has a missing action response, writes a `.best-run.jsonl` extracted keeper from valid traces, updates `session/harvest_report.json`, logs compact harvest-quality and best-run lines, and stops with a clear reason if the bridge/session files are stale or the bridge has exited.
 - `run_overnight_supervisor.cmd` starts the supervised overnight workflow. Start Slay the Spire with CommunicationMod first.
 - `run_overnight_guarded.cmd` runs preflight first and only starts the supervised overnight workflow if the bridge/session is fresh.
 - `harvest_status.js` reads `session/harvest_report.json` and validates referenced raw, valid-prefix, and best-run artifacts without writing new trace files.
 - `run_communication_checks.cmd` runs the communication tool regression tests.
 - `overnight_collector.test.js` is a fast Node regression test for command policy edge cases seen in harvested traces.
+- `bridge_probe.test.js` is a fast Node regression test for bridge liveness probe result handling.
 - `overnight_preflight.test.js` is a fast Node regression test for stale-session and pending-command detection before overnight runs.
 - `overnight_supervisor.test.js` is a fast Node regression test for stale-session and trace-path decisions in the supervisor.
 - `harvest_status.test.js` is a fast Node regression test for non-mutating harvest report inspection.
@@ -70,5 +72,6 @@ Before an overnight run:
 
 ```powershell
 tools\communication\run_overnight_guarded.cmd
+node tools\communication\bridge_probe.js
 node tools\communication\harvest_status.js
 ```
