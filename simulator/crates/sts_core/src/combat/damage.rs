@@ -35,6 +35,24 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     hp_damage
 }
 
+fn deal_attack_damage_to_monster(monster: &mut MonsterState, relics: &[Relic], amount: i32) -> i32 {
+    let blocked = monster.block.min(amount);
+    monster.block -= blocked;
+    let hp_damage =
+        crate::relic::apply_attack_damage_relics_to_unblocked_damage(relics, amount - blocked);
+    monster.hp -= hp_damage;
+
+    if monster.hp <= 0 {
+        monster.alive = false;
+        monster.block = 0;
+    } else if hp_damage > 0 && monster.powers.curl_up > 0 {
+        monster.block += monster.powers.curl_up;
+        monster.powers.curl_up = 0;
+    }
+
+    hp_damage
+}
+
 pub fn deal_damage_info_to_monster(
     monster: &mut MonsterState,
     info: DamageInfo,
@@ -53,7 +71,7 @@ pub fn deal_damage_info_to_monster(
         monster.powers.vulnerable,
         relics,
     );
-    deal_unmodified_damage_to_monster(monster, amount)
+    deal_attack_damage_to_monster(monster, relics, amount)
 }
 
 /// Reflects thorns-style spikes damage to the player after an attack hits the monster.
@@ -157,6 +175,68 @@ mod tests {
 
         assert_eq!(monster.block, 0);
         assert_eq!(monster.hp, 8);
+    }
+
+    #[test]
+    fn the_boot_increases_small_unblocked_attack_damage_after_block() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 4,
+            alive: true,
+            powers: Default::default(),
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+        let info = DamageInfo {
+            source: DamageSource::Card(CardId::new(1)),
+            target: MonsterId::new(1),
+            amount: 6,
+        };
+
+        deal_damage_info_to_monster(
+            &mut monster,
+            info,
+            PlayerPowers::default(),
+            0,
+            &[Relic::TheBoot],
+        );
+
+        assert_eq!(monster.block, 0);
+        assert_eq!(monster.hp, 15);
+    }
+
+    #[test]
+    fn unmodified_damage_does_not_use_the_boot() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 4,
+            alive: true,
+            powers: Default::default(),
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_unmodified_damage_to_monster(&mut monster, 6);
+
+        assert_eq!(monster.hp, 18);
     }
 
     #[test]
