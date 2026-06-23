@@ -4,11 +4,11 @@ use crate::{
     combat::CombatState,
     content::ascension::AscensionConfig,
     content::cards::{
-        ANGER_ID, BASH_ID, BATTLE_TRANCE_ID, BURNING_PACT_ID, CLEAVE_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, HAVOC_ID,
-        INFLAME_ID, POMMEL_STRIKE_ID, SEARING_BLOW_ID, SEEING_RED_ID, SHRUG_IT_OFF_ID,
-        SPOT_WEAKNESS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WHIRLWIND_ID,
-        WOUND_ID,
+        is_curse_content_id, ANGER_ID, BASH_ID, BATTLE_TRANCE_ID, BURNING_PACT_ID, CLEAVE_ID,
+        DARK_EMBRACE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
+        FLEX_ID, HAVOC_ID, INFLAME_ID, POMMEL_STRIKE_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+        SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID,
+        WHIRLWIND_ID, WOUND_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, ContentId, MonsterId},
@@ -17,9 +17,10 @@ use crate::{
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
-        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD,
-        PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, STRAWBERRY_MAX_HP,
+        DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP,
+        MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD, PANTOGRAPH_HEAL, PEAR_MAX_HP,
+        POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR,
+        STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -201,6 +202,11 @@ mod tests {
             Relic::from_key(RelicKey::PreservedInsect),
             Some(Relic::PreservedInsect)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::DarkstonePeriapt),
+            Some(Relic::DarkstonePeriapt)
+        );
+        assert_eq!(Relic::from_key(RelicKey::DuVuDoll), Some(Relic::DuVuDoll));
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -248,6 +254,32 @@ mod tests {
         run.gain_deck_card(ANGER_ID);
 
         assert_eq!(run.gold, gold_before + CERAMIC_FISH_GOLD);
+    }
+
+    #[test]
+    fn darkstone_periapt_grants_max_hp_when_adding_curse() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::DarkstonePeriapt];
+        let hp_before = run.player_hp;
+        let max_hp_before = run.player_max_hp;
+
+        run.gain_deck_card(crate::content::cards::REGRET_ID);
+
+        assert_eq!(run.player_max_hp, max_hp_before + DARKSTONE_PERIAPT_MAX_HP);
+        assert_eq!(run.player_hp, hp_before + DARKSTONE_PERIAPT_MAX_HP);
+    }
+
+    #[test]
+    fn darkstone_periapt_ignores_status_cards_that_are_not_curses() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::DarkstonePeriapt];
+        let hp_before = run.player_hp;
+        let max_hp_before = run.player_max_hp;
+
+        run.gain_deck_card(WOUND_ID);
+
+        assert_eq!(run.player_max_hp, max_hp_before);
+        assert_eq!(run.player_hp, hp_before);
     }
 
     #[test]
@@ -322,6 +354,22 @@ mod tests {
         let combat = run.init_combat(base);
 
         assert_eq!(combat.monsters[0].hp, 1);
+    }
+
+    #[test]
+    fn du_vu_doll_grants_strength_per_curse_at_combat_start() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::DuVuDoll];
+        run.gain_deck_card(crate::content::cards::REGRET_ID);
+        run.gain_deck_card(crate::content::cards::DOUBT_ID);
+        run.gain_deck_card(WOUND_ID);
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            combat.player.powers.strength,
+            2 * DU_VU_DOLL_STRENGTH_PER_CURSE
+        );
     }
 
     #[test]
@@ -542,6 +590,14 @@ impl RunState {
                     .max(1);
             }
         }
+        if self.relics.contains(&Relic::DuVuDoll) {
+            let curses = self
+                .deck
+                .iter()
+                .filter(|card| is_curse_content_id(card.content_id))
+                .count() as i32;
+            combat.player.powers.strength += curses * DU_VU_DOLL_STRENGTH_PER_CURSE;
+        }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
     }
@@ -751,13 +807,18 @@ impl RunState {
     }
 
     pub fn add_deck_card(&mut self, card: CardInstance) {
+        let content_id = card.content_id;
         self.deck.push(card);
-        self.apply_card_added_relics();
+        self.apply_card_added_relics(content_id);
     }
 
-    fn apply_card_added_relics(&mut self) {
+    fn apply_card_added_relics(&mut self, content_id: ContentId) {
         if self.relics.contains(&Relic::CeramicFish) {
             self.gold += CERAMIC_FISH_GOLD;
+        }
+        if self.relics.contains(&Relic::DarkstonePeriapt) && is_curse_content_id(content_id) {
+            self.player_max_hp += DARKSTONE_PERIAPT_MAX_HP;
+            self.player_hp += DARKSTONE_PERIAPT_MAX_HP;
         }
     }
 
@@ -853,6 +914,8 @@ impl RunState {
             | Relic::PaperPhrog
             | Relic::ChampionBelt
             | Relic::PreservedInsect
+            | Relic::DarkstonePeriapt
+            | Relic::DuVuDoll
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -1012,6 +1075,8 @@ impl Relic {
             Relic::PaperPhrog => RelicKey::PaperPhrog,
             Relic::ChampionBelt => RelicKey::ChampionBelt,
             Relic::PreservedInsect => RelicKey::PreservedInsect,
+            Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
+            Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1067,6 +1132,8 @@ impl Relic {
             RelicKey::PaperPhrog => Some(Relic::PaperPhrog),
             RelicKey::ChampionBelt => Some(Relic::ChampionBelt),
             RelicKey::PreservedInsect => Some(Relic::PreservedInsect),
+            RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
+            RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
