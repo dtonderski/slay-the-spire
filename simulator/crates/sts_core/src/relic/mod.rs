@@ -313,6 +313,10 @@ pub const PHILOSOPHERS_STONE_MONSTER_STRENGTH: i32 = 1;
 pub const SLAVERS_COLLAR_ID: ContentId = ContentId::new(371);
 /// Energy per turn granted by [Relic::SlaversCollar] during elite and boss combats.
 pub const SLAVERS_COLLAR_ENERGY: i32 = 1;
+/// Content id for [Relic::Ectoplasm].
+pub const ECTOPLASM_ID: ContentId = ContentId::new(372);
+/// Energy per turn granted by [Relic::Ectoplasm] on pickup.
+pub const ECTOPLASM_ENERGY: i32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -908,6 +912,7 @@ pub enum Relic {
     ChemicalX,
     PhilosophersStone,
     SlaversCollar,
+    Ectoplasm,
 }
 
 impl Relic {
@@ -986,6 +991,7 @@ impl Relic {
             Relic::ChemicalX => CHEMICAL_X_ID,
             Relic::PhilosophersStone => PHILOSOPHERS_STONE_ID,
             Relic::SlaversCollar => SLAVERS_COLLAR_ID,
+            Relic::Ectoplasm => ECTOPLASM_ID,
         }
     }
 
@@ -1064,6 +1070,7 @@ impl Relic {
             id if id == CHEMICAL_X_ID => Some(Relic::ChemicalX),
             id if id == PHILOSOPHERS_STONE_ID => Some(Relic::PhilosophersStone),
             id if id == SLAVERS_COLLAR_ID => Some(Relic::SlaversCollar),
+            id if id == ECTOPLASM_ID => Some(Relic::Ectoplasm),
             _ => None,
         }
     }
@@ -1177,6 +1184,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::ChemicalX => {}
             Relic::PhilosophersStone => {}
             Relic::SlaversCollar => {}
+            Relic::Ectoplasm => {}
         }
     }
 
@@ -2101,6 +2109,8 @@ mod tests {
             Relic::from_content_id(SLAVERS_COLLAR_ID),
             Some(Relic::SlaversCollar)
         );
+        assert_eq!(Relic::Ectoplasm.content_id(), ECTOPLASM_ID);
+        assert_eq!(Relic::from_content_id(ECTOPLASM_ID), Some(Relic::Ectoplasm));
     }
 
     #[test]

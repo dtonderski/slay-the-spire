@@ -667,7 +667,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             let reward = next.reward.as_mut().expect("validated reward screen");
             let gold_offer = reward.gold_offer;
             reward.gold_offer = 0;
-            next.gold += gold_offer;
+            next.gain_gold(gold_offer);
         }
         RunAction::TakePotionReward => {
             let potion = next
@@ -1185,6 +1185,18 @@ mod tests {
         assert_eq!(next.reward.as_ref().expect("reward").gold_offer, 0);
         assert_eq!(next.deck, deck_before);
         assert_eq!(next.gold, gold_before + 11);
+    }
+
+    #[test]
+    fn ectoplasm_consumes_gold_reward_without_gaining_gold() {
+        let mut run = winning_combat_run();
+        run.relics.push(Relic::Ectoplasm);
+        let gold_before = run.gold;
+
+        let next = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
+
+        assert_eq!(next.reward.as_ref().expect("reward").gold_offer, 0);
+        assert_eq!(next.gold, gold_before);
     }
 
     #[test]

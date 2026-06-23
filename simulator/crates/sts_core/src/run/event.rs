@@ -374,7 +374,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
 
     match screen.event {
         Event::GoldenShrine if choice_index == 0 => {
-            next.gold += GOLDEN_SHRINE_GOLD;
+            next.gain_gold(GOLDEN_SHRINE_GOLD);
             next.phase = RunPhase::Idle;
             next.event = None;
         }
@@ -486,7 +486,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.event = None;
             }
             1 if choice_index == 0 => {
-                next.gold += SSSSSERPENT_GOLD;
+                next.gain_gold(SSSSSERPENT_GOLD);
                 next.event = Some(EventScreen {
                     event: Event::TheSsssserpent,
                     choices: sssssserpent_choices(2),
@@ -587,6 +587,19 @@ mod tests {
         assert_eq!(after.phase, RunPhase::Idle);
         assert!(after.event.is_none());
         assert_eq!(after.gold, gold_before + GOLDEN_SHRINE_GOLD);
+    }
+
+    #[test]
+    fn ectoplasm_blocks_event_gold_gain() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(crate::Relic::Ectoplasm);
+        enter_fixed_event_screen(&mut run);
+        let gold_before = run.gold;
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("pray");
+
+        assert_eq!(after.gold, gold_before);
     }
 
     #[test]
