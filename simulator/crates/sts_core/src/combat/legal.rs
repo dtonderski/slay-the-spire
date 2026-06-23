@@ -7,6 +7,7 @@ use crate::{
         WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
+    relic::can_play_card_with_relics,
     SimError, SimResult,
 };
 
@@ -21,6 +22,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
     }
 
     let mut actions = Vec::new();
+    if !can_play_card_with_relics(state) {
+        actions.push(CombatAction::EndTurn);
+        return actions;
+    }
 
     for card in &state.piles.hand {
         let Some(definition) = get_card_definition(card.content_id) else {
@@ -97,6 +102,10 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
     match action {
         CombatAction::EndTurn => Ok(()),
         CombatAction::PlayCard { card_id, target } => {
+            if !can_play_card_with_relics(state) {
+                return Err(SimError::IllegalAction("card play limit reached"));
+            }
+
             let definition = card_definition_for_hand_card(state, card_id)?;
 
             if definition.id == HAVOC_ID || definition.id == HAVOC_PLUS_ID {
@@ -292,7 +301,7 @@ mod tests {
             SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
             WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         },
-        CardInstance,
+        CardInstance, Relic,
     };
 
     #[test]
@@ -339,6 +348,24 @@ mod tests {
                 },
             ),
             Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn velvet_choker_blocks_card_play_after_six_cards_this_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::VelvetChoker);
+        state.relic_counters.cards_played_this_turn = crate::relic::VELVET_CHOKER_CARD_LIMIT;
+
+        let strike = CombatAction::PlayCard {
+            card_id: hand_card_id(&state, STRIKE_R_ID),
+            target: Some(MonsterId::new(1)),
+        };
+
+        assert_eq!(legal_combat_actions(&state), vec![CombatAction::EndTurn]);
+        assert_eq!(
+            validate_combat_action(&state, strike),
+            Err(SimError::IllegalAction("card play limit reached"))
         );
     }
 

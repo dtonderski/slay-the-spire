@@ -1280,6 +1280,8 @@ Completed slice:
 - implemented Sozu pickup energy, generated reward potion suppression, reward/shop potion acquisition rejection, and Entropic Brew no-fill behavior with focused tests
 - expanded modeled boss energy/card-reward relics: Busted Crown
 - implemented Busted Crown pickup energy and one-choice card rewards with focused state/reward RNG tests
+- expanded modeled boss energy/card-limit relics: Velvet Choker
+- implemented Velvet Choker pickup energy, per-turn card play counter tracking, and six-card legal-action limit with focused state/relic/legal tests
 
 Remaining:
 

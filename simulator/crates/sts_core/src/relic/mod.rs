@@ -48,6 +48,10 @@ pub const SOZU_ENERGY: i32 = 1;
 pub const BUSTED_CROWN_ENERGY: i32 = 1;
 /// Fewer card reward choices shown by [Relic::BustedCrown].
 pub const BUSTED_CROWN_CARD_REWARD_REDUCTION: usize = 2;
+/// Energy per turn granted by [Relic::VelvetChoker] on pickup.
+pub const VELVET_CHOKER_ENERGY: i32 = 1;
+/// Maximum cards playable per turn with [Relic::VelvetChoker].
+pub const VELVET_CHOKER_CARD_LIMIT: u32 = 6;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -241,6 +245,8 @@ pub const FUSION_HAMMER_ID: ContentId = ContentId::new(351);
 pub const SOZU_ID: ContentId = ContentId::new(352);
 /// Content id for [Relic::BustedCrown].
 pub const BUSTED_CROWN_ID: ContentId = ContentId::new(353);
+/// Content id for [Relic::VelvetChoker].
+pub const VELVET_CHOKER_ID: ContentId = ContentId::new(354);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -256,6 +262,8 @@ pub struct RelicCounters {
     pub kunai_attacks_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub letter_opener_skills_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub cards_played_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub player_turns_started: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -807,6 +815,7 @@ pub enum Relic {
     FusionHammer,
     Sozu,
     BustedCrown,
+    VelvetChoker,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -867,6 +876,7 @@ impl Relic {
             Relic::FusionHammer => FUSION_HAMMER_ID,
             Relic::Sozu => SOZU_ID,
             Relic::BustedCrown => BUSTED_CROWN_ID,
+            Relic::VelvetChoker => VELVET_CHOKER_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -927,6 +937,7 @@ impl Relic {
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
             id if id == SOZU_ID => Some(Relic::Sozu),
             id if id == BUSTED_CROWN_ID => Some(Relic::BustedCrown),
+            id if id == VELVET_CHOKER_ID => Some(Relic::VelvetChoker),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -1020,6 +1031,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::FusionHammer => {}
             Relic::Sozu => {}
             Relic::BustedCrown => {}
+            Relic::VelvetChoker => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1067,6 +1079,7 @@ pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.shuriken_attacks_this_turn = 0;
     state.relic_counters.kunai_attacks_this_turn = 0;
     state.relic_counters.letter_opener_skills_this_turn = 0;
+    state.relic_counters.cards_played_this_turn = 0;
 }
 
 pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
@@ -1197,6 +1210,8 @@ pub fn apply_on_card_play_relics(
 ) -> Vec<InternalAction> {
     let mut follow_ups = Vec::new();
 
+    state.relic_counters.cards_played_this_turn += 1;
+
     if state.relics.contains(&Relic::InkBottle) {
         state.relic_counters.ink_bottle_cards_played += 1;
         if state.relic_counters.ink_bottle_cards_played >= INK_BOTTLE_THRESHOLD {
@@ -1248,6 +1263,12 @@ pub fn apply_on_card_play_relics(
     }
 
     follow_ups
+}
+
+#[must_use]
+pub fn can_play_card_with_relics(state: &CombatState) -> bool {
+    !state.relics.contains(&Relic::VelvetChoker)
+        || state.relic_counters.cards_played_this_turn < VELVET_CHOKER_CARD_LIMIT
 }
 
 fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i32) {
@@ -1822,6 +1843,11 @@ mod tests {
             Relic::from_content_id(BUSTED_CROWN_ID),
             Some(Relic::BustedCrown)
         );
+        assert_eq!(Relic::VelvetChoker.content_id(), VELVET_CHOKER_ID);
+        assert_eq!(
+            Relic::from_content_id(VELVET_CHOKER_ID),
+            Some(Relic::VelvetChoker)
+        );
     }
 
     #[test]
@@ -2007,12 +2033,23 @@ mod tests {
     }
 
     #[test]
+    fn card_play_relic_hook_counts_cards_played_this_turn() {
+        let mut combat = CombatState::initial_fixture();
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+
+        assert_eq!(combat.relic_counters.cards_played_this_turn, 2);
+    }
+
+    #[test]
     fn turn_reset_clears_turn_scoped_card_play_relic_counters() {
         let mut combat = CombatState::initial_fixture();
         combat.relic_counters.ornamental_fan_attacks_this_turn = 2;
         combat.relic_counters.shuriken_attacks_this_turn = 2;
         combat.relic_counters.kunai_attacks_this_turn = 2;
         combat.relic_counters.letter_opener_skills_this_turn = 2;
+        combat.relic_counters.cards_played_this_turn = 6;
         combat.relic_counters.nunchaku_attacks_played = 9;
         combat.relic_counters.player_turns_started = 3;
         combat.relic_counters.happy_flower_turns = 2;
@@ -2023,6 +2060,7 @@ mod tests {
         assert_eq!(combat.relic_counters.shuriken_attacks_this_turn, 0);
         assert_eq!(combat.relic_counters.kunai_attacks_this_turn, 0);
         assert_eq!(combat.relic_counters.letter_opener_skills_this_turn, 0);
+        assert_eq!(combat.relic_counters.cards_played_this_turn, 0);
         assert_eq!(combat.relic_counters.nunchaku_attacks_played, 9);
         assert_eq!(combat.relic_counters.player_turns_started, 3);
         assert_eq!(combat.relic_counters.happy_flower_turns, 2);
@@ -2141,6 +2179,7 @@ mod tests {
             shuriken_attacks_this_turn: 1,
             kunai_attacks_this_turn: 2,
             letter_opener_skills_this_turn: 1,
+            cards_played_this_turn: 5,
             player_turns_started: 6,
             happy_flower_turns: 2,
         };

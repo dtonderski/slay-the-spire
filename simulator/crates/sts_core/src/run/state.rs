@@ -21,7 +21,7 @@ use crate::{
         FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
         MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD, PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS,
         PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, SOZU_ENERGY,
-        STRAWBERRY_MAX_HP,
+        STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -216,6 +216,10 @@ mod tests {
         assert_eq!(
             Relic::from_key(RelicKey::BustedCrown),
             Some(Relic::BustedCrown)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::VelvetChoker),
+            Some(Relic::VelvetChoker)
         );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
@@ -445,6 +449,21 @@ mod tests {
         assert_eq!(
             run.energy_per_turn,
             BASE_PLAYER_ENERGY + BUSTED_CROWN_ENERGY
+        );
+        assert_eq!(combat.player.max_energy, run.energy_per_turn);
+        assert_eq!(combat.player.energy, run.energy_per_turn);
+    }
+
+    #[test]
+    fn velvet_choker_pickup_adds_energy_for_combat() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::VelvetChoker);
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            run.energy_per_turn,
+            BASE_PLAYER_ENERGY + VELVET_CHOKER_ENERGY
         );
         assert_eq!(combat.player.max_energy, run.energy_per_turn);
         assert_eq!(combat.player.energy, run.energy_per_turn);
@@ -944,6 +963,9 @@ impl RunState {
             Relic::BustedCrown => {
                 self.energy_per_turn += BUSTED_CROWN_ENERGY;
             }
+            Relic::VelvetChoker => {
+                self.energy_per_turn += VELVET_CHOKER_ENERGY;
+            }
             Relic::BloodVial
             | Relic::PotionBelt
             | Relic::Lantern
@@ -1149,6 +1171,7 @@ impl Relic {
             Relic::FusionHammer => RelicKey::FusionHammer,
             Relic::Sozu => RelicKey::Sozu,
             Relic::BustedCrown => RelicKey::BustedCrown,
+            Relic::VelvetChoker => RelicKey::VelvetChoker,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1209,6 +1232,7 @@ impl Relic {
             RelicKey::FusionHammer => Some(Relic::FusionHammer),
             RelicKey::Sozu => Some(Relic::Sozu),
             RelicKey::BustedCrown => Some(Relic::BustedCrown),
+            RelicKey::VelvetChoker => Some(Relic::VelvetChoker),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
