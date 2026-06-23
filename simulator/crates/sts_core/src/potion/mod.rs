@@ -286,7 +286,7 @@ impl Potion {
 
     #[must_use]
     pub fn uses_rng(self) -> bool {
-        matches!(self, Potion::Gamble)
+        matches!(self, Potion::Gamble | Potion::EntropicBrew)
     }
 }
 

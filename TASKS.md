@@ -1198,12 +1198,13 @@ Tasks:
 Completed slice:
 
 - implemented deterministic Ironclad potion effects and discovery choices for Ancient, Attack, Skill, Colorless, Blood, Heart of Iron, Cultist, Dexterity, Energy, Essence of Steel, Explosive, Liquid Bronze, Regen, Strength, Weak, Fruit Juice, Swift, Flex, Blessing of the Forge, Power, and Speed
+- implemented Entropic Brew potion-belt refill using `potionRng`
 - preserved existing Fire, Block, Fear, Gamble, Power, discard, target validation, and potion-reward/shop belt behavior
 - added unit tests for each new deterministic potion effect
 
 Remaining:
 
-- random/hand-pile potions: Duplication, Distilled Chaos, Liquid Memories, Snecko Oil, Smoke Bomb, Entropic Brew, Elixir, Fairy
+- random/hand-pile potions: Duplication, Distilled Chaos, Liquid Memories, Snecko Oil, Smoke Bomb, Elixir, Fairy
 - source-backed temporary/deferred powers that are not yet represented in `PlayerPowers` or combat turn cleanup
 - potion-heavy seed-start trace verification once a suitable captured trace reaches these effects
 
