@@ -57,18 +57,18 @@ fn run_monster_turn(state: &mut CombatState) {
         phase: _,
         ..
     } = state;
-    let total_damage: i32 = monsters
-        .iter_mut()
-        .filter(|monster| monster.alive)
-        .map(|monster| {
-            clear_lagavulin_metallicize_if_awake(monster);
-            let player_snapshot = player.clone();
-            apply_monster_intent(monster, player, piles, ascension, &player_snapshot)
-        })
-        .sum();
+    let mut pending_damage = Vec::new();
+    for monster in monsters.iter_mut().filter(|monster| monster.alive) {
+        clear_lagavulin_metallicize_if_awake(monster);
+        let player_snapshot = player.clone();
+        let damage = apply_monster_intent(monster, player, piles, ascension, &player_snapshot);
+        if damage > 0 {
+            pending_damage.push(damage);
+        }
+    }
 
-    if total_damage > 0 {
-        deal_damage_to_player(state, total_damage);
+    for damage in pending_damage {
+        deal_damage_to_player(state, damage);
     }
 
     for monster in &mut state.monsters {
@@ -93,7 +93,11 @@ fn run_monster_turn(state: &mut CombatState) {
 fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
     let blocked = state.player.block.min(amount);
     state.player.block -= blocked;
-    state.player.hp -= amount - blocked;
+    let hp_damage = amount - blocked;
+    state.player.hp -= hp_damage;
+    if hp_damage > 0 && state.player.powers.plated_armor > 0 {
+        state.player.powers.plated_armor -= 1;
+    }
 }
 
 fn draw_next_hand_without_shuffle(state: &mut CombatState) {
@@ -148,6 +152,33 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.player.hp, 28);
+    }
+
+    #[test]
+    fn plated_armor_blocks_then_loses_stack_on_unblocked_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.plated_armor = 4;
+        state.player.hp = 20;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 18);
+        assert_eq!(next.player.powers.plated_armor, 3);
+    }
+
+    #[test]
+    fn plated_armor_does_not_decrement_when_attack_is_fully_blocked() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.plated_armor = 4;
+        state.player.block = 10;
+        state.player.hp = 20;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
+        assert_eq!(next.player.powers.plated_armor, 4);
     }
 
     #[test]

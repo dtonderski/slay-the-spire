@@ -11,6 +11,7 @@ pub const HEART_OF_IRON_METALLICIZE: i32 = 6;
 pub const CULTIST_POTION_RITUAL: i32 = 1;
 pub const DEXTERITY_POTION_DEXTERITY: i32 = 2;
 pub const ENERGY_POTION_ENERGY: i32 = 2;
+pub const ESSENCE_OF_STEEL_PLATED_ARMOR: i32 = 4;
 pub const EXPLOSIVE_POTION_DAMAGE: i32 = 10;
 pub const LIQUID_BRONZE_THORNS: i32 = 3;
 pub const REGEN_POTION_REGEN: i32 = 5;
@@ -269,6 +270,7 @@ impl Potion {
                 | Potion::Cultist
                 | Potion::Dexterity
                 | Potion::Energy
+                | Potion::EssenceOfSteel
                 | Potion::Explosive
                 | Potion::LiquidBronze
                 | Potion::Regen

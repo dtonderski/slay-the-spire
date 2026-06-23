@@ -12,6 +12,9 @@ pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
     if player.powers.metallicize > 0 {
         player.block += player.powers.metallicize;
     }
+    if player.powers.plated_armor > 0 {
+        player.block += player.powers.plated_armor;
+    }
     if player.powers.regen > 0 {
         player.hp = (player.hp + player.powers.regen).min(player.max_hp);
         player.powers.regen -= 1;
@@ -73,6 +76,17 @@ mod tests {
         apply_player_end_of_turn_powers(&mut player);
 
         assert_eq!(player.block, 3);
+    }
+
+    #[test]
+    fn plated_armor_grants_block_at_end_of_player_turn() {
+        let mut player = CombatState::initial_fixture().player;
+        player.powers.plated_armor = 4;
+
+        apply_player_end_of_turn_powers(&mut player);
+
+        assert_eq!(player.block, 4);
+        assert_eq!(player.powers.plated_armor, 4);
     }
 
     #[test]
