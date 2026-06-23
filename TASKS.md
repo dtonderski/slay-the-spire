@@ -1252,6 +1252,8 @@ Completed slice:
 - implemented card-play counters/effects and added focused unit tests for energy, strength, dexterity, all-enemy damage, turn resets, and counter serialization
 - expanded modeled turn-timed combat relics: Happy Flower, Orichalcum, Horn Cleat, Captain's Wheel, Mercury Hourglass, and Stone Calendar
 - implemented start/end player turn hooks and added focused unit tests for energy, conditional block, turn-specific block, all-enemy damage, first-turn initialization, and counter serialization
+- expanded modeled combat-victory healing relics: Black Blood and Meat on the Bone
+- implemented upgraded/conditional victory healing and added focused unit tests for win/loss timing, caps, and half-HP checks
 
 Remaining:
 
