@@ -66,6 +66,8 @@ pub const THE_BOOT_MAX_DAMAGE: i32 = 4;
 pub const THE_BOOT_DAMAGE: i32 = 5;
 /// Damage added to each hit of the first Attack card by [Relic::Akabeko].
 pub const AKABEKO_DAMAGE: i32 = 8;
+/// Cards drawn after first HP loss each combat by [Relic::CentennialPuzzle].
+pub const CENTENNIAL_PUZZLE_DRAW: usize = 3;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -341,6 +343,8 @@ pub const WHETSTONE_ID: ContentId = ContentId::new(377);
 pub const WAR_PAINT_ID: ContentId = ContentId::new(378);
 /// Content id for [Relic::Akabeko].
 pub const AKABEKO_ID: ContentId = ContentId::new(379);
+/// Content id for [Relic::CentennialPuzzle].
+pub const CENTENNIAL_PUZZLE_ID: ContentId = ContentId::new(380);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -362,6 +366,8 @@ pub struct RelicCounters {
     pub attacks_played_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub attacks_played_this_combat: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub centennial_puzzle_triggers: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub attacks_played_last_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -946,6 +952,7 @@ pub enum Relic {
     Whetstone,
     WarPaint,
     Akabeko,
+    CentennialPuzzle,
 }
 
 impl Relic {
@@ -1032,6 +1039,7 @@ impl Relic {
             Relic::Whetstone => WHETSTONE_ID,
             Relic::WarPaint => WAR_PAINT_ID,
             Relic::Akabeko => AKABEKO_ID,
+            Relic::CentennialPuzzle => CENTENNIAL_PUZZLE_ID,
         }
     }
 
@@ -1118,6 +1126,7 @@ impl Relic {
             id if id == WHETSTONE_ID => Some(Relic::Whetstone),
             id if id == WAR_PAINT_ID => Some(Relic::WarPaint),
             id if id == AKABEKO_ID => Some(Relic::Akabeko),
+            id if id == CENTENNIAL_PUZZLE_ID => Some(Relic::CentennialPuzzle),
             _ => None,
         }
     }
@@ -1239,6 +1248,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Whetstone => {}
             Relic::WarPaint => {}
             Relic::Akabeko => {}
+            Relic::CentennialPuzzle => {}
         }
     }
 
@@ -1276,6 +1286,18 @@ pub fn apply_potion_use_relics_to_combat(combat: &mut CombatState) {
             TOY_ORNITHOPTER_HEAL,
             &combat.relics,
         );
+    }
+}
+
+pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) {
+    if hp_loss <= 0 {
+        return;
+    }
+    if state.relics.contains(&Relic::CentennialPuzzle)
+        && state.relic_counters.centennial_puzzle_triggers == 0
+    {
+        state.relic_counters.centennial_puzzle_triggers = 1;
+        crate::combat::transition::player_draw_cards(state, CENTENNIAL_PUZZLE_DRAW);
     }
 }
 
@@ -2207,6 +2229,11 @@ mod tests {
         assert_eq!(Relic::from_content_id(WAR_PAINT_ID), Some(Relic::WarPaint));
         assert_eq!(Relic::Akabeko.content_id(), AKABEKO_ID);
         assert_eq!(Relic::from_content_id(AKABEKO_ID), Some(Relic::Akabeko));
+        assert_eq!(Relic::CentennialPuzzle.content_id(), CENTENNIAL_PUZZLE_ID);
+        assert_eq!(
+            Relic::from_content_id(CENTENNIAL_PUZZLE_ID),
+            Some(Relic::CentennialPuzzle)
+        );
     }
 
     #[test]
@@ -2690,6 +2717,7 @@ mod tests {
             cards_played_this_turn: 5,
             attacks_played_this_turn: 3,
             attacks_played_this_combat: 4,
+            centennial_puzzle_triggers: 1,
             attacks_played_last_turn: 1,
             player_turns_started: 6,
             happy_flower_turns: 2,
@@ -2699,6 +2727,25 @@ mod tests {
         let restored: RelicCounters = serde_json::from_str(&json).expect("counters deserialize");
 
         assert_eq!(restored, counters);
+    }
+
+    #[test]
+    fn centennial_puzzle_draws_once_after_hp_loss() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::CentennialPuzzle];
+        combat.piles.hand.clear();
+        combat.piles.draw_pile = vec![
+            crate::CardInstance::new(crate::CardId::new(10), crate::content::cards::STRIKE_R_ID),
+            crate::CardInstance::new(crate::CardId::new(11), crate::content::cards::DEFEND_R_ID),
+            crate::CardInstance::new(crate::CardId::new(12), crate::content::cards::BASH_ID),
+        ];
+
+        apply_player_hp_loss_relics(&mut combat, 1);
+        apply_player_hp_loss_relics(&mut combat, 1);
+
+        assert_eq!(combat.relic_counters.centennial_puzzle_triggers, 1);
+        assert_eq!(combat.piles.hand.len(), 3);
+        assert!(combat.piles.draw_pile.is_empty());
     }
 
     #[test]

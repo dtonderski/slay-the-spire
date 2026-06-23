@@ -1177,7 +1177,9 @@ fn apply_internal_action(
             };
             check_slime_boss_split(state, info.target);
             if still_alive && spikes > 0 {
+                let hp_before = state.player.hp;
                 reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
             }
             Ok(Vec::new())
         }
@@ -1211,7 +1213,9 @@ fn apply_internal_action(
                 };
                 check_slime_boss_split(state, target);
                 if still_alive && spikes > 0 {
+                    let hp_before = state.player.hp;
                     reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                    crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
                 }
             }
             Ok(Vec::new())
@@ -2071,6 +2075,26 @@ mod tests {
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 26);
         assert_eq!(next.relic_counters.attacks_played_this_combat, 1);
+    }
+
+    #[test]
+    fn centennial_puzzle_draws_after_spikes_hp_loss() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::CentennialPuzzle);
+        state.player.hp = 20;
+        state.monsters[0].powers.spikes = 1;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), DEFEND_R_ID),
+        ];
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.player.hp, 19);
+        assert_eq!(next.relic_counters.centennial_puzzle_triggers, 1);
+        assert_eq!(next.piles.hand.len(), 5);
+        assert!(next.piles.draw_pile.is_empty());
     }
 
     #[test]

@@ -107,6 +107,7 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
     state.player.block -= blocked;
     let hp_damage = crate::relic::mitigate_unblocked_attack_damage(&state.relics, amount - blocked);
     state.player.hp -= hp_damage;
+    crate::relic::apply_player_hp_loss_relics(state, hp_damage);
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
     }
