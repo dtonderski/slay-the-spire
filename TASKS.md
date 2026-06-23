@@ -1327,6 +1327,8 @@ Completed slice:
 - implemented War Paint key promotion and source-backed `miscRng.randomLong()` Java shuffle upgrade of two random Skill cards on pickup, with focused state tests
 - expanded modeled first-attack damage relics: Akabeko
 - implemented Akabeko key promotion, combat-wide first-Attack tracking, and source-backed +8 Vigor-style damage for the first Attack card, with focused combat tests
+- expanded modeled first-HP-loss draw relics: Centennial Puzzle
+- implemented Centennial Puzzle key promotion and first combat HP-loss draw-three hook for monster attacks, spikes, Burn, and Regret, with focused relic/combat tests
 
 Remaining:
 
