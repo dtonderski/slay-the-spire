@@ -1204,12 +1204,13 @@ Completed slice:
 - implemented Liquid Memories discard-pile selection returning the chosen card to hand at zero cost
 - implemented Snecko Oil draw-five and playable-hand cost randomization with `cardRandomRng`
 - implemented Smoke Bomb non-boss escape with no reward
+- implemented Elixir multi-card hand exhaust selection
 - preserved existing Fire, Block, Fear, Gamble, Power, discard, target validation, and potion-reward/shop belt behavior
 - added unit tests for each new deterministic potion effect
 
 Remaining:
 
-- random/hand-pile potions: Elixir, Fairy
+- passive potion behavior: Fairy
 - source-backed temporary/deferred powers that are not yet represented in `PlayerPowers` or combat turn cleanup
 - potion-heavy seed-start trace verification once a suitable captured trace reaches these effects
 

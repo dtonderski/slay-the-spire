@@ -2,10 +2,11 @@ use crate::{
     card::{CardInstance, CardType, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
-        apply_play_top_draw_card_action, choose_discard_select, choose_hand_select,
-        confirm_hand_select, confirm_liquid_memories_select, discard_select_ui_to_discard_index,
-        hand_select_ui_to_hand_index, open_discard_select, player_draw_cards,
-        top_draw_card_definition,
+        apply_play_top_draw_card_action, choose_discard_select, choose_exhaust_select,
+        choose_hand_select, confirm_exhaust_select, confirm_hand_select,
+        confirm_liquid_memories_select, discard_select_ui_to_discard_index,
+        exhaust_select_ui_to_hand_index, hand_select_ui_to_hand_index, open_discard_select,
+        open_exhaust_select, player_draw_cards, top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState},
     content::cards::{get_card_definition, upgrade_content_id},
@@ -81,6 +82,8 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
         RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
         RunAction::ChooseDiscardSelect { index } => validate_discard_select_choice(run, index),
         RunAction::ConfirmDiscardSelect => validate_discard_select_confirm(run),
+        RunAction::ChooseExhaustSelect { index } => validate_exhaust_select_choice(run, index),
+        RunAction::ConfirmExhaustSelect => validate_exhaust_select_confirm(run),
         _ => Err(SimError::IllegalAction("not a potion action")),
     }
 }
@@ -158,6 +161,27 @@ pub fn validate_discard_select_confirm(run: &RunState) -> SimResult<()> {
     Ok(())
 }
 
+pub fn validate_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("exhaust select requires combat"))?;
+    exhaust_select_ui_to_hand_index(combat, index)?;
+    Ok(())
+}
+
+pub fn validate_exhaust_select_confirm(run: &RunState) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("exhaust select requires combat"))?;
+    combat
+        .exhaust_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    Ok(())
+}
+
 pub fn apply_hand_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_hand_select_choice(run, index)?;
     let mut next = run.clone();
@@ -187,6 +211,22 @@ pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
     confirm_liquid_memories_select(combat)?;
+    Ok(next)
+}
+
+pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
+    validate_exhaust_select_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    choose_exhaust_select(combat, index)?;
+    Ok(next)
+}
+
+pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
+    validate_exhaust_select_confirm(run)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    confirm_exhaust_select(combat)?;
     Ok(next)
 }
 
@@ -351,6 +391,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     next.player_max_hp = combat.player.max_hp;
                     next.reward = None;
                     next.phase = RunPhase::Idle;
+                }
+                Potion::Elixir => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    open_exhaust_select(combat)?;
                 }
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -1231,6 +1275,79 @@ mod tests {
                 "Smoke Bomb cannot be used in boss combat"
             ))
         );
+    }
+
+    #[test]
+    fn elixir_exhausts_selected_hand_cards_and_consumes_potion() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Elixir);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+        ];
+
+        let opened = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use elixir");
+        assert!(opened
+            .combat
+            .as_ref()
+            .expect("combat")
+            .exhaust_select
+            .is_some());
+        assert!(opened.potions.is_empty());
+
+        let selected = apply_exhaust_select_choice(&opened, 0).expect("choose first");
+        let selected = apply_exhaust_select_choice(&selected, 2).expect("choose third");
+        let after = apply_exhaust_select_confirm(&selected).expect("confirm elixir");
+        let combat = after.combat.expect("combat continues");
+
+        assert!(combat.exhaust_select.is_none());
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(11)]
+        );
+        assert_eq!(
+            combat
+                .piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(12), CardId::new(10)]
+        );
+    }
+
+    #[test]
+    fn elixir_selection_can_toggle_cards_before_confirm() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Elixir);
+
+        let opened = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use elixir");
+        let selected = apply_exhaust_select_choice(&opened, 0).expect("select");
+        let toggled = apply_exhaust_select_choice(&selected, 0).expect("toggle");
+        let after = apply_exhaust_select_confirm(&toggled).expect("confirm elixir");
+
+        assert_eq!(after.combat.expect("combat").piles.exhaust_pile.len(), 0);
     }
 
     #[test]

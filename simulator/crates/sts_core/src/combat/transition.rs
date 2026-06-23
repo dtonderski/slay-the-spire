@@ -1509,6 +1509,62 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
     Ok(())
 }
 
+pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
+    state.exhaust_select = Some(crate::combat::ExhaustSelectState {
+        selected_hand_indices: Vec::new(),
+    });
+    Ok(())
+}
+
+pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
+    exhaust_select_ui_to_hand_index(state, ui_index)?;
+    let exhaust_select = state
+        .exhaust_select
+        .as_mut()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if let Some(position) = exhaust_select
+        .selected_hand_indices
+        .iter()
+        .position(|index| *index == ui_index)
+    {
+        exhaust_select.selected_hand_indices.remove(position);
+    } else {
+        exhaust_select.selected_hand_indices.push(ui_index);
+        exhaust_select.selected_hand_indices.sort_unstable();
+    }
+    Ok(())
+}
+
+pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
+    state
+        .exhaust_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if ui_index >= state.piles.hand.len() {
+        return Err(SimError::IllegalAction("exhaust select index out of range"));
+    }
+    Ok(ui_index)
+}
+
+pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
+    let exhaust_select = state
+        .exhaust_select
+        .take()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    let mut selected = exhaust_select.selected_hand_indices;
+    selected.sort_unstable();
+    selected.dedup();
+    for index in selected.into_iter().rev() {
+        if index >= state.piles.hand.len() {
+            return Err(SimError::IllegalAction("exhaust select index out of range"));
+        }
+        let card = state.piles.hand.remove(index);
+        state.piles.exhaust_pile.push(card);
+        apply_on_exhaust_effects(state);
+    }
+    Ok(())
+}
+
 fn remove_card_from_pile(
     state: &mut CombatState,
     card_id: CardId,

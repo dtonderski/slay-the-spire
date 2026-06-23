@@ -283,6 +283,7 @@ impl Potion {
                 | Potion::BlessingOfTheForge
                 | Potion::Duplication
                 | Potion::DistilledChaos
+                | Potion::Elixir
                 | Potion::LiquidMemories
                 | Potion::SneckoOil
                 | Potion::SmokeBomb
