@@ -1200,7 +1200,7 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState) {
     }
 }
 
-fn player_draw_cards(state: &mut CombatState, count: usize) {
+pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
     if state.player.cannot_draw {
         return;
     }

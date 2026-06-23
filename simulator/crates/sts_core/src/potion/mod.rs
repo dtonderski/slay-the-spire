@@ -14,6 +14,7 @@ pub const EXPLOSIVE_POTION_DAMAGE: i32 = 10;
 pub const STRENGTH_POTION_STRENGTH: i32 = 2;
 pub const WEAK_POTION_WEAK: i32 = 3;
 pub const FRUIT_JUICE_MAX_HP: i32 = 5;
+pub const SWIFT_POTION_DRAW: usize = 3;
 pub const GAMBLE_POTION_WIN_GOLD: i32 = 50;
 pub const GAMBLE_POTION_LOSS_GOLD: i32 = 50;
 
@@ -264,6 +265,7 @@ impl Potion {
                 | Potion::Energy
                 | Potion::Explosive
                 | Potion::Strength
+                | Potion::Swift
                 | Potion::Power
         )
     }
