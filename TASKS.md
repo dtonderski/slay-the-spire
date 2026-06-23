@@ -1322,6 +1322,8 @@ Completed slice:
 - implemented Brimstone key promotion and start-of-player-turn Strength for the player and living monsters, with focused relic tests
 - expanded modeled potion reward guarantee relics: White Beast Statue
 - implemented White Beast Statue key promotion and guaranteed normal-combat potion rewards when potion gain is allowed, without mutating normal potion chance, with focused reward tests
+- expanded modeled pickup upgrade relics: Whetstone
+- implemented Whetstone key promotion and source-backed `miscRng.randomLong()` Java shuffle upgrade of two random Attack cards on pickup, with focused state tests
 
 Remaining:
 
