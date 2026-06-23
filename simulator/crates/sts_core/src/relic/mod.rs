@@ -70,6 +70,8 @@ pub const THE_BOOT_DAMAGE: i32 = 5;
 pub const AKABEKO_DAMAGE: i32 = 8;
 /// Cards drawn after first HP loss each combat by [Relic::CentennialPuzzle].
 pub const CENTENNIAL_PUZZLE_DRAW: usize = 3;
+/// Cards drawn after each HP loss by [Relic::RunicCube].
+pub const RUNIC_CUBE_DRAW: usize = 1;
 /// Block granted by [Relic::SelfFormingClay] after HP loss.
 pub const SELF_FORMING_CLAY_BLOCK: i32 = 3;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
@@ -357,6 +359,8 @@ pub const PEN_NIB_ID: ContentId = ContentId::new(381);
 pub const SELF_FORMING_CLAY_ID: ContentId = ContentId::new(382);
 /// Content id for [Relic::ClockworkSouvenir].
 pub const CLOCKWORK_SOUVENIR_ID: ContentId = ContentId::new(383);
+/// Content id for [Relic::RunicCube].
+pub const RUNIC_CUBE_ID: ContentId = ContentId::new(384);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -970,6 +974,7 @@ pub enum Relic {
     PenNib,
     SelfFormingClay,
     ClockworkSouvenir,
+    RunicCube,
 }
 
 impl Relic {
@@ -1060,6 +1065,7 @@ impl Relic {
             Relic::PenNib => PEN_NIB_ID,
             Relic::SelfFormingClay => SELF_FORMING_CLAY_ID,
             Relic::ClockworkSouvenir => CLOCKWORK_SOUVENIR_ID,
+            Relic::RunicCube => RUNIC_CUBE_ID,
         }
     }
 
@@ -1150,6 +1156,7 @@ impl Relic {
             id if id == PEN_NIB_ID => Some(Relic::PenNib),
             id if id == SELF_FORMING_CLAY_ID => Some(Relic::SelfFormingClay),
             id if id == CLOCKWORK_SOUVENIR_ID => Some(Relic::ClockworkSouvenir),
+            id if id == RUNIC_CUBE_ID => Some(Relic::RunicCube),
             _ => None,
         }
     }
@@ -1277,6 +1284,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::CentennialPuzzle => {}
             Relic::PenNib => {}
             Relic::SelfFormingClay => {}
+            Relic::RunicCube => {}
         }
     }
 
@@ -1329,6 +1337,9 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) {
     }
     if state.relics.contains(&Relic::SelfFormingClay) {
         state.player.block += SELF_FORMING_CLAY_BLOCK;
+    }
+    if state.relics.contains(&Relic::RunicCube) {
+        crate::combat::transition::player_draw_cards(state, RUNIC_CUBE_DRAW);
     }
 }
 
@@ -2293,6 +2304,11 @@ mod tests {
             Relic::from_content_id(CLOCKWORK_SOUVENIR_ID),
             Some(Relic::ClockworkSouvenir)
         );
+        assert_eq!(Relic::RunicCube.content_id(), RUNIC_CUBE_ID);
+        assert_eq!(
+            Relic::from_content_id(RUNIC_CUBE_ID),
+            Some(Relic::RunicCube)
+        );
     }
 
     #[test]
@@ -2819,6 +2835,24 @@ mod tests {
         apply_player_hp_loss_relics(&mut combat, 0);
 
         assert_eq!(combat.player.block, 2 + SELF_FORMING_CLAY_BLOCK * 2);
+    }
+
+    #[test]
+    fn runic_cube_draws_after_each_hp_loss() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::RunicCube];
+        combat.piles.hand.clear();
+        combat.piles.draw_pile = vec![
+            crate::CardInstance::new(crate::CardId::new(10), crate::content::cards::STRIKE_R_ID),
+            crate::CardInstance::new(crate::CardId::new(11), crate::content::cards::DEFEND_R_ID),
+        ];
+
+        apply_player_hp_loss_relics(&mut combat, 1);
+        apply_player_hp_loss_relics(&mut combat, 1);
+        apply_player_hp_loss_relics(&mut combat, 0);
+
+        assert_eq!(combat.piles.hand.len(), 2);
+        assert!(combat.piles.draw_pile.is_empty());
     }
 
     #[test]
