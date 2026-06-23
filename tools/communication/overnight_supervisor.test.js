@@ -2,6 +2,7 @@
 
 const assert = require("assert");
 const {
+  bestRunPath,
   bridgeLooksStaleFrom,
   currentTracePathFromStatus,
   formatBestRunSummary,
@@ -94,6 +95,13 @@ function testValidPrefixPath() {
   );
 }
 
+function testBestRunPath() {
+  assert.strictEqual(
+    bestRunPath("D:\\dev\\slay-the-spire\\verification\\corpus\\communication_mod\\trace-a.valid-prefix.jsonl"),
+    "D:\\dev\\slay-the-spire\\verification\\corpus\\communication_mod\\trace-a.valid-prefix.best-run.jsonl",
+  );
+}
+
 function testBestRunSummaryFormatting() {
   const line = formatBestRunSummary({
     run_index: 1,
@@ -124,6 +132,7 @@ testTracePathExtraction();
 testValidationOutputParsing();
 testValidationSummaryFormatting();
 testValidPrefixPath();
+testBestRunPath();
 testBestRunSummaryFormatting();
 
 console.log("overnight_supervisor tests passed");
