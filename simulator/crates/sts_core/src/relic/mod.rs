@@ -100,6 +100,8 @@ pub const TORII_REDUCED_DAMAGE: i32 = 1;
 pub const TUNGSTEN_ROD_REDUCTION: i32 = 1;
 /// Gold granted by [Relic::CeramicFish] whenever a card is added to the deck.
 pub const CERAMIC_FISH_GOLD: i32 = 9;
+/// HP healed by [Relic::Pantograph] at the start of boss combat.
+pub const PANTOGRAPH_HEAL: i32 = 25;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -183,6 +185,8 @@ pub const CERAMIC_FISH_ID: ContentId = ContentId::new(338);
 pub const MEMBERSHIP_CARD_ID: ContentId = ContentId::new(339);
 /// Content id for [Relic::SmilingMask].
 pub const SMILING_MASK_ID: ContentId = ContentId::new(340);
+/// Content id for [Relic::Pantograph].
+pub const PANTOGRAPH_ID: ContentId = ContentId::new(341);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -736,6 +740,7 @@ pub enum Relic {
     CeramicFish,
     MembershipCard,
     SmilingMask,
+    Pantograph,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -783,6 +788,7 @@ impl Relic {
             Relic::CeramicFish => CERAMIC_FISH_ID,
             Relic::MembershipCard => MEMBERSHIP_CARD_ID,
             Relic::SmilingMask => SMILING_MASK_ID,
+            Relic::Pantograph => PANTOGRAPH_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -830,6 +836,7 @@ impl Relic {
             id if id == CERAMIC_FISH_ID => Some(Relic::CeramicFish),
             id if id == MEMBERSHIP_CARD_ID => Some(Relic::MembershipCard),
             id if id == SMILING_MASK_ID => Some(Relic::SmilingMask),
+            id if id == PANTOGRAPH_ID => Some(Relic::Pantograph),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -901,6 +908,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::CeramicFish => {}
             Relic::MembershipCard => {}
             Relic::SmilingMask => {}
+            Relic::Pantograph => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;

@@ -1260,6 +1260,8 @@ Completed slice:
 - implemented unblocked attack damage and generic HP-loss mitigation across monster attacks, spikes, Burn, and Regret with focused tests
 - expanded modeled shop/economy relics: Ceramic Fish, Membership Card, and Smiling Mask
 - implemented Ceramic Fish card-add gold across reward/shop/event additions, modeled Membership Card key promotion, and Smiling Mask removal pricing with focused reward/shop/state tests
+- expanded modeled boss-entry relics: Pantograph
+- implemented boss-combat start healing from current map room state with focused boss/non-boss tests
 
 Remaining:
 
