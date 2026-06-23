@@ -10,7 +10,7 @@
 ### Run / Meta
 - Reward screen with source-backed card/gold/potion/relic RNG; elite/chest/boss relic reward screens from persisted pools
 - Shop: full target-style inventory (7 cards, 3 relics, 3 potions, remove service) via `merchantRng`/`cardRng`/`potionRng` and relic pools; legacy fixed Anger/Vajra/Fire fixture when `merchant_rng_seed == 0`
-- Potions: Fire, Block, Fear, Gamble, Power, Attack, Skill, Colorless, plus deterministic Blood, Heart of Iron, Cultist, Dexterity, Energy, Essence of Steel, Explosive, Liquid Bronze, Regen, Strength, Weak, Fruit Juice, Swift, Flex, Blessing of the Forge, and Speed effects; full 33-potion Ironclad reward pool for drops
+- Potions: Fire, Block, Fear, Gamble, Power, Attack, Skill, Colorless, plus deterministic Ancient, Blood, Heart of Iron, Cultist, Dexterity, Energy, Essence of Steel, Explosive, Liquid Bronze, Regen, Strength, Weak, Fruit Juice, Swift, Flex, Blessing of the Forge, and Speed effects; full 33-potion Ironclad reward pool for drops
 - Events: Act 1 event/shrine pools with `generateEvent` shrine chance; map event rooms call `enter_event_screen`; Shining Light costs 20% max HP and upgrades up to two random upgradeable deck cards
 - Rest: heal, smith, card removal (deterministic heal amount; no RNG)
 
@@ -100,7 +100,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Continue Milestone 31 by implementing the next potion family with source-backed semantics: remaining persistent power potion `Ancient` after adding Artifact/debuff prevention, or hand/pile/random execution potions (`Duplication`, `Distilled Chaos`, `Liquid Memories`, `Snecko Oil`, `Smoke Bomb`, `Entropic Brew`, `Elixir`, `Fairy`). The current M31 slice covers deterministic potion effects and discovery choices for Attack, Skill, Colorless, Blood, Heart of Iron, Cultist, Dexterity, Energy, Essence of Steel, Explosive, Liquid Bronze, Regen, Strength, Weak, Fruit Juice, Swift, Flex, Blessing of the Forge, Power, and Speed.
+Continue Milestone 31 by implementing the next potion family with source-backed semantics: hand/pile/random execution potions (`Duplication`, `Distilled Chaos`, `Liquid Memories`, `Snecko Oil`, `Smoke Bomb`, `Entropic Brew`, `Elixir`, `Fairy`). The current M31 slice covers deterministic potion effects and discovery choices for Ancient, Attack, Skill, Colorless, Blood, Heart of Iron, Cultist, Dexterity, Energy, Essence of Steel, Explosive, Liquid Bronze, Regen, Strength, Weak, Fruit Juice, Swift, Flex, Blessing of the Forge, Power, and Speed.
 
 The previous M29 cleaned single-run prefix can still be structurally checked with:
 

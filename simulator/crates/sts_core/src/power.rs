@@ -12,6 +12,7 @@ pub struct PlayerPowers {
     pub regen: i32,
     pub thorns: i32,
     pub plated_armor: i32,
+    pub artifact: i32,
     pub feel_no_pain: i32,
     pub dark_embrace: i32,
 }
@@ -69,6 +70,34 @@ pub fn calculate_block(base: i32, player: PlayerPowers) -> i32 {
         with_dexterity * 3 / 4
     } else {
         with_dexterity
+    }
+}
+
+pub fn apply_player_weak(powers: &mut PlayerPowers, amount: i32) {
+    apply_player_debuff(powers, |powers| powers.weak += amount);
+}
+
+pub fn apply_player_vulnerable(powers: &mut PlayerPowers, amount: i32) {
+    apply_player_debuff(powers, |powers| powers.vulnerable += amount);
+}
+
+pub fn apply_player_frail(powers: &mut PlayerPowers, amount: i32) {
+    apply_player_debuff(powers, |powers| powers.frail += amount);
+}
+
+pub fn reduce_player_strength(powers: &mut PlayerPowers, amount: i32) {
+    apply_player_debuff(powers, |powers| powers.strength -= amount);
+}
+
+pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) {
+    apply_player_debuff(powers, |powers| powers.dexterity -= amount);
+}
+
+fn apply_player_debuff(powers: &mut PlayerPowers, apply: impl FnOnce(&mut PlayerPowers)) {
+    if powers.artifact > 0 {
+        powers.artifact -= 1;
+    } else {
+        apply(powers);
     }
 }
 
@@ -165,5 +194,20 @@ mod tests {
         };
 
         assert_eq!(calculate_block(5, player), 5);
+    }
+
+    #[test]
+    fn artifact_blocks_one_player_debuff() {
+        let mut powers = PlayerPowers {
+            artifact: 1,
+            ..Default::default()
+        };
+
+        apply_player_weak(&mut powers, 2);
+        apply_player_vulnerable(&mut powers, 3);
+
+        assert_eq!(powers.artifact, 0);
+        assert_eq!(powers.weak, 0);
+        assert_eq!(powers.vulnerable, 3);
     }
 }

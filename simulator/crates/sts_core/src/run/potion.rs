@@ -9,12 +9,13 @@ use crate::{
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
     ids::CardId,
     potion::{
-        Potion, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT, CULTIST_POTION_RITUAL,
-        DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY, ESSENCE_OF_STEEL_PLATED_ARMOR,
-        EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH,
-        FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD, GAMBLE_POTION_WIN_GOLD,
-        HEART_OF_IRON_METALLICIZE, LIQUID_BRONZE_THORNS, REGEN_POTION_REGEN,
-        SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
+        Potion, ANCIENT_POTION_ARTIFACT, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT,
+        CULTIST_POTION_RITUAL, DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY,
+        ESSENCE_OF_STEEL_PLATED_ARMOR, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK,
+        FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD,
+        GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE, LIQUID_BRONZE_THORNS,
+        REGEN_POTION_REGEN, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
+        SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -182,6 +183,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     let combat = next.combat.as_mut().expect("validated combat state");
                     let heal = combat.player.max_hp * BLOOD_POTION_HEAL_PERCENT / 100;
                     combat.player.hp = (combat.player.hp + heal).min(combat.player.max_hp);
+                }
+                Potion::Ancient => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.powers.artifact += ANCIENT_POTION_ARTIFACT;
                 }
                 Potion::HeartOfIron => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -460,6 +465,25 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.player.hp, 66);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn ancient_potion_grants_artifact_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Ancient);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use ancient potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.powers.artifact, ANCIENT_POTION_ARTIFACT);
         assert!(after.potions.is_empty());
     }
 
