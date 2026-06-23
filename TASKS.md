@@ -1325,6 +1325,8 @@ Completed slice:
 - expanded modeled pickup upgrade relics: Whetstone and War Paint
 - implemented Whetstone key promotion and source-backed `miscRng.randomLong()` Java shuffle upgrade of two random Attack cards on pickup, with focused state tests
 - implemented War Paint key promotion and source-backed `miscRng.randomLong()` Java shuffle upgrade of two random Skill cards on pickup, with focused state tests
+- expanded modeled first-attack damage relics: Akabeko
+- implemented Akabeko key promotion, combat-wide first-Attack tracking, and source-backed +8 Vigor-style damage for the first Attack card, with focused combat tests
 
 Remaining:
 

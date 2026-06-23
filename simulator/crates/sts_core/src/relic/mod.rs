@@ -64,6 +64,8 @@ pub const BIRD_FACED_URN_HEAL: i32 = 2;
 pub const THE_BOOT_MAX_DAMAGE: i32 = 4;
 /// Unblocked attack damage after [Relic::TheBoot] increase.
 pub const THE_BOOT_DAMAGE: i32 = 5;
+/// Damage added to each hit of the first Attack card by [Relic::Akabeko].
+pub const AKABEKO_DAMAGE: i32 = 8;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -337,6 +339,8 @@ pub const WHITE_BEAST_STATUE_ID: ContentId = ContentId::new(376);
 pub const WHETSTONE_ID: ContentId = ContentId::new(377);
 /// Content id for [Relic::WarPaint].
 pub const WAR_PAINT_ID: ContentId = ContentId::new(378);
+/// Content id for [Relic::Akabeko].
+pub const AKABEKO_ID: ContentId = ContentId::new(379);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -356,6 +360,8 @@ pub struct RelicCounters {
     pub cards_played_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub attacks_played_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub attacks_played_this_combat: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub attacks_played_last_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -939,6 +945,7 @@ pub enum Relic {
     WhiteBeastStatue,
     Whetstone,
     WarPaint,
+    Akabeko,
 }
 
 impl Relic {
@@ -1024,6 +1031,7 @@ impl Relic {
             Relic::WhiteBeastStatue => WHITE_BEAST_STATUE_ID,
             Relic::Whetstone => WHETSTONE_ID,
             Relic::WarPaint => WAR_PAINT_ID,
+            Relic::Akabeko => AKABEKO_ID,
         }
     }
 
@@ -1109,6 +1117,7 @@ impl Relic {
             id if id == WHITE_BEAST_STATUE_ID => Some(Relic::WhiteBeastStatue),
             id if id == WHETSTONE_ID => Some(Relic::Whetstone),
             id if id == WAR_PAINT_ID => Some(Relic::WarPaint),
+            id if id == AKABEKO_ID => Some(Relic::Akabeko),
             _ => None,
         }
     }
@@ -1229,6 +1238,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::WhiteBeastStatue => {}
             Relic::Whetstone => {}
             Relic::WarPaint => {}
+            Relic::Akabeko => {}
         }
     }
 
@@ -1453,6 +1463,9 @@ pub fn apply_on_card_play_relics(
     let mut follow_ups = Vec::new();
 
     state.relic_counters.cards_played_this_turn += 1;
+    if state.relics.contains(&Relic::Akabeko) && card_type == CardType::Attack {
+        state.relic_counters.attacks_played_this_combat += 1;
+    }
     if state.relics.contains(&Relic::ArtOfWar) && card_type == CardType::Attack {
         state.relic_counters.attacks_played_this_turn += 1;
     }
@@ -2192,6 +2205,8 @@ mod tests {
         assert_eq!(Relic::from_content_id(WHETSTONE_ID), Some(Relic::Whetstone));
         assert_eq!(Relic::WarPaint.content_id(), WAR_PAINT_ID);
         assert_eq!(Relic::from_content_id(WAR_PAINT_ID), Some(Relic::WarPaint));
+        assert_eq!(Relic::Akabeko.content_id(), AKABEKO_ID);
+        assert_eq!(Relic::from_content_id(AKABEKO_ID), Some(Relic::Akabeko));
     }
 
     #[test]
@@ -2674,6 +2689,7 @@ mod tests {
             letter_opener_skills_this_turn: 1,
             cards_played_this_turn: 5,
             attacks_played_this_turn: 3,
+            attacks_played_this_combat: 4,
             attacks_played_last_turn: 1,
             player_turns_started: 6,
             happy_flower_turns: 2,
