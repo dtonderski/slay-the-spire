@@ -113,10 +113,21 @@ function writeCommand(command) {
   return true;
 }
 
+function choiceLabel(choice) {
+  if (choice == null) return "";
+  if (typeof choice === "string" || typeof choice === "number" || typeof choice === "boolean") {
+    return String(choice);
+  }
+  for (const key of ["label", "name", "text", "symbol", "id"]) {
+    if (choice[key] != null) return String(choice[key]);
+  }
+  return String(choice);
+}
+
 function choiceIndex(summary, patterns) {
   const choices = summary.choices || [];
   for (const pattern of patterns) {
-    const index = choices.findIndex((choice) => pattern.test(String(choice).toLowerCase()));
+    const index = choices.findIndex((choice) => pattern.test(choiceLabel(choice).toLowerCase()));
     if (index >= 0) return index;
   }
   return -1;
@@ -224,11 +235,28 @@ function cardRewardCommand(summary) {
 function mapCommand(summary) {
   const available = new Set(summary.available_commands || []);
   if (!available.has("choose")) return "state";
-  const elite = choiceIndex(summary, [/^e$/, /elite/]);
-  if (elite >= 0) return `CHOOSE ${elite}`;
-  const monster = choiceIndex(summary, [/^m$/, /^x=/]);
-  if (monster >= 0) return `CHOOSE ${monster}`;
-  return "CHOOSE 0";
+  const choices = summary.choices || [];
+  let bestIndex = 0;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < choices.length; index += 1) {
+    const score = mapChoiceScore(choiceLabel(choices[index]));
+    if (score > bestScore) {
+      bestIndex = index;
+      bestScore = score;
+    }
+  }
+  return `CHOOSE ${bestIndex}`;
+}
+
+function mapChoiceScore(label) {
+  const text = String(label || "").trim().toLowerCase();
+  if (text === "e" || text.includes("elite")) return 100;
+  if (text === "m" || text.startsWith("x=") || text.includes("monster")) return 80;
+  if (text === "t" || text.includes("chest") || text.includes("treasure")) return 60;
+  if (text === "?" || text.includes("event")) return 50;
+  if (text === "$" || text.includes("shop")) return 30;
+  if (text === "r" || text.includes("rest")) return 20;
+  return 0;
 }
 
 function fallbackCommand(summary, attempted) {
@@ -370,12 +398,14 @@ if (require.main === module) {
 
 module.exports = {
   cardRewardCommand,
+  choiceLabel,
   choiceIndex,
   combatCommand,
   commandIsAvailable,
   commandVerb,
   fallbackCommand,
   mapCommand,
+  mapChoiceScore,
   nextCommand,
   rewardCommand,
   staleSessionReasonFrom,

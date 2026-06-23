@@ -62,6 +62,37 @@ test("card reward fallback picks a card instead of skip when choose is available
   assert.strictEqual(policy.cardRewardCommand(summary), "CHOOSE 0");
 });
 
+test("choice labels support structured bridge choices", () => {
+  assert.strictEqual(policy.choiceLabel({ label: "Elite" }), "Elite");
+  assert.strictEqual(policy.choiceLabel({ symbol: "M" }), "M");
+  const summary = baseSummary({ choices: [{ label: "Event" }, { symbol: "E" }] });
+  assert.strictEqual(policy.choiceIndex(summary, [/^e$/, /elite/]), 1);
+});
+
+test("map command scores visible choices toward elites and fights", () => {
+  const eliteSummary = baseSummary({
+    screen_type: "MAP",
+    available_commands: ["choose", "state"],
+    choices: ["?", "M", "E"],
+  });
+  assert.strictEqual(policy.mapCommand(eliteSummary), "CHOOSE 2");
+
+  const fightSummary = baseSummary({
+    screen_type: "MAP",
+    available_commands: ["choose", "state"],
+    choices: ["?", "$", "M"],
+  });
+  assert.strictEqual(policy.mapCommand(fightSummary), "CHOOSE 2");
+});
+
+test("map scoring ranks known room symbols deterministically", () => {
+  assert(policy.mapChoiceScore("E") > policy.mapChoiceScore("M"));
+  assert(policy.mapChoiceScore("M") > policy.mapChoiceScore("T"));
+  assert(policy.mapChoiceScore("T") > policy.mapChoiceScore("?"));
+  assert(policy.mapChoiceScore("?") > policy.mapChoiceScore("$"));
+  assert(policy.mapChoiceScore("$") > policy.mapChoiceScore("R"));
+});
+
 test("repeated card reward choose can fall back to skip", () => {
   const summary = baseSummary({
     screen_type: "CARD_REWARD",
