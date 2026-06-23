@@ -18,6 +18,8 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 
 - `overnight_collector.js` watches `session/summary.json` and writes controller commands to `session/next_command.txt`.
 - `run_overnight_collector.cmd` starts the autopilot. It persists the next seed index in `session/overnight_collector_state.json`, so restarts keep moving through seeds.
+- `overnight_supervisor.js` repeatedly runs the collector, validates the active trace after collector exit, and stops with a clear reason if the bridge/session files are stale or the bridge has exited.
+- `run_overnight_supervisor.cmd` starts the supervised overnight workflow. Start Slay the Spire with CommunicationMod first.
 
 Useful environment variables:
 
@@ -27,6 +29,9 @@ Useful environment variables:
 - `STS_AUTO_TICK_MS`: polling interval, default `500`
 - `STS_AUTO_MAX_STATE_POLLS`: repeated identical `state` polls before exiting, default `5`
 - `STS_AUTO_MAX_SAME_COMMAND`: repeated identical non-state commands before fallback/exit, default `2`
+- `STS_SUPERVISOR_MAX_RESTARTS`: collector restarts before supervisor exits, default `20`
+- `STS_SUPERVISOR_STALE_MS`: session summary/status age treated as stale, default `120000`
+- `STS_SUPERVISOR_RESTART_DELAY_MS`: delay between collector restarts, default `3000`
 
 ## Trace Health
 
