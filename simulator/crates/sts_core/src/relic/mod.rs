@@ -82,6 +82,10 @@ pub const MERCURY_HOURGLASS_DAMAGE: i32 = 3;
 pub const STONE_CALENDAR_TURN: u32 = 7;
 /// Damage dealt by [Relic::StoneCalendar] to all enemies.
 pub const STONE_CALENDAR_DAMAGE: i32 = 52;
+/// HP healed by [Relic::BlackBlood] after combat victory.
+pub const BLACK_BLOOD_HEAL: i32 = 12;
+/// HP healed by [Relic::MeatOnTheBone] after combat victory at or below half HP.
+pub const MEAT_ON_THE_BONE_HEAL: i32 = 12;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -143,6 +147,10 @@ pub const CAPTAINS_WHEEL_ID: ContentId = ContentId::new(327);
 pub const MERCURY_HOURGLASS_ID: ContentId = ContentId::new(328);
 /// Content id for [Relic::StoneCalendar].
 pub const STONE_CALENDAR_ID: ContentId = ContentId::new(329);
+/// Content id for [Relic::MeatOnTheBone].
+pub const MEAT_ON_THE_BONE_ID: ContentId = ContentId::new(330);
+/// Content id for [Relic::BlackBlood].
+pub const BLACK_BLOOD_ID: ContentId = ContentId::new(331);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -685,6 +693,8 @@ pub enum Relic {
     CaptainsWheel,
     MercuryHourglass,
     StoneCalendar,
+    MeatOnTheBone,
+    BlackBlood,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -721,6 +731,8 @@ impl Relic {
             Relic::CaptainsWheel => CAPTAINS_WHEEL_ID,
             Relic::MercuryHourglass => MERCURY_HOURGLASS_ID,
             Relic::StoneCalendar => STONE_CALENDAR_ID,
+            Relic::MeatOnTheBone => MEAT_ON_THE_BONE_ID,
+            Relic::BlackBlood => BLACK_BLOOD_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -757,6 +769,8 @@ impl Relic {
             id if id == CAPTAINS_WHEEL_ID => Some(Relic::CaptainsWheel),
             id if id == MERCURY_HOURGLASS_ID => Some(Relic::MercuryHourglass),
             id if id == STONE_CALENDAR_ID => Some(Relic::StoneCalendar),
+            id if id == MEAT_ON_THE_BONE_ID => Some(Relic::MeatOnTheBone),
+            id if id == BLACK_BLOOD_ID => Some(Relic::BlackBlood),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -817,6 +831,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::CaptainsWheel => {}
             Relic::MercuryHourglass => {}
             Relic::StoneCalendar => {}
+            Relic::MeatOnTheBone => {}
+            Relic::BlackBlood => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1353,6 +1369,8 @@ mod tests {
         assert_eq!(Relic::CaptainsWheel.content_id(), CAPTAINS_WHEEL_ID);
         assert_eq!(Relic::MercuryHourglass.content_id(), MERCURY_HOURGLASS_ID);
         assert_eq!(Relic::StoneCalendar.content_id(), STONE_CALENDAR_ID);
+        assert_eq!(Relic::MeatOnTheBone.content_id(), MEAT_ON_THE_BONE_ID);
+        assert_eq!(Relic::BlackBlood.content_id(), BLACK_BLOOD_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -1439,6 +1457,14 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(STONE_CALENDAR_ID),
             Some(Relic::StoneCalendar)
+        );
+        assert_eq!(
+            Relic::from_content_id(MEAT_ON_THE_BONE_ID),
+            Some(Relic::MeatOnTheBone)
+        );
+        assert_eq!(
+            Relic::from_content_id(BLACK_BLOOD_ID),
+            Some(Relic::BlackBlood)
         );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }

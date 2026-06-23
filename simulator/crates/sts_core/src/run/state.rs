@@ -130,6 +130,14 @@ mod tests {
             Relic::from_key(RelicKey::StoneCalendar),
             Some(Relic::StoneCalendar)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::MeatOnTheBone),
+            Some(Relic::MeatOnTheBone)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::BlackBlood),
+            Some(Relic::BlackBlood)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -618,6 +626,8 @@ impl RunState {
             | Relic::CaptainsWheel
             | Relic::MercuryHourglass
             | Relic::StoneCalendar
+            | Relic::MeatOnTheBone
+            | Relic::BlackBlood
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -758,6 +768,8 @@ impl Relic {
             Relic::CaptainsWheel => RelicKey::CaptainsWheel,
             Relic::MercuryHourglass => RelicKey::MercuryHourglass,
             Relic::StoneCalendar => RelicKey::StoneCalendar,
+            Relic::MeatOnTheBone => RelicKey::MeatOnTheBone,
+            Relic::BlackBlood => RelicKey::BlackBlood,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -794,6 +806,8 @@ impl Relic {
             RelicKey::CaptainsWheel => Some(Relic::CaptainsWheel),
             RelicKey::MercuryHourglass => Some(Relic::MercuryHourglass),
             RelicKey::StoneCalendar => Some(Relic::StoneCalendar),
+            RelicKey::MeatOnTheBone => Some(Relic::MeatOnTheBone),
+            RelicKey::BlackBlood => Some(Relic::BlackBlood),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
