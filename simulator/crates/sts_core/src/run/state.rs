@@ -261,6 +261,10 @@ mod tests {
             Some(Relic::SelfFormingClay)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::ClockworkSouvenir),
+            Some(Relic::ClockworkSouvenir)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1592,7 +1596,8 @@ impl RunState {
             | Relic::Akabeko
             | Relic::CentennialPuzzle
             | Relic::PenNib
-            | Relic::SelfFormingClay => {}
+            | Relic::SelfFormingClay
+            | Relic::ClockworkSouvenir => {}
         }
     }
 
@@ -1832,6 +1837,7 @@ impl Relic {
             Relic::CentennialPuzzle => RelicKey::CentennialPuzzle,
             Relic::PenNib => RelicKey::PenNib,
             Relic::SelfFormingClay => RelicKey::SelfFormingClay,
+            Relic::ClockworkSouvenir => RelicKey::ClockworkSouvenir,
         }
     }
 
@@ -1921,6 +1927,7 @@ impl Relic {
             RelicKey::CentennialPuzzle => Some(Relic::CentennialPuzzle),
             RelicKey::PenNib => Some(Relic::PenNib),
             RelicKey::SelfFormingClay => Some(Relic::SelfFormingClay),
+            RelicKey::ClockworkSouvenir => Some(Relic::ClockworkSouvenir),
             _ => None,
         }
     }
