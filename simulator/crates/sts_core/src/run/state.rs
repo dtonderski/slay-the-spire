@@ -242,6 +242,7 @@ mod tests {
             Relic::from_key(RelicKey::StrikeDummy),
             Some(Relic::StrikeDummy)
         );
+        assert_eq!(Relic::from_key(RelicKey::Brimstone), Some(Relic::Brimstone));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1460,7 +1461,8 @@ impl RunState {
             | Relic::IceCream
             | Relic::ChemicalX
             | Relic::SlaversCollar
-            | Relic::StrikeDummy => {}
+            | Relic::StrikeDummy
+            | Relic::Brimstone => {}
         }
     }
 
@@ -1657,6 +1659,7 @@ impl Relic {
             Relic::Ectoplasm => RelicKey::Ectoplasm,
             Relic::RunicDome => RelicKey::RunicDome,
             Relic::StrikeDummy => RelicKey::StrikeDummy,
+            Relic::Brimstone => RelicKey::Brimstone,
         }
     }
 
@@ -1738,6 +1741,7 @@ impl Relic {
             RelicKey::Ectoplasm => Some(Relic::Ectoplasm),
             RelicKey::RunicDome => Some(Relic::RunicDome),
             RelicKey::StrikeDummy => Some(Relic::StrikeDummy),
+            RelicKey::Brimstone => Some(Relic::Brimstone),
             _ => None,
         }
     }

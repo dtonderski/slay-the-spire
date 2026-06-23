@@ -1318,6 +1318,8 @@ Completed slice:
 - implemented Runic Dome key promotion and pickup energy with focused run-state tests
 - expanded modeled Strike-card damage relics: Strike Dummy
 - implemented Strike Dummy key promotion and +3 damage for Strike/Strike+ card transitions, with focused combat tests
+- expanded modeled shop start-turn strength relics: Brimstone
+- implemented Brimstone key promotion and start-of-player-turn Strength for the player and living monsters, with focused relic tests
 
 Remaining:
 

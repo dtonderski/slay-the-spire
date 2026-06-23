@@ -325,6 +325,12 @@ pub const RUNIC_DOME_ENERGY: i32 = 1;
 pub const STRIKE_DUMMY_ID: ContentId = ContentId::new(374);
 /// Extra damage granted by [Relic::StrikeDummy] to Strike cards.
 pub const STRIKE_DUMMY_DAMAGE: i32 = 3;
+/// Content id for [Relic::Brimstone].
+pub const BRIMSTONE_ID: ContentId = ContentId::new(375);
+/// Strength granted to the player by [Relic::Brimstone] at the start of each player turn.
+pub const BRIMSTONE_PLAYER_STRENGTH: i32 = 2;
+/// Strength granted to each enemy by [Relic::Brimstone] at the start of each player turn.
+pub const BRIMSTONE_MONSTER_STRENGTH: i32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -923,6 +929,7 @@ pub enum Relic {
     Ectoplasm,
     RunicDome,
     StrikeDummy,
+    Brimstone,
 }
 
 impl Relic {
@@ -1004,6 +1011,7 @@ impl Relic {
             Relic::Ectoplasm => ECTOPLASM_ID,
             Relic::RunicDome => RUNIC_DOME_ID,
             Relic::StrikeDummy => STRIKE_DUMMY_ID,
+            Relic::Brimstone => BRIMSTONE_ID,
         }
     }
 
@@ -1085,6 +1093,7 @@ impl Relic {
             id if id == ECTOPLASM_ID => Some(Relic::Ectoplasm),
             id if id == RUNIC_DOME_ID => Some(Relic::RunicDome),
             id if id == STRIKE_DUMMY_ID => Some(Relic::StrikeDummy),
+            id if id == BRIMSTONE_ID => Some(Relic::Brimstone),
             _ => None,
         }
     }
@@ -1201,6 +1210,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Ectoplasm => {}
             Relic::RunicDome => {}
             Relic::StrikeDummy => {}
+            Relic::Brimstone => {}
         }
     }
 
@@ -1298,6 +1308,13 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
     if state.relics.contains(&Relic::MercuryHourglass) {
         deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE);
     }
+
+    if state.relics.contains(&Relic::Brimstone) {
+        state.player.powers.strength += BRIMSTONE_PLAYER_STRENGTH;
+        for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+            monster.powers.strength += BRIMSTONE_MONSTER_STRENGTH;
+        }
+    }
 }
 
 fn has_start_of_turn_relic(state: &CombatState) -> bool {
@@ -1310,6 +1327,7 @@ fn has_start_of_turn_relic(state: &CombatState) -> bool {
                 | Relic::CaptainsWheel
                 | Relic::MercuryHourglass
                 | Relic::StoneCalendar
+                | Relic::Brimstone
         )
     })
 }
@@ -2145,6 +2163,8 @@ mod tests {
             Relic::from_content_id(STRIKE_DUMMY_ID),
             Some(Relic::StrikeDummy)
         );
+        assert_eq!(Relic::Brimstone.content_id(), BRIMSTONE_ID);
+        assert_eq!(Relic::from_content_id(BRIMSTONE_ID), Some(Relic::Brimstone));
     }
 
     #[test]
@@ -2540,6 +2560,28 @@ mod tests {
 
         assert_eq!(combat.monsters[0].hp, living_hp - MERCURY_HOURGLASS_DAMAGE);
         assert_eq!(combat.monsters[1].hp, dead_hp);
+    }
+
+    #[test]
+    fn brimstone_grants_player_and_living_monsters_strength_at_turn_start() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Brimstone];
+        combat
+            .monsters
+            .push(crate::content::monsters::monster_state(
+                &crate::content::monsters::CULTIST_A0,
+                crate::MonsterId::new(2),
+            ));
+        combat.monsters[1].alive = false;
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.player.powers.strength, BRIMSTONE_PLAYER_STRENGTH);
+        assert_eq!(
+            combat.monsters[0].powers.strength,
+            BRIMSTONE_MONSTER_STRENGTH
+        );
+        assert_eq!(combat.monsters[1].powers.strength, 0);
     }
 
     #[test]
