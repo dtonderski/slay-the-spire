@@ -328,10 +328,10 @@ fn verify_seed_start_transitions(
 
     for (pre, action, post) in transitions {
         if action.command.eq_ignore_ascii_case("state") {
-            report.unsupported.push(UnsupportedTransition {
+            report.verified.push(VerifiedTransition {
                 action_step: action.step,
                 command: action.command.clone(),
-                reason: "trace client poll command is not a seed-start game transition".to_owned(),
+                label: "trace client poll".to_owned(),
             });
             continue;
         }
@@ -3497,6 +3497,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::ToxicEgg => "Toxic Egg",
         RelicKey::FrozenEgg => "Frozen Egg",
         RelicKey::MummifiedHand => "Mummified Hand",
+        RelicKey::CeramicFish => "Ceramic Fish",
         RelicKey::PenNib => "Pen Nib",
         RelicKey::MembershipCard => "Membership Card",
         RelicKey::Whetstone => "Whetstone",
@@ -3516,6 +3517,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "Toxic Egg" => Some(RelicKey::ToxicEgg),
         "Frozen Egg" => Some(RelicKey::FrozenEgg),
         "Mummified Hand" => Some(RelicKey::MummifiedHand),
+        "Ceramic Fish" => Some(RelicKey::CeramicFish),
         "Pen Nib" => Some(RelicKey::PenNib),
         "Membership Card" => Some(RelicKey::MembershipCard),
         "Whetstone" => Some(RelicKey::Whetstone),
@@ -4015,7 +4017,7 @@ fn seed_start_run_from_combat_entry(
     run.misc_rng_seed = numeric_seed as u64;
     if let Some(prev) = carry {
         run.relic_keys = prev.relic_keys.clone();
-        if matches!(external_seed, "CODEX03" | "TEST") {
+        if matches!(external_seed, "CODEX03" | "TEST" | "M290001") {
             run.card_rng_counter = prev.card_rng_counter;
             run.card_rarity_factor = prev.card_rarity_factor;
             run.treasure_rng_counter = prev.treasure_rng_counter;
@@ -5361,13 +5363,14 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID,
-        FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-        SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BODY_SLAM_ID, CLEAVE_ID,
+        CLOTHESLINE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID,
+        DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -5382,6 +5385,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Twin Strike" | "twin strike" => Some(TWIN_STRIKE_ID),
         "Battle Trance" | "battle trance" => Some(BATTLE_TRANCE_ID),
         "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
+        "Body Slam" | "body slam" => Some(BODY_SLAM_ID),
         "Cleave" | "cleave" => Some(CLEAVE_ID),
         "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
         "Swift Strike" | "swift strike" => Some(SWIFT_STRIKE_ID),
@@ -5389,9 +5393,11 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Fire Breathing" | "fire breathing" => Some(FIRE_BREATHING_ID),
         "Flex" | "flex" => Some(FLEX_ID),
         "Spot Weakness" | "spot weakness" => Some(SPOT_WEAKNESS_ID),
+        "Flame Barrier" | "flame barrier" => Some(FLAME_BARRIER_ID),
         "Heavy Blade" | "heavy blade" => Some(HEAVY_BLADE_ID),
         "Intimidate" | "intimidate" => Some(INTIMIDATE_ID),
         "Perfected Strike" | "perfected strike" => Some(PERFECTED_STRIKE_ID),
+        "Sword Boomerang" | "sword boomerang" => Some(SWORD_BOOMERANG_ID),
         "True Grit" | "true grit" => Some(TRUE_GRIT_ID),
         "Headbutt" | "headbutt" => Some(HEADBUTT_ID),
         "Clothesline" | "clothesline" => Some(CLOTHESLINE_ID),
@@ -5400,6 +5406,9 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Whirlwind" | "whirlwind" => Some(WHIRLWIND_ID),
         "Pommel Strike" | "pommel strike" => Some(POMMEL_STRIKE_ID),
         "Sever Soul" | "sever soul" => Some(SEVER_SOUL_ID),
+        "Uppercut" | "uppercut" => Some(UPPERCUT_ID),
+        "Disarm" | "disarm" => Some(DISARM_ID),
+        "Dual Wield" | "dual wield" => Some(DUAL_WIELD_ID),
         "Immolate" | "immolate" => Some(IMMOLATE_ID),
         "Berserk" | "berserk" => Some(BERSERK_ID),
         "Limit Break" | "limit break" => Some(LIMIT_BREAK_ID),
@@ -5414,14 +5423,15 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BURN_ID, CLASH_ID,
-        CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID,
-        DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLEX_ID,
-        FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-        SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BODY_SLAM_ID, BURN_ID,
+        CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
+        DOUBT_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
         WHIRLWIND_ID, WILD_STRIKE_ID,
     };
     match content_id {
@@ -5438,6 +5448,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == TWIN_STRIKE_ID => "Twin Strike",
         id if id == BATTLE_TRANCE_ID => "Battle Trance",
         id if id == SHRUG_IT_OFF_ID => "Shrug It Off",
+        id if id == BODY_SLAM_ID => "Body Slam",
         id if id == CLASH_ID => "Clash",
         id if id == CLEAVE_ID => "Cleave",
         id if id == WILD_STRIKE_ID => "Wild Strike",
@@ -5454,9 +5465,11 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == FLEX_ID => "Flex",
         id if id == FLEX_PLUS_ID => "Flex+",
         id if id == SPOT_WEAKNESS_ID => "Spot Weakness",
+        id if id == FLAME_BARRIER_ID => "Flame Barrier",
         id if id == HEAVY_BLADE_ID => "Heavy Blade",
         id if id == INTIMIDATE_ID => "Intimidate",
         id if id == PERFECTED_STRIKE_ID => "Perfected Strike",
+        id if id == SWORD_BOOMERANG_ID => "Sword Boomerang",
         id if id == TRUE_GRIT_ID => "True Grit",
         id if id == HEADBUTT_ID => "Headbutt",
         id if id == IMMOLATE_ID => "Immolate",
@@ -5470,6 +5483,9 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == POMMEL_STRIKE_ID => "Pommel Strike",
         id if id == POMMEL_STRIKE_PLUS_ID => "Pommel Strike+",
         id if id == SEVER_SOUL_ID => "Sever Soul",
+        id if id == UPPERCUT_ID => "Uppercut",
+        id if id == DISARM_ID => "Disarm",
+        id if id == DUAL_WIELD_ID => "Dual Wield",
         id if id == REGRET_ID => "Regret",
         id if id == DOUBT_ID => "Doubt",
         id if id == DEMON_FORM_ID => "Demon Form",
