@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const assert = require("assert");
-const { summarize, validate } = require("./trace_tools");
+const { report, splitRuns, summarize, validate } = require("./trace_tools");
 
 function state(step, gameState) {
   return { type: "state", step, message: { game_state: gameState } };
@@ -54,8 +54,39 @@ function testDeathTerminal() {
   assert.strictEqual(summary.coverage.has_death, true);
 }
 
+function testRunReportSelectsBestHarvestRun() {
+  const records = [
+    state(0, { floor: 0, screen_type: "MAIN_MENU" }),
+    action(1, "START IRONCLAD 0 M290001"),
+    state(1, { floor: 0, screen_type: "NEOW", seed: 1, act_boss: "Hexaghost" }),
+    action(2, "END"),
+    state(2, { floor: 1, screen_type: "GAME_OVER", current_hp: 0, room_type: "MonsterRoom" }),
+    action(3, "START IRONCLAD 0 M290002"),
+    state(3, { floor: 0, screen_type: "NEOW", seed: 2, act_boss: "Guardian" }),
+    action(4, "CHOOSE 0"),
+    state(4, { floor: 7, screen_type: "COMBAT", room_type: "MonsterRoomElite", room_phase: "COMBAT" }),
+    action(5, "END"),
+    state(5, {
+      floor: 7,
+      screen_type: "COMBAT_REWARD",
+      room_type: "MonsterRoomElite",
+      room_phase: "COMPLETE",
+      screen_state: { rewards: [{ reward_type: "RELIC" }] },
+    }),
+  ];
+  const runs = splitRuns(records, "synthetic.jsonl");
+  assert.strictEqual(runs.length, 2);
+  assert.strictEqual(runs[0].validation.summary.terminal.kind, "death");
+  assert.strictEqual(runs[1].validation.summary.elite_rooms, 1);
+
+  const result = report(records, "synthetic.jsonl");
+  assert.strictEqual(result.best_run.run_index, 1);
+  assert.strictEqual(result.best_run.validation.summary.coverage.reached_elite, true);
+}
+
 testCoverageSummaryForEliteRewardPrefix();
 testMissingActionStillFailsValidation();
 testDeathTerminal();
+testRunReportSelectsBestHarvestRun();
 
 console.log("trace_tools tests passed");
