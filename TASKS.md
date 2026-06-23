@@ -1138,6 +1138,7 @@ Blocked capture:
 - `trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl` contains two attempts; the first dies on floor 1 and the second reaches Sentries. `trace-2026-06-23T02-56-19-245Z.run2.valid-prefix.jsonl` extracts the second run, containing Cultist, Small/M slime, Jaw Worm, Gremlins, Sentries, and Blue Slaver with one invalid trailing full-potion-belt reward action trimmed and documented by metadata. It validates with `tools/communication/trace_tools.js`, but still needs the floor-2 sync boundary fixed before it can become a passing M29 parity fixture.
 - The overnight collector now guards unavailable command verbs and repeated identical commands on unchanged states. This is intended to prevent the card-reward and potion-reward loops seen during M290001 collection while still stopping rather than producing malformed traces if no conservative fallback is available.
 - `overnight_supervisor.js` adds the intended overnight entry point: it restarts the collector, validates the active trace after each collector exit, and refuses to continue on stale bridge/session files instead of silently writing commands into a dead CommunicationMod session.
+- `overnight_collector.test.js` is the regression gate for the autopilot command policy before the next live overnight attempt.
 
 Acceptance tests:
 
