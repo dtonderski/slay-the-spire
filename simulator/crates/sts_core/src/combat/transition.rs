@@ -23,7 +23,9 @@ use crate::{
     },
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
-    relic::{strike_damage_with_relics, Relic, AKABEKO_DAMAGE, CHEMICAL_X_BONUS_X},
+    relic::{
+        strike_damage_with_relics, Relic, AKABEKO_DAMAGE, CHEMICAL_X_BONUS_X, PEN_NIB_THRESHOLD,
+    },
     rng::SimulatorRng,
     CardInstance, CombatState, MonsterIntent, MonsterState, SimError, SimResult,
 };
@@ -152,6 +154,7 @@ fn apply_play_card(
 
     let mut queue = queue?;
     apply_akabeko_to_first_attack_queue(state, definition.card_type, card_id, &mut queue);
+    apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
     if state.duplication_potion_pending {
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
@@ -186,6 +189,39 @@ fn apply_akabeko_to_first_attack_queue(
             }
             InternalAction::DealDamageAll { source, amount } if *source == card_id => {
                 *amount += AKABEKO_DAMAGE;
+            }
+            _ => {}
+        }
+    }
+}
+
+fn apply_pen_nib_to_tenth_attack_queue(
+    state: &CombatState,
+    card_type: CardType,
+    card_id: CardId,
+    queue: &mut VecDeque<InternalAction>,
+) {
+    if card_type != CardType::Attack
+        || !state.relics.contains(&Relic::PenNib)
+        || state.relic_counters.pen_nib_attacks_played + 1 != PEN_NIB_THRESHOLD
+    {
+        return;
+    }
+
+    for action in queue {
+        match action {
+            InternalAction::DealDamage {
+                info:
+                    DamageInfo {
+                        source: DamageSource::Card(source),
+                        amount,
+                        ..
+                    },
+            } if *source == card_id => {
+                *amount *= 2;
+            }
+            InternalAction::DealDamageAll { source, amount } if *source == card_id => {
+                *amount *= 2;
             }
             _ => {}
         }
@@ -2075,6 +2111,49 @@ mod tests {
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 26);
         assert_eq!(next.relic_counters.attacks_played_this_combat, 1);
+    }
+
+    #[test]
+    fn pen_nib_doubles_tenth_attack_card_damage_and_resets_counter() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::PenNib);
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
+    }
+
+    #[test]
+    fn pen_nib_does_not_double_before_tenth_attack_card() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::PenNib);
+        state.relic_counters.pen_nib_attacks_played = 8;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 6);
+        assert_eq!(next.relic_counters.pen_nib_attacks_played, 9);
+    }
+
+    #[test]
+    fn pen_nib_bonus_applies_to_each_hit_of_multi_hit_attack() {
+        let mut state = hand_only(TWIN_STRIKE_ID);
+        state.relics.push(crate::Relic::PenNib);
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Twin Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 20);
+        assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
     }
 
     #[test]
