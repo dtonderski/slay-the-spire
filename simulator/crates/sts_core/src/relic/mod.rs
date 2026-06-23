@@ -24,6 +24,18 @@ pub const OLD_COIN_GOLD: i32 = 300;
 pub const POTION_BELT_SLOTS: usize = 2;
 /// HP healed by [Relic::BloodVial] at combat start.
 pub const BLOOD_VIAL_HEAL: i32 = 2;
+/// Energy granted by [Relic::Lantern] at combat start.
+pub const LANTERN_ENERGY: i32 = 1;
+/// Cards drawn by [Relic::BagOfPreparation] at combat start.
+pub const BAG_OF_PREPARATION_DRAW: usize = 2;
+/// Vulnerable applied by [Relic::BagOfMarbles] at combat start.
+pub const BAG_OF_MARBLES_VULNERABLE: i32 = 1;
+/// Thorns granted by [Relic::BronzeScales] at combat start.
+pub const BRONZE_SCALES_THORNS: i32 = 3;
+/// Plated Armor granted by [Relic::ThreadAndNeedle] at combat start.
+pub const THREAD_AND_NEEDLE_PLATED_ARMOR: i32 = 4;
+/// Strength granted by [Relic::RedSkull] while starting combat at or below half HP.
+pub const RED_SKULL_STRENGTH: i32 = 3;
 /// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
 pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -63,6 +75,18 @@ pub const OLD_COIN_ID: ContentId = ContentId::new(311);
 pub const LEES_WAFFLE_ID: ContentId = ContentId::new(312);
 /// Content id for [Relic::PotionBelt].
 pub const POTION_BELT_ID: ContentId = ContentId::new(313);
+/// Content id for [Relic::Lantern].
+pub const LANTERN_ID: ContentId = ContentId::new(314);
+/// Content id for [Relic::BagOfPreparation].
+pub const BAG_OF_PREPARATION_ID: ContentId = ContentId::new(315);
+/// Content id for [Relic::BagOfMarbles].
+pub const BAG_OF_MARBLES_ID: ContentId = ContentId::new(316);
+/// Content id for [Relic::BronzeScales].
+pub const BRONZE_SCALES_ID: ContentId = ContentId::new(317);
+/// Content id for [Relic::ThreadAndNeedle].
+pub const THREAD_AND_NEEDLE_ID: ContentId = ContentId::new(318);
+/// Content id for [Relic::RedSkull].
+pub const RED_SKULL_ID: ContentId = ContentId::new(319);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -573,6 +597,12 @@ pub enum Relic {
     OldCoin,
     LeesWaffle,
     PotionBelt,
+    Lantern,
+    BagOfPreparation,
+    BagOfMarbles,
+    BronzeScales,
+    ThreadAndNeedle,
+    RedSkull,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -593,6 +623,12 @@ impl Relic {
             Relic::OldCoin => OLD_COIN_ID,
             Relic::LeesWaffle => LEES_WAFFLE_ID,
             Relic::PotionBelt => POTION_BELT_ID,
+            Relic::Lantern => LANTERN_ID,
+            Relic::BagOfPreparation => BAG_OF_PREPARATION_ID,
+            Relic::BagOfMarbles => BAG_OF_MARBLES_ID,
+            Relic::BronzeScales => BRONZE_SCALES_ID,
+            Relic::ThreadAndNeedle => THREAD_AND_NEEDLE_ID,
+            Relic::RedSkull => RED_SKULL_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -613,6 +649,12 @@ impl Relic {
             id if id == OLD_COIN_ID => Some(Relic::OldCoin),
             id if id == LEES_WAFFLE_ID => Some(Relic::LeesWaffle),
             id if id == POTION_BELT_ID => Some(Relic::PotionBelt),
+            id if id == LANTERN_ID => Some(Relic::Lantern),
+            id if id == BAG_OF_PREPARATION_ID => Some(Relic::BagOfPreparation),
+            id if id == BAG_OF_MARBLES_ID => Some(Relic::BagOfMarbles),
+            id if id == BRONZE_SCALES_ID => Some(Relic::BronzeScales),
+            id if id == THREAD_AND_NEEDLE_ID => Some(Relic::ThreadAndNeedle),
+            id if id == RED_SKULL_ID => Some(Relic::RedSkull),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -641,6 +683,28 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::OldCoin => {}
             Relic::LeesWaffle => {}
             Relic::PotionBelt => {}
+            Relic::Lantern => {
+                combat.player.energy += LANTERN_ENERGY;
+            }
+            Relic::BagOfPreparation => {
+                crate::combat::transition::player_draw_cards(combat, BAG_OF_PREPARATION_DRAW);
+            }
+            Relic::BagOfMarbles => {
+                for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
+                    monster.powers.vulnerable += BAG_OF_MARBLES_VULNERABLE;
+                }
+            }
+            Relic::BronzeScales => {
+                combat.player.powers.thorns += BRONZE_SCALES_THORNS;
+            }
+            Relic::ThreadAndNeedle => {
+                combat.player.powers.plated_armor += THREAD_AND_NEEDLE_PLATED_ARMOR;
+            }
+            Relic::RedSkull => {
+                if combat.player.hp * 2 <= combat.player.max_hp {
+                    combat.player.powers.strength += RED_SKULL_STRENGTH;
+                }
+            }
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -977,6 +1041,77 @@ mod tests {
     }
 
     #[test]
+    fn lantern_grants_one_energy_at_combat_start() {
+        let mut combat = CombatState::initial_fixture();
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::Lantern]);
+
+        assert_eq!(
+            combat.player.energy,
+            combat.player.max_energy + LANTERN_ENERGY
+        );
+    }
+
+    #[test]
+    fn bag_of_preparation_draws_two_at_combat_start() {
+        let mut combat = CombatState::initial_fixture();
+        let hand_before = combat.piles.hand.len();
+        let draw_before = combat.piles.draw_pile.len();
+        let expected_draw = BAG_OF_PREPARATION_DRAW.min(draw_before);
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::BagOfPreparation]);
+
+        assert_eq!(combat.piles.hand.len(), hand_before + expected_draw);
+        assert_eq!(combat.piles.draw_pile.len(), draw_before - expected_draw);
+    }
+
+    #[test]
+    fn bag_of_marbles_applies_vulnerable_to_living_monsters() {
+        let mut combat = CombatState::initial_fixture();
+        combat
+            .monsters
+            .push(crate::content::monsters::monster_state(
+                &crate::content::monsters::CULTIST_A0,
+                crate::MonsterId::new(2),
+            ));
+        combat.monsters[1].alive = false;
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::BagOfMarbles]);
+
+        assert_eq!(
+            combat.monsters[0].powers.vulnerable,
+            BAG_OF_MARBLES_VULNERABLE
+        );
+        assert_eq!(combat.monsters[1].powers.vulnerable, 0);
+    }
+
+    #[test]
+    fn defensive_start_relics_grant_player_powers() {
+        let mut combat = CombatState::initial_fixture();
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::BronzeScales, Relic::ThreadAndNeedle]);
+
+        assert_eq!(combat.player.powers.thorns, BRONZE_SCALES_THORNS);
+        assert_eq!(
+            combat.player.powers.plated_armor,
+            THREAD_AND_NEEDLE_PLATED_ARMOR
+        );
+    }
+
+    #[test]
+    fn red_skull_grants_strength_only_at_or_below_half_hp() {
+        let mut high_hp = CombatState::initial_fixture();
+        high_hp.player.hp = high_hp.player.max_hp / 2 + 1;
+        apply_start_of_combat_relics(&mut high_hp, &[Relic::RedSkull]);
+        assert_eq!(high_hp.player.powers.strength, 0);
+
+        let mut low_hp = CombatState::initial_fixture();
+        low_hp.player.hp = low_hp.player.max_hp / 2;
+        apply_start_of_combat_relics(&mut low_hp, &[Relic::RedSkull]);
+        assert_eq!(low_hp.player.powers.strength, RED_SKULL_STRENGTH);
+    }
+
+    #[test]
     fn relic_content_ids_map_both_ways() {
         assert_eq!(Relic::Vajra.content_id(), VAJRA_ID);
         assert_eq!(Relic::OddlySmoothStone.content_id(), ODDLY_SMOOTH_STONE_ID);
@@ -992,6 +1127,12 @@ mod tests {
         assert_eq!(Relic::OldCoin.content_id(), OLD_COIN_ID);
         assert_eq!(Relic::LeesWaffle.content_id(), LEES_WAFFLE_ID);
         assert_eq!(Relic::PotionBelt.content_id(), POTION_BELT_ID);
+        assert_eq!(Relic::Lantern.content_id(), LANTERN_ID);
+        assert_eq!(Relic::BagOfPreparation.content_id(), BAG_OF_PREPARATION_ID);
+        assert_eq!(Relic::BagOfMarbles.content_id(), BAG_OF_MARBLES_ID);
+        assert_eq!(Relic::BronzeScales.content_id(), BRONZE_SCALES_ID);
+        assert_eq!(Relic::ThreadAndNeedle.content_id(), THREAD_AND_NEEDLE_ID);
+        assert_eq!(Relic::RedSkull.content_id(), RED_SKULL_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -1030,6 +1171,24 @@ mod tests {
             Relic::from_content_id(POTION_BELT_ID),
             Some(Relic::PotionBelt)
         );
+        assert_eq!(Relic::from_content_id(LANTERN_ID), Some(Relic::Lantern));
+        assert_eq!(
+            Relic::from_content_id(BAG_OF_PREPARATION_ID),
+            Some(Relic::BagOfPreparation)
+        );
+        assert_eq!(
+            Relic::from_content_id(BAG_OF_MARBLES_ID),
+            Some(Relic::BagOfMarbles)
+        );
+        assert_eq!(
+            Relic::from_content_id(BRONZE_SCALES_ID),
+            Some(Relic::BronzeScales)
+        );
+        assert_eq!(
+            Relic::from_content_id(THREAD_AND_NEEDLE_ID),
+            Some(Relic::ThreadAndNeedle)
+        );
+        assert_eq!(Relic::from_content_id(RED_SKULL_ID), Some(Relic::RedSkull));
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }
 

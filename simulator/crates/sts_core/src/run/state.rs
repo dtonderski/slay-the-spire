@@ -84,6 +84,24 @@ mod tests {
             Relic::from_key(RelicKey::PotionBelt),
             Some(Relic::PotionBelt)
         );
+        assert_eq!(Relic::from_key(RelicKey::Lantern), Some(Relic::Lantern));
+        assert_eq!(
+            Relic::from_key(RelicKey::BagOfPreparation),
+            Some(Relic::BagOfPreparation)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::BagOfMarbles),
+            Some(Relic::BagOfMarbles)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::BronzeScales),
+            Some(Relic::BronzeScales)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::ThreadAndNeedle),
+            Some(Relic::ThreadAndNeedle)
+        );
+        assert_eq!(Relic::from_key(RelicKey::RedSkull), Some(Relic::RedSkull));
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -130,6 +148,16 @@ mod tests {
         run.gain_relic(Relic::PotionBelt);
 
         assert_eq!(run.potion_capacity(), MAX_POTIONS + POTION_BELT_SLOTS);
+    }
+
+    #[test]
+    fn gain_relic_key_promotes_start_combat_relics_to_modeled_relics() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic_key(RelicKey::Lantern);
+
+        assert_eq!(run.relics, vec![Relic::Lantern]);
+        assert!(run.relic_keys.is_empty());
     }
 }
 
@@ -546,6 +574,12 @@ impl RunState {
             }
             Relic::BloodVial
             | Relic::PotionBelt
+            | Relic::Lantern
+            | Relic::BagOfPreparation
+            | Relic::BagOfMarbles
+            | Relic::BronzeScales
+            | Relic::ThreadAndNeedle
+            | Relic::RedSkull
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -670,6 +704,12 @@ impl Relic {
             Relic::OldCoin => RelicKey::OldCoin,
             Relic::LeesWaffle => RelicKey::LeesWaffle,
             Relic::PotionBelt => RelicKey::PotionBelt,
+            Relic::Lantern => RelicKey::Lantern,
+            Relic::BagOfPreparation => RelicKey::BagOfPreparation,
+            Relic::BagOfMarbles => RelicKey::BagOfMarbles,
+            Relic::BronzeScales => RelicKey::BronzeScales,
+            Relic::ThreadAndNeedle => RelicKey::ThreadAndNeedle,
+            Relic::RedSkull => RelicKey::RedSkull,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -690,6 +730,12 @@ impl Relic {
             RelicKey::OldCoin => Some(Relic::OldCoin),
             RelicKey::LeesWaffle => Some(Relic::LeesWaffle),
             RelicKey::PotionBelt => Some(Relic::PotionBelt),
+            RelicKey::Lantern => Some(Relic::Lantern),
+            RelicKey::BagOfPreparation => Some(Relic::BagOfPreparation),
+            RelicKey::BagOfMarbles => Some(Relic::BagOfMarbles),
+            RelicKey::BronzeScales => Some(Relic::BronzeScales),
+            RelicKey::ThreadAndNeedle => Some(Relic::ThreadAndNeedle),
+            RelicKey::RedSkull => Some(Relic::RedSkull),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
