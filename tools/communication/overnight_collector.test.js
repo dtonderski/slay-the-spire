@@ -85,12 +85,28 @@ test("map command scores visible choices toward elites and fights", () => {
   assert.strictEqual(policy.mapCommand(fightSummary), "CHOOSE 2");
 });
 
+test("map command waits when choices are not populated yet", () => {
+  const summary = baseSummary({
+    screen_type: "MAP",
+    available_commands: ["choose", "state"],
+    choices: [],
+  });
+  assert.strictEqual(policy.mapCommand(summary), "state");
+});
+
 test("map scoring ranks known room symbols deterministically", () => {
   assert(policy.mapChoiceScore("E") > policy.mapChoiceScore("M"));
   assert(policy.mapChoiceScore("M") > policy.mapChoiceScore("T"));
   assert(policy.mapChoiceScore("T") > policy.mapChoiceScore("?"));
   assert(policy.mapChoiceScore("?") > policy.mapChoiceScore("$"));
   assert(policy.mapChoiceScore("$") > policy.mapChoiceScore("R"));
+});
+
+test("screen policies wait when choose is available but no choices are present", () => {
+  for (const screen_type of ["GRID", "SHOP_ROOM", "REST"]) {
+    const summary = baseSummary({ screen_type, available_commands: ["choose", "state"], choices: [] });
+    assert.strictEqual(policy.nextCommand(summary), "state");
+  }
 });
 
 test("repeated card reward choose can fall back to skip", () => {
@@ -127,6 +143,22 @@ test("combat command attacks the lowest living monster", () => {
     },
   });
   assert.strictEqual(policy.combatCommand(summary), "PLAY 2 2");
+});
+
+test("combat command blocks before striking when low hp faces heavy damage", () => {
+  const summary = baseSummary({
+    current_hp: 18,
+    available_commands: ["play", "end", "state"],
+    combat: {
+      hand: [
+        { index: 1, name: "Defend", playable: true, type: "SKILL", has_target: false },
+        { index: 2, name: "Strike", playable: true, type: "ATTACK", has_target: true },
+      ],
+      monsters: [{ index: 0, hp: 20, gone: false, intent: "ATTACK 12" }],
+    },
+  });
+  assert(policy.cardScore(summary.combat.hand[0], 12, 18) > policy.cardScore(summary.combat.hand[1], 12, 18));
+  assert.strictEqual(policy.combatCommand(summary), "PLAY 1");
 });
 
 test("state signature changes when choices change", () => {

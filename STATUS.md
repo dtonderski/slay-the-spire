@@ -121,6 +121,7 @@ Overnight collector hardening after the `M290001` run:
 - `run_overnight_preflight.cmd` and `run_communication_checks.cmd` provide one-command Windows entry points for preflight and communication-tool regression checks.
 - `run_overnight_guarded.cmd` is the safer overnight entry point: it runs preflight and starts the supervisor only when the bridge/session is fresh.
 - The overnight collector map policy scores currently visible room choices deterministically, preferring elites, fights, chests, events, shops, then rests. It intentionally does not claim route lookahead until the bridge exposes enough stable map-node context for that.
+- The overnight collector combat policy now has a small survival bias: when low HP faces heavy incoming damage, defensive cards outrank basic attacks. Transient choose-capable screens with no parsed choices now poll state instead of sending `CHOOSE 0`.
 
 ```powershell
 cd simulator
