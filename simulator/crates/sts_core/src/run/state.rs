@@ -17,7 +17,8 @@ use crate::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, COFFEE_DRIPPER_ENERGY, STRAWBERRY_MAX_HP,
     },
-    SimError, SimResult, StsRng,
+    rng::StsRng,
+    SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +102,8 @@ pub struct RunState {
     pub reward_rng_seed: u64,
     #[serde(default)]
     pub card_rng_counter: u32,
+    #[serde(default)]
+    pub card_random_rng_counter: u32,
     #[serde(default = "default_card_rarity_factor")]
     pub card_rarity_factor: i32,
     #[serde(default)]
@@ -205,6 +208,9 @@ pub enum RunAction {
     DiscardPotion {
         slot: usize,
     },
+    ChooseCombatCardReward {
+        index: usize,
+    },
     EnterShop,
     LeaveShop,
     OpenShopRemove,
@@ -222,6 +228,18 @@ impl RunState {
         combat.ascension = self.ascension;
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
+    }
+
+    #[must_use]
+    pub fn card_random_rng(&self) -> StsRng {
+        StsRng::with_counter(
+            self.reward_rng_seed as i64 + i64::from(self.current_floor),
+            self.card_random_rng_counter,
+        )
+    }
+
+    pub fn reset_card_random_rng_for_combat(&mut self) {
+        self.card_random_rng_counter = 0;
     }
 
     #[must_use]
@@ -265,6 +283,7 @@ impl RunState {
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
+            card_random_rng_counter: 0,
             card_rarity_factor: default_card_rarity_factor(),
             treasure_rng_seed: 0,
             treasure_rng_counter: 0,
@@ -315,6 +334,7 @@ impl RunState {
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
+            card_random_rng_counter: 0,
             card_rarity_factor: default_card_rarity_factor(),
             treasure_rng_seed: 0,
             treasure_rng_counter: 0,
@@ -515,6 +535,9 @@ impl RunState {
             | RunAction::LeaveShop
             | RunAction::OpenShopRemove => Err(SimError::IllegalAction("not a reward action")),
             RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
+                Err(SimError::IllegalAction("not a reward action"))
+            }
+            RunAction::ChooseCombatCardReward { .. } => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
         }

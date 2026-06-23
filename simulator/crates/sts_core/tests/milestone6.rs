@@ -378,20 +378,26 @@ fn lagavulin_wake_on_strike_siphons_on_same_monster_turn() {
     .expect("Strike applies");
 
     assert_eq!(after_strike.monsters[0].sleep_turns_remaining, 0);
+    assert_eq!(after_strike.monsters[0].intent, MonsterIntent::Stun);
+
+    let after_turn = end_player_turn(&after_strike);
+    assert_eq!(after_turn.player.hp, 100);
+    assert_eq!(after_turn.player.powers.strength, 3);
+    assert_eq!(after_turn.player.powers.dexterity, 2);
     assert_eq!(
-        after_strike.monsters[0].intent,
+        after_turn.monsters[0].intent,
         MonsterIntent::SiphonPlayer {
             strength: 2,
             dexterity: 2,
         }
     );
 
-    let after_turn = end_player_turn(&after_strike);
-    assert_eq!(after_turn.player.hp, 100);
-    assert_eq!(after_turn.player.powers.strength, 1);
-    assert_eq!(after_turn.player.powers.dexterity, 0);
+    let after_siphon = end_player_turn(&after_turn);
+    assert_eq!(after_siphon.player.hp, 100);
+    assert_eq!(after_siphon.player.powers.strength, 1);
+    assert_eq!(after_siphon.player.powers.dexterity, 0);
     assert_eq!(
-        after_turn.monsters[0].intent,
+        after_siphon.monsters[0].intent,
         MonsterIntent::Attack { damage: 18 }
     );
 }

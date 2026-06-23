@@ -1,11 +1,14 @@
 use crate::{
-    combat::damage::deal_unmodified_damage_to_monster,
+    card::{CardInstance, CardType},
     combat::CombatPhase,
+    combat::damage::deal_unmodified_damage_to_monster,
+    ids::CardId,
     potion::{
         Potion, BLOCK_POTION_BLOCK, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE, GAMBLE_POTION_LOSS_GOLD,
         GAMBLE_POTION_WIN_GOLD,
     },
     rng::{RngStream, SimulatorRng},
+    content::shop_pool::discovery_card_choices,
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -52,8 +55,38 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
                 .ok_or(SimError::IllegalAction("potion slot is not available"))?;
             Ok(())
         }
+        RunAction::ChooseCombatCardReward { index } => validate_combat_card_reward_choice(run, index),
         _ => Err(SimError::IllegalAction("not a potion action")),
     }
+}
+
+pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("combat card reward requires combat"))?;
+    let choices = combat
+        .potion_card_reward
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
+    if index >= choices.len() {
+        return Err(SimError::IllegalAction("combat card reward index out of range"));
+    }
+    Ok(())
+}
+
+pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
+    validate_combat_card_reward_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    let choices = combat.potion_card_reward.take().expect("validated reward");
+    let choice = choices[index];
+    let card_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+    combat
+        .piles
+        .hand
+        .push(CardInstance::combat_generated(card_id, choice.content_id, 0));
+    Ok(next)
 }
 
 pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
@@ -100,6 +133,24 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     } else {
                         next.gold = (next.gold - GAMBLE_POTION_LOSS_GOLD).max(0);
                     }
+                }
+                Potion::Power => {
+                    let mut rng = next.card_random_rng();
+                    let content_ids = discovery_card_choices(&mut rng, CardType::Power, 3);
+                    next.card_random_rng_counter = rng.counter();
+                    let next_card_id = next.next_card_instance_id();
+                    let reward_cards = content_ids
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, content_id)| {
+                            CardInstance::new(
+                                CardId::new(next_card_id + index as u64),
+                                content_id,
+                            )
+                        })
+                        .collect();
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.potion_card_reward = Some(reward_cards);
                 }
                 _ => {
                     return Err(SimError::IllegalAction(
@@ -353,5 +404,26 @@ mod tests {
         .expect_err("fire potion needs target");
 
         assert_eq!(err, SimError::IllegalAction("potion requires a target"));
+    }
+
+    #[test]
+    fn power_potion_discovery_matches_test_trace_floor_six() {
+        use crate::content::cards::{
+            get_card_definition, BERSERK_ID, DEMON_FORM_ID, FEEL_NO_PAIN_ID,
+        };
+        use crate::content::shop_pool::discovery_card_choices;
+        use crate::rng::StsRng;
+
+        let mut rng = StsRng::new(1_218_623 + 6);
+        let choices = discovery_card_choices(&mut rng, CardType::Power, 3);
+        assert_eq!(
+            choices,
+            vec![DEMON_FORM_ID, BERSERK_ID, FEEL_NO_PAIN_ID],
+            "unexpected discovery choices for TEST Lagavulin Power Potion"
+        );
+        assert!(
+            get_card_definition(DEMON_FORM_ID).is_some(),
+            "chosen Demon Form should be playable"
+        );
     }
 }

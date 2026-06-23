@@ -7,7 +7,7 @@ use crate::{
     potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
     relic::{Relic, RelicKey, RelicTier},
     rng::{RngStream, SimulatorRng, StsRng},
-    run::potion::apply_potion_action,
+    run::potion::{apply_combat_card_reward_choice, apply_potion_action},
     run::shop::apply_shop_action,
     CombatAction, ContentId, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -572,6 +572,7 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
             apply_potion_action(run, action)
         }
+        RunAction::ChooseCombatCardReward { index } => apply_combat_card_reward_choice(run, index),
         _ => apply_reward_action(run, action),
     }
 }
@@ -650,6 +651,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             unreachable!("validated reward action")
         }
         RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
+            unreachable!("validated reward action")
+        }
+        RunAction::ChooseCombatCardReward { .. } => {
             unreachable!("validated reward action")
         }
     }

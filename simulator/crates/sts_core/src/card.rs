@@ -63,11 +63,32 @@ pub struct CardValues {
 pub struct CardInstance {
     pub id: CardId,
     pub content_id: ContentId,
+    /// Combat-only generated cards (for example Power Potion) may override printed cost.
+    #[serde(default)]
+    pub temp_cost: Option<u8>,
+    /// Cards created only for the current combat vanish after play.
+    #[serde(default)]
+    pub combat_only: bool,
 }
 
 impl CardInstance {
     #[must_use]
     pub const fn new(id: CardId, content_id: ContentId) -> Self {
-        Self { id, content_id }
+        Self {
+            id,
+            content_id,
+            temp_cost: None,
+            combat_only: false,
+        }
+    }
+
+    #[must_use]
+    pub const fn combat_generated(id: CardId, content_id: ContentId, temp_cost: u8) -> Self {
+        Self {
+            id,
+            content_id,
+            temp_cost: Some(temp_cost),
+            combat_only: true,
+        }
     }
 }

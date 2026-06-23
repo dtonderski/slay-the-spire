@@ -2,7 +2,7 @@ use crate::{
     combat::hand::resolve_end_of_turn_hand,
     combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
     combat::{CombatPhase, CombatState},
-    content::monsters::{apply_monster_intent, prepare_monster_intent},
+    content::monsters::{apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent},
 };
 
 const HAND_SIZE: usize = 5;
@@ -61,6 +61,7 @@ fn run_monster_turn(state: &mut CombatState) {
         .iter_mut()
         .filter(|monster| monster.alive)
         .map(|monster| {
+            clear_lagavulin_metallicize_if_awake(monster);
             let player_snapshot = player.clone();
             apply_monster_intent(monster, player, piles, ascension, &player_snapshot)
         })
