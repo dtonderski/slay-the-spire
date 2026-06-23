@@ -1258,6 +1258,8 @@ Completed slice:
 - implemented shop-entry healing, rest bonus healing, modeled Dream Catcher card reward, and focused rest/shop/event regression tests
 - expanded modeled damage mitigation relics: Torii and Tungsten Rod
 - implemented unblocked attack damage and generic HP-loss mitigation across monster attacks, spikes, Burn, and Regret with focused tests
+- expanded modeled shop/economy relics: Ceramic Fish, Membership Card, and Smiling Mask
+- implemented Ceramic Fish card-add gold across reward/shop/event additions, modeled Membership Card key promotion, and Smiling Mask removal pricing with focused reward/shop/state tests
 
 Remaining:
 

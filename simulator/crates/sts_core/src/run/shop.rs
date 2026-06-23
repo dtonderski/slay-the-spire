@@ -128,6 +128,10 @@ fn potion_price(potion: Potion, merchant_rng: &mut StsRng) -> i32 {
 
 #[must_use]
 pub fn shop_remove_cost_for_run(run: &RunState) -> i32 {
+    if owns_relic_key(run, RelicKey::SmilingMask) {
+        return if has_membership_card(run) { 25 } else { 50 };
+    }
+
     let base = SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE * run.shop_remove_count as i32;
     if has_membership_card(run) {
         base / 2
@@ -137,9 +141,7 @@ pub fn shop_remove_cost_for_run(run: &RunState) -> i32 {
 }
 
 fn has_membership_card(run: &RunState) -> bool {
-    run.relic_keys
-        .iter()
-        .any(|key| *key == RelicKey::MembershipCard)
+    owns_relic_key(run, RelicKey::MembershipCard)
 }
 
 fn apply_membership_discount_to_shop(shop: &mut ShopScreen) {
@@ -552,7 +554,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             let price = offer.price;
             offer.sold = true;
             next.gold -= price;
-            next.deck.push(card);
+            next.add_deck_card(card);
         }
         RunAction::BuyShopRelic { slot } => {
             let shop = next.shop.as_mut().expect("validated shop screen");
@@ -715,6 +717,49 @@ mod tests {
         let shop = after.shop.expect("shop");
         assert!(!shop.cards[0].sold);
         assert_eq!(shop.cards[0].price, (card_price_before + 1) / 2);
+    }
+
+    #[test]
+    fn membership_card_modeled_relic_halves_shop_remove_cost() {
+        let mut run = shop_run();
+        run.relics.push(Relic::MembershipCard);
+        let base = SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE;
+        run.shop_remove_count = 1;
+
+        assert_eq!(shop_remove_cost_for_run(&run), base / 2);
+    }
+
+    #[test]
+    fn smiling_mask_caps_shop_remove_cost() {
+        let mut run = shop_run();
+        run.relics.push(Relic::SmilingMask);
+        run.shop_remove_count = 3;
+
+        assert_eq!(shop_remove_cost_for_run(&run), 50);
+    }
+
+    #[test]
+    fn smiling_mask_and_membership_card_stack_on_remove_cost() {
+        let mut run = shop_run();
+        run.relics.push(Relic::SmilingMask);
+        run.relics.push(Relic::MembershipCard);
+        run.shop_remove_count = 3;
+
+        assert_eq!(shop_remove_cost_for_run(&run), 25);
+    }
+
+    #[test]
+    fn buying_shop_card_triggers_ceramic_fish_gold() {
+        let mut run = shop_run();
+        run.relics.push(Relic::CeramicFish);
+        let gold_before = run.gold;
+
+        let after = apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 }).expect("buy anger");
+
+        assert_eq!(
+            after.gold,
+            gold_before - SHOP_ANGER_PRICE + crate::relic::CERAMIC_FISH_GOLD
+        );
     }
 
     #[test]
