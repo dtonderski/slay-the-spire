@@ -6,6 +6,7 @@ const {
   currentTracePathFromStatus,
   formatValidationSummary,
   parseValidationOutput,
+  validPrefixPath,
 } = require("./overnight_supervisor");
 
 function testNoSessionFilesAreStale() {
@@ -85,6 +86,13 @@ function testValidationSummaryFormatting() {
   assert.match(line, /score=142/);
 }
 
+function testValidPrefixPath() {
+  assert.strictEqual(
+    validPrefixPath("D:\\dev\\slay-the-spire\\verification\\corpus\\communication_mod\\trace-a.jsonl"),
+    "D:\\dev\\slay-the-spire\\verification\\corpus\\communication_mod\\trace-a.valid-prefix.jsonl",
+  );
+}
+
 testNoSessionFilesAreStale();
 testOldSessionFilesAreStale();
 testExitedBridgeIsStale();
@@ -92,5 +100,6 @@ testFreshSessionIsActive();
 testTracePathExtraction();
 testValidationOutputParsing();
 testValidationSummaryFormatting();
+testValidPrefixPath();
 
 console.log("overnight_supervisor tests passed");
