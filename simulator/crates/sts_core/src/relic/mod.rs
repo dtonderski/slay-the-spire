@@ -116,6 +116,10 @@ pub const PAPER_PHROG_VULNERABLE_BONUS_NUMERATOR: i32 = 3;
 pub const PAPER_PHROG_VULNERABLE_BONUS_DENOMINATOR: i32 = 4;
 /// Weak applied by [Relic::ChampionBelt] whenever the player applies Vulnerable.
 pub const CHAMPION_BELT_WEAK: i32 = 1;
+/// Numerator for [Relic::PreservedInsect]'s elite HP multiplier.
+pub const PRESERVED_INSECT_HP_NUMERATOR: i32 = 3;
+/// Denominator for [Relic::PreservedInsect]'s elite HP multiplier.
+pub const PRESERVED_INSECT_HP_DENOMINATOR: i32 = 4;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -213,6 +217,8 @@ pub const MAGIC_FLOWER_ID: ContentId = ContentId::new(345);
 pub const PAPER_PHROG_ID: ContentId = ContentId::new(346);
 /// Content id for [Relic::ChampionBelt].
 pub const CHAMPION_BELT_ID: ContentId = ContentId::new(347);
+/// Content id for [Relic::PreservedInsect].
+pub const PRESERVED_INSECT_ID: ContentId = ContentId::new(348);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -773,6 +779,7 @@ pub enum Relic {
     MagicFlower,
     PaperPhrog,
     ChampionBelt,
+    PreservedInsect,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -827,6 +834,7 @@ impl Relic {
             Relic::MagicFlower => MAGIC_FLOWER_ID,
             Relic::PaperPhrog => PAPER_PHROG_ID,
             Relic::ChampionBelt => CHAMPION_BELT_ID,
+            Relic::PreservedInsect => PRESERVED_INSECT_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -881,6 +889,7 @@ impl Relic {
             id if id == MAGIC_FLOWER_ID => Some(Relic::MagicFlower),
             id if id == PAPER_PHROG_ID => Some(Relic::PaperPhrog),
             id if id == CHAMPION_BELT_ID => Some(Relic::ChampionBelt),
+            id if id == PRESERVED_INSECT_ID => Some(Relic::PreservedInsect),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -968,6 +977,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::MagicFlower => {}
             Relic::PaperPhrog => {}
             Relic::ChampionBelt => {}
+            Relic::PreservedInsect => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
