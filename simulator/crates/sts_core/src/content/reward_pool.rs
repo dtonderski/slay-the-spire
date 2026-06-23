@@ -194,11 +194,11 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
-        content_id: FEEL_NO_PAIN_ID,
+        content_id: DISARM_ID,
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
-        content_id: DISARM_ID,
+        content_id: FEEL_NO_PAIN_ID,
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
