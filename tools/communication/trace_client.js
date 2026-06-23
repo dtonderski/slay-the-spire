@@ -24,6 +24,7 @@ const tracePath = path.join(
   outDir,
   `trace-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`,
 );
+const clientPid = process.pid;
 const logStream = fs.createWriteStream(tracePath, { flags: "a" });
 
 let step = 0;
@@ -59,6 +60,7 @@ function summarize(message) {
   const combat = gs.combat_state ?? null;
   const summary = {
     step,
+    client_pid: clientPid,
     error: message.error ?? null,
     available_commands: message.available_commands ?? [],
     in_game: message.in_game ?? false,
@@ -123,6 +125,7 @@ function publishState(message) {
   const summary = summarize(message);
   writeJson(statePath, {
     step,
+    client_pid: clientPid,
     received_at: new Date().toISOString(),
     message,
   });
@@ -134,6 +137,7 @@ async function waitForCommand(message) {
   const summary = publishState(message);
   writeJson(statusPath, {
     step,
+    client_pid: clientPid,
     status: "waiting",
     trace_path: tracePath,
     command_path: commandPath,
@@ -195,6 +199,7 @@ async function handleLine(line) {
   writeRecord({ type: "action", step, sent_at: new Date().toISOString(), command });
   writeJson(statusPath, {
     step,
+    client_pid: clientPid,
     status: "sent",
     trace_path: tracePath,
     command,
@@ -218,11 +223,13 @@ writeRecord({
   schema: 1,
   source: "communication_mod",
   client: "tools/communication/trace_client.js",
+  client_pid: clientPid,
   started_at: new Date().toISOString(),
 });
 
 writeJson(statusPath, {
   step: 0,
+  client_pid: clientPid,
   status: "ready",
   trace_path: tracePath,
 });

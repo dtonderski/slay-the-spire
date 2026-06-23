@@ -65,6 +65,7 @@ function checkPreflightFrom({
     summary: summary
       ? {
           step: summary.step ?? null,
+          client_pid: summary.client_pid ?? null,
           screen_type: summary.screen_type ?? null,
           floor: summary.floor ?? null,
           seed: summary.seed ?? null,
@@ -75,6 +76,7 @@ function checkPreflightFrom({
     status: status
       ? {
           step: status.step ?? null,
+          client_pid: status.client_pid ?? null,
           status: status.status ?? null,
           trace_path: status.trace_path ?? null,
           command: status.command ?? null,
