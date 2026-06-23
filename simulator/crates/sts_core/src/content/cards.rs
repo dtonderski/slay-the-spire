@@ -996,6 +996,21 @@ pub const THUNDERCLAP: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const UPPERCUT: CardDefinition = CardDefinition {
+    id: UPPERCUT_ID,
+    key: "Uppercut",
+    name: "Uppercut",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(13),
+        block: None,
+        vulnerable: Some(1),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 5] = [WOUND, DAZED, BURN, SLIMED, ASCENDERS_BANE];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
@@ -1036,7 +1051,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 53] = [
+pub const ALL_CARDS: [CardDefinition; 54] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1090,6 +1105,7 @@ pub const ALL_CARDS: [CardDefinition; 53] = [
     IMMOLATE,
     METALLICIZE,
     THUNDERCLAP,
+    UPPERCUT,
 ];
 
 #[must_use]
