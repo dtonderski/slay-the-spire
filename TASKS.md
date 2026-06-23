@@ -1264,6 +1264,8 @@ Completed slice:
 - implemented boss-combat start healing from current map room state with focused boss/non-boss tests
 - expanded modeled debuff-immunity relics: Ginger and Turnip
 - implemented player Weak/Frail prevention helpers and wired Ginger into monster weak intents with focused relic/monster tests
+- expanded modeled boss energy relics: Mark of Pain
+- implemented Mark of Pain pickup energy and two-Wound deck mutation with focused state/relic tests
 
 Remaining:
 
