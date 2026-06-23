@@ -48,6 +48,8 @@ pub const SOZU_ENERGY: i32 = 1;
 pub const BUSTED_CROWN_ENERGY: i32 = 1;
 /// Fewer card reward choices shown by [Relic::BustedCrown].
 pub const BUSTED_CROWN_CARD_REWARD_REDUCTION: usize = 2;
+/// Extra card reward choice shown by [Relic::QuestionCard].
+pub const QUESTION_CARD_REWARD_BONUS: usize = 1;
 /// Energy per turn granted by [Relic::VelvetChoker] on pickup.
 pub const VELVET_CHOKER_ENERGY: i32 = 1;
 /// Maximum cards playable per turn with [Relic::VelvetChoker].
@@ -271,6 +273,8 @@ pub const THE_BOOT_ID: ContentId = ContentId::new(359);
 pub const BIRD_FACED_URN_ID: ContentId = ContentId::new(360);
 /// Content id for [Relic::ArtOfWar].
 pub const ART_OF_WAR_ID: ContentId = ContentId::new(361);
+/// Content id for [Relic::QuestionCard].
+pub const QUESTION_CARD_ID: ContentId = ContentId::new(362);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -821,6 +825,7 @@ pub enum Relic {
     MercuryHourglass,
     StoneCalendar,
     MeatOnTheBone,
+    QuestionCard,
     BlackBlood,
     MealTicket,
     RegalPillow,
@@ -889,6 +894,7 @@ impl Relic {
             Relic::MercuryHourglass => MERCURY_HOURGLASS_ID,
             Relic::StoneCalendar => STONE_CALENDAR_ID,
             Relic::MeatOnTheBone => MEAT_ON_THE_BONE_ID,
+            Relic::QuestionCard => QUESTION_CARD_ID,
             Relic::BlackBlood => BLACK_BLOOD_ID,
             Relic::MealTicket => MEAL_TICKET_ID,
             Relic::RegalPillow => REGAL_PILLOW_ID,
@@ -957,6 +963,7 @@ impl Relic {
             id if id == MERCURY_HOURGLASS_ID => Some(Relic::MercuryHourglass),
             id if id == STONE_CALENDAR_ID => Some(Relic::StoneCalendar),
             id if id == MEAT_ON_THE_BONE_ID => Some(Relic::MeatOnTheBone),
+            id if id == QUESTION_CARD_ID => Some(Relic::QuestionCard),
             id if id == BLACK_BLOOD_ID => Some(Relic::BlackBlood),
             id if id == MEAL_TICKET_ID => Some(Relic::MealTicket),
             id if id == REGAL_PILLOW_ID => Some(Relic::RegalPillow),
@@ -1058,6 +1065,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::MercuryHourglass => {}
             Relic::StoneCalendar => {}
             Relic::MeatOnTheBone => {}
+            Relic::QuestionCard => {}
             Relic::BlackBlood => {}
             Relic::MealTicket => {}
             Relic::RegalPillow => {}
@@ -1978,6 +1986,11 @@ mod tests {
         );
         assert_eq!(Relic::ArtOfWar.content_id(), ART_OF_WAR_ID);
         assert_eq!(Relic::from_content_id(ART_OF_WAR_ID), Some(Relic::ArtOfWar));
+        assert_eq!(Relic::QuestionCard.content_id(), QUESTION_CARD_ID);
+        assert_eq!(
+            Relic::from_content_id(QUESTION_CARD_ID),
+            Some(Relic::QuestionCard)
+        );
     }
 
     #[test]

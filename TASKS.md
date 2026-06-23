@@ -1292,6 +1292,8 @@ Completed slice:
 - implemented Bird-Faced Urn key promotion and Power-card healing through the combat healing path, with focused relic tests
 - expanded modeled no-attack-turn energy relics: Art of War
 - implemented Art of War key promotion and previous-turn attack tracking with focused counter/energy tests
+- expanded modeled card reward choice relics: Question Card
+- implemented Question Card key promotion and +1 card reward choice, including Busted Crown stacking coverage
 
 Remaining:
 

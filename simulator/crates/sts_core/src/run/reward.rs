@@ -5,7 +5,9 @@ use crate::{
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
-    relic::{Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION},
+    relic::{
+        Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, QUESTION_CARD_REWARD_BONUS,
+    },
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::{
         apply_combat_card_reward_choice, apply_discard_select_choice, apply_discard_select_confirm,
@@ -253,6 +255,9 @@ pub fn target_card_reward_choices_with_count(
 
 fn reward_card_choice_count(run: &RunState) -> usize {
     let mut count = REWARD_CARD_COUNT;
+    if run.relics.contains(&Relic::QuestionCard) {
+        count += QUESTION_CARD_REWARD_BONUS;
+    }
     if run.relics.contains(&Relic::BustedCrown) {
         count = count.saturating_sub(BUSTED_CROWN_CARD_REWARD_REDUCTION);
     }
@@ -724,8 +729,8 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
 mod tests {
     use super::*;
     use crate::content::cards::{
-        BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -903,6 +908,50 @@ mod tests {
         assert_eq!(reward.choices[0].content_id, BODY_SLAM_ID);
         assert_eq!(run.card_rarity_factor, 4);
         assert_eq!(run.card_rng_counter, 3);
+    }
+
+    #[test]
+    fn question_card_adds_one_pending_card_reward_choice() {
+        let mut run = winning_combat_run();
+
+        run.relics.push(Relic::QuestionCard);
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
+
+        let reward = run.reward.as_ref().expect("reward screen present");
+        let content_ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
+        assert_eq!(reward.choices.len(), 4);
+        assert_eq!(
+            content_ids,
+            vec![BODY_SLAM_ID, TWIN_STRIKE_ID, CLOTHESLINE_ID, SENTINEL_ID]
+        );
+        assert_eq!(run.card_rarity_factor, 2);
+        assert_eq!(run.card_rng_counter, 12);
+    }
+
+    #[test]
+    fn question_card_and_busted_crown_stack_on_reward_choice_count() {
+        let mut run = winning_combat_run();
+
+        run.relics.push(Relic::QuestionCard);
+        run.relics.push(Relic::BustedCrown);
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
+
+        let reward = run.reward.as_ref().expect("reward screen present");
+        let content_ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
+        assert_eq!(reward.choices.len(), 2);
+        assert_eq!(content_ids, vec![BODY_SLAM_ID, TWIN_STRIKE_ID]);
+        assert_eq!(run.card_rarity_factor, 3);
+        assert_eq!(run.card_rng_counter, 6);
     }
 
     #[test]

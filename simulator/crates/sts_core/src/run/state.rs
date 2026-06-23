@@ -144,6 +144,10 @@ mod tests {
             Some(Relic::MeatOnTheBone)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::QuestionCard),
+            Some(Relic::QuestionCard)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::BlackBlood),
             Some(Relic::BlackBlood)
         );
@@ -1058,6 +1062,7 @@ impl RunState {
             | Relic::MercuryHourglass
             | Relic::StoneCalendar
             | Relic::MeatOnTheBone
+            | Relic::QuestionCard
             | Relic::BlackBlood
             | Relic::MealTicket
             | Relic::RegalPillow
@@ -1222,6 +1227,7 @@ impl Relic {
             Relic::MercuryHourglass => RelicKey::MercuryHourglass,
             Relic::StoneCalendar => RelicKey::StoneCalendar,
             Relic::MeatOnTheBone => RelicKey::MeatOnTheBone,
+            Relic::QuestionCard => RelicKey::QuestionCard,
             Relic::BlackBlood => RelicKey::BlackBlood,
             Relic::MealTicket => RelicKey::MealTicket,
             Relic::RegalPillow => RelicKey::RegalPillow,
@@ -1290,6 +1296,7 @@ impl Relic {
             RelicKey::MercuryHourglass => Some(Relic::MercuryHourglass),
             RelicKey::StoneCalendar => Some(Relic::StoneCalendar),
             RelicKey::MeatOnTheBone => Some(Relic::MeatOnTheBone),
+            RelicKey::QuestionCard => Some(Relic::QuestionCard),
             RelicKey::BlackBlood => Some(Relic::BlackBlood),
             RelicKey::MealTicket => Some(Relic::MealTicket),
             RelicKey::RegalPillow => Some(Relic::RegalPillow),
