@@ -48,6 +48,7 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     next.apply_floor_entry_relics();
 
     if current_room_kind(&next) == Some(RoomKind::Rest) {
+        next.apply_rest_site_entry_relics();
         next.phase = RunPhase::Rest;
     } else if current_room_kind(&next) == Some(RoomKind::Shop) {
         enter_shop_room(&mut next);
@@ -108,6 +109,22 @@ mod tests {
                 .map(|node| node.room_kind),
             Some(RoomKind::Rest)
         );
+    }
+
+    #[test]
+    fn entering_rest_node_arms_ancient_tea_set() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(crate::Relic::AncientTeaSet);
+
+        let next = apply_map_action_on_run(
+            &run,
+            MapAction::ChooseNode {
+                node_id: MapNodeId::new(2),
+            },
+        )
+        .expect("choose rest node");
+
+        assert!(next.ancient_tea_set_armed);
     }
 
     #[test]

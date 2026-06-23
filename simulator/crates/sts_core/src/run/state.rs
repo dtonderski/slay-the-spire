@@ -16,11 +16,11 @@ use crate::{
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
-        RelicPoolState, RelicSpawnContext, BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD,
-        COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE,
-        FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
-        MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES, PANTOGRAPH_HEAL,
-        PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
+        RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BUSTED_CROWN_ENERGY,
+        CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
+        DU_VU_DOLL_STRENGTH_PER_CURSE, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP,
+        MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
+        PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP,
         VELVET_CHOKER_ENERGY,
     },
@@ -217,6 +217,10 @@ mod tests {
             Some(Relic::SlingOfCourage)
         );
         assert_eq!(Relic::from_key(RelicKey::MawBank), Some(Relic::MawBank));
+        assert_eq!(
+            Relic::from_key(RelicKey::AncientTeaSet),
+            Some(Relic::AncientTeaSet)
+        );
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -506,6 +510,35 @@ mod tests {
     }
 
     #[test]
+    fn ancient_tea_set_grants_energy_when_armed_for_next_combat() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::AncientTeaSet];
+        run.ancient_tea_set_armed = true;
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            combat.player.energy,
+            run.energy_per_turn + ANCIENT_TEA_SET_ENERGY
+        );
+    }
+
+    #[test]
+    fn ancient_tea_set_combat_entry_consumes_armed_flag() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::AncientTeaSet];
+        run.ancient_tea_set_armed = true;
+
+        let combat = run.init_combat_consuming_relics(CombatState::initial_fixture());
+
+        assert_eq!(
+            combat.player.energy,
+            run.energy_per_turn + ANCIENT_TEA_SET_ENERGY
+        );
+        assert!(!run.ancient_tea_set_armed);
+    }
+
+    #[test]
     fn du_vu_doll_grants_strength_per_curse_at_combat_start() {
         let mut run = RunState::map_fixture();
         run.relics = vec![Relic::DuVuDoll];
@@ -668,6 +701,8 @@ pub struct RunState {
     pub omamori_charges_used: u32,
     #[serde(default, skip_serializing_if = "is_false")]
     pub maw_bank_broken: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ancient_tea_set_armed: bool,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -822,7 +857,19 @@ impl RunState {
                 .count() as i32;
             combat.player.powers.strength += curses * DU_VU_DOLL_STRENGTH_PER_CURSE;
         }
+        if self.relics.contains(&Relic::AncientTeaSet) && self.ancient_tea_set_armed {
+            combat.player.energy += ANCIENT_TEA_SET_ENERGY;
+        }
         apply_start_of_combat_relics(&mut combat, &self.relics);
+        combat
+    }
+
+    #[must_use]
+    pub fn init_combat_consuming_relics(&mut self, base: CombatState) -> CombatState {
+        let combat = self.init_combat(base);
+        if self.ancient_tea_set_armed {
+            self.ancient_tea_set_armed = false;
+        }
         combat
     }
 
@@ -902,6 +949,7 @@ impl RunState {
             relic_keys: Vec::new(),
             omamori_charges_used: 0,
             maw_bank_broken: false,
+            ancient_tea_set_armed: false,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -955,6 +1003,7 @@ impl RunState {
             relic_keys: Vec::new(),
             omamori_charges_used: 0,
             maw_bank_broken: false,
+            ancient_tea_set_armed: false,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1102,6 +1151,12 @@ impl RunState {
         }
     }
 
+    pub fn apply_rest_site_entry_relics(&mut self) {
+        if self.relics.contains(&Relic::AncientTeaSet) {
+            self.ancient_tea_set_armed = true;
+        }
+    }
+
     pub fn break_maw_bank_on_shop_spend(&mut self) {
         if self.relics.contains(&Relic::MawBank) {
             self.maw_bank_broken = true;
@@ -1204,6 +1259,7 @@ impl RunState {
             | Relic::MembershipCard
             | Relic::SmilingMask
             | Relic::MawBank
+            | Relic::AncientTeaSet
             | Relic::Pantograph
             | Relic::Ginger
             | Relic::Turnip
@@ -1382,6 +1438,7 @@ impl Relic {
             Relic::Omamori => RelicKey::Omamori,
             Relic::SlingOfCourage => RelicKey::SlingOfCourage,
             Relic::MawBank => RelicKey::MawBank,
+            Relic::AncientTeaSet => RelicKey::AncientTeaSet,
             Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
@@ -1454,6 +1511,7 @@ impl Relic {
             RelicKey::Omamori => Some(Relic::Omamori),
             RelicKey::SlingOfCourage => Some(Relic::SlingOfCourage),
             RelicKey::MawBank => Some(Relic::MawBank),
+            RelicKey::AncientTeaSet => Some(Relic::AncientTeaSet),
             RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),
