@@ -1312,6 +1312,8 @@ Completed slice:
 - implemented Philosopher's Stone key promotion, pickup energy, and combat-start monster Strength, with focused run-state tests
 - expanded modeled boss conditional-energy relics: Slaver's Collar
 - implemented Slaver's Collar key promotion and elite/boss-only combat energy, with focused run-state tests
+- expanded modeled boss energy/gold-lockout relics: Ectoplasm
+- implemented Ectoplasm key promotion, pickup energy, and positive gold-gain prevention across reward, event, relic pickup, card-add, floor-entry, and potion gain paths, with focused tests
 
 Remaining:
 

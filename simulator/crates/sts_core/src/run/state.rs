@@ -18,9 +18,9 @@ use crate::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BUSTED_CROWN_ENERGY,
         CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
-        DU_VU_DOLL_STRENGTH_PER_CURSE, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP,
-        MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
-        PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
+        DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP,
+        MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD,
+        OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH,
         SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
@@ -236,6 +236,7 @@ mod tests {
             Relic::from_key(RelicKey::SlaversCollar),
             Some(Relic::SlaversCollar)
         );
+        assert_eq!(Relic::from_key(RelicKey::Ectoplasm), Some(Relic::Ectoplasm));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -301,6 +302,31 @@ mod tests {
         run.gain_relic(Relic::OldCoin);
 
         assert_eq!(run.gold, gold_before + OLD_COIN_GOLD);
+    }
+
+    #[test]
+    fn ectoplasm_grants_energy_and_blocks_gold_gain() {
+        let mut run = RunState::map_fixture();
+        let gold_before = run.gold;
+
+        run.gain_relic(Relic::Ectoplasm);
+
+        assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY + ECTOPLASM_ENERGY);
+        run.gain_gold(25);
+        assert_eq!(run.gold, gold_before);
+    }
+
+    #[test]
+    fn ectoplasm_blocks_relic_gold_gain() {
+        let mut run = RunState::map_fixture();
+        let gold_before = run.gold;
+        run.relics = vec![Relic::Ectoplasm];
+
+        run.gain_relic(Relic::OldCoin);
+        run.gain_relic(Relic::CeramicFish);
+        run.gain_deck_card(ANGER_ID);
+
+        assert_eq!(run.gold, gold_before);
     }
 
     #[test]
@@ -1237,7 +1263,7 @@ impl RunState {
 
     fn apply_card_added_relics(&mut self, content_id: ContentId) {
         if self.relics.contains(&Relic::CeramicFish) {
-            self.gold += CERAMIC_FISH_GOLD;
+            self.gain_gold(CERAMIC_FISH_GOLD);
         }
         if self.relics.contains(&Relic::DarkstonePeriapt) && is_curse_content_id(content_id) {
             self.player_max_hp += DARKSTONE_PERIAPT_MAX_HP;
@@ -1259,9 +1285,19 @@ impl RunState {
         !self.relics.contains(&Relic::Sozu)
     }
 
+    pub fn can_gain_gold(&self) -> bool {
+        !self.relics.contains(&Relic::Ectoplasm)
+    }
+
+    pub fn gain_gold(&mut self, amount: i32) {
+        if amount > 0 && self.can_gain_gold() {
+            self.gold += amount;
+        }
+    }
+
     pub fn apply_floor_entry_relics(&mut self) {
         if self.relics.contains(&Relic::MawBank) && !self.maw_bank_broken {
-            self.gold += MAW_BANK_GOLD;
+            self.gain_gold(MAW_BANK_GOLD);
         }
     }
 
@@ -1308,7 +1344,7 @@ impl RunState {
                 self.player_hp += MANGO_MAX_HP;
             }
             Relic::OldCoin => {
-                self.gold += OLD_COIN_GOLD;
+                self.gain_gold(OLD_COIN_GOLD);
             }
             Relic::LeesWaffle => {
                 self.player_max_hp += LEES_WAFFLE_MAX_HP;
@@ -1337,6 +1373,9 @@ impl RunState {
             }
             Relic::PhilosophersStone => {
                 self.energy_per_turn += PHILOSOPHERS_STONE_ENERGY;
+            }
+            Relic::Ectoplasm => {
+                self.energy_per_turn += ECTOPLASM_ENERGY;
             }
             Relic::BloodVial
             | Relic::ToyOrnithopter
@@ -1591,6 +1630,7 @@ impl Relic {
             Relic::ChemicalX => RelicKey::ChemicalX,
             Relic::PhilosophersStone => RelicKey::PhilosophersStone,
             Relic::SlaversCollar => RelicKey::SlaversCollar,
+            Relic::Ectoplasm => RelicKey::Ectoplasm,
         }
     }
 
@@ -1669,6 +1709,7 @@ impl Relic {
             RelicKey::ChemicalX => Some(Relic::ChemicalX),
             RelicKey::PhilosophersStone => Some(Relic::PhilosophersStone),
             RelicKey::SlaversCollar => Some(Relic::SlaversCollar),
+            RelicKey::Ectoplasm => Some(Relic::Ectoplasm),
             _ => None,
         }
     }

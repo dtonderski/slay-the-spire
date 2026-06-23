@@ -462,7 +462,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     let win = rng.next_bool(RngStream::Potion, "gamble_potion");
                     next.potion_rng_seed = rng.seed_state();
                     if win {
-                        next.gold += GAMBLE_POTION_WIN_GOLD;
+                        next.gain_gold(GAMBLE_POTION_WIN_GOLD);
                     } else {
                         next.gold = (next.gold - GAMBLE_POTION_LOSS_GOLD).max(0);
                     }
