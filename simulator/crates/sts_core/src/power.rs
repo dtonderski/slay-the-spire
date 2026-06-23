@@ -11,6 +11,7 @@ pub struct PlayerPowers {
     pub metallicize: i32,
     pub regen: i32,
     pub thorns: i32,
+    pub plated_armor: i32,
     pub feel_no_pain: i32,
     pub dark_embrace: i32,
 }
