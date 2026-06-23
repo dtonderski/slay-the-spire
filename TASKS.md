@@ -1294,6 +1294,8 @@ Completed slice:
 - implemented Art of War key promotion and previous-turn attack tracking with focused counter/energy tests
 - expanded modeled card reward choice relics: Question Card
 - implemented Question Card key promotion and +1 card reward choice, including Busted Crown stacking coverage
+- expanded modeled curse-prevention relics: Omamori
+- implemented Omamori key promotion and two-charge curse prevention before deck insertion/card-added relic hooks, with focused state tests
 
 Remaining:
 

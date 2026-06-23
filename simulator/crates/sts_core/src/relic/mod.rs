@@ -50,6 +50,8 @@ pub const BUSTED_CROWN_ENERGY: i32 = 1;
 pub const BUSTED_CROWN_CARD_REWARD_REDUCTION: usize = 2;
 /// Extra card reward choice shown by [Relic::QuestionCard].
 pub const QUESTION_CARD_REWARD_BONUS: usize = 1;
+/// Curses prevented by [Relic::Omamori].
+pub const OMAMORI_CHARGES: u32 = 2;
 /// Energy per turn granted by [Relic::VelvetChoker] on pickup.
 pub const VELVET_CHOKER_ENERGY: i32 = 1;
 /// Maximum cards playable per turn with [Relic::VelvetChoker].
@@ -275,6 +277,8 @@ pub const BIRD_FACED_URN_ID: ContentId = ContentId::new(360);
 pub const ART_OF_WAR_ID: ContentId = ContentId::new(361);
 /// Content id for [Relic::QuestionCard].
 pub const QUESTION_CARD_ID: ContentId = ContentId::new(362);
+/// Content id for [Relic::Omamori].
+pub const OMAMORI_ID: ContentId = ContentId::new(363);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -844,6 +848,7 @@ pub enum Relic {
     PaperPhrog,
     ChampionBelt,
     PreservedInsect,
+    Omamori,
     DarkstonePeriapt,
     DuVuDoll,
     FusionHammer,
@@ -913,6 +918,7 @@ impl Relic {
             Relic::PaperPhrog => PAPER_PHROG_ID,
             Relic::ChampionBelt => CHAMPION_BELT_ID,
             Relic::PreservedInsect => PRESERVED_INSECT_ID,
+            Relic::Omamori => OMAMORI_ID,
             Relic::DarkstonePeriapt => DARKSTONE_PERIAPT_ID,
             Relic::DuVuDoll => DU_VU_DOLL_ID,
             Relic::FusionHammer => FUSION_HAMMER_ID,
@@ -982,6 +988,7 @@ impl Relic {
             id if id == PAPER_PHROG_ID => Some(Relic::PaperPhrog),
             id if id == CHAMPION_BELT_ID => Some(Relic::ChampionBelt),
             id if id == PRESERVED_INSECT_ID => Some(Relic::PreservedInsect),
+            id if id == OMAMORI_ID => Some(Relic::Omamori),
             id if id == DARKSTONE_PERIAPT_ID => Some(Relic::DarkstonePeriapt),
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
@@ -1084,6 +1091,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PaperPhrog => {}
             Relic::ChampionBelt => {}
             Relic::PreservedInsect => {}
+            Relic::Omamori => {}
             Relic::DarkstonePeriapt => {}
             Relic::DuVuDoll => {}
             Relic::FusionHammer => {}
@@ -1991,6 +1999,8 @@ mod tests {
             Relic::from_content_id(QUESTION_CARD_ID),
             Some(Relic::QuestionCard)
         );
+        assert_eq!(Relic::Omamori.content_id(), OMAMORI_ID);
+        assert_eq!(Relic::from_content_id(OMAMORI_ID), Some(Relic::Omamori));
     }
 
     #[test]
