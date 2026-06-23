@@ -8,6 +8,7 @@ function usage() {
   console.error("  node tools/communication/trace_tools.js validate <trace.jsonl>");
   console.error("  node tools/communication/trace_tools.js trim-valid-prefix <input.jsonl> <output.jsonl>");
   console.error("  node tools/communication/trace_tools.js extract-run <input.jsonl> <run-index> <output.jsonl>");
+  console.error("  node tools/communication/trace_tools.js collapse-card-reward-loop <input.jsonl> <output.jsonl>");
   process.exit(2);
 }
 
@@ -168,6 +169,60 @@ function extractRun(records, sourcePath, runIndex) {
   return extracted;
 }
 
+function cardRewardSignature(record) {
+  const game = record?.message?.game_state;
+  if (record?.type !== "state" || game?.screen_type !== "CARD_REWARD") return null;
+  const choices = (game.choice_list || []).map((choice) =>
+    typeof choice === "string" ? choice : choice?.label || ""
+  );
+  const cards = (game.screen_state?.cards || []).map((card) => `${card.id || ""}:${card.name || ""}`);
+  return JSON.stringify({ choices, cards, floor: game.floor, gold: game.gold, deck: (game.deck || []).length });
+}
+
+function isPendingCombatCardReward(record) {
+  const game = record?.message?.game_state;
+  if (record?.type !== "state" || game?.screen_type !== "COMBAT_REWARD") return false;
+  return (game.screen_state?.rewards || []).some((reward) => reward.reward_type === "CARD");
+}
+
+function collapseCardRewardLoop(records, sourcePath) {
+  const collapsed = [];
+  let removedPairs = 0;
+  for (let index = 0; index < records.length; index += 1) {
+    const previousSignature = cardRewardSignature(collapsed[collapsed.length - 1]);
+    const skipAction = records[index];
+    const skipState = records[index + 1];
+    const reopenAction = records[index + 2];
+    const reopenState = records[index + 3];
+    if (
+      previousSignature &&
+      skipAction?.type === "action" &&
+      skipAction.command?.trim().toUpperCase() === "SKIP" &&
+      isPendingCombatCardReward(skipState) &&
+      reopenAction?.type === "action" &&
+      /^CHOOSE\s+\d+$/i.test(reopenAction.command || "") &&
+      cardRewardSignature(reopenState) === previousSignature
+    ) {
+      removedPairs += 1;
+      index += 3;
+      continue;
+    }
+    collapsed.push(records[index]);
+  }
+  if (removedPairs > 0) {
+    collapsed.unshift({
+      type: "metadata",
+      schema: 1,
+      source: "communication_mod",
+      event: "collapsed_card_reward_loop",
+      source_trace: path.basename(sourcePath),
+      removed_skip_reopen_pairs: removedPairs,
+      created_at: new Date().toISOString(),
+    });
+  }
+  return { records: collapsed, removedPairs };
+}
+
 const [command, inputPath, outputPath] = process.argv.slice(2);
 if (!command || !inputPath) usage();
 
@@ -194,6 +249,15 @@ if (command === "extract-run") {
   writeTrace(destination, extracted);
   const validation = validate(extracted);
   console.log(JSON.stringify({ records: extracted.length, validation }, null, 2));
+  process.exit(validation.ok ? 0 : 1);
+}
+
+if (command === "collapse-card-reward-loop") {
+  if (!outputPath) usage();
+  const result = collapseCardRewardLoop(readTrace(inputPath), inputPath);
+  writeTrace(outputPath, result.records);
+  const validation = validate(result.records);
+  console.log(JSON.stringify({ ...result, records: result.records.length, validation }, null, 2));
   process.exit(validation.ok ? 0 : 1);
 }
 
