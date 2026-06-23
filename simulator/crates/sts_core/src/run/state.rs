@@ -20,7 +20,8 @@ use crate::{
         CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
         DU_VU_DOLL_STRENGTH_PER_CURSE, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP,
         MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
-        PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
+        PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
+        PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP,
         VELVET_CHOKER_ENERGY,
     },
@@ -227,6 +228,10 @@ mod tests {
             Some(Relic::SingingBowl)
         );
         assert_eq!(Relic::from_key(RelicKey::ChemicalX), Some(Relic::ChemicalX));
+        assert_eq!(
+            Relic::from_key(RelicKey::PhilosophersStone),
+            Some(Relic::PhilosophersStone)
+        );
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -644,6 +649,44 @@ mod tests {
     }
 
     #[test]
+    fn philosophers_stone_pickup_adds_energy_for_combat() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::PhilosophersStone);
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            run.energy_per_turn,
+            BASE_PLAYER_ENERGY + PHILOSOPHERS_STONE_ENERGY
+        );
+        assert_eq!(combat.player.max_energy, run.energy_per_turn);
+        assert_eq!(combat.player.energy, run.energy_per_turn);
+    }
+
+    #[test]
+    fn philosophers_stone_grants_strength_to_all_monsters_at_combat_start() {
+        let mut run = RunState::map_fixture();
+        run.gain_relic(Relic::PhilosophersStone);
+        let mut base = CombatState::initial_fixture();
+        base.monsters.push(crate::content::monsters::monster_state(
+            &crate::content::monsters::FIXED_SIMPLE_MONSTER,
+            MonsterId::new(2),
+        ));
+        base.monsters[1].powers.strength = 2;
+
+        let combat = run.init_combat(base);
+
+        assert_eq!(
+            combat.monsters[0].powers.strength,
+            PHILOSOPHERS_STONE_MONSTER_STRENGTH
+        );
+        assert_eq!(
+            combat.monsters[1].powers.strength,
+            2 + PHILOSOPHERS_STONE_MONSTER_STRENGTH
+        );
+    }
+
+    #[test]
     fn gain_relic_key_promotes_start_combat_relics_to_modeled_relics() {
         let mut run = RunState::map_fixture();
 
@@ -866,6 +909,11 @@ impl RunState {
         }
         if self.relics.contains(&Relic::AncientTeaSet) && self.ancient_tea_set_armed {
             combat.player.energy += ANCIENT_TEA_SET_ENERGY;
+        }
+        if self.relics.contains(&Relic::PhilosophersStone) {
+            for monster in &mut combat.monsters {
+                monster.powers.strength += PHILOSOPHERS_STONE_MONSTER_STRENGTH;
+            }
         }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
@@ -1228,6 +1276,9 @@ impl RunState {
             Relic::VelvetChoker => {
                 self.energy_per_turn += VELVET_CHOKER_ENERGY;
             }
+            Relic::PhilosophersStone => {
+                self.energy_per_turn += PHILOSOPHERS_STONE_ENERGY;
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1478,6 +1529,7 @@ impl Relic {
             Relic::OrnamentalFan => RelicKey::OrnamentalFan,
             Relic::IceCream => RelicKey::IceCream,
             Relic::ChemicalX => RelicKey::ChemicalX,
+            Relic::PhilosophersStone => RelicKey::PhilosophersStone,
         }
     }
 
@@ -1554,6 +1606,7 @@ impl Relic {
             RelicKey::OrnamentalFan => Some(Relic::OrnamentalFan),
             RelicKey::IceCream => Some(Relic::IceCream),
             RelicKey::ChemicalX => Some(Relic::ChemicalX),
+            RelicKey::PhilosophersStone => Some(Relic::PhilosophersStone),
             _ => None,
         }
     }

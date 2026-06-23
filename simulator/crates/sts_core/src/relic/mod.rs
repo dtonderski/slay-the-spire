@@ -303,6 +303,12 @@ pub const SINGING_BOWL_MAX_HP: i32 = 2;
 pub const CHEMICAL_X_ID: ContentId = ContentId::new(369);
 /// Extra X value granted by [Relic::ChemicalX].
 pub const CHEMICAL_X_BONUS_X: i32 = 2;
+/// Content id for [Relic::PhilosophersStone].
+pub const PHILOSOPHERS_STONE_ID: ContentId = ContentId::new(370);
+/// Energy per turn granted by [Relic::PhilosophersStone] on pickup.
+pub const PHILOSOPHERS_STONE_ENERGY: i32 = 1;
+/// Strength granted to monsters by [Relic::PhilosophersStone] at combat start.
+pub const PHILOSOPHERS_STONE_MONSTER_STRENGTH: i32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -896,6 +902,7 @@ pub enum Relic {
     OrnamentalFan,
     IceCream,
     ChemicalX,
+    PhilosophersStone,
 }
 
 impl Relic {
@@ -972,6 +979,7 @@ impl Relic {
             Relic::OrnamentalFan => ORNAMENTAL_FAN_ID,
             Relic::IceCream => ICE_CREAM_ID,
             Relic::ChemicalX => CHEMICAL_X_ID,
+            Relic::PhilosophersStone => PHILOSOPHERS_STONE_ID,
         }
     }
 
@@ -1048,6 +1056,7 @@ impl Relic {
             id if id == ORNAMENTAL_FAN_ID => Some(Relic::OrnamentalFan),
             id if id == ICE_CREAM_ID => Some(Relic::IceCream),
             id if id == CHEMICAL_X_ID => Some(Relic::ChemicalX),
+            id if id == PHILOSOPHERS_STONE_ID => Some(Relic::PhilosophersStone),
             _ => None,
         }
     }
@@ -1159,6 +1168,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::OrnamentalFan => {}
             Relic::IceCream => {}
             Relic::ChemicalX => {}
+            Relic::PhilosophersStone => {}
         }
     }
 
@@ -2072,6 +2082,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(CHEMICAL_X_ID),
             Some(Relic::ChemicalX)
+        );
+        assert_eq!(Relic::PhilosophersStone.content_id(), PHILOSOPHERS_STONE_ID);
+        assert_eq!(
+            Relic::from_content_id(PHILOSOPHERS_STONE_ID),
+            Some(Relic::PhilosophersStone)
         );
     }
 
