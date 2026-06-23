@@ -16,6 +16,7 @@ const maxRuns = Number.parseInt(process.env.STS_AUTO_MAX_RUNS || "200", 10);
 const tickMs = Number.parseInt(process.env.STS_AUTO_TICK_MS || "500", 10);
 const maxStatePolls = Number.parseInt(process.env.STS_AUTO_MAX_STATE_POLLS || "5", 10);
 const maxSameCommand = Number.parseInt(process.env.STS_AUTO_MAX_SAME_COMMAND || "2", 10);
+const maxIdleMs = Number.parseInt(process.env.STS_AUTO_MAX_IDLE_MS || "120000", 10);
 
 let runIndex = loadRunIndex();
 let lastStep = -1;
@@ -38,6 +39,38 @@ function readJson(filePath) {
   } catch {
     return null;
   }
+}
+
+function fileAgeMs(filePath) {
+  try {
+    return Date.now() - fs.statSync(filePath).mtimeMs;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function staleSessionReasonFrom({ summary, summaryAgeMs, status, statusAgeMs, maxIdleThresholdMs }) {
+  if (!Number.isFinite(maxIdleThresholdMs) || maxIdleThresholdMs <= 0) return null;
+  if (!summary && summaryAgeMs > maxIdleThresholdMs) {
+    return `missing/stale summary: ageMs=${Math.round(summaryAgeMs)}`;
+  }
+  if (status?.status === "exited") {
+    return `bridge exited: ${status.reason || "unknown"}`;
+  }
+  if (summaryAgeMs > maxIdleThresholdMs && statusAgeMs > maxIdleThresholdMs) {
+    return `session idle: summaryAgeMs=${Math.round(summaryAgeMs)} statusAgeMs=${Math.round(statusAgeMs)}`;
+  }
+  return null;
+}
+
+function staleSessionReason() {
+  return staleSessionReasonFrom({
+    summary: readJson(summaryPath),
+    summaryAgeMs: fileAgeMs(summaryPath),
+    status: readJson(statusPath),
+    statusAgeMs: fileAgeMs(statusPath),
+    maxIdleThresholdMs: maxIdleMs,
+  });
 }
 
 function loadRunIndex() {
@@ -277,6 +310,11 @@ function stateSignature(summary) {
 }
 
 function tick() {
+  const staleReason = staleSessionReason();
+  if (staleReason) {
+    log(`stalled collector: ${staleReason}`);
+    process.exit(2);
+  }
   const summary = readJson(summaryPath);
   if (!summary) return;
   if (runIndex > maxRuns) {
@@ -325,7 +363,7 @@ function tick() {
 
 if (require.main === module) {
   log(`overnight collector started at ${root}`);
-  log(`seed prefix=${seedPrefix} nextRun=${runIndex} maxRuns=${maxRuns}`);
+  log(`seed prefix=${seedPrefix} nextRun=${runIndex} maxRuns=${maxRuns} maxIdleMs=${maxIdleMs}`);
   setInterval(tick, tickMs);
   tick();
 }
@@ -340,5 +378,6 @@ module.exports = {
   mapCommand,
   nextCommand,
   rewardCommand,
+  staleSessionReasonFrom,
   stateSignature,
 };

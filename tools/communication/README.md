@@ -32,6 +32,7 @@ Useful environment variables:
 - `STS_AUTO_TICK_MS`: polling interval, default `500`
 - `STS_AUTO_MAX_STATE_POLLS`: repeated identical `state` polls before exiting, default `5`
 - `STS_AUTO_MAX_SAME_COMMAND`: repeated identical non-state commands before fallback/exit, default `2`
+- `STS_AUTO_MAX_IDLE_MS`: stale session/status age before the collector exits for supervisor recovery, default `120000`
 - `STS_SUPERVISOR_MAX_RESTARTS`: collector restarts before supervisor exits, default `20`
 - `STS_SUPERVISOR_STALE_MS`: session summary/status age treated as stale, default `120000`
 - `STS_SUPERVISOR_RESTART_DELAY_MS`: delay between collector restarts, default `3000`
