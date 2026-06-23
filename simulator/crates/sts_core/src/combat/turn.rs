@@ -20,6 +20,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 
     resolve_end_of_turn_hand(&mut next);
     apply_end_of_player_turn_powers(&mut next);
+    crate::relic::apply_end_of_player_turn_relics(&mut next);
     next.phase = CombatPhase::MonsterTurn;
     run_monster_turn(&mut next);
 
@@ -43,6 +44,7 @@ pub fn start_player_turn(state: &mut CombatState) {
         state.player.powers.dexterity -= state.player.temp_dexterity;
         state.player.temp_dexterity = 0;
     }
+    crate::relic::apply_start_of_player_turn_relics(state);
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
