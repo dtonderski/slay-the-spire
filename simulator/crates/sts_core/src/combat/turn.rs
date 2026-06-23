@@ -39,6 +39,10 @@ pub fn start_player_turn(state: &mut CombatState) {
     }
     state.player.cannot_draw = false;
     state.player.temp_strength = 0;
+    if state.player.temp_dexterity > 0 {
+        state.player.powers.dexterity -= state.player.temp_dexterity;
+        state.player.temp_dexterity = 0;
+    }
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;

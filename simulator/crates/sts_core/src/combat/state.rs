@@ -59,6 +59,8 @@ pub struct PlayerState {
     pub cannot_draw: bool,
     #[serde(default)]
     pub temp_strength: i32,
+    #[serde(default)]
+    pub temp_dexterity: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +137,7 @@ impl CombatState {
                 powers: PlayerPowers::default(),
                 cannot_draw: false,
                 temp_strength: 0,
+                temp_dexterity: 0,
             },
             monsters: vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
             piles: CardPiles {
