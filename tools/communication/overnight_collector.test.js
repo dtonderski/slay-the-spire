@@ -103,3 +103,25 @@ test("state signature changes when choices change", () => {
   const second = policy.stateSignature(baseSummary({ choices: ["card"] }));
   assert.notStrictEqual(first, second);
 });
+
+test("stale collector exits when session files stop changing", () => {
+  const reason = policy.staleSessionReasonFrom({
+    summary: { ready_for_command: true },
+    summaryAgeMs: 121000,
+    status: { status: "sent" },
+    statusAgeMs: 122000,
+    maxIdleThresholdMs: 120000,
+  });
+  assert.match(reason, /session idle/);
+});
+
+test("stale collector exits immediately when bridge reports exited", () => {
+  const reason = policy.staleSessionReasonFrom({
+    summary: { ready_for_command: true },
+    summaryAgeMs: 10,
+    status: { status: "exited", reason: "stdin_closed" },
+    statusAgeMs: 10,
+    maxIdleThresholdMs: 120000,
+  });
+  assert.match(reason, /bridge exited: stdin_closed/);
+});
