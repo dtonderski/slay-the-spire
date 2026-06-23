@@ -226,6 +226,7 @@ mod tests {
             Relic::from_key(RelicKey::SingingBowl),
             Some(Relic::SingingBowl)
         );
+        assert_eq!(Relic::from_key(RelicKey::ChemicalX), Some(Relic::ChemicalX));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1284,7 +1285,8 @@ impl RunState {
             | Relic::Anchor
             | Relic::InkBottle
             | Relic::OrnamentalFan
-            | Relic::IceCream => {}
+            | Relic::IceCream
+            | Relic::ChemicalX => {}
         }
     }
 
@@ -1475,6 +1477,7 @@ impl Relic {
             Relic::InkBottle => RelicKey::InkBottle,
             Relic::OrnamentalFan => RelicKey::OrnamentalFan,
             Relic::IceCream => RelicKey::IceCream,
+            Relic::ChemicalX => RelicKey::ChemicalX,
         }
     }
 
@@ -1550,6 +1553,7 @@ impl Relic {
             RelicKey::InkBottle => Some(Relic::InkBottle),
             RelicKey::OrnamentalFan => Some(Relic::OrnamentalFan),
             RelicKey::IceCream => Some(Relic::IceCream),
+            RelicKey::ChemicalX => Some(Relic::ChemicalX),
             _ => None,
         }
     }
