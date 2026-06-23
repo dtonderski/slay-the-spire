@@ -1300,6 +1300,8 @@ Completed slice:
 - implemented Sling of Courage key promotion and elite-only combat-start strength, with focused run-state tests
 - expanded modeled shuffle-trigger relics: The Abacus
 - implemented The Abacus key promotion and block gain on discard-to-draw shuffle paths with focused draw tests
+- expanded modeled monster-death relics: Gremlin Horn
+- implemented Gremlin Horn key promotion and per-monster death energy/draw hooks for card and potion damage paths, with focused combat tests
 - expanded modeled floor-entry gold relics: Maw Bank
 - implemented Maw Bank key promotion, +12 gold floor entry, and shop-spend break behavior, with map/shop/grid tests
 - expanded modeled rest-site energy relics: Ancient Tea Set

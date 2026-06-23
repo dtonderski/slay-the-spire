@@ -1212,6 +1212,9 @@ fn apply_internal_action(
                 (spikes, monster.alive)
             };
             check_slime_boss_split(state, info.target);
+            if !still_alive {
+                crate::relic::apply_monster_death_relics(state);
+            }
             if still_alive && spikes > 0 {
                 let hp_before = state.player.hp;
                 reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
@@ -1248,6 +1251,9 @@ fn apply_internal_action(
                     monster.alive
                 };
                 check_slime_boss_split(state, target);
+                if !still_alive {
+                    crate::relic::apply_monster_death_relics(state);
+                }
                 if still_alive && spikes > 0 {
                     let hp_before = state.player.hp;
                     reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
@@ -2357,6 +2363,34 @@ mod tests {
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
         assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 9);
+    }
+
+    #[test]
+    fn gremlin_horn_gains_energy_and_draws_when_monster_dies() {
+        let mut state = two_monster_hand(CLEAVE_ID);
+        state.relics = vec![Relic::GremlinHorn];
+        state.player.energy = 2;
+        state.monsters[0].hp = 8;
+        state.monsters[1].hp = 20;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Cleave applies");
+
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[1].alive);
+        assert_eq!(next.player.energy, 2);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
     }
 
     #[test]
