@@ -1288,6 +1288,10 @@ Completed slice:
 - implemented shared card-add upgrade handling for reward choices and deck insertion paths with focused reward/state tests
 - expanded modeled small unblocked attack damage relics: The Boot
 - implemented The Boot key promotion and attack-only unblocked damage floor after block, with focused relic/damage tests
+- expanded modeled power-play healing relics: Bird-Faced Urn
+- implemented Bird-Faced Urn key promotion and Power-card healing through the combat healing path, with focused relic tests
+- expanded modeled no-attack-turn energy relics: Art of War
+- implemented Art of War key promotion and previous-turn attack tracking with focused counter/energy tests
 
 Remaining:
 

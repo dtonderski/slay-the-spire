@@ -111,6 +111,7 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::RedSkull), Some(Relic::RedSkull));
         assert_eq!(Relic::from_key(RelicKey::Nunchaku), Some(Relic::Nunchaku));
+        assert_eq!(Relic::from_key(RelicKey::ArtOfWar), Some(Relic::ArtOfWar));
         assert_eq!(Relic::from_key(RelicKey::Shuriken), Some(Relic::Shuriken));
         assert_eq!(Relic::from_key(RelicKey::Kunai), Some(Relic::Kunai));
         assert_eq!(
@@ -231,6 +232,10 @@ mod tests {
         assert_eq!(Relic::from_key(RelicKey::ToxicEgg), Some(Relic::ToxicEgg));
         assert_eq!(Relic::from_key(RelicKey::FrozenEgg), Some(Relic::FrozenEgg));
         assert_eq!(Relic::from_key(RelicKey::TheBoot), Some(Relic::TheBoot));
+        assert_eq!(
+            Relic::from_key(RelicKey::BirdFacedUrn),
+            Some(Relic::BirdFacedUrn)
+        );
     }
 
     #[test]
@@ -1033,6 +1038,7 @@ impl RunState {
             | Relic::ToxicEgg
             | Relic::FrozenEgg
             | Relic::TheBoot
+            | Relic::BirdFacedUrn
             | Relic::PotionBelt
             | Relic::Lantern
             | Relic::BagOfPreparation
@@ -1041,6 +1047,7 @@ impl RunState {
             | Relic::ThreadAndNeedle
             | Relic::RedSkull
             | Relic::Nunchaku
+            | Relic::ArtOfWar
             | Relic::Shuriken
             | Relic::Kunai
             | Relic::LetterOpener
@@ -1204,6 +1211,7 @@ impl Relic {
             Relic::ThreadAndNeedle => RelicKey::ThreadAndNeedle,
             Relic::RedSkull => RelicKey::RedSkull,
             Relic::Nunchaku => RelicKey::Nunchaku,
+            Relic::ArtOfWar => RelicKey::ArtOfWar,
             Relic::Shuriken => RelicKey::Shuriken,
             Relic::Kunai => RelicKey::Kunai,
             Relic::LetterOpener => RelicKey::LetterOpener,
@@ -1243,6 +1251,7 @@ impl Relic {
             Relic::ToxicEgg => RelicKey::ToxicEgg,
             Relic::FrozenEgg => RelicKey::FrozenEgg,
             Relic::TheBoot => RelicKey::TheBoot,
+            Relic::BirdFacedUrn => RelicKey::BirdFacedUrn,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1270,6 +1279,7 @@ impl Relic {
             RelicKey::ThreadAndNeedle => Some(Relic::ThreadAndNeedle),
             RelicKey::RedSkull => Some(Relic::RedSkull),
             RelicKey::Nunchaku => Some(Relic::Nunchaku),
+            RelicKey::ArtOfWar => Some(Relic::ArtOfWar),
             RelicKey::Shuriken => Some(Relic::Shuriken),
             RelicKey::Kunai => Some(Relic::Kunai),
             RelicKey::LetterOpener => Some(Relic::LetterOpener),
@@ -1309,6 +1319,7 @@ impl Relic {
             RelicKey::ToxicEgg => Some(Relic::ToxicEgg),
             RelicKey::FrozenEgg => Some(Relic::FrozenEgg),
             RelicKey::TheBoot => Some(Relic::TheBoot),
+            RelicKey::BirdFacedUrn => Some(Relic::BirdFacedUrn),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

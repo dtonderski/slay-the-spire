@@ -54,6 +54,8 @@ pub const VELVET_CHOKER_ENERGY: i32 = 1;
 pub const VELVET_CHOKER_CARD_LIMIT: u32 = 6;
 /// HP healed by [Relic::ToyOrnithopter] when a potion is used.
 pub const TOY_ORNITHOPTER_HEAL: i32 = 5;
+/// HP healed by [Relic::BirdFacedUrn] when a Power is played.
+pub const BIRD_FACED_URN_HEAL: i32 = 2;
 /// Maximum unblocked attack damage that [Relic::TheBoot] increases.
 pub const THE_BOOT_MAX_DAMAGE: i32 = 4;
 /// Unblocked attack damage after [Relic::TheBoot] increase.
@@ -88,6 +90,8 @@ pub const LETTER_OPENER_DAMAGE: i32 = 5;
 pub const HAPPY_FLOWER_THRESHOLD: u32 = 3;
 /// Energy granted by [Relic::HappyFlower].
 pub const HAPPY_FLOWER_ENERGY: i32 = 1;
+/// Energy granted by [Relic::ArtOfWar] after a turn with no Attacks played.
+pub const ART_OF_WAR_ENERGY: i32 = 1;
 /// Block granted by [Relic::Orichalcum] when ending the turn with no block.
 pub const ORICHALCUM_BLOCK: i32 = 6;
 /// Player turn when [Relic::HornCleat] grants block.
@@ -263,6 +267,10 @@ pub const TOXIC_EGG_ID: ContentId = ContentId::new(357);
 pub const FROZEN_EGG_ID: ContentId = ContentId::new(358);
 /// Content id for [Relic::TheBoot].
 pub const THE_BOOT_ID: ContentId = ContentId::new(359);
+/// Content id for [Relic::BirdFacedUrn].
+pub const BIRD_FACED_URN_ID: ContentId = ContentId::new(360);
+/// Content id for [Relic::ArtOfWar].
+pub const ART_OF_WAR_ID: ContentId = ContentId::new(361);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -280,6 +288,10 @@ pub struct RelicCounters {
     pub letter_opener_skills_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub cards_played_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub attacks_played_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub attacks_played_last_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub player_turns_started: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -798,6 +810,7 @@ pub enum Relic {
     ThreadAndNeedle,
     RedSkull,
     Nunchaku,
+    ArtOfWar,
     Shuriken,
     Kunai,
     LetterOpener,
@@ -837,6 +850,7 @@ pub enum Relic {
     ToxicEgg,
     FrozenEgg,
     TheBoot,
+    BirdFacedUrn,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -864,6 +878,7 @@ impl Relic {
             Relic::ThreadAndNeedle => THREAD_AND_NEEDLE_ID,
             Relic::RedSkull => RED_SKULL_ID,
             Relic::Nunchaku => NUNCHAKU_ID,
+            Relic::ArtOfWar => ART_OF_WAR_ID,
             Relic::Shuriken => SHURIKEN_ID,
             Relic::Kunai => KUNAI_ID,
             Relic::LetterOpener => LETTER_OPENER_ID,
@@ -903,6 +918,7 @@ impl Relic {
             Relic::ToxicEgg => TOXIC_EGG_ID,
             Relic::FrozenEgg => FROZEN_EGG_ID,
             Relic::TheBoot => THE_BOOT_ID,
+            Relic::BirdFacedUrn => BIRD_FACED_URN_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -930,6 +946,7 @@ impl Relic {
             id if id == THREAD_AND_NEEDLE_ID => Some(Relic::ThreadAndNeedle),
             id if id == RED_SKULL_ID => Some(Relic::RedSkull),
             id if id == NUNCHAKU_ID => Some(Relic::Nunchaku),
+            id if id == ART_OF_WAR_ID => Some(Relic::ArtOfWar),
             id if id == SHURIKEN_ID => Some(Relic::Shuriken),
             id if id == KUNAI_ID => Some(Relic::Kunai),
             id if id == LETTER_OPENER_ID => Some(Relic::LetterOpener),
@@ -969,6 +986,7 @@ impl Relic {
             id if id == TOXIC_EGG_ID => Some(Relic::ToxicEgg),
             id if id == FROZEN_EGG_ID => Some(Relic::FrozenEgg),
             id if id == THE_BOOT_ID => Some(Relic::TheBoot),
+            id if id == BIRD_FACED_URN_ID => Some(Relic::BirdFacedUrn),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -1029,6 +1047,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 }
             }
             Relic::Nunchaku => {}
+            Relic::ArtOfWar => {}
             Relic::Shuriken => {}
             Relic::Kunai => {}
             Relic::LetterOpener => {}
@@ -1068,6 +1087,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::ToxicEgg => {}
             Relic::FrozenEgg => {}
             Relic::TheBoot => {}
+            Relic::BirdFacedUrn => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1128,11 +1148,13 @@ pub fn preserves_energy_between_turns(relics: &[Relic]) -> bool {
 }
 
 pub fn reset_turn_relic_counters(state: &mut CombatState) {
+    state.relic_counters.attacks_played_last_turn = state.relic_counters.attacks_played_this_turn;
     state.relic_counters.ornamental_fan_attacks_this_turn = 0;
     state.relic_counters.shuriken_attacks_this_turn = 0;
     state.relic_counters.kunai_attacks_this_turn = 0;
     state.relic_counters.letter_opener_skills_this_turn = 0;
     state.relic_counters.cards_played_this_turn = 0;
+    state.relic_counters.attacks_played_this_turn = 0;
 }
 
 pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
@@ -1148,6 +1170,13 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
             state.relic_counters.happy_flower_turns = 0;
             state.player.energy += HAPPY_FLOWER_ENERGY;
         }
+    }
+
+    if state.relics.contains(&Relic::ArtOfWar)
+        && state.relic_counters.player_turns_started > 1
+        && state.relic_counters.attacks_played_last_turn == 0
+    {
+        state.player.energy += ART_OF_WAR_ENERGY;
     }
 
     match state.relic_counters.player_turns_started {
@@ -1170,6 +1199,7 @@ fn has_start_of_turn_relic(state: &CombatState) -> bool {
         matches!(
             relic,
             Relic::HappyFlower
+                | Relic::ArtOfWar
                 | Relic::HornCleat
                 | Relic::CaptainsWheel
                 | Relic::MercuryHourglass
@@ -1273,6 +1303,9 @@ pub fn apply_on_card_play_relics(
     let mut follow_ups = Vec::new();
 
     state.relic_counters.cards_played_this_turn += 1;
+    if state.relics.contains(&Relic::ArtOfWar) && card_type == CardType::Attack {
+        state.relic_counters.attacks_played_this_turn += 1;
+    }
 
     if state.relics.contains(&Relic::InkBottle) {
         state.relic_counters.ink_bottle_cards_played += 1;
@@ -1322,6 +1355,15 @@ pub fn apply_on_card_play_relics(
             state.relic_counters.letter_opener_skills_this_turn = 0;
             deal_unmodified_damage_to_living_monsters(state, LETTER_OPENER_DAMAGE);
         }
+    }
+
+    if state.relics.contains(&Relic::BirdFacedUrn) && card_type == CardType::Power {
+        heal_player_in_combat_with_relics(
+            &mut state.player.hp,
+            state.player.max_hp,
+            BIRD_FACED_URN_HEAL,
+            &state.relics,
+        );
     }
 
     follow_ups
@@ -1929,6 +1971,13 @@ mod tests {
         );
         assert_eq!(Relic::TheBoot.content_id(), THE_BOOT_ID);
         assert_eq!(Relic::from_content_id(THE_BOOT_ID), Some(Relic::TheBoot));
+        assert_eq!(Relic::BirdFacedUrn.content_id(), BIRD_FACED_URN_ID);
+        assert_eq!(
+            Relic::from_content_id(BIRD_FACED_URN_ID),
+            Some(Relic::BirdFacedUrn)
+        );
+        assert_eq!(Relic::ArtOfWar.content_id(), ART_OF_WAR_ID);
+        assert_eq!(Relic::from_content_id(ART_OF_WAR_ID), Some(Relic::ArtOfWar));
     }
 
     #[test]
@@ -2000,6 +2049,40 @@ mod tests {
         apply_potion_use_relics_to_run_hp(&mut hp, 80, &[Relic::ToyOrnithopter]);
 
         assert_eq!(hp, 80);
+    }
+
+    #[test]
+    fn bird_faced_urn_heals_when_power_is_played() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::BirdFacedUrn];
+        combat.player.hp = 70;
+
+        let follow_ups = apply_on_card_play_relics(&mut combat, CardType::Power);
+
+        assert!(follow_ups.is_empty());
+        assert_eq!(combat.player.hp, 70 + BIRD_FACED_URN_HEAL);
+    }
+
+    #[test]
+    fn bird_faced_urn_ignores_non_power_cards() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::BirdFacedUrn];
+        combat.player.hp = 70;
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
+
+        assert_eq!(combat.player.hp, 70);
+    }
+
+    #[test]
+    fn bird_faced_urn_combat_heal_uses_magic_flower() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::BirdFacedUrn, Relic::MagicFlower];
+        combat.player.hp = 70;
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Power);
+
+        assert_eq!(combat.player.hp, 73);
     }
 
     #[test]
@@ -2172,6 +2255,48 @@ mod tests {
     }
 
     #[test]
+    fn art_of_war_does_not_grant_energy_on_first_player_turn() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::ArtOfWar];
+        combat.player.energy = 3;
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.player.energy, 3);
+        assert_eq!(combat.relic_counters.player_turns_started, 1);
+    }
+
+    #[test]
+    fn art_of_war_grants_energy_after_turn_with_no_attacks() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::ArtOfWar];
+        combat.relic_counters.player_turns_started = 1;
+        combat.relic_counters.attacks_played_this_turn = 0;
+        combat.player.energy = 3;
+
+        reset_turn_relic_counters(&mut combat);
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.player.energy, 3 + ART_OF_WAR_ENERGY);
+        assert_eq!(combat.relic_counters.attacks_played_last_turn, 0);
+    }
+
+    #[test]
+    fn art_of_war_skips_energy_after_turn_with_attack() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::ArtOfWar];
+        combat.relic_counters.player_turns_started = 1;
+        combat.player.energy = 3;
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        reset_turn_relic_counters(&mut combat);
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.player.energy, 3);
+        assert_eq!(combat.relic_counters.attacks_played_last_turn, 1);
+    }
+
+    #[test]
     fn turn_reset_clears_turn_scoped_card_play_relic_counters() {
         let mut combat = CombatState::initial_fixture();
         combat.relic_counters.ornamental_fan_attacks_this_turn = 2;
@@ -2179,6 +2304,7 @@ mod tests {
         combat.relic_counters.kunai_attacks_this_turn = 2;
         combat.relic_counters.letter_opener_skills_this_turn = 2;
         combat.relic_counters.cards_played_this_turn = 6;
+        combat.relic_counters.attacks_played_this_turn = 4;
         combat.relic_counters.nunchaku_attacks_played = 9;
         combat.relic_counters.player_turns_started = 3;
         combat.relic_counters.happy_flower_turns = 2;
@@ -2190,6 +2316,8 @@ mod tests {
         assert_eq!(combat.relic_counters.kunai_attacks_this_turn, 0);
         assert_eq!(combat.relic_counters.letter_opener_skills_this_turn, 0);
         assert_eq!(combat.relic_counters.cards_played_this_turn, 0);
+        assert_eq!(combat.relic_counters.attacks_played_this_turn, 0);
+        assert_eq!(combat.relic_counters.attacks_played_last_turn, 4);
         assert_eq!(combat.relic_counters.nunchaku_attacks_played, 9);
         assert_eq!(combat.relic_counters.player_turns_started, 3);
         assert_eq!(combat.relic_counters.happy_flower_turns, 2);
@@ -2309,6 +2437,8 @@ mod tests {
             kunai_attacks_this_turn: 2,
             letter_opener_skills_this_turn: 1,
             cards_played_this_turn: 5,
+            attacks_played_this_turn: 3,
+            attacks_played_last_turn: 1,
             player_turns_started: 6,
             happy_flower_turns: 2,
         };
