@@ -5,6 +5,7 @@ use crate::{
         choose_hand_select, confirm_hand_select, hand_select_ui_to_hand_index, player_draw_cards,
     },
     combat::CombatPhase,
+    content::cards::upgrade_content_id,
     content::shop_pool::discovery_card_choices,
     ids::CardId,
     potion::{
@@ -213,6 +214,14 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     player_draw_cards(combat, SWIFT_POTION_DRAW);
+                }
+                Potion::BlessingOfTheForge => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    for card in &mut combat.piles.hand {
+                        if let Some(upgraded) = upgrade_content_id(card.content_id) {
+                            card.content_id = upgraded;
+                        }
+                    }
                 }
                 Potion::Weak => {
                     let target = target.expect("validated weak potion target");
@@ -576,6 +585,42 @@ mod tests {
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.piles.hand.len(), SWIFT_POTION_DRAW);
         assert!(combat.piles.draw_pile.is_empty());
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn blessing_of_the_forge_upgrades_hand_and_is_consumed() {
+        use crate::content::cards::{ANGER_ID, ANGER_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID};
+
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::BlessingOfTheForge);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), ANGER_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_PLUS_ID),
+        ];
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use blessing of the forge");
+
+        let combat = after.combat.expect("combat continues");
+        let hand: Vec<_> = combat
+            .piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+        assert_eq!(
+            hand,
+            vec![STRIKE_R_PLUS_ID, ANGER_PLUS_ID, STRIKE_R_PLUS_ID]
+        );
         assert!(after.potions.is_empty());
     }
 
