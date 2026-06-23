@@ -1104,12 +1104,11 @@ pub fn apply_monster_intent(
     piles: &mut CardPiles,
     ascension: u8,
     player_before: &crate::PlayerState,
+    relics: &[crate::Relic],
 ) -> i32 {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player;
-    use crate::power::{
-        apply_player_vulnerable, apply_player_weak, reduce_player_dexterity, reduce_player_strength,
-    };
+    use crate::power::{apply_player_vulnerable, reduce_player_dexterity, reduce_player_strength};
 
     let config = AscensionConfig::new(ascension);
     let scale_damage = |damage: i32| config.scaled_attack_damage(damage);
@@ -1139,7 +1138,7 @@ pub fn apply_monster_intent(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerWeak { amount } => {
-            apply_player_weak(&mut player.powers, amount);
+            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, amount);
             (0, 0)
         }
         MonsterIntent::AttackApplyPlayerVulnerable { damage, vulnerable } => {
@@ -1228,7 +1227,7 @@ mod tests {
         let mut player = dummy_player();
         let mut piles = dummy_piles();
         let player_before = player.clone();
-        apply_monster_intent(monster, &mut player, &mut piles, 0, &player_before)
+        apply_monster_intent(monster, &mut player, &mut piles, 0, &player_before, &[])
     }
 
     #[test]
@@ -1489,7 +1488,14 @@ mod tests {
         let mut piles = dummy_piles();
         let player_before = player.clone();
 
-        let damage = apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+        let damage = apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut piles,
+            0,
+            &player_before,
+            &[],
+        );
 
         assert_eq!(damage, 6);
         assert_eq!(monster.hp, CULTIST_A0.hp - 3);
@@ -1504,7 +1510,14 @@ mod tests {
         let mut piles = dummy_piles();
         let player_before = player.clone();
 
-        let damage = apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+        let damage = apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut piles,
+            0,
+            &player_before,
+            &[],
+        );
 
         assert_eq!(damage, 6);
         assert_eq!(monster.hp, HEXAGHOST_A0.hp - 18);
@@ -1519,9 +1532,38 @@ mod tests {
         let mut piles = dummy_piles();
         let player_before = player.clone();
 
-        apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+        apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut piles,
+            0,
+            &player_before,
+            &[],
+        );
 
         assert_eq!(player.powers.artifact, 0);
+        assert_eq!(player.powers.weak, 0);
+    }
+
+    #[test]
+    fn ginger_blocks_monster_weak_without_consuming_artifact() {
+        let mut monster = monster_state(&ACID_SLIME_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerWeak { amount: 1 };
+        let mut player = dummy_player();
+        player.powers.artifact = 1;
+        let mut piles = dummy_piles();
+        let player_before = player.clone();
+
+        apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut piles,
+            0,
+            &player_before,
+            &[crate::Relic::Ginger],
+        );
+
+        assert_eq!(player.powers.artifact, 1);
         assert_eq!(player.powers.weak, 0);
     }
 
@@ -1537,7 +1579,14 @@ mod tests {
         let mut piles = dummy_piles();
         let player_before = player.clone();
 
-        apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+        apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut piles,
+            0,
+            &player_before,
+            &[],
+        );
 
         assert_eq!(player.powers.artifact, 0);
         assert_eq!(player.powers.strength, 0);
@@ -1812,7 +1861,14 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
+            apply_monster_intent(
+                &mut monster,
+                &mut player,
+                &mut piles,
+                0,
+                &player_before,
+                &[]
+            ),
             0
         );
         assert_eq!(player.powers.weak, 1);
@@ -1848,7 +1904,14 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
+            apply_monster_intent(
+                &mut monster,
+                &mut player,
+                &mut piles,
+                0,
+                &player_before,
+                &[]
+            ),
             0
         );
         assert_eq!(player.powers.weak, 1);
@@ -1926,7 +1989,14 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
+            apply_monster_intent(
+                &mut monster,
+                &mut player,
+                &mut piles,
+                0,
+                &player_before,
+                &[]
+            ),
             0
         );
         assert_eq!(player.powers.strength, 1);
@@ -1996,7 +2066,14 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
+            apply_monster_intent(
+                &mut monster,
+                &mut player,
+                &mut piles,
+                0,
+                &player_before,
+                &[]
+            ),
             0
         );
         assert_eq!(piles.discard_pile.len(), 2);
@@ -2070,7 +2147,14 @@ mod tests {
         let mut piles = dummy_piles();
 
         assert_eq!(
-            apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before),
+            apply_monster_intent(
+                &mut monster,
+                &mut player,
+                &mut piles,
+                0,
+                &player_before,
+                &[]
+            ),
             2
         );
         assert_eq!(piles.discard_pile.len(), 3);
