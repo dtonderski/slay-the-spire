@@ -8,6 +8,7 @@ use crate::{
         DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, HAVOC_ID,
         INFLAME_ID, POMMEL_STRIKE_ID, SEARING_BLOW_ID, SEEING_RED_ID, SHRUG_IT_OFF_ID,
         SPOT_WEAKNESS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WHIRLWIND_ID,
+        WOUND_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, ContentId, MonsterId},
@@ -16,8 +17,8 @@ use crate::{
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
-        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, OLD_COIN_GOLD, PANTOGRAPH_HEAL, PEAR_MAX_HP,
-        POTION_BELT_SLOTS, STRAWBERRY_MAX_HP,
+        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD,
+        PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -179,6 +180,10 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::Ginger), Some(Relic::Ginger));
         assert_eq!(Relic::from_key(RelicKey::Turnip), Some(Relic::Turnip));
+        assert_eq!(
+            Relic::from_key(RelicKey::MarkOfPain),
+            Some(Relic::MarkOfPain)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -259,6 +264,21 @@ mod tests {
         run.gain_relic(Relic::PotionBelt);
 
         assert_eq!(run.potion_capacity(), MAX_POTIONS + POTION_BELT_SLOTS);
+    }
+
+    #[test]
+    fn mark_of_pain_pickup_adds_energy_and_two_wounds() {
+        let mut run = RunState::map_fixture();
+        let deck_len = run.deck.len();
+
+        run.gain_relic(Relic::MarkOfPain);
+
+        assert_eq!(
+            run.energy_per_turn,
+            BASE_PLAYER_ENERGY + MARK_OF_PAIN_ENERGY
+        );
+        assert_eq!(run.deck.len(), deck_len + MARK_OF_PAIN_WOUNDS);
+        assert_eq!(run.count_content_in_deck(WOUND_ID), MARK_OF_PAIN_WOUNDS);
     }
 
     #[test]
@@ -709,6 +729,12 @@ impl RunState {
             Relic::CoffeeDripper => {
                 self.energy_per_turn += COFFEE_DRIPPER_ENERGY;
             }
+            Relic::MarkOfPain => {
+                self.energy_per_turn += MARK_OF_PAIN_ENERGY;
+                for _ in 0..MARK_OF_PAIN_WOUNDS {
+                    self.gain_deck_card(WOUND_ID);
+                }
+            }
             Relic::BloodVial
             | Relic::PotionBelt
             | Relic::Lantern
@@ -895,6 +921,7 @@ impl Relic {
             Relic::Pantograph => RelicKey::Pantograph,
             Relic::Ginger => RelicKey::Ginger,
             Relic::Turnip => RelicKey::Turnip,
+            Relic::MarkOfPain => RelicKey::MarkOfPain,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -945,6 +972,7 @@ impl Relic {
             RelicKey::Pantograph => Some(Relic::Pantograph),
             RelicKey::Ginger => Some(Relic::Ginger),
             RelicKey::Turnip => Some(Relic::Turnip),
+            RelicKey::MarkOfPain => Some(Relic::MarkOfPain),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

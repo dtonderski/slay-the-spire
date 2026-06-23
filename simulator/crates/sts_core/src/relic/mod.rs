@@ -38,6 +38,10 @@ pub const THREAD_AND_NEEDLE_PLATED_ARMOR: i32 = 4;
 pub const RED_SKULL_STRENGTH: i32 = 3;
 /// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
 pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
+/// Energy per turn granted by [Relic::MarkOfPain] on pickup.
+pub const MARK_OF_PAIN_ENERGY: i32 = 1;
+/// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
+pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
 pub const ANCHOR_BLOCK: i32 = 10;
 /// Cards played before [Relic::InkBottle] draws a card.
@@ -191,6 +195,8 @@ pub const PANTOGRAPH_ID: ContentId = ContentId::new(341);
 pub const GINGER_ID: ContentId = ContentId::new(342);
 /// Content id for [Relic::Turnip].
 pub const TURNIP_ID: ContentId = ContentId::new(343);
+/// Content id for [Relic::MarkOfPain].
+pub const MARK_OF_PAIN_ID: ContentId = ContentId::new(344);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -747,6 +753,7 @@ pub enum Relic {
     Pantograph,
     Ginger,
     Turnip,
+    MarkOfPain,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -797,6 +804,7 @@ impl Relic {
             Relic::Pantograph => PANTOGRAPH_ID,
             Relic::Ginger => GINGER_ID,
             Relic::Turnip => TURNIP_ID,
+            Relic::MarkOfPain => MARK_OF_PAIN_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -847,6 +855,7 @@ impl Relic {
             id if id == PANTOGRAPH_ID => Some(Relic::Pantograph),
             id if id == GINGER_ID => Some(Relic::Ginger),
             id if id == TURNIP_ID => Some(Relic::Turnip),
+            id if id == MARK_OF_PAIN_ID => Some(Relic::MarkOfPain),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -921,6 +930,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Pantograph => {}
             Relic::Ginger => {}
             Relic::Turnip => {}
+            Relic::MarkOfPain => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
