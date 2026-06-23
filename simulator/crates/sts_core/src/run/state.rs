@@ -138,6 +138,22 @@ mod tests {
             Relic::from_key(RelicKey::BlackBlood),
             Some(Relic::BlackBlood)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::MealTicket),
+            Some(Relic::MealTicket)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::RegalPillow),
+            Some(Relic::RegalPillow)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::DreamCatcher),
+            Some(Relic::DreamCatcher)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::EternalFeather),
+            Some(Relic::EternalFeather)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -628,6 +644,10 @@ impl RunState {
             | Relic::StoneCalendar
             | Relic::MeatOnTheBone
             | Relic::BlackBlood
+            | Relic::MealTicket
+            | Relic::RegalPillow
+            | Relic::DreamCatcher
+            | Relic::EternalFeather
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -770,6 +790,10 @@ impl Relic {
             Relic::StoneCalendar => RelicKey::StoneCalendar,
             Relic::MeatOnTheBone => RelicKey::MeatOnTheBone,
             Relic::BlackBlood => RelicKey::BlackBlood,
+            Relic::MealTicket => RelicKey::MealTicket,
+            Relic::RegalPillow => RelicKey::RegalPillow,
+            Relic::DreamCatcher => RelicKey::DreamCatcher,
+            Relic::EternalFeather => RelicKey::EternalFeather,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -808,6 +832,10 @@ impl Relic {
             RelicKey::StoneCalendar => Some(Relic::StoneCalendar),
             RelicKey::MeatOnTheBone => Some(Relic::MeatOnTheBone),
             RelicKey::BlackBlood => Some(Relic::BlackBlood),
+            RelicKey::MealTicket => Some(Relic::MealTicket),
+            RelicKey::RegalPillow => Some(Relic::RegalPillow),
+            RelicKey::DreamCatcher => Some(Relic::DreamCatcher),
+            RelicKey::EternalFeather => Some(Relic::EternalFeather),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

@@ -1254,6 +1254,8 @@ Completed slice:
 - implemented start/end player turn hooks and added focused unit tests for energy, conditional block, turn-specific block, all-enemy damage, first-turn initialization, and counter serialization
 - expanded modeled combat-victory healing relics: Black Blood and Meat on the Bone
 - implemented upgraded/conditional victory healing and added focused unit tests for win/loss timing, caps, and half-HP checks
+- expanded modeled room/rest healing relics: Meal Ticket, Regal Pillow, Dream Catcher, and Eternal Feather
+- implemented shop-entry healing, rest bonus healing, modeled Dream Catcher card reward, and focused rest/shop/event regression tests
 
 Remaining:
 
