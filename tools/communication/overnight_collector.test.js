@@ -109,6 +109,34 @@ test("screen policies wait when choose is available but no choices are present",
   }
 });
 
+test("shop room proceeds instead of reopening the shop", () => {
+  const summary = baseSummary({
+    screen_type: "SHOP_ROOM",
+    room_type: "ShopRoom",
+    available_commands: ["choose", "proceed", "state"],
+    choices: ["shop"],
+  });
+  assert.strictEqual(policy.nextCommand(summary), "PROCEED");
+});
+
+test("hand select chooses a card when required", () => {
+  const summary = baseSummary({
+    screen_type: "HAND_SELECT",
+    available_commands: ["choose", "state"],
+    choices: ["defend", "strike"],
+  });
+  assert.strictEqual(policy.nextCommand(summary), "CHOOSE 0");
+});
+
+test("hand select confirms after selecting a card", () => {
+  const summary = baseSummary({
+    screen_type: "HAND_SELECT",
+    available_commands: ["confirm", "state"],
+    choices: null,
+  });
+  assert.strictEqual(policy.nextCommand(summary), "CONFIRM");
+});
+
 test("event command prefers easy Neow combats over transform-card branches", () => {
   const summary = baseSummary({
     screen_type: "EVENT",
