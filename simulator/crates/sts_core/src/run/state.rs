@@ -19,9 +19,9 @@ use crate::{
         RelicPoolState, RelicSpawnContext, BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD,
         COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE,
         FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
-        MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD, PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS,
-        PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, SOZU_ENERGY,
-        STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
+        MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD, OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP,
+        POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR,
+        SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -210,6 +210,7 @@ mod tests {
             Relic::from_key(RelicKey::PreservedInsect),
             Some(Relic::PreservedInsect)
         );
+        assert_eq!(Relic::from_key(RelicKey::Omamori), Some(Relic::Omamori));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -312,6 +313,65 @@ mod tests {
 
         assert_eq!(run.player_max_hp, max_hp_before);
         assert_eq!(run.player_hp, hp_before);
+    }
+
+    #[test]
+    fn omamori_prevents_next_two_curses_from_entering_deck() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::Omamori];
+        let deck_len_before = run.deck.len();
+
+        run.gain_deck_card(crate::content::cards::REGRET_ID);
+        run.gain_deck_card(crate::content::cards::DOUBT_ID);
+
+        assert_eq!(run.deck.len(), deck_len_before);
+        assert_eq!(run.omamori_charges_used, OMAMORI_CHARGES);
+    }
+
+    #[test]
+    fn omamori_allows_third_curse_after_two_preventions() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::Omamori];
+
+        run.gain_deck_card(crate::content::cards::REGRET_ID);
+        run.gain_deck_card(crate::content::cards::DOUBT_ID);
+        run.gain_deck_card(crate::content::cards::REGRET_ID);
+
+        assert_eq!(
+            run.count_content_in_deck(crate::content::cards::REGRET_ID),
+            1
+        );
+        assert_eq!(run.omamori_charges_used, OMAMORI_CHARGES);
+    }
+
+    #[test]
+    fn omamori_does_not_consume_charge_on_non_curse_card() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::Omamori];
+
+        run.gain_deck_card(ANGER_ID);
+
+        assert_eq!(run.count_content_in_deck(ANGER_ID), 1);
+        assert_eq!(run.omamori_charges_used, 0);
+    }
+
+    #[test]
+    fn omamori_prevented_curse_skips_card_added_relic_hooks() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::Omamori, Relic::DarkstonePeriapt, Relic::CeramicFish];
+        let hp_before = run.player_hp;
+        let max_hp_before = run.player_max_hp;
+        let gold_before = run.gold;
+
+        run.gain_deck_card(crate::content::cards::REGRET_ID);
+
+        assert_eq!(
+            run.count_content_in_deck(crate::content::cards::REGRET_ID),
+            0
+        );
+        assert_eq!(run.player_max_hp, max_hp_before);
+        assert_eq!(run.player_hp, hp_before);
+        assert_eq!(run.gold, gold_before);
     }
 
     #[test]
@@ -577,6 +637,8 @@ pub struct RunState {
     pub relic_pools: Option<RelicPoolState>,
     #[serde(default)]
     pub relic_keys: Vec<RelicKey>,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub omamori_charges_used: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -617,6 +679,10 @@ pub const REWARD_GOLD_AMOUNT: i32 = 20;
 
 fn default_card_rarity_factor() -> i32 {
     5
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -796,6 +862,7 @@ impl RunState {
             relic_rng_counter: 0,
             relic_pools: None,
             relic_keys: Vec::new(),
+            omamori_charges_used: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -847,6 +914,7 @@ impl RunState {
             relic_rng_counter: 0,
             relic_pools: None,
             relic_keys: Vec::new(),
+            omamori_charges_used: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -927,10 +995,20 @@ impl RunState {
     }
 
     pub fn add_deck_card(&mut self, mut card: CardInstance) {
+        if self.should_omamori_prevent_card(card.content_id) {
+            self.omamori_charges_used += 1;
+            return;
+        }
         card.content_id = self.content_id_after_card_add_relics(card.content_id);
         let content_id = card.content_id;
         self.deck.push(card);
         self.apply_card_added_relics(content_id);
+    }
+
+    fn should_omamori_prevent_card(&self, content_id: ContentId) -> bool {
+        self.relics.contains(&Relic::Omamori)
+            && is_curse_content_id(content_id)
+            && self.omamori_charges_used < OMAMORI_CHARGES
     }
 
     #[must_use]
@@ -1080,6 +1158,7 @@ impl RunState {
             | Relic::PaperPhrog
             | Relic::ChampionBelt
             | Relic::PreservedInsect
+            | Relic::Omamori
             | Relic::DarkstonePeriapt
             | Relic::DuVuDoll
             | Relic::Vajra
@@ -1246,6 +1325,7 @@ impl Relic {
             Relic::PaperPhrog => RelicKey::PaperPhrog,
             Relic::ChampionBelt => RelicKey::ChampionBelt,
             Relic::PreservedInsect => RelicKey::PreservedInsect,
+            Relic::Omamori => RelicKey::Omamori,
             Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
@@ -1315,6 +1395,7 @@ impl Relic {
             RelicKey::PaperPhrog => Some(Relic::PaperPhrog),
             RelicKey::ChampionBelt => Some(Relic::ChampionBelt),
             RelicKey::PreservedInsect => Some(Relic::PreservedInsect),
+            RelicKey::Omamori => Some(Relic::Omamori),
             RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),
