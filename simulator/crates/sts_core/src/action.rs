@@ -47,6 +47,10 @@ pub enum InternalAction {
         from: CardPile,
         to: CardPile,
     },
+    RemoveCard {
+        card_id: CardId,
+        from: CardPile,
+    },
     DrawCards {
         count: usize,
     },
@@ -58,6 +62,9 @@ pub enum InternalAction {
         amount: i32,
     },
     GainDarkEmbrace {
+        amount: i32,
+    },
+    GainMetallicize {
         amount: i32,
     },
     GainStrength {
@@ -84,6 +91,9 @@ pub enum InternalAction {
     },
     CopyHandCardToHand {
         card_id: CardId,
+    },
+    AwaitHandSelect {
+        source_card_id: CardId,
     },
 }
 

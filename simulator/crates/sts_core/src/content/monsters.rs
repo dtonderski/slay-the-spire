@@ -1014,6 +1014,7 @@ pub fn wake_lagavulin_on_damage(monster: &mut MonsterState, hp_damage: i32) {
     if monster.content_id == LAGAVULIN_ID && hp_damage > 0 {
         if monster.sleep_turns_remaining > 0 {
             monster.sleep_turns_remaining = 0;
+            monster.has_siphoned = true;
             monster.intent = MonsterIntent::Stun;
         }
         monster.block = 0;

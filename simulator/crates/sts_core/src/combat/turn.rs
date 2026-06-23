@@ -3,6 +3,7 @@ use crate::{
     combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
     combat::{CombatPhase, CombatState},
     content::monsters::{apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent},
+    rng::JavaRng,
 };
 
 const HAND_SIZE: usize = 5;
@@ -12,7 +13,7 @@ const HAND_SIZE: usize = 5;
 /// 1. Ending the player turn discards the remaining hand.
 /// 2. The monster turn consumes current player block before HP.
 /// 3. Player block clears after the monster turn, before the next hand is drawn.
-/// 4. Monster vulnerable decrements by 1 at end of monster turn.
+/// 4. Monster vulnerable decrements by 1 during monster-turn cleanup.
 /// 5. The next player turn refills energy and draws from the draw pile without shuffle.
 pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
@@ -38,11 +39,6 @@ pub fn start_player_turn(state: &mut CombatState) {
     }
     state.player.cannot_draw = false;
     state.player.temp_strength = 0;
-    for monster in &mut state.monsters {
-        if monster.alive && monster.powers.vulnerable > 0 {
-            monster.powers.vulnerable -= 1;
-        }
-    }
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
@@ -102,7 +98,8 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
             if let Some(rng) = state.shuffle_rng.as_mut() {
                 if !state.piles.discard_pile.is_empty() {
                     state.piles.draw_pile.append(&mut state.piles.discard_pile);
-                    rng.collections_shuffle(&mut state.piles.draw_pile);
+                    let shuffle_seed = rng.random_long();
+                    JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
                 }
             }
         }
@@ -273,7 +270,7 @@ mod tests {
         assert_eq!(state.monsters[0].powers.vulnerable, 2);
 
         state = end_player_turn(&state);
-        assert_eq!(state.monsters[0].powers.vulnerable, 0);
+        assert_eq!(state.monsters[0].powers.vulnerable, 1);
 
         state = end_player_turn(&state);
         assert_eq!(state.monsters[0].powers.vulnerable, 0);

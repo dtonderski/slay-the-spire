@@ -35,6 +35,15 @@ pub struct CombatState {
     /// In-combat card reward from potions such as Power Potion.
     #[serde(default)]
     pub potion_card_reward: Option<Vec<CardInstance>>,
+    /// Awaiting player choice for Warcry and similar hand-select effects.
+    #[serde(default)]
+    pub hand_select: Option<HandSelectState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandSelectState {
+    pub source_card_id: CardId,
+    pub selected_hand_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +153,7 @@ impl CombatState {
             ascension: 0,
             shuffle_rng: None,
             potion_card_reward: None,
+            hand_select: None,
         }
     }
 

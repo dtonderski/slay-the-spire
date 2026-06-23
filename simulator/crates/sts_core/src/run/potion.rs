@@ -1,5 +1,6 @@
 use crate::{
     card::{CardInstance, CardType},
+    combat::transition::{choose_hand_select, confirm_hand_select, hand_select_ui_to_hand_index},
     combat::CombatPhase,
     combat::damage::deal_unmodified_damage_to_monster,
     ids::CardId,
@@ -56,6 +57,8 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
             Ok(())
         }
         RunAction::ChooseCombatCardReward { index } => validate_combat_card_reward_choice(run, index),
+        RunAction::ChooseHandSelect { index } => validate_hand_select_choice(run, index),
+        RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
         _ => Err(SimError::IllegalAction("not a potion action")),
     }
 }
@@ -73,6 +76,46 @@ pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimRe
         return Err(SimError::IllegalAction("combat card reward index out of range"));
     }
     Ok(())
+}
+
+pub fn validate_hand_select_choice(run: &RunState, index: usize) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("hand select requires combat"))?;
+    hand_select_ui_to_hand_index(combat, index)?;
+    Ok(())
+}
+
+pub fn validate_hand_select_confirm(run: &RunState) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("hand select requires combat"))?;
+    let hand_select = combat
+        .hand_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    if hand_select.selected_hand_index.is_none() {
+        return Err(SimError::IllegalAction("hand select choice is required"));
+    }
+    Ok(())
+}
+
+pub fn apply_hand_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
+    validate_hand_select_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    choose_hand_select(combat, index)?;
+    Ok(next)
+}
+
+pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
+    validate_hand_select_confirm(run)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    confirm_hand_select(combat)?;
+    Ok(next)
 }
 
 pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
