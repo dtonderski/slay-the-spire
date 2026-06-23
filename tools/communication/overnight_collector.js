@@ -18,7 +18,8 @@ const maxStatePolls = Number.parseInt(process.env.STS_AUTO_MAX_STATE_POLLS || "5
 const maxSameCommand = Number.parseInt(process.env.STS_AUTO_MAX_SAME_COMMAND || "2", 10);
 const maxIdleMs = Number.parseInt(process.env.STS_AUTO_MAX_IDLE_MS || "120000", 10);
 
-let runIndex = loadRunIndex();
+let collectorState = loadCollectorState();
+let runIndex = collectorState.next_run_index;
 let lastStep = -1;
 let lastSignature = "";
 let repeatedStatePolls = 0;
@@ -73,18 +74,61 @@ function staleSessionReason() {
   });
 }
 
-function loadRunIndex() {
+function loadCollectorState() {
   const explicitStart = process.env.STS_AUTO_START_INDEX;
-  if (explicitStart) return Number.parseInt(explicitStart, 10);
   const state = readJson(collectorStatePath);
-  return Number.isInteger(state?.next_run_index) ? state.next_run_index : 1;
+  return {
+    next_run_index: explicitStart
+      ? Number.parseInt(explicitStart, 10)
+      : Number.isInteger(state?.next_run_index)
+        ? state.next_run_index
+        : 1,
+    pending_start: state?.pending_start || null,
+  };
 }
 
-function saveRunIndex() {
+function saveCollectorState() {
   fs.writeFileSync(
     collectorStatePath,
-    `${JSON.stringify({ next_run_index: runIndex, updated_at: new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        next_run_index: runIndex,
+        pending_start: collectorState.pending_start || null,
+        updated_at: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
   );
+}
+
+function clearPendingStartIfInGame(summary) {
+  if (collectorState.pending_start && summary.in_game) {
+    log(`start confirmed: ${collectorState.pending_start.command}`);
+    collectorState.pending_start = null;
+    saveCollectorState();
+  }
+}
+
+function startCommand() {
+  const seed = `${seedPrefix}${String(runIndex).padStart(4, "0")}`;
+  const command = `START IRONCLAD 0 ${seed}`;
+  collectorState.pending_start = {
+    command,
+    step: null,
+    sent_at: new Date().toISOString(),
+  };
+  runIndex += 1;
+  saveCollectorState();
+  return command;
+}
+
+function setCollectorStateForTest(state) {
+  collectorState = {
+    next_run_index: state.next_run_index ?? 1,
+    pending_start: state.pending_start || null,
+  };
+  runIndex = collectorState.next_run_index;
 }
 
 function commandVerb(command) {
@@ -242,6 +286,21 @@ function cardRewardCommand(summary) {
   return pick >= 0 ? `CHOOSE ${pick}` : "CHOOSE 0";
 }
 
+function eventCommand(summary) {
+  const available = new Set(summary.available_commands || []);
+  if (!available.has("choose")) return "state";
+  const choices = summary.choices || [];
+  if (choices.length === 0) return "state";
+
+  const easyCombats = choiceIndex(summary, [/next three combats have 1 hp/, /enemies.*1 hp/]);
+  if (easyCombats >= 0) return `CHOOSE ${easyCombats}`;
+
+  const talk = choiceIndex(summary, [/^talk$/]);
+  if (talk >= 0) return `CHOOSE ${talk}`;
+
+  return "CHOOSE 0";
+}
+
 function mapCommand(summary) {
   const available = new Set(summary.available_commands || []);
   if (!available.has("choose")) return "state";
@@ -292,11 +351,10 @@ function nextCommand(summary) {
   const available = new Set(summary.available_commands || []);
   const screen = String(summary.screen_type || "").toUpperCase();
   if (summary.error) return "state";
+  clearPendingStartIfInGame(summary);
+  if (collectorState.pending_start && !summary.in_game) return "state";
   if (!summary.in_game && available.has("start")) {
-    const seed = `${seedPrefix}${String(runIndex).padStart(4, "0")}`;
-    runIndex += 1;
-    saveRunIndex();
-    return `START IRONCLAD 0 ${seed}`;
+    return startCommand();
   }
   if (screen === "GAME_OVER") return available.has("proceed") ? "PROCEED" : "state";
   if (screen === "MAP") return mapCommand(summary);
@@ -319,7 +377,7 @@ function nextCommand(summary) {
     return available.has("choose") && summary.choices?.length ? `CHOOSE ${rest >= 0 ? rest : 0}` : "state";
   }
   if (screen === "EVENT" || screen === "NONE" && summary.choices?.length) {
-    return available.has("choose") ? "CHOOSE 0" : "state";
+    return eventCommand(summary);
   }
   if (summary.combat) return combatCommand(summary);
   if (available.has("proceed")) return "PROCEED";
@@ -421,10 +479,12 @@ module.exports = {
   commandIsAvailable,
   commandVerb,
   fallbackCommand,
+  eventCommand,
   mapCommand,
   mapChoiceScore,
   nextCommand,
   rewardCommand,
+  setCollectorStateForTest,
   staleSessionReasonFrom,
   stateSignature,
 };

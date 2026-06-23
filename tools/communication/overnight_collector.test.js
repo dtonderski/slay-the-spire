@@ -109,6 +109,37 @@ test("screen policies wait when choose is available but no choices are present",
   }
 });
 
+test("event command prefers easy Neow combats over transform-card branches", () => {
+  const summary = baseSummary({
+    screen_type: "EVENT",
+    room_type: "NeowRoom",
+    available_commands: ["choose", "state"],
+    choices: [
+      "transform a card",
+      "enemies in your next three combats have 1 hp",
+      "obtain a curse max hp +16",
+      "lose your starting relic obtain a random boss relic",
+    ],
+  });
+  assert.strictEqual(policy.eventCommand(summary), "CHOOSE 1");
+  assert.strictEqual(policy.nextCommand(summary), "CHOOSE 1");
+});
+
+test("pending start waits for in-game confirmation before another start", () => {
+  policy.setCollectorStateForTest({
+    next_run_index: 3,
+    pending_start: { command: "START IRONCLAD 0 M290002" },
+  });
+  const summary = baseSummary({
+    in_game: false,
+    available_commands: ["start", "state"],
+    screen_type: null,
+    choices: null,
+  });
+  assert.strictEqual(policy.nextCommand(summary), "state");
+  policy.setCollectorStateForTest({ next_run_index: 1, pending_start: null });
+});
+
 test("repeated card reward choose can fall back to skip", () => {
   const summary = baseSummary({
     screen_type: "CARD_REWARD",

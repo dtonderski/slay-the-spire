@@ -88,6 +88,7 @@ if (require.main === module) {
             summary: summary
               ? {
                   step: summary.step ?? null,
+                  client_pid: summary.client_pid ?? null,
                   screen_type: summary.screen_type ?? null,
                   floor: summary.floor ?? null,
                   ready_for_command: summary.ready_for_command ?? null,
@@ -96,6 +97,7 @@ if (require.main === module) {
             status: status
               ? {
                   step: status.step ?? null,
+                  client_pid: status.client_pid ?? null,
                   status: status.status ?? null,
                   command: status.command ?? null,
                 }
