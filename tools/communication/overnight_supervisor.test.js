@@ -4,6 +4,8 @@ const assert = require("assert");
 const {
   bridgeLooksStaleFrom,
   currentTracePathFromStatus,
+  formatValidationSummary,
+  parseValidationOutput,
 } = require("./overnight_supervisor");
 
 function testNoSessionFilesAreStale() {
@@ -59,10 +61,36 @@ function testTracePathExtraction() {
   assert.strictEqual(currentTracePathFromStatus(null), null);
 }
 
+function testValidationOutputParsing() {
+  const parsed = parseValidationOutput('{"ok":true,"summary":{"actions":3}}');
+  assert.strictEqual(parsed.ok, true);
+  assert.strictEqual(parsed.summary.actions, 3);
+  assert.strictEqual(parseValidationOutput("not json"), null);
+}
+
+function testValidationSummaryFormatting() {
+  const line = formatValidationSummary({
+    actions: 42,
+    max_floor: 7,
+    elite_rooms: 1,
+    boss_rooms: 0,
+    deaths: 0,
+    terminal: { kind: "reward_screen" },
+    coverage: { score: 142 },
+  });
+  assert.match(line, /actions=42/);
+  assert.match(line, /maxFloor=7/);
+  assert.match(line, /elites=1/);
+  assert.match(line, /terminal=reward_screen/);
+  assert.match(line, /score=142/);
+}
+
 testNoSessionFilesAreStale();
 testOldSessionFilesAreStale();
 testExitedBridgeIsStale();
 testFreshSessionIsActive();
 testTracePathExtraction();
+testValidationOutputParsing();
+testValidationSummaryFormatting();
 
 console.log("overnight_supervisor tests passed");
