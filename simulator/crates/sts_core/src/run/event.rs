@@ -1,5 +1,5 @@
 use crate::{
-    content::cards::{upgrade_content_id, REGRET_ID},
+    content::cards::{upgrade_content_id, DOUBT_ID, REGRET_ID},
     rng::{JavaRng, StsRng},
     EventAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -9,6 +9,7 @@ pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
+pub const SSSSSERPENT_GOLD: i32 = 175;
 pub const SHINING_LIGHT_HP_PERCENT: f32 = 0.20;
 pub const SHRINE_CHANCE: f32 = 0.25;
 
@@ -148,6 +149,25 @@ fn big_fish_choices(stage: u32) -> Vec<EventChoice> {
     }
 }
 
+fn sssssserpent_choices(stage: u32) -> Vec<EventChoice> {
+    match stage {
+        0 => vec![
+            EventChoice {
+                label: "Agree".to_owned(),
+            },
+            EventChoice {
+                label: "Disagree".to_owned(),
+            },
+        ],
+        1 => vec![EventChoice {
+            label: "Continue".to_owned(),
+        }],
+        _ => vec![EventChoice {
+            label: "Leave".to_owned(),
+        }],
+    }
+}
+
 fn roll_scrap_ooze_relic(run: &mut RunState, event_data: u32) -> bool {
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
     let roll = rng.random_int(99);
@@ -283,6 +303,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         ),
         Event::ScrapOoze => make_event_screen(event, scrap_ooze_choices(0), 0),
         Event::BigFish => make_event_screen(event, big_fish_choices(0), 0),
+        Event::TheSsssserpent => make_event_screen(event, sssssserpent_choices(0), 0),
         _ => make_event_screen(
             event,
             vec![EventChoice {
@@ -448,6 +469,39 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             _ => {
                 return Err(SimError::IllegalAction(
                     "event choice is not implemented for Big Fish",
+                ));
+            }
+        },
+        Event::TheSsssserpent => match screen.stage {
+            0 if choice_index == 0 => {
+                next.event = Some(EventScreen {
+                    event: Event::TheSsssserpent,
+                    choices: sssssserpent_choices(1),
+                    stage: 1,
+                    event_data: 0,
+                });
+            }
+            0 if choice_index == 1 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            1 if choice_index == 0 => {
+                next.gold += SSSSSERPENT_GOLD;
+                next.event = Some(EventScreen {
+                    event: Event::TheSsssserpent,
+                    choices: sssssserpent_choices(2),
+                    stage: 2,
+                    event_data: 0,
+                });
+            }
+            2 if choice_index == 0 => {
+                next.gain_deck_card(DOUBT_ID);
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for The Ssssserpent",
                 ));
             }
         },
@@ -651,6 +705,35 @@ mod tests {
         assert_eq!(done.phase, RunPhase::Idle);
         assert!(done.event.is_none());
         assert!(done.deck.iter().any(|card| card.content_id == REGRET_ID));
+    }
+
+    #[test]
+    fn sssssserpent_agree_grants_gold_then_doubt() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::TheSsssserpent));
+        let gold_before = run.gold;
+
+        let after_agree =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("agree");
+        assert_eq!(after_agree.gold, gold_before);
+        assert_eq!(after_agree.event.as_ref().unwrap().stage, 1);
+
+        let after_continue =
+            apply_event_action(&after_agree, EventAction::Choose { choice_index: 0 })
+                .expect("continue");
+        assert_eq!(after_continue.gold, gold_before + SSSSSERPENT_GOLD);
+        assert_eq!(after_continue.event.as_ref().unwrap().stage, 2);
+
+        let after_leave =
+            apply_event_action(&after_continue, EventAction::Choose { choice_index: 0 })
+                .expect("leave");
+        assert_eq!(after_leave.phase, RunPhase::Idle);
+        assert!(after_leave.event.is_none());
+        assert!(after_leave
+            .deck
+            .iter()
+            .any(|card| card.content_id == DOUBT_ID));
     }
 
     #[test]
