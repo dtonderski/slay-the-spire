@@ -22,6 +22,7 @@ pub const SPEED_POTION_TEMP_DEXTERITY: i32 = 5;
 pub const WEAK_POTION_WEAK: i32 = 3;
 pub const FRUIT_JUICE_MAX_HP: i32 = 5;
 pub const SWIFT_POTION_DRAW: usize = 3;
+pub const SNECKO_OIL_DRAW: usize = 5;
 pub const GAMBLE_POTION_WIN_GOLD: i32 = 50;
 pub const GAMBLE_POTION_LOSS_GOLD: i32 = 50;
 
@@ -283,13 +284,17 @@ impl Potion {
                 | Potion::Duplication
                 | Potion::DistilledChaos
                 | Potion::LiquidMemories
+                | Potion::SneckoOil
                 | Potion::Power
         )
     }
 
     #[must_use]
     pub fn uses_rng(self) -> bool {
-        matches!(self, Potion::Gamble | Potion::EntropicBrew)
+        matches!(
+            self,
+            Potion::Gamble | Potion::EntropicBrew | Potion::DistilledChaos | Potion::SneckoOil
+        )
     }
 }
 

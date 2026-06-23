@@ -1202,12 +1202,13 @@ Completed slice:
 - implemented Duplication Potion's one-shot next-card replay flag
 - implemented Distilled Chaos top-three draw-pile play with `cardRandomRng` targeting
 - implemented Liquid Memories discard-pile selection returning the chosen card to hand at zero cost
+- implemented Snecko Oil draw-five and playable-hand cost randomization with `cardRandomRng`
 - preserved existing Fire, Block, Fear, Gamble, Power, discard, target validation, and potion-reward/shop belt behavior
 - added unit tests for each new deterministic potion effect
 
 Remaining:
 
-- random/hand-pile potions: Snecko Oil, Smoke Bomb, Elixir, Fairy
+- random/hand-pile potions: Smoke Bomb, Elixir, Fairy
 - source-backed temporary/deferred powers that are not yet represented in `PlayerPowers` or combat turn cleanup
 - potion-heavy seed-start trace verification once a suitable captured trace reaches these effects
 
