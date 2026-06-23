@@ -221,7 +221,10 @@ mod tests {
             Relic::from_key(RelicKey::VelvetChoker),
             Some(Relic::VelvetChoker)
         );
-        assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
+        assert_eq!(
+            Relic::from_key(RelicKey::ToyOrnithopter),
+            Some(Relic::ToyOrnithopter)
+        );
     }
 
     #[test]
@@ -967,6 +970,7 @@ impl RunState {
                 self.energy_per_turn += VELVET_CHOKER_ENERGY;
             }
             Relic::BloodVial
+            | Relic::ToyOrnithopter
             | Relic::PotionBelt
             | Relic::Lantern
             | Relic::BagOfPreparation
@@ -1172,6 +1176,7 @@ impl Relic {
             Relic::Sozu => RelicKey::Sozu,
             Relic::BustedCrown => RelicKey::BustedCrown,
             Relic::VelvetChoker => RelicKey::VelvetChoker,
+            Relic::ToyOrnithopter => RelicKey::ToyOrnithopter,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1233,6 +1238,7 @@ impl Relic {
             RelicKey::Sozu => Some(Relic::Sozu),
             RelicKey::BustedCrown => Some(Relic::BustedCrown),
             RelicKey::VelvetChoker => Some(Relic::VelvetChoker),
+            RelicKey::ToyOrnithopter => Some(Relic::ToyOrnithopter),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

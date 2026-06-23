@@ -506,6 +506,16 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     ));
                 }
             }
+            if let Some(combat) = next.combat.as_mut() {
+                crate::relic::apply_potion_use_relics_to_combat(combat);
+                next.player_hp = combat.player.hp;
+            } else {
+                crate::relic::apply_potion_use_relics_to_run_hp(
+                    &mut next.player_hp,
+                    next.player_max_hp,
+                    &next.relics,
+                );
+            }
             let won = next
                 .combat
                 .as_ref()
@@ -570,6 +580,42 @@ mod tests {
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.player.block, BLOCK_POTION_BLOCK);
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn toy_ornithopter_heals_when_potion_is_used_in_combat() {
+        let mut run = RunState::combat_fixture();
+        run.relics.push(Relic::ToyOrnithopter);
+        run.potions.push(Potion::Block);
+        run.combat.as_mut().expect("combat").relics = run.relics.clone();
+        run.combat.as_mut().expect("combat").player.hp = 70;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("block potion applies");
+
+        let combat = after.combat.expect("combat remains active");
+        assert_eq!(combat.player.hp, 70 + crate::relic::TOY_ORNITHOPTER_HEAL);
+        assert_eq!(after.player_hp, combat.player.hp);
+    }
+
+    #[test]
+    fn toy_ornithopter_does_not_heal_when_potion_is_discarded() {
+        let mut run = RunState::combat_fixture();
+        run.relics.push(Relic::ToyOrnithopter);
+        run.potions.push(Potion::Block);
+        run.combat.as_mut().expect("combat").relics = run.relics.clone();
+        run.combat.as_mut().expect("combat").player.hp = 70;
+
+        let after = apply_potion_action(&run, RunAction::DiscardPotion { slot: 0 })
+            .expect("potion discards");
+
+        assert_eq!(after.combat.expect("combat").player.hp, 70);
     }
 
     #[test]
@@ -1514,6 +1560,28 @@ mod tests {
         assert_eq!(after.player_max_hp, max_hp_before + FRUIT_JUICE_MAX_HP);
         assert_eq!(after.player_hp, current_hp_before + FRUIT_JUICE_MAX_HP);
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn toy_ornithopter_heals_when_potion_is_used_outside_combat() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::ToyOrnithopter);
+        run.player_hp = 60;
+        run.potions.push(Potion::FruitJuice);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("fruit juice applies");
+
+        assert_eq!(
+            after.player_hp,
+            60 + FRUIT_JUICE_MAX_HP + crate::relic::TOY_ORNITHOPTER_HEAL
+        );
     }
 
     #[test]

@@ -52,6 +52,8 @@ pub const BUSTED_CROWN_CARD_REWARD_REDUCTION: usize = 2;
 pub const VELVET_CHOKER_ENERGY: i32 = 1;
 /// Maximum cards playable per turn with [Relic::VelvetChoker].
 pub const VELVET_CHOKER_CARD_LIMIT: u32 = 6;
+/// HP healed by [Relic::ToyOrnithopter] when a potion is used.
+pub const TOY_ORNITHOPTER_HEAL: i32 = 5;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -247,6 +249,8 @@ pub const SOZU_ID: ContentId = ContentId::new(352);
 pub const BUSTED_CROWN_ID: ContentId = ContentId::new(353);
 /// Content id for [Relic::VelvetChoker].
 pub const VELVET_CHOKER_ID: ContentId = ContentId::new(354);
+/// Content id for [Relic::ToyOrnithopter].
+pub const TOY_ORNITHOPTER_ID: ContentId = ContentId::new(355);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -816,6 +820,7 @@ pub enum Relic {
     Sozu,
     BustedCrown,
     VelvetChoker,
+    ToyOrnithopter,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -877,6 +882,7 @@ impl Relic {
             Relic::Sozu => SOZU_ID,
             Relic::BustedCrown => BUSTED_CROWN_ID,
             Relic::VelvetChoker => VELVET_CHOKER_ID,
+            Relic::ToyOrnithopter => TOY_ORNITHOPTER_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -938,6 +944,7 @@ impl Relic {
             id if id == SOZU_ID => Some(Relic::Sozu),
             id if id == BUSTED_CROWN_ID => Some(Relic::BustedCrown),
             id if id == VELVET_CHOKER_ID => Some(Relic::VelvetChoker),
+            id if id == TOY_ORNITHOPTER_ID => Some(Relic::ToyOrnithopter),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -1032,6 +1039,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Sozu => {}
             Relic::BustedCrown => {}
             Relic::VelvetChoker => {}
+            Relic::ToyOrnithopter => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1066,6 +1074,23 @@ pub fn heal_player_in_combat_with_relics(
 ) {
     let heal = combat_healing_amount_with_relics(base_heal, relics);
     *hp = (*hp + heal).min(max_hp);
+}
+
+pub fn apply_potion_use_relics_to_combat(combat: &mut CombatState) {
+    if combat.relics.contains(&Relic::ToyOrnithopter) {
+        heal_player_in_combat_with_relics(
+            &mut combat.player.hp,
+            combat.player.max_hp,
+            TOY_ORNITHOPTER_HEAL,
+            &combat.relics,
+        );
+    }
+}
+
+pub fn apply_potion_use_relics_to_run_hp(hp: &mut i32, max_hp: i32, relics: &[Relic]) {
+    if relics.contains(&Relic::ToyOrnithopter) {
+        *hp = (*hp + TOY_ORNITHOPTER_HEAL).min(max_hp);
+    }
 }
 
 /// Whether player energy should carry over instead of refilling at turn start.
@@ -1848,6 +1873,11 @@ mod tests {
             Relic::from_content_id(VELVET_CHOKER_ID),
             Some(Relic::VelvetChoker)
         );
+        assert_eq!(Relic::ToyOrnithopter.content_id(), TOY_ORNITHOPTER_ID);
+        assert_eq!(
+            Relic::from_content_id(TOY_ORNITHOPTER_ID),
+            Some(Relic::ToyOrnithopter)
+        );
     }
 
     #[test]
@@ -1871,6 +1901,37 @@ mod tests {
         assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 3), 2);
         assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 1), 0);
         assert_eq!(mitigate_hp_loss(&[], 3), 3);
+    }
+
+    #[test]
+    fn toy_ornithopter_heals_on_potion_use_in_combat() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::ToyOrnithopter];
+        combat.player.hp = 70;
+
+        apply_potion_use_relics_to_combat(&mut combat);
+
+        assert_eq!(combat.player.hp, 70 + TOY_ORNITHOPTER_HEAL);
+    }
+
+    #[test]
+    fn toy_ornithopter_combat_heal_uses_magic_flower() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::ToyOrnithopter, Relic::MagicFlower];
+        combat.player.hp = 60;
+
+        apply_potion_use_relics_to_combat(&mut combat);
+
+        assert_eq!(combat.player.hp, 68);
+    }
+
+    #[test]
+    fn toy_ornithopter_noncombat_heal_caps_at_max_hp() {
+        let mut hp = 78;
+
+        apply_potion_use_relics_to_run_hp(&mut hp, 80, &[Relic::ToyOrnithopter]);
+
+        assert_eq!(hp, 80);
     }
 
     #[test]
