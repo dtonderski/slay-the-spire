@@ -18,7 +18,8 @@ use crate::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
         LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD,
-        PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, STRAWBERRY_MAX_HP,
+        PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
+        PRESERVED_INSECT_HP_NUMERATOR, STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -196,6 +197,10 @@ mod tests {
             Relic::from_key(RelicKey::ChampionBelt),
             Some(Relic::ChampionBelt)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::PreservedInsect),
+            Some(Relic::PreservedInsect)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -278,6 +283,45 @@ mod tests {
         let combat = run.init_combat(CombatState::initial_fixture());
 
         assert_eq!(combat.player.hp, 20);
+    }
+
+    #[test]
+    fn preserved_insect_reduces_elite_monster_hp_on_combat_start() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map").map.nodes[0].room_kind = RoomKind::Elite;
+        run.relics = vec![Relic::PreservedInsect];
+        let base = CombatState::initial_fixture();
+        let base_hp = base.monsters[0].hp;
+
+        let combat = run.init_combat(base);
+        let expected = base_hp * PRESERVED_INSECT_HP_NUMERATOR / PRESERVED_INSECT_HP_DENOMINATOR;
+
+        assert_eq!(combat.monsters[0].hp, expected);
+    }
+
+    #[test]
+    fn preserved_insect_does_not_apply_outside_elite_rooms() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::PreservedInsect];
+        let base = CombatState::initial_fixture();
+        let base_hp = base.monsters[0].hp;
+
+        let combat = run.init_combat(base);
+
+        assert_eq!(combat.monsters[0].hp, base_hp);
+    }
+
+    #[test]
+    fn preserved_insect_keeps_one_hp_monsters_alive() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map").map.nodes[0].room_kind = RoomKind::Elite;
+        run.relics = vec![Relic::PreservedInsect];
+        let mut base = CombatState::initial_fixture();
+        base.monsters[0].hp = 1;
+
+        let combat = run.init_combat(base);
+
+        assert_eq!(combat.monsters[0].hp, 1);
     }
 
     #[test]
@@ -488,6 +532,15 @@ impl RunState {
                 PANTOGRAPH_HEAL,
                 &self.relics,
             );
+        }
+        if self.current_room_kind() == Some(RoomKind::Elite)
+            && self.relics.contains(&Relic::PreservedInsect)
+        {
+            for monster in &mut combat.monsters {
+                monster.hp = (monster.hp * PRESERVED_INSECT_HP_NUMERATOR
+                    / PRESERVED_INSECT_HP_DENOMINATOR)
+                    .max(1);
+            }
         }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
@@ -799,6 +852,7 @@ impl RunState {
             | Relic::MagicFlower
             | Relic::PaperPhrog
             | Relic::ChampionBelt
+            | Relic::PreservedInsect
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -957,6 +1011,7 @@ impl Relic {
             Relic::MagicFlower => RelicKey::MagicFlower,
             Relic::PaperPhrog => RelicKey::PaperPhrog,
             Relic::ChampionBelt => RelicKey::ChampionBelt,
+            Relic::PreservedInsect => RelicKey::PreservedInsect,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1011,6 +1066,7 @@ impl Relic {
             RelicKey::MagicFlower => Some(Relic::MagicFlower),
             RelicKey::PaperPhrog => Some(Relic::PaperPhrog),
             RelicKey::ChampionBelt => Some(Relic::ChampionBelt),
+            RelicKey::PreservedInsect => Some(Relic::PreservedInsect),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
