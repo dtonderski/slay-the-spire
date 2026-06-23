@@ -52,6 +52,7 @@ fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut SimulatorRng) {
         let swap_with = rng.next_usize(RngStream::Shuffle, "combat::draw::shuffle", index + 1);
         state.piles.draw_pile.swap(index, swap_with);
     }
+    crate::relic::apply_shuffle_relics(state);
 }
 
 fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
@@ -62,12 +63,13 @@ fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+    crate::relic::apply_shuffle_relics(state);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{legal_combat_actions, CardInstance, ContentId};
+    use crate::{legal_combat_actions, CardInstance, ContentId, Relic};
 
     #[test]
     fn draw_pile_draws_from_top_of_bottom_first_export_order() {
@@ -124,6 +126,30 @@ mod tests {
             .log()
             .iter()
             .all(|draw| draw.stream == RngStream::Shuffle));
+    }
+
+    #[test]
+    fn the_abacus_grants_block_when_discard_is_shuffled_into_draw() {
+        let mut state = fixture_with_discard_only();
+        state.relics = vec![Relic::TheAbacus];
+        state.player.block = 2;
+        let mut rng = SimulatorRng::new(3);
+
+        draw_cards(&mut state, 1, &mut rng);
+
+        assert_eq!(state.player.block, 2 + crate::relic::THE_ABACUS_BLOCK);
+    }
+
+    #[test]
+    fn the_abacus_does_not_trigger_without_shuffle() {
+        let mut state = fixture_with_draw_pile();
+        state.relics = vec![Relic::TheAbacus];
+        state.player.block = 2;
+        let mut rng = SimulatorRng::new(3);
+
+        draw_cards(&mut state, 1, &mut rng);
+
+        assert_eq!(state.player.block, 2);
     }
 
     #[test]

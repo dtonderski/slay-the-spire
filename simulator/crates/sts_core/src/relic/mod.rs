@@ -72,6 +72,8 @@ pub const AKABEKO_DAMAGE: i32 = 8;
 pub const CENTENNIAL_PUZZLE_DRAW: usize = 3;
 /// Cards drawn after each HP loss by [Relic::RunicCube].
 pub const RUNIC_CUBE_DRAW: usize = 1;
+/// Block granted by [Relic::TheAbacus] whenever the discard pile is shuffled into the draw pile.
+pub const THE_ABACUS_BLOCK: i32 = 6;
 /// Block granted by [Relic::SelfFormingClay] after HP loss.
 pub const SELF_FORMING_CLAY_BLOCK: i32 = 3;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
@@ -361,6 +363,8 @@ pub const SELF_FORMING_CLAY_ID: ContentId = ContentId::new(382);
 pub const CLOCKWORK_SOUVENIR_ID: ContentId = ContentId::new(383);
 /// Content id for [Relic::RunicCube].
 pub const RUNIC_CUBE_ID: ContentId = ContentId::new(384);
+/// Content id for [Relic::TheAbacus].
+pub const THE_ABACUS_ID: ContentId = ContentId::new(385);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -975,6 +979,7 @@ pub enum Relic {
     SelfFormingClay,
     ClockworkSouvenir,
     RunicCube,
+    TheAbacus,
 }
 
 impl Relic {
@@ -1066,6 +1071,7 @@ impl Relic {
             Relic::SelfFormingClay => SELF_FORMING_CLAY_ID,
             Relic::ClockworkSouvenir => CLOCKWORK_SOUVENIR_ID,
             Relic::RunicCube => RUNIC_CUBE_ID,
+            Relic::TheAbacus => THE_ABACUS_ID,
         }
     }
 
@@ -1157,6 +1163,7 @@ impl Relic {
             id if id == SELF_FORMING_CLAY_ID => Some(Relic::SelfFormingClay),
             id if id == CLOCKWORK_SOUVENIR_ID => Some(Relic::ClockworkSouvenir),
             id if id == RUNIC_CUBE_ID => Some(Relic::RunicCube),
+            id if id == THE_ABACUS_ID => Some(Relic::TheAbacus),
             _ => None,
         }
     }
@@ -1285,10 +1292,17 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PenNib => {}
             Relic::SelfFormingClay => {}
             Relic::RunicCube => {}
+            Relic::TheAbacus => {}
         }
     }
 
     apply_start_of_player_turn_relics(combat);
+}
+
+pub fn apply_shuffle_relics(state: &mut CombatState) {
+    if state.relics.contains(&Relic::TheAbacus) {
+        state.player.block += THE_ABACUS_BLOCK;
+    }
 }
 
 #[must_use]
@@ -2308,6 +2322,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(RUNIC_CUBE_ID),
             Some(Relic::RunicCube)
+        );
+        assert_eq!(Relic::TheAbacus.content_id(), THE_ABACUS_ID);
+        assert_eq!(
+            Relic::from_content_id(THE_ABACUS_ID),
+            Some(Relic::TheAbacus)
         );
     }
 

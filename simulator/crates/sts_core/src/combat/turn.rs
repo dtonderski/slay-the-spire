@@ -121,6 +121,7 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
                     state.piles.draw_pile.append(&mut state.piles.discard_pile);
                     let shuffle_seed = rng.random_long();
                     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+                    crate::relic::apply_shuffle_relics(state);
                 }
             }
         }
