@@ -1,13 +1,14 @@
 use crate::{
-    card::{CardInstance, CardType},
+    card::{CardInstance, CardType, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
-        choose_hand_select, confirm_hand_select, hand_select_ui_to_hand_index, player_draw_cards,
+        apply_play_top_draw_card_action, choose_hand_select, confirm_hand_select,
+        hand_select_ui_to_hand_index, player_draw_cards, top_draw_card_definition,
     },
-    combat::CombatPhase,
+    combat::{CombatPhase, CombatState},
     content::cards::upgrade_content_id,
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
-    ids::CardId,
+    ids::{CardId, MonsterId},
     potion::{
         Potion, ANCIENT_POTION_ARTIFACT, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT,
         CULTIST_POTION_RITUAL, DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY,
@@ -17,7 +18,7 @@ use crate::{
         REGEN_POTION_REGEN, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
         SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
-    rng::{RngStream, SimulatorRng},
+    rng::{RngStream, SimulatorRng, StsRng},
     run::reward::target_random_potion,
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -145,6 +146,29 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     Ok(next)
 }
 
+fn distilled_chaos_target(
+    combat: &CombatState,
+    target: TargetRequirement,
+    rng: &mut StsRng,
+) -> SimResult<Option<MonsterId>> {
+    if target != TargetRequirement::Enemy {
+        return Ok(None);
+    }
+
+    let living = combat
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| monster.id)
+        .collect::<Vec<_>>();
+    if living.is_empty() {
+        return Err(SimError::IllegalAction("no living monsters to target"));
+    }
+
+    let index = rng.random_int((living.len() - 1) as i32) as usize;
+    Ok(Some(living[index]))
+}
+
 pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     validate_potion_action(run, action)?;
 
@@ -255,6 +279,24 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     let combat = next.combat.as_mut().expect("validated combat state");
                     combat.duplication_potion_pending = true;
                 }
+                Potion::DistilledChaos => {
+                    let mut rng = next.card_random_rng();
+                    let mut combat = next.combat.take().expect("validated combat state");
+                    for _ in 0..3 {
+                        if combat.phase != CombatPhase::WaitingForPlayer
+                            || combat.piles.draw_pile.is_empty()
+                        {
+                            break;
+                        }
+                        let top_definition = top_draw_card_definition(&combat)
+                            .ok_or(SimError::IllegalAction("draw pile is empty"))?;
+                        let target =
+                            distilled_chaos_target(&combat, top_definition.target, &mut rng)?;
+                        combat = apply_play_top_draw_card_action(&combat, target)?;
+                    }
+                    next.card_random_rng_counter = rng.counter();
+                    next.combat = Some(combat);
+                }
                 Potion::Weak => {
                     let target = target.expect("validated weak potion target");
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -341,7 +383,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MonsterId;
+    use crate::{
+        content::cards::{DEFEND_R_ID, STRIKE_R_ID},
+        MonsterId,
+    };
 
     #[test]
     fn fire_potion_deals_twenty_damage_and_is_consumed() {
@@ -706,6 +751,66 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert!(combat.duplication_potion_pending);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn distilled_chaos_plays_up_to_three_top_draw_cards_and_consumes_potion() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), DEFEND_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+            CardInstance::new(CardId::new(12), DEFEND_R_ID),
+        ];
+        run.potions.push(Potion::DistilledChaos);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use distilled chaos");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.block, 15);
+        assert!(combat.piles.draw_pile.is_empty());
+        assert_eq!(combat.piles.exhaust_pile.len(), 3);
+        assert_eq!(after.card_random_rng_counter, run.card_random_rng_counter);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn distilled_chaos_attack_targets_use_card_random_rng() {
+        let mut run = RunState::combat_fixture();
+        run.combat = Some(crate::combat::CombatState::sentry_fixture());
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), STRIKE_R_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+        ];
+        let hp_before: i32 = combat.monsters.iter().map(|monster| monster.hp).sum();
+        run.potions.push(Potion::DistilledChaos);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use distilled chaos");
+
+        let combat = after.combat.expect("combat continues");
+        let hp_after: i32 = combat.monsters.iter().map(|monster| monster.hp).sum();
+        assert_eq!(hp_after, hp_before - 18);
+        assert_eq!(
+            after.card_random_rng_counter,
+            run.card_random_rng_counter + 3
+        );
         assert!(after.potions.is_empty());
     }
 
