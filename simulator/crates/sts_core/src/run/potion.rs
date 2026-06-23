@@ -11,6 +11,7 @@ use crate::{
     content::cards::{get_card_definition, upgrade_content_id},
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
     ids::{CardId, MonsterId},
+    map::RoomKind,
     potion::{
         Potion, ANCIENT_POTION_ARTIFACT, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT,
         CULTIST_POTION_RITUAL, DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY,
@@ -56,6 +57,11 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
                 } else if target.is_some() {
                     return Err(SimError::IllegalAction("potion does not take a target"));
                 }
+                if *potion == Potion::SmokeBomb && current_room_kind(run) == Some(RoomKind::Boss) {
+                    return Err(SimError::IllegalAction(
+                        "Smoke Bomb cannot be used in boss combat",
+                    ));
+                }
             } else if target.is_some() {
                 return Err(SimError::IllegalAction("potion does not take a target"));
             }
@@ -77,6 +83,15 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
         RunAction::ConfirmDiscardSelect => validate_discard_select_confirm(run),
         _ => Err(SimError::IllegalAction("not a potion action")),
     }
+}
+
+fn current_room_kind(run: &RunState) -> Option<RoomKind> {
+    run.map.as_ref().and_then(|map_state| {
+        map_state
+            .map
+            .node(map_state.current_node)
+            .map(|node| node.room_kind)
+    })
 }
 
 pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<()> {
@@ -330,6 +345,13 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng);
                     next.card_random_rng_counter = rng.counter();
                 }
+                Potion::SmokeBomb => {
+                    let combat = next.combat.take().expect("validated combat state");
+                    next.player_hp = combat.player.hp;
+                    next.player_max_hp = combat.player.max_hp;
+                    next.reward = None;
+                    next.phase = RunPhase::Idle;
+                }
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     for card in &mut combat.piles.hand {
@@ -452,7 +474,7 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{DEFEND_R_ID, STRIKE_R_ID, WOUND_ID},
-        MonsterId,
+        MapNodeId, MonsterId,
     };
 
     #[test]
@@ -1166,6 +1188,49 @@ mod tests {
             run.card_random_rng_counter + 6
         );
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn smoke_bomb_escapes_combat_without_reward() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::SmokeBomb);
+        run.combat.as_mut().expect("combat").player.hp = 42;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use smoke bomb");
+
+        assert_eq!(after.phase, RunPhase::Idle);
+        assert_eq!(after.player_hp, 42);
+        assert!(after.combat.is_none());
+        assert!(after.reward.is_none());
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn smoke_bomb_is_illegal_in_boss_room() {
+        let mut run = RunState::combat_fixture();
+        run.map = Some(crate::map::milestone8_fixture());
+        run.map.as_mut().expect("map").current_node = MapNodeId::new(6);
+        run.potions.push(Potion::SmokeBomb);
+
+        assert_eq!(
+            apply_potion_action(
+                &run,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "Smoke Bomb cannot be used in boss combat"
+            ))
+        );
     }
 
     #[test]
