@@ -21,7 +21,7 @@ use crate::{
         FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
         MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD, OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP,
         POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR,
-        SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
+        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -211,6 +211,10 @@ mod tests {
             Some(Relic::PreservedInsect)
         );
         assert_eq!(Relic::from_key(RelicKey::Omamori), Some(Relic::Omamori));
+        assert_eq!(
+            Relic::from_key(RelicKey::SlingOfCourage),
+            Some(Relic::SlingOfCourage)
+        );
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -476,6 +480,27 @@ mod tests {
         let combat = run.init_combat(base);
 
         assert_eq!(combat.monsters[0].hp, 1);
+    }
+
+    #[test]
+    fn sling_of_courage_grants_strength_in_elite_combat() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map").map.nodes[0].room_kind = RoomKind::Elite;
+        run.relics = vec![Relic::SlingOfCourage];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(combat.player.powers.strength, SLING_OF_COURAGE_STRENGTH);
+    }
+
+    #[test]
+    fn sling_of_courage_does_not_apply_outside_elite_rooms() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::SlingOfCourage];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(combat.player.powers.strength, 0);
     }
 
     #[test]
@@ -775,6 +800,11 @@ impl RunState {
                     / PRESERVED_INSECT_HP_DENOMINATOR)
                     .max(1);
             }
+        }
+        if self.current_room_kind() == Some(RoomKind::Elite)
+            && self.relics.contains(&Relic::SlingOfCourage)
+        {
+            combat.player.powers.strength += SLING_OF_COURAGE_STRENGTH;
         }
         if self.relics.contains(&Relic::DuVuDoll) {
             let curses = self
@@ -1159,6 +1189,7 @@ impl RunState {
             | Relic::ChampionBelt
             | Relic::PreservedInsect
             | Relic::Omamori
+            | Relic::SlingOfCourage
             | Relic::DarkstonePeriapt
             | Relic::DuVuDoll
             | Relic::Vajra
@@ -1326,6 +1357,7 @@ impl Relic {
             Relic::ChampionBelt => RelicKey::ChampionBelt,
             Relic::PreservedInsect => RelicKey::PreservedInsect,
             Relic::Omamori => RelicKey::Omamori,
+            Relic::SlingOfCourage => RelicKey::SlingOfCourage,
             Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
@@ -1396,6 +1428,7 @@ impl Relic {
             RelicKey::ChampionBelt => Some(Relic::ChampionBelt),
             RelicKey::PreservedInsect => Some(Relic::PreservedInsect),
             RelicKey::Omamori => Some(Relic::Omamori),
+            RelicKey::SlingOfCourage => Some(Relic::SlingOfCourage),
             RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),

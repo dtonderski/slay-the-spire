@@ -146,6 +146,8 @@ pub const CHAMPION_BELT_WEAK: i32 = 1;
 pub const PRESERVED_INSECT_HP_NUMERATOR: i32 = 3;
 /// Denominator for [Relic::PreservedInsect]'s elite HP multiplier.
 pub const PRESERVED_INSECT_HP_DENOMINATOR: i32 = 4;
+/// Strength granted by [Relic::SlingOfCourage] in elite combats.
+pub const SLING_OF_COURAGE_STRENGTH: i32 = 2;
 /// Max HP granted by [Relic::DarkstonePeriapt] whenever a curse is obtained.
 pub const DARKSTONE_PERIAPT_MAX_HP: i32 = 6;
 /// Strength granted by [Relic::DuVuDoll] per curse in the deck at combat start.
@@ -279,6 +281,8 @@ pub const ART_OF_WAR_ID: ContentId = ContentId::new(361);
 pub const QUESTION_CARD_ID: ContentId = ContentId::new(362);
 /// Content id for [Relic::Omamori].
 pub const OMAMORI_ID: ContentId = ContentId::new(363);
+/// Content id for [Relic::SlingOfCourage].
+pub const SLING_OF_COURAGE_ID: ContentId = ContentId::new(364);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -849,6 +853,7 @@ pub enum Relic {
     ChampionBelt,
     PreservedInsect,
     Omamori,
+    SlingOfCourage,
     DarkstonePeriapt,
     DuVuDoll,
     FusionHammer,
@@ -919,6 +924,7 @@ impl Relic {
             Relic::ChampionBelt => CHAMPION_BELT_ID,
             Relic::PreservedInsect => PRESERVED_INSECT_ID,
             Relic::Omamori => OMAMORI_ID,
+            Relic::SlingOfCourage => SLING_OF_COURAGE_ID,
             Relic::DarkstonePeriapt => DARKSTONE_PERIAPT_ID,
             Relic::DuVuDoll => DU_VU_DOLL_ID,
             Relic::FusionHammer => FUSION_HAMMER_ID,
@@ -989,6 +995,7 @@ impl Relic {
             id if id == CHAMPION_BELT_ID => Some(Relic::ChampionBelt),
             id if id == PRESERVED_INSECT_ID => Some(Relic::PreservedInsect),
             id if id == OMAMORI_ID => Some(Relic::Omamori),
+            id if id == SLING_OF_COURAGE_ID => Some(Relic::SlingOfCourage),
             id if id == DARKSTONE_PERIAPT_ID => Some(Relic::DarkstonePeriapt),
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
@@ -1092,6 +1099,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::ChampionBelt => {}
             Relic::PreservedInsect => {}
             Relic::Omamori => {}
+            Relic::SlingOfCourage => {}
             Relic::DarkstonePeriapt => {}
             Relic::DuVuDoll => {}
             Relic::FusionHammer => {}
@@ -2001,6 +2009,11 @@ mod tests {
         );
         assert_eq!(Relic::Omamori.content_id(), OMAMORI_ID);
         assert_eq!(Relic::from_content_id(OMAMORI_ID), Some(Relic::Omamori));
+        assert_eq!(Relic::SlingOfCourage.content_id(), SLING_OF_COURAGE_ID);
+        assert_eq!(
+            Relic::from_content_id(SLING_OF_COURAGE_ID),
+            Some(Relic::SlingOfCourage)
+        );
     }
 
     #[test]
