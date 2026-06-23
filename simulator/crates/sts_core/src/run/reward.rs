@@ -5,7 +5,7 @@ use crate::{
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
-    relic::{Relic, RelicKey, RelicTier},
+    relic::{Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION},
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::{
         apply_combat_card_reward_choice, apply_discard_select_choice, apply_discard_select_confirm,
@@ -203,9 +203,19 @@ pub fn target_card_reward_choices(
     card_rarity_factor: &mut i32,
     next_card_id: u64,
 ) -> Vec<CardInstance> {
-    let mut choices = Vec::with_capacity(REWARD_CARD_COUNT);
+    target_card_reward_choices_with_count(rng, card_rarity_factor, next_card_id, REWARD_CARD_COUNT)
+}
 
-    for index in 0..REWARD_CARD_COUNT {
+#[must_use]
+pub fn target_card_reward_choices_with_count(
+    rng: &mut StsRng,
+    card_rarity_factor: &mut i32,
+    next_card_id: u64,
+    choice_count: usize,
+) -> Vec<CardInstance> {
+    let mut choices = Vec::with_capacity(choice_count);
+
+    for index in 0..choice_count {
         let requested = roll_reward_rarity(rng, *card_rarity_factor);
         let rarity = resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES);
         match requested {
@@ -239,6 +249,14 @@ pub fn target_card_reward_choices(
     }
 
     choices
+}
+
+fn reward_card_choice_count(run: &RunState) -> usize {
+    let mut count = REWARD_CARD_COUNT;
+    if run.relics.contains(&Relic::BustedCrown) {
+        count = count.saturating_sub(BUSTED_CROWN_CARD_REWARD_REDUCTION);
+    }
+    count.max(1)
 }
 
 pub fn target_normal_combat_gold(rng: &mut StsRng) -> i32 {
@@ -397,8 +415,13 @@ pub fn advance_card_rng_for_combat_entry(run: &mut RunState) {
 pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     let next_card_id = run.next_card_instance_id();
     let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
-    let mut choices =
-        target_card_reward_choices(&mut card_rng, &mut run.card_rarity_factor, next_card_id);
+    let choice_count = reward_card_choice_count(run);
+    let mut choices = target_card_reward_choices_with_count(
+        &mut card_rng,
+        &mut run.card_rarity_factor,
+        next_card_id,
+        choice_count,
+    );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices);
     run.card_rng_counter = card_rng.counter();
     if run.relic_keys.iter().any(|key| *key == RelicKey::ToxicEgg) {
@@ -891,6 +914,25 @@ mod tests {
         );
         assert_eq!(rng.counter(), 6);
         assert_eq!(card_rarity_factor, 2);
+    }
+
+    #[test]
+    fn busted_crown_reduces_pending_card_rewards_to_one_choice() {
+        let mut run = winning_combat_run();
+
+        run.relics.push(Relic::BustedCrown);
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
+
+        let reward = run.reward.as_ref().expect("reward screen present");
+        assert_eq!(reward.choices.len(), 1);
+        assert_eq!(reward.choices[0].content_id, BODY_SLAM_ID);
+        assert_eq!(run.card_rarity_factor, 4);
+        assert_eq!(run.card_rng_counter, 3);
     }
 
     #[test]

@@ -16,11 +16,12 @@ use crate::{
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
-        RelicPoolState, RelicSpawnContext, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
-        DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE, FUSION_HAMMER_ENERGY,
-        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD,
-        PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, SOZU_ENERGY, STRAWBERRY_MAX_HP,
+        RelicPoolState, RelicSpawnContext, BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD,
+        COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE,
+        FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
+        MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD, PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS,
+        PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, SOZU_ENERGY,
+        STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -212,6 +213,10 @@ mod tests {
             Some(Relic::FusionHammer)
         );
         assert_eq!(Relic::from_key(RelicKey::Sozu), Some(Relic::Sozu));
+        assert_eq!(
+            Relic::from_key(RelicKey::BustedCrown),
+            Some(Relic::BustedCrown)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -428,6 +433,21 @@ mod tests {
         assert_eq!(combat.player.max_energy, run.energy_per_turn);
         assert_eq!(combat.player.energy, run.energy_per_turn);
         assert!(!run.can_gain_potions());
+    }
+
+    #[test]
+    fn busted_crown_pickup_adds_energy_for_combat() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::BustedCrown);
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            run.energy_per_turn,
+            BASE_PLAYER_ENERGY + BUSTED_CROWN_ENERGY
+        );
+        assert_eq!(combat.player.max_energy, run.energy_per_turn);
+        assert_eq!(combat.player.energy, run.energy_per_turn);
     }
 
     #[test]
@@ -921,6 +941,9 @@ impl RunState {
             Relic::Sozu => {
                 self.energy_per_turn += SOZU_ENERGY;
             }
+            Relic::BustedCrown => {
+                self.energy_per_turn += BUSTED_CROWN_ENERGY;
+            }
             Relic::BloodVial
             | Relic::PotionBelt
             | Relic::Lantern
@@ -1125,6 +1148,7 @@ impl Relic {
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
             Relic::Sozu => RelicKey::Sozu,
+            Relic::BustedCrown => RelicKey::BustedCrown,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1184,6 +1208,7 @@ impl Relic {
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),
             RelicKey::Sozu => Some(Relic::Sozu),
+            RelicKey::BustedCrown => Some(Relic::BustedCrown),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
