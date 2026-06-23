@@ -7,6 +7,7 @@ use crate::{
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{
         Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, QUESTION_CARD_REWARD_BONUS,
+        SINGING_BOWL_MAX_HP,
     },
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::{
@@ -654,6 +655,14 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.card_reward_pending = false;
             next.add_deck_card(choice);
         }
+        RunAction::TakeSingingBowlReward => {
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            reward.choices.clear();
+            reward.card_reward_active = false;
+            reward.card_reward_pending = false;
+            next.player_max_hp += SINGING_BOWL_MAX_HP;
+            next.player_hp += SINGING_BOWL_MAX_HP;
+        }
         RunAction::TakeGoldReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
             let gold_offer = reward.gold_offer;
@@ -1116,6 +1125,52 @@ mod tests {
         .expect_err("unknown reward card");
 
         assert_eq!(err, SimError::UnknownCard(CardId::new(999)));
+    }
+
+    #[test]
+    fn singing_bowl_replaces_open_card_reward_with_max_hp() {
+        let mut run =
+            apply_run_action(&winning_combat_run(), RunAction::OpenCardReward).expect("open cards");
+        run.relics.push(Relic::SingingBowl);
+        let deck_before = run.deck.clone();
+        let max_hp_before = run.player_max_hp;
+        let hp_before = run.player_hp;
+        run.reward.as_mut().expect("reward").gold_offer = 12;
+
+        let next =
+            apply_run_action(&run, RunAction::TakeSingingBowlReward).expect("take bowl reward");
+
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert_eq!(next.deck, deck_before);
+        assert_eq!(
+            next.player_max_hp,
+            max_hp_before + crate::relic::SINGING_BOWL_MAX_HP
+        );
+        assert_eq!(
+            next.player_hp,
+            hp_before + crate::relic::SINGING_BOWL_MAX_HP
+        );
+        let reward = next.reward.as_ref().expect("reward");
+        assert!(reward.choices.is_empty());
+        assert!(!reward.card_reward_active);
+        assert!(!reward.card_reward_pending);
+        assert_eq!(reward.gold_offer, 12);
+    }
+
+    #[test]
+    fn singing_bowl_requires_relic_and_open_card_reward() {
+        let open_run =
+            apply_run_action(&winning_combat_run(), RunAction::OpenCardReward).expect("open cards");
+
+        let err = apply_run_action(&open_run, RunAction::TakeSingingBowlReward)
+            .expect_err("missing relic");
+        assert_eq!(err, SimError::IllegalAction("singing bowl is not owned"));
+
+        let mut closed_run = winning_combat_run();
+        closed_run.relics.push(Relic::SingingBowl);
+        let err = apply_run_action(&closed_run, RunAction::TakeSingingBowlReward)
+            .expect_err("card reward is not open");
+        assert_eq!(err, SimError::IllegalAction("no open card reward to bowl"));
     }
 
     #[test]

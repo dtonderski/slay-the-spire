@@ -223,6 +223,10 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::Calipers), Some(Relic::Calipers));
         assert_eq!(
+            Relic::from_key(RelicKey::SingingBowl),
+            Some(Relic::SingingBowl)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -775,6 +779,7 @@ pub enum RunAction {
     TakeCardReward {
         card_id: CardId,
     },
+    TakeSingingBowlReward,
     TakeGoldReward,
     TakePotionReward,
     TakeRelicReward,
@@ -1262,6 +1267,7 @@ impl RunState {
             | Relic::MawBank
             | Relic::AncientTeaSet
             | Relic::Calipers
+            | Relic::SingingBowl
             | Relic::Pantograph
             | Relic::Ginger
             | Relic::Turnip
@@ -1355,6 +1361,15 @@ impl RunState {
                     Err(SimError::UnknownCard(card_id))
                 }
             }
+            RunAction::TakeSingingBowlReward => {
+                if !self.relics.contains(&Relic::SingingBowl) {
+                    return Err(SimError::IllegalAction("singing bowl is not owned"));
+                }
+                if !reward.card_reward_active || reward.choices.is_empty() {
+                    return Err(SimError::IllegalAction("no open card reward to bowl"));
+                }
+                Ok(())
+            }
             RunAction::BuyShopCard { .. }
             | RunAction::BuyShopRelic { .. }
             | RunAction::BuyShopPotion { .. }
@@ -1442,6 +1457,7 @@ impl Relic {
             Relic::MawBank => RelicKey::MawBank,
             Relic::AncientTeaSet => RelicKey::AncientTeaSet,
             Relic::Calipers => RelicKey::Calipers,
+            Relic::SingingBowl => RelicKey::SingingBowl,
             Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
@@ -1516,6 +1532,7 @@ impl Relic {
             RelicKey::MawBank => Some(Relic::MawBank),
             RelicKey::AncientTeaSet => Some(Relic::AncientTeaSet),
             RelicKey::Calipers => Some(Relic::Calipers),
+            RelicKey::SingingBowl => Some(Relic::SingingBowl),
             RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),
