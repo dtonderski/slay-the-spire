@@ -52,6 +52,7 @@ pub fn start_player_turn(state: &mut CombatState) {
 
 fn run_monster_turn(state: &mut CombatState) {
     let ascension = state.ascension;
+    let relics = state.relics.clone();
     let CombatState {
         player,
         monsters,
@@ -63,7 +64,8 @@ fn run_monster_turn(state: &mut CombatState) {
     for monster in monsters.iter_mut().filter(|monster| monster.alive) {
         clear_lagavulin_metallicize_if_awake(monster);
         let player_snapshot = player.clone();
-        let damage = apply_monster_intent(monster, player, piles, ascension, &player_snapshot);
+        let damage =
+            apply_monster_intent(monster, player, piles, ascension, &player_snapshot, &relics);
         if damage > 0 {
             pending_damage.push(damage);
         }

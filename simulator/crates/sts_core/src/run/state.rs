@@ -177,6 +177,8 @@ mod tests {
             Relic::from_key(RelicKey::Pantograph),
             Some(Relic::Pantograph)
         );
+        assert_eq!(Relic::from_key(RelicKey::Ginger), Some(Relic::Ginger));
+        assert_eq!(Relic::from_key(RelicKey::Turnip), Some(Relic::Turnip));
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -737,6 +739,8 @@ impl RunState {
             | Relic::MembershipCard
             | Relic::SmilingMask
             | Relic::Pantograph
+            | Relic::Ginger
+            | Relic::Turnip
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -889,6 +893,8 @@ impl Relic {
             Relic::MembershipCard => RelicKey::MembershipCard,
             Relic::SmilingMask => RelicKey::SmilingMask,
             Relic::Pantograph => RelicKey::Pantograph,
+            Relic::Ginger => RelicKey::Ginger,
+            Relic::Turnip => RelicKey::Turnip,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -937,6 +943,8 @@ impl Relic {
             RelicKey::MembershipCard => Some(Relic::MembershipCard),
             RelicKey::SmilingMask => Some(Relic::SmilingMask),
             RelicKey::Pantograph => Some(Relic::Pantograph),
+            RelicKey::Ginger => Some(Relic::Ginger),
+            RelicKey::Turnip => Some(Relic::Turnip),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

@@ -187,6 +187,10 @@ pub const MEMBERSHIP_CARD_ID: ContentId = ContentId::new(339);
 pub const SMILING_MASK_ID: ContentId = ContentId::new(340);
 /// Content id for [Relic::Pantograph].
 pub const PANTOGRAPH_ID: ContentId = ContentId::new(341);
+/// Content id for [Relic::Ginger].
+pub const GINGER_ID: ContentId = ContentId::new(342);
+/// Content id for [Relic::Turnip].
+pub const TURNIP_ID: ContentId = ContentId::new(343);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -741,6 +745,8 @@ pub enum Relic {
     MembershipCard,
     SmilingMask,
     Pantograph,
+    Ginger,
+    Turnip,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -789,6 +795,8 @@ impl Relic {
             Relic::MembershipCard => MEMBERSHIP_CARD_ID,
             Relic::SmilingMask => SMILING_MASK_ID,
             Relic::Pantograph => PANTOGRAPH_ID,
+            Relic::Ginger => GINGER_ID,
+            Relic::Turnip => TURNIP_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -837,6 +845,8 @@ impl Relic {
             id if id == MEMBERSHIP_CARD_ID => Some(Relic::MembershipCard),
             id if id == SMILING_MASK_ID => Some(Relic::SmilingMask),
             id if id == PANTOGRAPH_ID => Some(Relic::Pantograph),
+            id if id == GINGER_ID => Some(Relic::Ginger),
+            id if id == TURNIP_ID => Some(Relic::Turnip),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -909,6 +919,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::MembershipCard => {}
             Relic::SmilingMask => {}
             Relic::Pantograph => {}
+            Relic::Ginger => {}
+            Relic::Turnip => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1006,6 +1018,26 @@ pub fn mitigate_hp_loss(relics: &[Relic], amount: i32) -> i32 {
         mitigated = (mitigated - TUNGSTEN_ROD_REDUCTION).max(0);
     }
     mitigated
+}
+
+pub fn apply_player_weak_with_relics(
+    powers: &mut crate::power::PlayerPowers,
+    relics: &[Relic],
+    amount: i32,
+) {
+    if !relics.contains(&Relic::Ginger) {
+        crate::power::apply_player_weak(powers, amount);
+    }
+}
+
+pub fn apply_player_frail_with_relics(
+    powers: &mut crate::power::PlayerPowers,
+    relics: &[Relic],
+    amount: i32,
+) {
+    if !relics.contains(&Relic::Turnip) {
+        crate::power::apply_player_frail(powers, amount);
+    }
 }
 
 #[must_use]
@@ -1611,6 +1643,32 @@ mod tests {
         assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 3), 2);
         assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 1), 0);
         assert_eq!(mitigate_hp_loss(&[], 3), 3);
+    }
+
+    #[test]
+    fn ginger_prevents_player_weak_without_consuming_artifact() {
+        let mut powers = crate::power::PlayerPowers {
+            artifact: 1,
+            ..Default::default()
+        };
+
+        apply_player_weak_with_relics(&mut powers, &[Relic::Ginger], 2);
+
+        assert_eq!(powers.weak, 0);
+        assert_eq!(powers.artifact, 1);
+    }
+
+    #[test]
+    fn turnip_prevents_player_frail_without_consuming_artifact() {
+        let mut powers = crate::power::PlayerPowers {
+            artifact: 1,
+            ..Default::default()
+        };
+
+        apply_player_frail_with_relics(&mut powers, &[Relic::Turnip], 2);
+
+        assert_eq!(powers.frail, 0);
+        assert_eq!(powers.artifact, 1);
     }
 
     #[test]

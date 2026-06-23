@@ -1262,6 +1262,8 @@ Completed slice:
 - implemented Ceramic Fish card-add gold across reward/shop/event additions, modeled Membership Card key promotion, and Smiling Mask removal pricing with focused reward/shop/state tests
 - expanded modeled boss-entry relics: Pantograph
 - implemented boss-combat start healing from current map room state with focused boss/non-boss tests
+- expanded modeled debuff-immunity relics: Ginger and Turnip
+- implemented player Weak/Frail prevention helpers and wired Ginger into monster weak intents with focused relic/monster tests
 
 Remaining:
 
