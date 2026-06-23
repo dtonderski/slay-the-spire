@@ -152,6 +152,8 @@ pub const SLING_OF_COURAGE_STRENGTH: i32 = 2;
 pub const MAW_BANK_GOLD: i32 = 12;
 /// Energy granted by [Relic::AncientTeaSet] in the next combat after entering a rest site.
 pub const ANCIENT_TEA_SET_ENERGY: i32 = 2;
+/// Block lost at turn transition with [Relic::Calipers] instead of losing all block.
+pub const CALIPERS_BLOCK_LOSS: i32 = 15;
 /// Max HP granted by [Relic::DarkstonePeriapt] whenever a curse is obtained.
 pub const DARKSTONE_PERIAPT_MAX_HP: i32 = 6;
 /// Strength granted by [Relic::DuVuDoll] per curse in the deck at combat start.
@@ -291,6 +293,8 @@ pub const SLING_OF_COURAGE_ID: ContentId = ContentId::new(364);
 pub const MAW_BANK_ID: ContentId = ContentId::new(365);
 /// Content id for [Relic::AncientTeaSet].
 pub const ANCIENT_TEA_SET_ID: ContentId = ContentId::new(366);
+/// Content id for [Relic::Calipers].
+pub const CALIPERS_ID: ContentId = ContentId::new(367);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -864,6 +868,7 @@ pub enum Relic {
     SlingOfCourage,
     MawBank,
     AncientTeaSet,
+    Calipers,
     DarkstonePeriapt,
     DuVuDoll,
     FusionHammer,
@@ -937,6 +942,7 @@ impl Relic {
             Relic::SlingOfCourage => SLING_OF_COURAGE_ID,
             Relic::MawBank => MAW_BANK_ID,
             Relic::AncientTeaSet => ANCIENT_TEA_SET_ID,
+            Relic::Calipers => CALIPERS_ID,
             Relic::DarkstonePeriapt => DARKSTONE_PERIAPT_ID,
             Relic::DuVuDoll => DU_VU_DOLL_ID,
             Relic::FusionHammer => FUSION_HAMMER_ID,
@@ -1010,6 +1016,7 @@ impl Relic {
             id if id == SLING_OF_COURAGE_ID => Some(Relic::SlingOfCourage),
             id if id == MAW_BANK_ID => Some(Relic::MawBank),
             id if id == ANCIENT_TEA_SET_ID => Some(Relic::AncientTeaSet),
+            id if id == CALIPERS_ID => Some(Relic::Calipers),
             id if id == DARKSTONE_PERIAPT_ID => Some(Relic::DarkstonePeriapt),
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
@@ -1116,6 +1123,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::SlingOfCourage => {}
             Relic::MawBank => {}
             Relic::AncientTeaSet => {}
+            Relic::Calipers => {}
             Relic::DarkstonePeriapt => {}
             Relic::DuVuDoll => {}
             Relic::FusionHammer => {}
@@ -2037,6 +2045,8 @@ mod tests {
             Relic::from_content_id(ANCIENT_TEA_SET_ID),
             Some(Relic::AncientTeaSet)
         );
+        assert_eq!(Relic::Calipers.content_id(), CALIPERS_ID);
+        assert_eq!(Relic::from_content_id(CALIPERS_ID), Some(Relic::Calipers));
     }
 
     #[test]

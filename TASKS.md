@@ -1302,6 +1302,8 @@ Completed slice:
 - implemented Maw Bank key promotion, +12 gold floor entry, and shop-spend break behavior, with map/shop/grid tests
 - expanded modeled rest-site energy relics: Ancient Tea Set
 - implemented Ancient Tea Set key promotion, rest-site arming, next-combat +2 energy, and one-shot consume helper, with map/run-state tests
+- expanded modeled block-retention relics: Calipers
+- implemented Calipers key promotion and end-of-turn block retention, with focused combat-turn tests
 
 Remaining:
 

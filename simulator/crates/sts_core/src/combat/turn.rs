@@ -91,7 +91,15 @@ fn run_monster_turn(state: &mut CombatState) {
         state.player.powers.vulnerable -= 1;
     }
 
-    state.player.block = 0;
+    apply_turn_transition_block_loss(state);
+}
+
+fn apply_turn_transition_block_loss(state: &mut CombatState) {
+    if state.relics.contains(&crate::Relic::Calipers) {
+        state.player.block = (state.player.block - crate::relic::CALIPERS_BLOCK_LOSS).max(0);
+    } else {
+        state.player.block = 0;
+    }
 }
 
 fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
@@ -296,6 +304,32 @@ mod tests {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 20;
         state.player.block = 10;
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
+        assert_eq!(next.player.block, 0);
+    }
+
+    #[test]
+    fn calipers_loses_fifteen_block_instead_of_all_block_after_monster_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 30;
+        state.relics = vec![crate::Relic::Calipers];
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
+        assert_eq!(next.player.block, 9);
+    }
+
+    #[test]
+    fn calipers_floors_retained_block_at_zero() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 16;
+        state.relics = vec![crate::Relic::Calipers];
 
         let next = end_player_turn(&state);
 
