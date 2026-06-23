@@ -119,6 +119,7 @@ Overnight collector hardening after the `M290001` run:
 - `harvest_status.js` is the non-mutating status check for the latest `harvest_report.json`; it validates referenced raw, valid-prefix, and best-run artifacts without creating or rewriting trace files.
 - `overnight_preflight.js` checks for stale session files, pending `next_command.txt`, bridge-exited status, and sent-command/newer-than-summary mismatches before starting an overnight supervised run.
 - `run_overnight_preflight.cmd` and `run_communication_checks.cmd` provide one-command Windows entry points for preflight and communication-tool regression checks.
+- `run_overnight_guarded.cmd` is the safer overnight entry point: it runs preflight and starts the supervisor only when the bridge/session is fresh.
 
 ```powershell
 cd simulator
