@@ -221,6 +221,7 @@ mod tests {
             Relic::from_key(RelicKey::AncientTeaSet),
             Some(Relic::AncientTeaSet)
         );
+        assert_eq!(Relic::from_key(RelicKey::Calipers), Some(Relic::Calipers));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1260,6 +1261,7 @@ impl RunState {
             | Relic::SmilingMask
             | Relic::MawBank
             | Relic::AncientTeaSet
+            | Relic::Calipers
             | Relic::Pantograph
             | Relic::Ginger
             | Relic::Turnip
@@ -1439,6 +1441,7 @@ impl Relic {
             Relic::SlingOfCourage => RelicKey::SlingOfCourage,
             Relic::MawBank => RelicKey::MawBank,
             Relic::AncientTeaSet => RelicKey::AncientTeaSet,
+            Relic::Calipers => RelicKey::Calipers,
             Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
@@ -1512,6 +1515,7 @@ impl Relic {
             RelicKey::SlingOfCourage => Some(Relic::SlingOfCourage),
             RelicKey::MawBank => Some(Relic::MawBank),
             RelicKey::AncientTeaSet => Some(Relic::AncientTeaSet),
+            RelicKey::Calipers => Some(Relic::Calipers),
             RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),
