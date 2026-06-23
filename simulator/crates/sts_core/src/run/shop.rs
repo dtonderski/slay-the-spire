@@ -6,7 +6,7 @@ use crate::{
         random_colorless_from_pool, roll_card_rarity_shop, shop_card_price_rarity,
     },
     ids::CardId,
-    potion::{Potion, MAX_POTIONS},
+    potion::Potion,
     relic::{RelicKey, RelicTier},
     rng::StsRng,
     run::grid::open_shop_remove_grid,
@@ -197,7 +197,7 @@ pub fn affordable_shop_picks(run: &RunState) -> Vec<ShopPick> {
         }
     }
     for (slot, offer) in shop.potions.iter().enumerate() {
-        if !offer.sold && run.gold >= offer.price && run.potions.len() < MAX_POTIONS {
+        if !offer.sold && run.gold >= offer.price && run.potions.len() < run.potion_capacity() {
             picks.push(ShopPick::BuyPotion(slot));
         }
     }
@@ -437,7 +437,7 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
     }
 
     for (slot, offer) in shop.potions.iter().enumerate() {
-        if !offer.sold && run.gold >= offer.price && run.potions.len() < MAX_POTIONS {
+        if !offer.sold && run.gold >= offer.price && run.potions.len() < run.potion_capacity() {
             actions.push(RunAction::BuyShopPotion { slot });
         }
     }
@@ -514,7 +514,7 @@ pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> 
                     if offer.sold {
                         return Err(SimError::IllegalAction("shop potion already sold"));
                     }
-                    if run.potions.len() >= MAX_POTIONS {
+                    if run.potions.len() >= run.potion_capacity() {
                         return Err(SimError::IllegalAction("potion belt is full"));
                     }
                     if run.gold < offer.price {
@@ -761,6 +761,18 @@ mod tests {
             apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect_err("belt full");
 
         assert_eq!(err, SimError::IllegalAction("potion belt is full"));
+    }
+
+    #[test]
+    fn buy_shop_potion_allows_extra_slots_with_potion_belt() {
+        let mut run = shop_run();
+        run.relics.push(crate::Relic::PotionBelt);
+        run.potions = vec![Potion::Fire, Potion::Fire, Potion::Fire];
+
+        let after =
+            apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect("buy potion");
+
+        assert_eq!(after.potions.len(), 4);
     }
 
     #[test]

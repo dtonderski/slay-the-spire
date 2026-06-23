@@ -467,7 +467,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.potion_rng_seed as i64,
                         next.potion_rng_counter,
                     );
-                    while next.potions.len() < crate::potion::MAX_POTIONS {
+                    while next.potions.len() < next.potion_capacity() {
                         next.potions.push(target_random_potion(&mut rng));
                     }
                     next.potion_rng_counter = rng.counter();
@@ -647,6 +647,25 @@ mod tests {
         assert_eq!(after.potions.len(), crate::potion::MAX_POTIONS);
         assert_eq!(after.potions[0], Potion::Fire);
         assert_eq!(after.potions[1], Potion::Block);
+    }
+
+    #[test]
+    fn entropic_brew_refills_extra_potion_belt_slots() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(crate::Relic::PotionBelt);
+        run.potion_rng_seed = 22_079_335_079;
+        run.potions = vec![Potion::EntropicBrew];
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use entropic brew");
+
+        assert_eq!(after.potions.len(), run.potion_capacity());
     }
 
     #[test]

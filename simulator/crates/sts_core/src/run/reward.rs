@@ -4,7 +4,7 @@ use crate::{
     content::cards::{upgrade_content_id, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::CardId,
-    potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL, MAX_POTIONS},
+    potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{Relic, RelicKey, RelicTier},
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::{
@@ -291,8 +291,9 @@ pub fn target_potion_reward_offer(
     potion_chance: &mut i32,
     reward_count: usize,
     potion_belt_count: usize,
+    potion_capacity: usize,
 ) -> Option<Potion> {
-    if potion_belt_count >= MAX_POTIONS {
+    if potion_belt_count >= potion_capacity {
         return None;
     }
 
@@ -333,11 +334,13 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     let relic_offer = Relic::from_key(key);
 
     let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+    let potion_capacity = run.potion_capacity();
     let _elite_potion_roll = target_potion_reward_offer(
         &mut potion_rng,
         &mut run.potion_chance,
         2,
         run.potions.len(),
+        potion_capacity,
     );
     run.potion_rng_counter = potion_rng.counter();
 
@@ -453,11 +456,13 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     run.treasure_rng_counter = treasure_rng.counter();
 
     let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+    let potion_capacity = run.potion_capacity();
     let potion_offer = target_potion_reward_offer(
         &mut potion_rng,
         &mut run.potion_chance,
         1,
         run.potions.len(),
+        potion_capacity,
     );
     run.potion_rng_counter = potion_rng.counter();
 
@@ -491,11 +496,13 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let relic_offer = Relic::from_key(key);
 
     let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+    let potion_capacity = run.potion_capacity();
     let _elite_potion_roll = target_potion_reward_offer(
         &mut potion_rng,
         &mut run.potion_chance,
         2,
         run.potions.len(),
+        potion_capacity,
     );
     run.potion_rng_counter = potion_rng.counter();
 
@@ -580,7 +587,11 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
         return;
     }
 
-    let Some(slot) = run.potions.iter().position(|potion| *potion == Potion::Fairy) else {
+    let Some(slot) = run
+        .potions
+        .iter()
+        .position(|potion| *potion == Potion::Fairy)
+    else {
         return;
     };
 
@@ -785,7 +796,10 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.phase, CombatPhase::WaitingForPlayer);
-        assert_eq!(combat.player.hp, combat.player.max_hp * FAIRY_HEAL_PERCENT / 100);
+        assert_eq!(
+            combat.player.hp,
+            combat.player.max_hp * FAIRY_HEAL_PERCENT / 100
+        );
         assert_eq!(after.player_hp, combat.player.hp);
         assert_eq!(after.potions, vec![Potion::Fire]);
     }
@@ -1048,6 +1062,19 @@ mod tests {
     }
 
     #[test]
+    fn take_potion_reward_allows_extra_slots_with_potion_belt() {
+        let mut run = winning_combat_run();
+        run.relics.push(Relic::PotionBelt);
+        run.potions = vec![Potion::Fire, Potion::Fire, Potion::Fire];
+        run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Block);
+
+        let after = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
+
+        assert_eq!(after.potions.len(), 4);
+        assert_eq!(after.potions.last(), Some(&Potion::Block));
+    }
+
+    #[test]
     fn take_relic_reward_adds_oddly_smooth_stone() {
         let mut run = winning_combat_run();
         run.reward.as_mut().expect("reward").relic_offer = Some(Relic::OddlySmoothStone);
@@ -1155,7 +1182,13 @@ mod tests {
         let mut rng = StsRng::new(0);
         let mut potion_chance = 0;
 
-        let offer = target_potion_reward_offer(&mut rng, &mut potion_chance, 2, 0);
+        let offer = target_potion_reward_offer(
+            &mut rng,
+            &mut potion_chance,
+            2,
+            0,
+            crate::potion::MAX_POTIONS,
+        );
 
         assert_eq!(offer, None);
         assert_eq!(potion_chance, 10);
@@ -1167,7 +1200,13 @@ mod tests {
         let mut rng = StsRng::new(0);
         let mut potion_chance = 70;
 
-        let offer = target_potion_reward_offer(&mut rng, &mut potion_chance, 2, 0);
+        let offer = target_potion_reward_offer(
+            &mut rng,
+            &mut potion_chance,
+            2,
+            0,
+            crate::potion::MAX_POTIONS,
+        );
 
         assert!(offer.is_some());
         assert_eq!(potion_chance, 60);
