@@ -15,8 +15,9 @@ use crate::{
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
-        RelicPoolState, RelicSpawnContext, COFFEE_DRIPPER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP,
-        OLD_COIN_GOLD, PEAR_MAX_HP, POTION_BELT_SLOTS, STRAWBERRY_MAX_HP,
+        RelicPoolState, RelicSpawnContext, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
+        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, OLD_COIN_GOLD, PEAR_MAX_HP, POTION_BELT_SLOTS,
+        STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -159,6 +160,18 @@ mod tests {
             Relic::from_key(RelicKey::TungstenRod),
             Some(Relic::TungstenRod)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::CeramicFish),
+            Some(Relic::CeramicFish)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::MembershipCard),
+            Some(Relic::MembershipCard)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::SmilingMask),
+            Some(Relic::SmilingMask)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -195,6 +208,17 @@ mod tests {
         run.gain_relic(Relic::OldCoin);
 
         assert_eq!(run.gold, gold_before + OLD_COIN_GOLD);
+    }
+
+    #[test]
+    fn ceramic_fish_grants_gold_when_adding_cards_to_deck() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::CeramicFish];
+        let gold_before = run.gold;
+
+        run.gain_deck_card(ANGER_ID);
+
+        assert_eq!(run.gold, gold_before + CERAMIC_FISH_GOLD);
     }
 
     #[test]
@@ -576,7 +600,18 @@ impl RunState {
 
     pub fn gain_deck_card(&mut self, content_id: ContentId) {
         let id = CardId::new(self.next_card_instance_id());
-        self.deck.push(CardInstance::new(id, content_id));
+        self.add_deck_card(CardInstance::new(id, content_id));
+    }
+
+    pub fn add_deck_card(&mut self, card: CardInstance) {
+        self.deck.push(card);
+        self.apply_card_added_relics();
+    }
+
+    fn apply_card_added_relics(&mut self) {
+        if self.relics.contains(&Relic::CeramicFish) {
+            self.gold += CERAMIC_FISH_GOLD;
+        }
     }
 
     pub fn potion_capacity(&self) -> usize {
@@ -655,6 +690,9 @@ impl RunState {
             | Relic::EternalFeather
             | Relic::Torii
             | Relic::TungstenRod
+            | Relic::CeramicFish
+            | Relic::MembershipCard
+            | Relic::SmilingMask
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -803,6 +841,9 @@ impl Relic {
             Relic::EternalFeather => RelicKey::EternalFeather,
             Relic::Torii => RelicKey::Torii,
             Relic::TungstenRod => RelicKey::TungstenRod,
+            Relic::CeramicFish => RelicKey::CeramicFish,
+            Relic::MembershipCard => RelicKey::MembershipCard,
+            Relic::SmilingMask => RelicKey::SmilingMask,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -847,6 +888,9 @@ impl Relic {
             RelicKey::EternalFeather => Some(Relic::EternalFeather),
             RelicKey::Torii => Some(Relic::Torii),
             RelicKey::TungstenRod => Some(Relic::TungstenRod),
+            RelicKey::CeramicFish => Some(Relic::CeramicFish),
+            RelicKey::MembershipCard => Some(Relic::MembershipCard),
+            RelicKey::SmilingMask => Some(Relic::SmilingMask),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

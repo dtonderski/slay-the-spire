@@ -642,7 +642,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.choices.clear();
             reward.card_reward_active = false;
             reward.card_reward_pending = false;
-            next.deck.push(choice);
+            next.add_deck_card(choice);
         }
         RunAction::TakeGoldReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -994,6 +994,20 @@ mod tests {
         assert_eq!(next.deck.len(), deck_len_before + 1);
         assert!(next.deck.iter().any(|card| card.id == chosen));
         assert_eq!(next.count_content_in_deck(chosen_content), 1);
+    }
+
+    #[test]
+    fn take_card_reward_triggers_ceramic_fish_gold() {
+        let mut run =
+            apply_run_action(&winning_combat_run(), RunAction::OpenCardReward).expect("open cards");
+        run.relics.push(Relic::CeramicFish);
+        let gold_before = run.gold;
+        let chosen = run.reward.as_ref().expect("reward screen").choices[0].id;
+
+        let next = apply_run_action(&run, RunAction::TakeCardReward { card_id: chosen })
+            .expect("take reward");
+
+        assert_eq!(next.gold, gold_before + crate::relic::CERAMIC_FISH_GOLD);
     }
 
     #[test]

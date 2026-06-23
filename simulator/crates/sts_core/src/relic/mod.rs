@@ -98,6 +98,8 @@ pub const TORII_MAX_DAMAGE: i32 = 5;
 pub const TORII_REDUCED_DAMAGE: i32 = 1;
 /// HP loss prevented by [Relic::TungstenRod].
 pub const TUNGSTEN_ROD_REDUCTION: i32 = 1;
+/// Gold granted by [Relic::CeramicFish] whenever a card is added to the deck.
+pub const CERAMIC_FISH_GOLD: i32 = 9;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -175,6 +177,12 @@ pub const ETERNAL_FEATHER_ID: ContentId = ContentId::new(335);
 pub const TORII_ID: ContentId = ContentId::new(336);
 /// Content id for [Relic::TungstenRod].
 pub const TUNGSTEN_ROD_ID: ContentId = ContentId::new(337);
+/// Content id for [Relic::CeramicFish].
+pub const CERAMIC_FISH_ID: ContentId = ContentId::new(338);
+/// Content id for [Relic::MembershipCard].
+pub const MEMBERSHIP_CARD_ID: ContentId = ContentId::new(339);
+/// Content id for [Relic::SmilingMask].
+pub const SMILING_MASK_ID: ContentId = ContentId::new(340);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -725,6 +733,9 @@ pub enum Relic {
     EternalFeather,
     Torii,
     TungstenRod,
+    CeramicFish,
+    MembershipCard,
+    SmilingMask,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -769,6 +780,9 @@ impl Relic {
             Relic::EternalFeather => ETERNAL_FEATHER_ID,
             Relic::Torii => TORII_ID,
             Relic::TungstenRod => TUNGSTEN_ROD_ID,
+            Relic::CeramicFish => CERAMIC_FISH_ID,
+            Relic::MembershipCard => MEMBERSHIP_CARD_ID,
+            Relic::SmilingMask => SMILING_MASK_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -813,6 +827,9 @@ impl Relic {
             id if id == ETERNAL_FEATHER_ID => Some(Relic::EternalFeather),
             id if id == TORII_ID => Some(Relic::Torii),
             id if id == TUNGSTEN_ROD_ID => Some(Relic::TungstenRod),
+            id if id == CERAMIC_FISH_ID => Some(Relic::CeramicFish),
+            id if id == MEMBERSHIP_CARD_ID => Some(Relic::MembershipCard),
+            id if id == SMILING_MASK_ID => Some(Relic::SmilingMask),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -881,6 +898,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::EternalFeather => {}
             Relic::Torii => {}
             Relic::TungstenRod => {}
+            Relic::CeramicFish => {}
+            Relic::MembershipCard => {}
+            Relic::SmilingMask => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
