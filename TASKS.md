@@ -1284,6 +1284,8 @@ Completed slice:
 - implemented Velvet Choker pickup energy, per-turn card play counter tracking, and six-card legal-action limit with focused state/relic/legal tests
 - expanded modeled potion-use healing relics: Toy Ornithopter
 - implemented Toy Ornithopter promotion from relic keys and potion-use healing for combat/non-combat potion use, including discard no-op and Magic Flower combat-healing coverage
+- expanded modeled card-add upgrade relics: Molten Egg, Toxic Egg, and Frozen Egg
+- implemented shared card-add upgrade handling for reward choices and deck insertion paths with focused reward/state tests
 
 Remaining:
 

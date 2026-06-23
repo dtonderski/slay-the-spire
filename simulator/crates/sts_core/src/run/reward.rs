@@ -13,7 +13,7 @@ use crate::{
         apply_hand_select_confirm, apply_potion_action,
     },
     run::shop::apply_shop_action,
-    CombatAction, ContentId, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
+    CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
 /// Source-backed combat reward categories from target `createCombatReward` variants.
@@ -424,14 +424,8 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices);
     run.card_rng_counter = card_rng.counter();
-    if run.relic_keys.iter().any(|key| *key == RelicKey::ToxicEgg) {
-        for choice in &mut choices {
-            if reward_card_is_skill(choice.content_id) {
-                if let Some(upgraded) = upgrade_content_id(choice.content_id) {
-                    choice.content_id = upgraded;
-                }
-            }
-        }
+    for choice in &mut choices {
+        choice.content_id = run.content_id_after_card_add_relics(choice.content_id);
     }
     run.reward.as_mut().expect("reward screen present").choices = choices;
 }
@@ -449,30 +443,6 @@ fn consume_reward_card_upgrade_rolls(rng: &mut StsRng, choices: &mut [CardInstan
             }
         }
     }
-}
-
-fn reward_card_is_skill(content_id: ContentId) -> bool {
-    use crate::content::cards::{
-        ARMAMENTS_ID, BATTLE_TRANCE_ID, DEFEND_R_ID, ENTRENCH_ID, FLEX_ID, INTIMIDATE_ID,
-        OFFERING_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, TRUE_GRIT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID,
-    };
-    matches!(
-        content_id,
-        DEFEND_R_ID
-            | SHRUG_IT_OFF_ID
-            | TRUE_GRIT_ID
-            | BATTLE_TRANCE_ID
-            | ENTRENCH_ID
-            | FLEX_ID
-            | INTIMIDATE_ID
-            | OFFERING_ID
-            | SHOCKWAVE_ID
-            | SPOT_WEAKNESS_ID
-            | WARCRY_ID
-            | WARCRY_PLUS_ID
-            | ARMAMENTS_ID
-    )
 }
 
 pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
@@ -755,7 +725,7 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        TWIN_STRIKE_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -957,6 +927,25 @@ mod tests {
         );
         assert_eq!(run.card_rarity_factor, 2);
         assert_eq!(run.card_rng_counter, 9);
+    }
+
+    #[test]
+    fn egg_relics_upgrade_visible_reward_card_choices() {
+        let mut run = winning_combat_run();
+        run.relics.push(Relic::MoltenEgg);
+
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
+
+        let reward = run.reward.expect("reward screen present");
+        let content_ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
+        assert_eq!(
+            content_ids,
+            vec![BODY_SLAM_ID, TWIN_STRIKE_PLUS_ID, CLOTHESLINE_ID]
+        );
     }
 
     #[test]

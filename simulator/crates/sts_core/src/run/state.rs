@@ -4,11 +4,11 @@ use crate::{
     combat::CombatState,
     content::ascension::AscensionConfig,
     content::cards::{
-        is_curse_content_id, ANGER_ID, BASH_ID, BATTLE_TRANCE_ID, BURNING_PACT_ID, CLEAVE_ID,
-        DARK_EMBRACE_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
-        FLEX_ID, HAVOC_ID, INFLAME_ID, POMMEL_STRIKE_ID, SEARING_BLOW_ID, SEEING_RED_ID,
-        SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID,
-        WHIRLWIND_ID, WOUND_ID,
+        get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, BASH_ID,
+        BATTLE_TRANCE_ID, BURNING_PACT_ID, CLEAVE_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
+        DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, HAVOC_ID, INFLAME_ID,
+        POMMEL_STRIKE_ID, SEARING_BLOW_ID, SEEING_RED_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WHIRLWIND_ID, WOUND_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, ContentId, MonsterId},
@@ -37,7 +37,9 @@ fn default_energy_per_turn() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{ANGER_ID, FEEL_NO_PAIN_ID};
+    use crate::content::cards::{
+        ANGER_ID, FEEL_NO_PAIN_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_PLUS_ID,
+    };
     use crate::ids::MapNodeId;
 
     #[test]
@@ -225,6 +227,9 @@ mod tests {
             Relic::from_key(RelicKey::ToyOrnithopter),
             Some(Relic::ToyOrnithopter)
         );
+        assert_eq!(Relic::from_key(RelicKey::MoltenEgg), Some(Relic::MoltenEgg));
+        assert_eq!(Relic::from_key(RelicKey::ToxicEgg), Some(Relic::ToxicEgg));
+        assert_eq!(Relic::from_key(RelicKey::FrozenEgg), Some(Relic::FrozenEgg));
     }
 
     #[test]
@@ -297,6 +302,33 @@ mod tests {
 
         assert_eq!(run.player_max_hp, max_hp_before);
         assert_eq!(run.player_hp, hp_before);
+    }
+
+    #[test]
+    fn egg_relics_upgrade_matching_card_types_when_added_to_deck() {
+        let mut run = RunState::map_fixture();
+        run.gain_relic(Relic::MoltenEgg);
+        run.gain_relic(Relic::ToxicEgg);
+        run.gain_relic(Relic::FrozenEgg);
+
+        run.gain_deck_card(POMMEL_STRIKE_ID);
+        run.gain_deck_card(SEEING_RED_ID);
+        run.gain_deck_card(INFLAME_ID);
+
+        let added = &run.deck[run.deck.len() - 3..];
+        assert_eq!(added[0].content_id, POMMEL_STRIKE_PLUS_ID);
+        assert_eq!(added[1].content_id, SEEING_RED_PLUS_ID);
+        assert_eq!(added[2].content_id, INFLAME_PLUS_ID);
+    }
+
+    #[test]
+    fn egg_relics_leave_mismatched_card_types_unchanged() {
+        let mut run = RunState::map_fixture();
+        run.gain_relic(Relic::ToxicEgg);
+
+        run.gain_deck_card(POMMEL_STRIKE_ID);
+
+        assert_eq!(run.deck.last().expect("added card").content_id, POMMEL_STRIKE_ID);
     }
 
     #[test]
@@ -881,10 +913,32 @@ impl RunState {
         self.add_deck_card(CardInstance::new(id, content_id));
     }
 
-    pub fn add_deck_card(&mut self, card: CardInstance) {
+    pub fn add_deck_card(&mut self, mut card: CardInstance) {
+        card.content_id = self.content_id_after_card_add_relics(card.content_id);
         let content_id = card.content_id;
         self.deck.push(card);
         self.apply_card_added_relics(content_id);
+    }
+
+    #[must_use]
+    pub(crate) fn content_id_after_card_add_relics(&self, content_id: ContentId) -> ContentId {
+        let Some(upgraded) = upgrade_content_id(content_id) else {
+            return content_id;
+        };
+        let Some(definition) = get_card_definition(content_id) else {
+            return content_id;
+        };
+        let has_matching_egg = match definition.card_type {
+            CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
+            CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
+            CardType::Power => self.relics.contains(&Relic::FrozenEgg),
+            CardType::Status => false,
+        };
+        if has_matching_egg {
+            upgraded
+        } else {
+            content_id
+        }
     }
 
     fn apply_card_added_relics(&mut self, content_id: ContentId) {
@@ -971,6 +1025,9 @@ impl RunState {
             }
             Relic::BloodVial
             | Relic::ToyOrnithopter
+            | Relic::MoltenEgg
+            | Relic::ToxicEgg
+            | Relic::FrozenEgg
             | Relic::PotionBelt
             | Relic::Lantern
             | Relic::BagOfPreparation
@@ -1177,6 +1234,9 @@ impl Relic {
             Relic::BustedCrown => RelicKey::BustedCrown,
             Relic::VelvetChoker => RelicKey::VelvetChoker,
             Relic::ToyOrnithopter => RelicKey::ToyOrnithopter,
+            Relic::MoltenEgg => RelicKey::MoltenEgg,
+            Relic::ToxicEgg => RelicKey::ToxicEgg,
+            Relic::FrozenEgg => RelicKey::FrozenEgg,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1239,6 +1299,9 @@ impl Relic {
             RelicKey::BustedCrown => Some(Relic::BustedCrown),
             RelicKey::VelvetChoker => Some(Relic::VelvetChoker),
             RelicKey::ToyOrnithopter => Some(Relic::ToyOrnithopter),
+            RelicKey::MoltenEgg => Some(Relic::MoltenEgg),
+            RelicKey::ToxicEgg => Some(Relic::ToxicEgg),
+            RelicKey::FrozenEgg => Some(Relic::FrozenEgg),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

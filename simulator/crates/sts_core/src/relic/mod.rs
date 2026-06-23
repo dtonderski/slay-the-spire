@@ -251,6 +251,12 @@ pub const BUSTED_CROWN_ID: ContentId = ContentId::new(353);
 pub const VELVET_CHOKER_ID: ContentId = ContentId::new(354);
 /// Content id for [Relic::ToyOrnithopter].
 pub const TOY_ORNITHOPTER_ID: ContentId = ContentId::new(355);
+/// Content id for [Relic::MoltenEgg].
+pub const MOLTEN_EGG_ID: ContentId = ContentId::new(356);
+/// Content id for [Relic::ToxicEgg].
+pub const TOXIC_EGG_ID: ContentId = ContentId::new(357);
+/// Content id for [Relic::FrozenEgg].
+pub const FROZEN_EGG_ID: ContentId = ContentId::new(358);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -821,6 +827,9 @@ pub enum Relic {
     BustedCrown,
     VelvetChoker,
     ToyOrnithopter,
+    MoltenEgg,
+    ToxicEgg,
+    FrozenEgg,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -883,6 +892,9 @@ impl Relic {
             Relic::BustedCrown => BUSTED_CROWN_ID,
             Relic::VelvetChoker => VELVET_CHOKER_ID,
             Relic::ToyOrnithopter => TOY_ORNITHOPTER_ID,
+            Relic::MoltenEgg => MOLTEN_EGG_ID,
+            Relic::ToxicEgg => TOXIC_EGG_ID,
+            Relic::FrozenEgg => FROZEN_EGG_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -945,6 +957,9 @@ impl Relic {
             id if id == BUSTED_CROWN_ID => Some(Relic::BustedCrown),
             id if id == VELVET_CHOKER_ID => Some(Relic::VelvetChoker),
             id if id == TOY_ORNITHOPTER_ID => Some(Relic::ToyOrnithopter),
+            id if id == MOLTEN_EGG_ID => Some(Relic::MoltenEgg),
+            id if id == TOXIC_EGG_ID => Some(Relic::ToxicEgg),
+            id if id == FROZEN_EGG_ID => Some(Relic::FrozenEgg),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -1040,6 +1055,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BustedCrown => {}
             Relic::VelvetChoker => {}
             Relic::ToyOrnithopter => {}
+            Relic::MoltenEgg => {}
+            Relic::ToxicEgg => {}
+            Relic::FrozenEgg => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1877,6 +1895,18 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(TOY_ORNITHOPTER_ID),
             Some(Relic::ToyOrnithopter)
+        );
+        assert_eq!(Relic::MoltenEgg.content_id(), MOLTEN_EGG_ID);
+        assert_eq!(
+            Relic::from_content_id(MOLTEN_EGG_ID),
+            Some(Relic::MoltenEgg)
+        );
+        assert_eq!(Relic::ToxicEgg.content_id(), TOXIC_EGG_ID);
+        assert_eq!(Relic::from_content_id(TOXIC_EGG_ID), Some(Relic::ToxicEgg));
+        assert_eq!(Relic::FrozenEgg.content_id(), FROZEN_EGG_ID);
+        assert_eq!(
+            Relic::from_content_id(FROZEN_EGG_ID),
+            Some(Relic::FrozenEgg)
         );
     }
 
