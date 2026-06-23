@@ -10,8 +10,9 @@ use crate::{
     potion::{
         Potion, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT, DEXTERITY_POTION_DEXTERITY,
         ENERGY_POTION_ENERGY, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE,
-        FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD, GAMBLE_POTION_WIN_GOLD,
-        HEART_OF_IRON_METALLICIZE, STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
+        FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD,
+        GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE, STRENGTH_POTION_STRENGTH,
+        SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -204,6 +205,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Strength => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     combat.player.powers.strength += STRENGTH_POTION_STRENGTH;
+                }
+                Potion::Flex => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.temp_strength += FLEX_POTION_TEMP_STRENGTH;
                 }
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -525,6 +530,25 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.player.powers.strength, STRENGTH_POTION_STRENGTH);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn flex_potion_grants_temp_strength_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Flex);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use flex potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.temp_strength, FLEX_POTION_TEMP_STRENGTH);
         assert!(after.potions.is_empty());
     }
 

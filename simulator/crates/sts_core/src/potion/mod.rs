@@ -12,6 +12,7 @@ pub const DEXTERITY_POTION_DEXTERITY: i32 = 2;
 pub const ENERGY_POTION_ENERGY: i32 = 2;
 pub const EXPLOSIVE_POTION_DAMAGE: i32 = 10;
 pub const STRENGTH_POTION_STRENGTH: i32 = 2;
+pub const FLEX_POTION_TEMP_STRENGTH: i32 = 5;
 pub const WEAK_POTION_WEAK: i32 = 3;
 pub const FRUIT_JUICE_MAX_HP: i32 = 5;
 pub const SWIFT_POTION_DRAW: usize = 3;
@@ -265,6 +266,7 @@ impl Potion {
                 | Potion::Energy
                 | Potion::Explosive
                 | Potion::Strength
+                | Potion::Flex
                 | Potion::Swift
                 | Potion::Power
         )
