@@ -15,7 +15,8 @@ use crate::{
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
-        RelicPoolState, RelicSpawnContext, COFFEE_DRIPPER_ENERGY, STRAWBERRY_MAX_HP,
+        RelicPoolState, RelicSpawnContext, COFFEE_DRIPPER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP,
+        OLD_COIN_GOLD, PEAR_MAX_HP, POTION_BELT_SLOTS, STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -71,7 +72,64 @@ mod tests {
     #[test]
     fn relic_keys_map_for_implemented_relics() {
         assert_eq!(Relic::from_key(Relic::Vajra.key()), Some(Relic::Vajra));
+        assert_eq!(Relic::from_key(RelicKey::BloodVial), Some(Relic::BloodVial));
+        assert_eq!(Relic::from_key(RelicKey::Pear), Some(Relic::Pear));
+        assert_eq!(Relic::from_key(RelicKey::Mango), Some(Relic::Mango));
+        assert_eq!(Relic::from_key(RelicKey::OldCoin), Some(Relic::OldCoin));
+        assert_eq!(
+            Relic::from_key(RelicKey::LeesWaffle),
+            Some(Relic::LeesWaffle)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::PotionBelt),
+            Some(Relic::PotionBelt)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
+    }
+
+    #[test]
+    fn pickup_hp_relics_apply_immediately() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 40;
+
+        run.gain_relic(Relic::Pear);
+        assert_eq!(run.player_max_hp, IRONCLAD_A0_BASE_HP + PEAR_MAX_HP);
+        assert_eq!(run.player_hp, 40 + PEAR_MAX_HP);
+
+        run.gain_relic(Relic::Mango);
+        assert_eq!(
+            run.player_max_hp,
+            IRONCLAD_A0_BASE_HP + PEAR_MAX_HP + MANGO_MAX_HP
+        );
+        assert_eq!(run.player_hp, 40 + PEAR_MAX_HP + MANGO_MAX_HP);
+
+        run.player_hp = 12;
+        run.gain_relic(Relic::LeesWaffle);
+        assert_eq!(
+            run.player_max_hp,
+            IRONCLAD_A0_BASE_HP + PEAR_MAX_HP + MANGO_MAX_HP + LEES_WAFFLE_MAX_HP
+        );
+        assert_eq!(run.player_hp, run.player_max_hp);
+    }
+
+    #[test]
+    fn old_coin_grants_gold_on_pickup() {
+        let mut run = RunState::map_fixture();
+        let gold_before = run.gold;
+
+        run.gain_relic(Relic::OldCoin);
+
+        assert_eq!(run.gold, gold_before + OLD_COIN_GOLD);
+    }
+
+    #[test]
+    fn potion_belt_increases_potion_capacity() {
+        let mut run = RunState::map_fixture();
+
+        assert_eq!(run.potion_capacity(), MAX_POTIONS);
+        run.gain_relic(Relic::PotionBelt);
+
+        assert_eq!(run.potion_capacity(), MAX_POTIONS + POTION_BELT_SLOTS);
     }
 }
 
@@ -436,6 +494,16 @@ impl RunState {
         self.deck.push(CardInstance::new(id, content_id));
     }
 
+    pub fn potion_capacity(&self) -> usize {
+        MAX_POTIONS
+            + self
+                .relics
+                .iter()
+                .filter(|relic| **relic == Relic::PotionBelt)
+                .count()
+                * POTION_BELT_SLOTS
+    }
+
     pub fn gain_relic_key(&mut self, key: RelicKey) {
         self.ensure_ironclad_relic_pools();
         if let Some(pools) = self.relic_pools.as_mut() {
@@ -458,10 +526,27 @@ impl RunState {
                 self.player_max_hp += STRAWBERRY_MAX_HP;
                 self.player_hp += STRAWBERRY_MAX_HP;
             }
+            Relic::Pear => {
+                self.player_max_hp += PEAR_MAX_HP;
+                self.player_hp += PEAR_MAX_HP;
+            }
+            Relic::Mango => {
+                self.player_max_hp += MANGO_MAX_HP;
+                self.player_hp += MANGO_MAX_HP;
+            }
+            Relic::OldCoin => {
+                self.gold += OLD_COIN_GOLD;
+            }
+            Relic::LeesWaffle => {
+                self.player_max_hp += LEES_WAFFLE_MAX_HP;
+                self.player_hp = self.player_max_hp;
+            }
             Relic::CoffeeDripper => {
                 self.energy_per_turn += COFFEE_DRIPPER_ENERGY;
             }
-            Relic::Vajra
+            Relic::BloodVial
+            | Relic::PotionBelt
+            | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
             | Relic::InkBottle
@@ -495,7 +580,7 @@ impl RunState {
                 if reward.potion_offer.is_none() {
                     return Err(SimError::IllegalAction("no potion reward offered"));
                 }
-                if self.potions.len() >= MAX_POTIONS {
+                if self.potions.len() >= self.potion_capacity() {
                     return Err(SimError::IllegalAction("potion belt is full"));
                 }
                 Ok(())
@@ -576,9 +661,15 @@ impl Relic {
     #[must_use]
     pub fn key(self) -> RelicKey {
         match self {
+            Relic::BloodVial => RelicKey::BloodVial,
             Relic::Vajra => RelicKey::Vajra,
             Relic::OddlySmoothStone => RelicKey::OddlySmoothStone,
             Relic::Strawberry => RelicKey::Strawberry,
+            Relic::Pear => RelicKey::Pear,
+            Relic::Mango => RelicKey::Mango,
+            Relic::OldCoin => RelicKey::OldCoin,
+            Relic::LeesWaffle => RelicKey::LeesWaffle,
+            Relic::PotionBelt => RelicKey::PotionBelt,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -590,9 +681,15 @@ impl Relic {
     #[must_use]
     pub fn from_key(key: RelicKey) -> Option<Self> {
         match key {
+            RelicKey::BloodVial => Some(Relic::BloodVial),
             RelicKey::Vajra => Some(Relic::Vajra),
             RelicKey::OddlySmoothStone => Some(Relic::OddlySmoothStone),
             RelicKey::Strawberry => Some(Relic::Strawberry),
+            RelicKey::Pear => Some(Relic::Pear),
+            RelicKey::Mango => Some(Relic::Mango),
+            RelicKey::OldCoin => Some(Relic::OldCoin),
+            RelicKey::LeesWaffle => Some(Relic::LeesWaffle),
+            RelicKey::PotionBelt => Some(Relic::PotionBelt),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

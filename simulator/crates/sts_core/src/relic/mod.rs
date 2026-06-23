@@ -12,6 +12,18 @@ pub const VAJRA_STRENGTH: i32 = 1;
 pub const ODDLY_SMOOTH_STONE_DEXTERITY: i32 = 1;
 /// Max HP granted by [Relic::Strawberry] on pickup.
 pub const STRAWBERRY_MAX_HP: i32 = 7;
+/// Max HP granted by [Relic::Pear] on pickup.
+pub const PEAR_MAX_HP: i32 = 10;
+/// Max HP granted by [Relic::Mango] on pickup.
+pub const MANGO_MAX_HP: i32 = 14;
+/// Max HP granted by [Relic::LeesWaffle] on pickup.
+pub const LEES_WAFFLE_MAX_HP: i32 = 7;
+/// Gold granted by [Relic::OldCoin] on pickup.
+pub const OLD_COIN_GOLD: i32 = 300;
+/// Extra potion slots granted by [Relic::PotionBelt] on pickup.
+pub const POTION_BELT_SLOTS: usize = 2;
+/// HP healed by [Relic::BloodVial] at combat start.
+pub const BLOOD_VIAL_HEAL: i32 = 2;
 /// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
 pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -39,6 +51,18 @@ pub const INK_BOTTLE_ID: ContentId = ContentId::new(305);
 pub const ORNAMENTAL_FAN_ID: ContentId = ContentId::new(306);
 /// Content id for [Relic::IceCream].
 pub const ICE_CREAM_ID: ContentId = ContentId::new(307);
+/// Content id for [Relic::BloodVial].
+pub const BLOOD_VIAL_ID: ContentId = ContentId::new(308);
+/// Content id for [Relic::Pear].
+pub const PEAR_ID: ContentId = ContentId::new(309);
+/// Content id for [Relic::Mango].
+pub const MANGO_ID: ContentId = ContentId::new(310);
+/// Content id for [Relic::OldCoin].
+pub const OLD_COIN_ID: ContentId = ContentId::new(311);
+/// Content id for [Relic::LeesWaffle].
+pub const LEES_WAFFLE_ID: ContentId = ContentId::new(312);
+/// Content id for [Relic::PotionBelt].
+pub const POTION_BELT_ID: ContentId = ContentId::new(313);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -540,9 +564,15 @@ fn campfire_relic_count(owned: &[RelicKey]) -> usize {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Relic {
+    BloodVial,
     Vajra,
     OddlySmoothStone,
     Strawberry,
+    Pear,
+    Mango,
+    OldCoin,
+    LeesWaffle,
+    PotionBelt,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -554,9 +584,15 @@ impl Relic {
     #[must_use]
     pub fn content_id(self) -> ContentId {
         match self {
+            Relic::BloodVial => BLOOD_VIAL_ID,
             Relic::Vajra => VAJRA_ID,
             Relic::OddlySmoothStone => ODDLY_SMOOTH_STONE_ID,
             Relic::Strawberry => STRAWBERRY_ID,
+            Relic::Pear => PEAR_ID,
+            Relic::Mango => MANGO_ID,
+            Relic::OldCoin => OLD_COIN_ID,
+            Relic::LeesWaffle => LEES_WAFFLE_ID,
+            Relic::PotionBelt => POTION_BELT_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -568,9 +604,15 @@ impl Relic {
     #[must_use]
     pub fn from_content_id(id: ContentId) -> Option<Self> {
         match id {
+            id if id == BLOOD_VIAL_ID => Some(Relic::BloodVial),
             id if id == VAJRA_ID => Some(Relic::Vajra),
             id if id == ODDLY_SMOOTH_STONE_ID => Some(Relic::OddlySmoothStone),
             id if id == STRAWBERRY_ID => Some(Relic::Strawberry),
+            id if id == PEAR_ID => Some(Relic::Pear),
+            id if id == MANGO_ID => Some(Relic::Mango),
+            id if id == OLD_COIN_ID => Some(Relic::OldCoin),
+            id if id == LEES_WAFFLE_ID => Some(Relic::LeesWaffle),
+            id if id == POTION_BELT_ID => Some(Relic::PotionBelt),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -584,6 +626,9 @@ impl Relic {
 pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) {
     for relic in relics {
         match relic {
+            Relic::BloodVial => {
+                combat.player.hp = (combat.player.hp + BLOOD_VIAL_HEAL).min(combat.player.max_hp);
+            }
             Relic::Vajra => {
                 combat.player.powers.strength += VAJRA_STRENGTH;
             }
@@ -591,6 +636,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 combat.player.powers.dexterity += ODDLY_SMOOTH_STONE_DEXTERITY;
             }
             Relic::Strawberry => {}
+            Relic::Pear => {}
+            Relic::Mango => {}
+            Relic::OldCoin => {}
+            Relic::LeesWaffle => {}
+            Relic::PotionBelt => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -913,6 +963,20 @@ mod tests {
     }
 
     #[test]
+    fn blood_vial_heals_two_at_combat_start_capped_by_max_hp() {
+        let mut combat = CombatState::initial_fixture();
+        combat.player.hp = 70;
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::BloodVial]);
+        assert_eq!(combat.player.hp, 70 + BLOOD_VIAL_HEAL);
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::BloodVial]);
+        combat.player.hp = combat.player.max_hp - 1;
+        apply_start_of_combat_relics(&mut combat, &[Relic::BloodVial]);
+        assert_eq!(combat.player.hp, combat.player.max_hp);
+    }
+
+    #[test]
     fn relic_content_ids_map_both_ways() {
         assert_eq!(Relic::Vajra.content_id(), VAJRA_ID);
         assert_eq!(Relic::OddlySmoothStone.content_id(), ODDLY_SMOOTH_STONE_ID);
@@ -922,6 +986,12 @@ mod tests {
         assert_eq!(Relic::InkBottle.content_id(), INK_BOTTLE_ID);
         assert_eq!(Relic::OrnamentalFan.content_id(), ORNAMENTAL_FAN_ID);
         assert_eq!(Relic::IceCream.content_id(), ICE_CREAM_ID);
+        assert_eq!(Relic::BloodVial.content_id(), BLOOD_VIAL_ID);
+        assert_eq!(Relic::Pear.content_id(), PEAR_ID);
+        assert_eq!(Relic::Mango.content_id(), MANGO_ID);
+        assert_eq!(Relic::OldCoin.content_id(), OLD_COIN_ID);
+        assert_eq!(Relic::LeesWaffle.content_id(), LEES_WAFFLE_ID);
+        assert_eq!(Relic::PotionBelt.content_id(), POTION_BELT_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -945,6 +1015,21 @@ mod tests {
             Some(Relic::OrnamentalFan)
         );
         assert_eq!(Relic::from_content_id(ICE_CREAM_ID), Some(Relic::IceCream));
+        assert_eq!(
+            Relic::from_content_id(BLOOD_VIAL_ID),
+            Some(Relic::BloodVial)
+        );
+        assert_eq!(Relic::from_content_id(PEAR_ID), Some(Relic::Pear));
+        assert_eq!(Relic::from_content_id(MANGO_ID), Some(Relic::Mango));
+        assert_eq!(Relic::from_content_id(OLD_COIN_ID), Some(Relic::OldCoin));
+        assert_eq!(
+            Relic::from_content_id(LEES_WAFFLE_ID),
+            Some(Relic::LeesWaffle)
+        );
+        assert_eq!(
+            Relic::from_content_id(POTION_BELT_ID),
+            Some(Relic::PotionBelt)
+        );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }
 

@@ -1227,7 +1227,7 @@ Do not implement:
 
 ## Milestone 32: Relic Completion Pass
 
-Status: planned.
+Status: in progress.
 
 Goal: implement all Ironclad-available relic hooks needed for full-run simulation.
 
@@ -1238,6 +1238,20 @@ Tasks:
 - model relic counters and persistence fields
 - verify relic-heavy captured traces where available
 - add unit tests for each relic hook family
+
+Completed slice:
+
+- expanded modeled relic keys for simple pickup/capacity/start-combat relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, and Potion Belt
+- implemented immediate pickup effects for Pear, Mango, Old Coin, Lee's Waffle, and Potion Belt capacity
+- implemented Blood Vial start-of-combat healing
+- routed Potion Belt capacity through reward pickup, shop potion purchase, and Entropic Brew refill
+- added focused unit tests for key mapping, pickup effects, start-combat heal, and capacity integration
+
+Remaining:
+
+- continue relic family implementation across start-combat, turn, card-play, damage, reward, shop, rest, event, and boss hooks
+- replace key-only placeholder semantics for each Ironclad-available relic where target behavior is implemented
+- add relic-heavy seed-start trace verification when captured traces exercise these effects
 
 Acceptance tests:
 

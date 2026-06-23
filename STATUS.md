@@ -16,6 +16,7 @@
 
 ### Relics / Potions
 - Common simple relic: Strawberry pickup HP bonus
+- Pickup/capacity relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, and Potion Belt
 - Energy relic: Coffee Dripper energy per turn and rest restriction
 - Start-combat relic: Anchor block
 - On-card-play relic: Ink Bottle draw after 10 cards
@@ -100,7 +101,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Milestone 31 is complete in `sts_core`: every potion in the Ironclad reward pool now has either implemented active behavior or explicit passive legality, including Fairy in a Bottle lethal-damage revive. Continue with Milestone 32, the relic completion pass. Potion-heavy seed-start trace verification should be added when a captured trace exercises these potion effects.
+Milestone 32 is in progress. The first relic completion slice expands simple pickup/capacity/start-combat relics: Blood Vial heals at combat start; Pear, Mango, Old Coin, and Lee's Waffle apply pickup effects; Potion Belt increases potion capacity across reward pickup, shop purchase, and Entropic Brew refill. Continue by implementing the next missing relic hook family.
 
 The previous M29 cleaned single-run prefix can still be structurally checked with:
 
