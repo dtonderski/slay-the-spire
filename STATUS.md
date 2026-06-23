@@ -17,6 +17,7 @@
 ### Relics / Potions
 - Common simple relic: Strawberry pickup HP bonus
 - Pickup/capacity relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, and Potion Belt
+- Start-combat relics: Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, Red Skull
 - Energy relic: Coffee Dripper energy per turn and rest restriction
 - Start-combat relic: Anchor block
 - On-card-play relic: Ink Bottle draw after 10 cards
@@ -101,7 +102,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Milestone 32 is in progress. The first relic completion slice expands simple pickup/capacity/start-combat relics: Blood Vial heals at combat start; Pear, Mango, Old Coin, and Lee's Waffle apply pickup effects; Potion Belt increases potion capacity across reward pickup, shop purchase, and Entropic Brew refill. Continue by implementing the next missing relic hook family.
+Milestone 32 is in progress. Completed relic slices now cover simple pickup/capacity relics plus start-of-combat relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, Potion Belt, Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, and Red Skull. Continue by implementing the next missing relic hook family.
 
 The previous M29 cleaned single-run prefix can still be structurally checked with:
 

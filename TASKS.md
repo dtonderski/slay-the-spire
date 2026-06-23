@@ -1246,6 +1246,8 @@ Completed slice:
 - implemented Blood Vial start-of-combat healing
 - routed Potion Belt capacity through reward pickup, shop potion purchase, and Entropic Brew refill
 - added focused unit tests for key mapping, pickup effects, start-combat heal, and capacity integration
+- expanded modeled start-of-combat relics: Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, and Red Skull
+- implemented their combat entry hooks and added focused unit tests for energy, draw, vulnerable, thorns, plated armor, and conditional strength
 
 Remaining:
 
