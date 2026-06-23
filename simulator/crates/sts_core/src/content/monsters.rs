@@ -1105,46 +1105,54 @@ pub fn apply_monster_intent(
     ascension: u8,
     player_before: &crate::PlayerState,
 ) -> i32 {
+    use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player;
 
     let config = AscensionConfig::new(ascension);
     let scale_damage = |damage: i32| config.scaled_attack_damage(damage);
-    let damage = match monster.intent {
-        MonsterIntent::Attack { damage } => {
-            monster_damage_to_player(player_before, monster, scale_damage(damage))
-        }
+    let (damage, thorns_hits) = match monster.intent {
+        MonsterIntent::Attack { damage } => (
+            monster_damage_to_player(player_before, monster, scale_damage(damage)),
+            1,
+        ),
         MonsterIntent::Block { block } => {
             monster.block += block;
-            0
+            (0, 0)
         }
         MonsterIntent::Ritual { amount } => {
             monster.powers.ritual += amount;
-            0
+            (0, 0)
         }
         MonsterIntent::AttackAndBlock { damage, block } => {
             monster.block += block;
-            monster_damage_to_player(player_before, monster, scale_damage(damage))
+            (
+                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                1,
+            )
         }
         MonsterIntent::StrengthAndBlock { strength, block } => {
             monster.powers.strength += strength;
             monster.block += block;
-            0
+            (0, 0)
         }
         MonsterIntent::ApplyPlayerWeak { amount } => {
             player.powers.weak += amount;
-            0
+            (0, 0)
         }
         MonsterIntent::AttackApplyPlayerVulnerable { damage, vulnerable } => {
             player.powers.vulnerable += vulnerable;
-            monster_damage_to_player(player_before, monster, scale_damage(damage))
+            (
+                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                1,
+            )
         }
         MonsterIntent::Sleep => {
             if monster.sleep_turns_remaining > 0 {
                 monster.sleep_turns_remaining -= 1;
             }
-            0
+            (0, 0)
         }
-        MonsterIntent::Stun => 0,
+        MonsterIntent::Stun => (0, 0),
         MonsterIntent::SiphonPlayer {
             strength,
             dexterity,
@@ -1152,19 +1160,19 @@ pub fn apply_monster_intent(
             player.powers.strength -= strength;
             player.powers.dexterity -= dexterity;
             monster.has_siphoned = true;
-            0
+            (0, 0)
         }
         MonsterIntent::AddDazedToDiscard { count } => {
             add_cards_to_discard(piles, DAZED_ID, count);
-            0
+            (0, 0)
         }
         MonsterIntent::AddBurnToDiscard { count, damage } => {
             add_cards_to_discard(piles, BURN_ID, count);
-            monster_attack_damage(monster, scale_damage(damage))
+            (monster_attack_damage(monster, scale_damage(damage)), 1)
         }
         MonsterIntent::AttackMultiple { damage, hits } => {
             let hit_damage = monster_attack_damage(monster, scale_damage(damage));
-            hit_damage * hits
+            (hit_damage * hits, hits)
         }
         MonsterIntent::DefensiveCharge { block, strength } => {
             monster.block += block;
@@ -1172,9 +1180,12 @@ pub fn apply_monster_intent(
             if monster.defensive_turns_remaining > 0 {
                 monster.defensive_turns_remaining -= 1;
             }
-            0
+            (0, 0)
         }
     };
+    if player.powers.thorns > 0 && thorns_hits > 0 {
+        deal_unmodified_damage_to_monster(monster, player.powers.thorns * thorns_hits);
+    }
     if monster.content_id == GUARDIAN_ID && monster.in_defensive_mode {
         finish_guardian_defensive_turn(monster);
     }
@@ -1464,6 +1475,36 @@ mod tests {
         monster.intent = MonsterIntent::Attack { damage: 6 };
 
         assert_eq!(apply_intent(&mut monster), 8);
+    }
+
+    #[test]
+    fn player_thorns_damage_attacking_monster() {
+        let mut monster = monster_state(&CULTIST_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::Attack { damage: 6 };
+        let mut player = dummy_player();
+        player.powers.thorns = 3;
+        let mut piles = dummy_piles();
+        let player_before = player.clone();
+
+        let damage = apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+
+        assert_eq!(damage, 6);
+        assert_eq!(monster.hp, CULTIST_A0.hp - 3);
+    }
+
+    #[test]
+    fn player_thorns_reflects_each_multi_attack_hit() {
+        let mut monster = monster_state(&HEXAGHOST_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AttackMultiple { damage: 1, hits: 6 };
+        let mut player = dummy_player();
+        player.powers.thorns = 3;
+        let mut piles = dummy_piles();
+        let player_before = player.clone();
+
+        let damage = apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+
+        assert_eq!(damage, 6);
+        assert_eq!(monster.hp, HEXAGHOST_A0.hp - 18);
     }
 
     #[test]
