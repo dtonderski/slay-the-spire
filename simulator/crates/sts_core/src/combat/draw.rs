@@ -153,6 +153,42 @@ mod tests {
     }
 
     #[test]
+    fn sundial_grants_energy_on_every_third_shuffle() {
+        let mut state = fixture_with_discard_only();
+        state.relics = vec![Relic::Sundial];
+        state.player.energy = 1;
+        let mut rng = SimulatorRng::new(3);
+
+        for _ in 0..2 {
+            draw_cards(&mut state, 1, &mut rng);
+            state.piles.hand.clear();
+            state.piles.draw_pile.clear();
+            state.piles.discard_pile =
+                vec![CardInstance::new(crate::CardId::new(40), ContentId::new(1))];
+        }
+        draw_cards(&mut state, 1, &mut rng);
+
+        assert_eq!(
+            state.relic_counters.sundial_shuffles,
+            crate::relic::SUNDIAL_THRESHOLD
+        );
+        assert_eq!(state.player.energy, 1 + crate::relic::SUNDIAL_ENERGY);
+    }
+
+    #[test]
+    fn sundial_does_not_grant_energy_before_third_shuffle() {
+        let mut state = fixture_with_discard_only();
+        state.relics = vec![Relic::Sundial];
+        state.player.energy = 1;
+        let mut rng = SimulatorRng::new(3);
+
+        draw_cards(&mut state, 1, &mut rng);
+
+        assert_eq!(state.relic_counters.sundial_shuffles, 1);
+        assert_eq!(state.player.energy, 1);
+    }
+
+    #[test]
     fn placeholder_shuffle_is_deterministic_but_not_claimed_game_compatible() {
         let mut first = fixture_with_discard_only();
         let mut second = fixture_with_discard_only();
