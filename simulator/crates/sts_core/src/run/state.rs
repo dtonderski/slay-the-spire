@@ -11,13 +11,13 @@ use crate::{
     },
     content::character::IRONCLAD_A0_BASE_HP,
     ids::{CardId, ContentId, MonsterId},
-    map::{milestone8_fixture, MapRunState},
+    map::{milestone8_fixture, MapRunState, RoomKind},
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
-        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, OLD_COIN_GOLD, PEAR_MAX_HP, POTION_BELT_SLOTS,
-        STRAWBERRY_MAX_HP,
+        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, OLD_COIN_GOLD, PANTOGRAPH_HEAL, PEAR_MAX_HP,
+        POTION_BELT_SLOTS, STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -34,6 +34,7 @@ fn default_energy_per_turn() -> i32 {
 mod tests {
     use super::*;
     use crate::content::cards::{ANGER_ID, FEEL_NO_PAIN_ID};
+    use crate::ids::MapNodeId;
 
     #[test]
     fn ensure_ironclad_relic_pools_initializes_once_and_advances_counter() {
@@ -172,6 +173,10 @@ mod tests {
             Relic::from_key(RelicKey::SmilingMask),
             Some(Relic::SmilingMask)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::Pantograph),
+            Some(Relic::Pantograph)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -219,6 +224,29 @@ mod tests {
         run.gain_deck_card(ANGER_ID);
 
         assert_eq!(run.gold, gold_before + CERAMIC_FISH_GOLD);
+    }
+
+    #[test]
+    fn pantograph_heals_at_boss_combat_start() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map").current_node = MapNodeId::new(6);
+        run.player_hp = 20;
+        run.relics = vec![Relic::Pantograph];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(combat.player.hp, 20 + PANTOGRAPH_HEAL);
+    }
+
+    #[test]
+    fn pantograph_does_not_heal_non_boss_combat() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 20;
+        run.relics = vec![Relic::Pantograph];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(combat.player.hp, 20);
     }
 
     #[test]
@@ -405,6 +433,11 @@ impl RunState {
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
         combat.ascension = self.ascension;
+        if self.current_room_kind() == Some(RoomKind::Boss)
+            && self.relics.contains(&Relic::Pantograph)
+        {
+            combat.player.hp = (combat.player.hp + PANTOGRAPH_HEAL).min(combat.player.max_hp);
+        }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
     }
@@ -419,6 +452,16 @@ impl RunState {
 
     pub fn reset_card_random_rng_for_combat(&mut self) {
         self.card_random_rng_counter = 0;
+    }
+
+    #[must_use]
+    pub fn current_room_kind(&self) -> Option<RoomKind> {
+        self.map.as_ref().and_then(|map_state| {
+            map_state
+                .map
+                .node(map_state.current_node)
+                .map(|node| node.room_kind)
+        })
     }
 
     #[must_use]
@@ -693,6 +736,7 @@ impl RunState {
             | Relic::CeramicFish
             | Relic::MembershipCard
             | Relic::SmilingMask
+            | Relic::Pantograph
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -844,6 +888,7 @@ impl Relic {
             Relic::CeramicFish => RelicKey::CeramicFish,
             Relic::MembershipCard => RelicKey::MembershipCard,
             Relic::SmilingMask => RelicKey::SmilingMask,
+            Relic::Pantograph => RelicKey::Pantograph,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -891,6 +936,7 @@ impl Relic {
             RelicKey::CeramicFish => Some(Relic::CeramicFish),
             RelicKey::MembershipCard => Some(Relic::MembershipCard),
             RelicKey::SmilingMask => Some(Relic::SmilingMask),
+            RelicKey::Pantograph => Some(Relic::Pantograph),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
