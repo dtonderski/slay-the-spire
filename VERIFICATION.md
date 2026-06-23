@@ -85,7 +85,13 @@ If a run stalls after useful coverage, keep the raw trace and create a documente
 node tools\communication\trace_tools.js trim-valid-prefix verification\corpus\communication_mod\<raw>.jsonl verification\corpus\communication_mod\<raw>.valid-prefix.jsonl
 ```
 
-`trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl` is the current harvested Sentries candidate. It is structurally valid, but not yet a seed-start passing fixture because verification stops at the unmodeled `M290001` Neow option branch before the map.
+For multi-run traces, extract the useful attempt before promoting:
+
+```powershell
+node tools\communication\trace_tools.js extract-run verification\corpus\communication_mod\<raw>.valid-prefix.jsonl 1 verification\corpus\communication_mod\<raw>.run2.valid-prefix.jsonl
+```
+
+`trace-2026-06-23T02-56-19-245Z.run2.valid-prefix.jsonl` is the current harvested Sentries candidate. It is structurally valid, includes the second `M290001` attempt, and reaches floor 7 Sentries. Seed-start verification currently supports its transform-card Neow branch and Sever Soul, then stops at floor-2 step 29 on a target-liveness sync boundary.
 
 ### Divergence minimization
 

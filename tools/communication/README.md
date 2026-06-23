@@ -31,3 +31,4 @@ Useful environment variables:
 
 - `trace_tools.js validate <trace.jsonl>` checks that every action has a following state or error row for the same step.
 - `trace_tools.js trim-valid-prefix <raw.jsonl> <out.jsonl>` writes the valid prefix before the first missing action response and appends metadata explaining the trim.
+- `trace_tools.js extract-run <raw.jsonl> <run-index> <out.jsonl>` extracts one run from a multi-run trace and rebases steps so the selected `START` is action step 1.

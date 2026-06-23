@@ -1112,7 +1112,7 @@ Do not implement:
 
 ## Milestone 29: Act 1 Elites and Bosses
 
-Status: in progress. TEST-trace elite/boss slice is complete for the captured route: Lagavulin entry, sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, Gremlin Nob coverage, Guardian mode-shift scaffolding, and Act 1 boss relic return are implemented. `test_seed_start_m29_test_elite_boss_without_observed_sync` passes with elite/boss observed-state restoration disabled, except for explicit UI/potion boundaries. A new overnight prefix, `trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl`, is structurally valid and reaches Sentries, but seed-start verification currently stops at the unmodeled `M290001` Neow option branch before map/combat execution.
+Status: in progress. TEST-trace elite/boss slice is complete for the captured route: Lagavulin entry, sleep/Metallicize block, wake-on-HP-damage, player vulnerable, Regret end-turn damage, Demon Form/Thunderclap trace playability, Gremlin Nob coverage, Guardian mode-shift scaffolding, and Act 1 boss relic return are implemented. `test_seed_start_m29_test_elite_boss_without_observed_sync` passes with elite/boss observed-state restoration disabled, except for explicit UI/potion boundaries. A new overnight run prefix, `trace-2026-06-23T02-56-19-245Z.run2.valid-prefix.jsonl`, is structurally valid and reaches Sentries. Seed-start verification supports its captured transform-card Neow branch and Sever Soul, verifies through floor-1 reward return and floor-2 combat entry, and currently stops at a floor-2 post-END target-liveness sync boundary on step 29.
 
 Goal: verify Act 1 elite and boss combats, including move RNG and special mechanics, from captured seed-start traces.
 
@@ -1135,7 +1135,7 @@ Completed slice:
 Blocked capture:
 
 - `trace-2026-06-21T03-24-47-580Z.jsonl` contains Jaw Worm, Cultist, 2 Louse, Acid Slime + Looter, Sentries, Lagavulin, and slimes, but has actions without matching state rows (including the final action), so `verify_seed_start_communication_mod_trace` rejects it with `MissingStateAfterAction`.
-- `trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl` contains Cultist, Small/M slime, Jaw Worm, Gremlins, Sentries, and Blue Slaver with one invalid trailing full-potion-belt reward action trimmed and documented by metadata. It validates with `tools/communication/trace_tools.js`, but still needs Neow branch support before it can become a passing M29 parity fixture.
+- `trace-2026-06-23T02-56-19-245Z.valid-prefix.jsonl` contains two attempts; the first dies on floor 1 and the second reaches Sentries. `trace-2026-06-23T02-56-19-245Z.run2.valid-prefix.jsonl` extracts the second run, containing Cultist, Small/M slime, Jaw Worm, Gremlins, Sentries, and Blue Slaver with one invalid trailing full-potion-belt reward action trimmed and documented by metadata. It validates with `tools/communication/trace_tools.js`, but still needs the floor-2 sync boundary fixed before it can become a passing M29 parity fixture.
 
 Acceptance tests:
 
