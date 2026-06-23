@@ -1107,6 +1107,9 @@ pub fn apply_monster_intent(
 ) -> i32 {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player;
+    use crate::power::{
+        apply_player_vulnerable, apply_player_weak, reduce_player_dexterity, reduce_player_strength,
+    };
 
     let config = AscensionConfig::new(ascension);
     let scale_damage = |damage: i32| config.scaled_attack_damage(damage);
@@ -1136,11 +1139,11 @@ pub fn apply_monster_intent(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerWeak { amount } => {
-            player.powers.weak += amount;
+            apply_player_weak(&mut player.powers, amount);
             (0, 0)
         }
         MonsterIntent::AttackApplyPlayerVulnerable { damage, vulnerable } => {
-            player.powers.vulnerable += vulnerable;
+            apply_player_vulnerable(&mut player.powers, vulnerable);
             (
                 monster_damage_to_player(player_before, monster, scale_damage(damage)),
                 1,
@@ -1157,8 +1160,8 @@ pub fn apply_monster_intent(
             strength,
             dexterity,
         } => {
-            player.powers.strength -= strength;
-            player.powers.dexterity -= dexterity;
+            reduce_player_strength(&mut player.powers, strength);
+            reduce_player_dexterity(&mut player.powers, dexterity);
             monster.has_siphoned = true;
             (0, 0)
         }
@@ -1505,6 +1508,40 @@ mod tests {
 
         assert_eq!(damage, 6);
         assert_eq!(monster.hp, HEXAGHOST_A0.hp - 18);
+    }
+
+    #[test]
+    fn player_artifact_blocks_monster_weak() {
+        let mut monster = monster_state(&ACID_SLIME_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerWeak { amount: 1 };
+        let mut player = dummy_player();
+        player.powers.artifact = 1;
+        let mut piles = dummy_piles();
+        let player_before = player.clone();
+
+        apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+
+        assert_eq!(player.powers.artifact, 0);
+        assert_eq!(player.powers.weak, 0);
+    }
+
+    #[test]
+    fn player_artifact_blocks_one_lagavulin_siphon_debuff() {
+        let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::SiphonPlayer {
+            strength: 1,
+            dexterity: 1,
+        };
+        let mut player = dummy_player();
+        player.powers.artifact = 1;
+        let mut piles = dummy_piles();
+        let player_before = player.clone();
+
+        apply_monster_intent(&mut monster, &mut player, &mut piles, 0, &player_before);
+
+        assert_eq!(player.powers.artifact, 0);
+        assert_eq!(player.powers.strength, 0);
+        assert_eq!(player.powers.dexterity, -1);
     }
 
     #[test]
