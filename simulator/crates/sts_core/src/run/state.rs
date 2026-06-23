@@ -22,8 +22,8 @@ use crate::{
         MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
         PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP,
-        VELVET_CHOKER_ENERGY,
+        PRESERVED_INSECT_HP_NUMERATOR, SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH,
+        SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -231,6 +231,10 @@ mod tests {
         assert_eq!(
             Relic::from_key(RelicKey::PhilosophersStone),
             Some(Relic::PhilosophersStone)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::SlaversCollar),
+            Some(Relic::SlaversCollar)
         );
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
@@ -518,6 +522,53 @@ mod tests {
         let combat = run.init_combat(CombatState::initial_fixture());
 
         assert_eq!(combat.player.powers.strength, 0);
+    }
+
+    #[test]
+    fn slavers_collar_grants_energy_in_elite_combat() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map").map.nodes[0].room_kind = RoomKind::Elite;
+        run.relics = vec![Relic::SlaversCollar];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            combat.player.max_energy,
+            run.energy_per_turn + SLAVERS_COLLAR_ENERGY
+        );
+        assert_eq!(
+            combat.player.energy,
+            run.energy_per_turn + SLAVERS_COLLAR_ENERGY
+        );
+    }
+
+    #[test]
+    fn slavers_collar_grants_energy_in_boss_combat() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map").current_node = MapNodeId::new(6);
+        run.relics = vec![Relic::SlaversCollar];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            combat.player.max_energy,
+            run.energy_per_turn + SLAVERS_COLLAR_ENERGY
+        );
+        assert_eq!(
+            combat.player.energy,
+            run.energy_per_turn + SLAVERS_COLLAR_ENERGY
+        );
+    }
+
+    #[test]
+    fn slavers_collar_does_not_grant_energy_in_normal_combat() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::SlaversCollar];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(combat.player.max_energy, run.energy_per_turn);
+        assert_eq!(combat.player.energy, run.energy_per_turn);
     }
 
     #[test]
@@ -875,6 +926,14 @@ impl RunState {
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
         combat.ascension = self.ascension;
+        if matches!(
+            self.current_room_kind(),
+            Some(RoomKind::Elite | RoomKind::Boss)
+        ) && self.relics.contains(&Relic::SlaversCollar)
+        {
+            combat.player.max_energy += SLAVERS_COLLAR_ENERGY;
+            combat.player.energy += SLAVERS_COLLAR_ENERGY;
+        }
         if self.current_room_kind() == Some(RoomKind::Boss)
             && self.relics.contains(&Relic::Pantograph)
         {
@@ -1337,7 +1396,8 @@ impl RunState {
             | Relic::InkBottle
             | Relic::OrnamentalFan
             | Relic::IceCream
-            | Relic::ChemicalX => {}
+            | Relic::ChemicalX
+            | Relic::SlaversCollar => {}
         }
     }
 
@@ -1530,6 +1590,7 @@ impl Relic {
             Relic::IceCream => RelicKey::IceCream,
             Relic::ChemicalX => RelicKey::ChemicalX,
             Relic::PhilosophersStone => RelicKey::PhilosophersStone,
+            Relic::SlaversCollar => RelicKey::SlaversCollar,
         }
     }
 
@@ -1607,6 +1668,7 @@ impl Relic {
             RelicKey::IceCream => Some(Relic::IceCream),
             RelicKey::ChemicalX => Some(Relic::ChemicalX),
             RelicKey::PhilosophersStone => Some(Relic::PhilosophersStone),
+            RelicKey::SlaversCollar => Some(Relic::SlaversCollar),
             _ => None,
         }
     }
