@@ -1314,6 +1314,8 @@ Completed slice:
 - implemented Slaver's Collar key promotion and elite/boss-only combat energy, with focused run-state tests
 - expanded modeled boss energy/gold-lockout relics: Ectoplasm
 - implemented Ectoplasm key promotion, pickup energy, and positive gold-gain prevention across reward, event, relic pickup, card-add, floor-entry, and potion gain paths, with focused tests
+- expanded modeled boss energy relics: Runic Dome
+- implemented Runic Dome key promotion and pickup energy with focused run-state tests
 
 Remaining:
 
