@@ -2,8 +2,10 @@ use crate::{
     card::{CardInstance, CardType, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
-        apply_play_top_draw_card_action, choose_hand_select, confirm_hand_select,
-        hand_select_ui_to_hand_index, player_draw_cards, top_draw_card_definition,
+        apply_play_top_draw_card_action, choose_discard_select, choose_hand_select,
+        confirm_hand_select, confirm_liquid_memories_select, discard_select_ui_to_discard_index,
+        hand_select_ui_to_hand_index, open_discard_select, player_draw_cards,
+        top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState},
     content::cards::upgrade_content_id,
@@ -71,6 +73,8 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
         }
         RunAction::ChooseHandSelect { index } => validate_hand_select_choice(run, index),
         RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
+        RunAction::ChooseDiscardSelect { index } => validate_discard_select_choice(run, index),
+        RunAction::ConfirmDiscardSelect => validate_discard_select_confirm(run),
         _ => Err(SimError::IllegalAction("not a potion action")),
     }
 }
@@ -115,6 +119,30 @@ pub fn validate_hand_select_confirm(run: &RunState) -> SimResult<()> {
     Ok(())
 }
 
+pub fn validate_discard_select_choice(run: &RunState, index: usize) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("discard select requires combat"))?;
+    discard_select_ui_to_discard_index(combat, index)?;
+    Ok(())
+}
+
+pub fn validate_discard_select_confirm(run: &RunState) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("discard select requires combat"))?;
+    let discard_select = combat
+        .discard_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    if discard_select.selected_discard_index.is_none() {
+        return Err(SimError::IllegalAction("discard select choice is required"));
+    }
+    Ok(())
+}
+
 pub fn apply_hand_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_hand_select_choice(run, index)?;
     let mut next = run.clone();
@@ -128,6 +156,22 @@ pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
     confirm_hand_select(combat)?;
+    Ok(next)
+}
+
+pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
+    validate_discard_select_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    choose_discard_select(combat, index)?;
+    Ok(next)
+}
+
+pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
+    validate_discard_select_confirm(run)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    confirm_liquid_memories_select(combat)?;
     Ok(next)
 }
 
@@ -296,6 +340,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     }
                     next.card_random_rng_counter = rng.counter();
                     next.combat = Some(combat);
+                }
+                Potion::LiquidMemories => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    open_discard_select(combat)?;
                 }
                 Potion::Weak => {
                     let target = target.expect("validated weak potion target");
@@ -812,6 +860,73 @@ mod tests {
             run.card_random_rng_counter + 3
         );
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn liquid_memories_returns_selected_discard_card_to_hand_at_zero_cost() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(20), STRIKE_R_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        run.potions.push(Potion::LiquidMemories);
+
+        let opened = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use liquid memories");
+        assert!(opened
+            .combat
+            .as_ref()
+            .expect("combat")
+            .discard_select
+            .is_some());
+        assert!(opened.potions.is_empty());
+
+        let chosen = apply_discard_select_choice(&opened, 1).expect("choose defend");
+        let after = apply_discard_select_confirm(&chosen).expect("confirm liquid memories");
+        let combat = after.combat.expect("combat continues");
+        assert!(combat.discard_select.is_none());
+        assert_eq!(combat.piles.discard_pile.len(), 1);
+        let returned = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == CardId::new(21))
+            .expect("returned card");
+        assert_eq!(returned.content_id, DEFEND_R_ID);
+        assert_eq!(returned.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn liquid_memories_requires_discard_choice_before_confirm() {
+        let mut run = RunState::combat_fixture();
+        run.combat
+            .as_mut()
+            .expect("combat")
+            .piles
+            .discard_pile
+            .push(CardInstance::new(CardId::new(20), STRIKE_R_ID));
+        run.potions.push(Potion::LiquidMemories);
+
+        let opened = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use liquid memories");
+
+        assert_eq!(
+            apply_discard_select_confirm(&opened),
+            Err(SimError::IllegalAction("discard select choice is required"))
+        );
     }
 
     #[test]

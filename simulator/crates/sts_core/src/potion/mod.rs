@@ -282,6 +282,7 @@ impl Potion {
                 | Potion::BlessingOfTheForge
                 | Potion::Duplication
                 | Potion::DistilledChaos
+                | Potion::LiquidMemories
                 | Potion::Power
         )
     }

@@ -8,8 +8,8 @@ use crate::{
     relic::{Relic, RelicKey, RelicTier},
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::{
-        apply_combat_card_reward_choice, apply_hand_select_choice, apply_hand_select_confirm,
-        apply_potion_action,
+        apply_combat_card_reward_choice, apply_discard_select_choice, apply_discard_select_confirm,
+        apply_hand_select_choice, apply_hand_select_confirm, apply_potion_action,
     },
     run::shop::apply_shop_action,
     CombatAction, ContentId, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
@@ -587,6 +587,8 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::ChooseCombatCardReward { index } => apply_combat_card_reward_choice(run, index),
         RunAction::ChooseHandSelect { index } => apply_hand_select_choice(run, index),
         RunAction::ConfirmHandSelect => apply_hand_select_confirm(run),
+        RunAction::ChooseDiscardSelect { index } => apply_discard_select_choice(run, index),
+        RunAction::ConfirmDiscardSelect => apply_discard_select_confirm(run),
         _ => apply_reward_action(run, action),
     }
 }
@@ -671,6 +673,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             unreachable!("validated reward action")
         }
         RunAction::ChooseHandSelect { .. } | RunAction::ConfirmHandSelect => {
+            unreachable!("validated reward action")
+        }
+        RunAction::ChooseDiscardSelect { .. } | RunAction::ConfirmDiscardSelect => {
             unreachable!("validated reward action")
         }
     }

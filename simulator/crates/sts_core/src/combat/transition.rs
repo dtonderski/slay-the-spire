@@ -1455,6 +1455,60 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     Ok(())
 }
 
+pub fn open_discard_select(state: &mut CombatState) -> SimResult<()> {
+    if state.piles.discard_pile.is_empty() {
+        return Err(SimError::IllegalAction("discard pile is empty"));
+    }
+    state.discard_select = Some(crate::combat::DiscardSelectState {
+        selected_discard_index: None,
+    });
+    Ok(())
+}
+
+pub fn choose_discard_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
+    discard_select_ui_to_discard_index(state, ui_index)?;
+    let discard_select = state
+        .discard_select
+        .as_mut()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    discard_select.selected_discard_index = Some(ui_index);
+    Ok(())
+}
+
+pub fn discard_select_ui_to_discard_index(
+    state: &CombatState,
+    ui_index: usize,
+) -> SimResult<usize> {
+    state
+        .discard_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    if ui_index >= state.piles.discard_pile.len() {
+        return Err(SimError::IllegalAction("discard select index out of range"));
+    }
+    Ok(ui_index)
+}
+
+pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> {
+    let discard_select = state
+        .discard_select
+        .take()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    let index = discard_select
+        .selected_discard_index
+        .ok_or(SimError::IllegalAction("discard select choice is required"))?;
+    let mut card = state
+        .piles
+        .discard_pile
+        .get(index)
+        .copied()
+        .ok_or(SimError::IllegalAction("discard select index out of range"))?;
+    state.piles.discard_pile.remove(index);
+    card.temp_cost = Some(0);
+    state.piles.hand.push(card);
+    Ok(())
+}
+
 fn remove_card_from_pile(
     state: &mut CombatState,
     card_id: CardId,
