@@ -1308,6 +1308,8 @@ Completed slice:
 - implemented Singing Bowl key promotion and explicit open-card-reward max-HP action, with focused reward/state/relic tests
 - expanded modeled X-cost relics: Chemical X
 - implemented Chemical X key promotion and +2 Whirlwind X value, including zero-energy Chemical X play, with focused legal/combat tests
+- expanded modeled boss energy/enemy-strength relics: Philosopher's Stone
+- implemented Philosopher's Stone key promotion, pickup energy, and combat-start monster Strength, with focused run-state tests
 
 Remaining:
 
