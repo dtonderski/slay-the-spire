@@ -102,6 +102,13 @@ mod tests {
             Some(Relic::ThreadAndNeedle)
         );
         assert_eq!(Relic::from_key(RelicKey::RedSkull), Some(Relic::RedSkull));
+        assert_eq!(Relic::from_key(RelicKey::Nunchaku), Some(Relic::Nunchaku));
+        assert_eq!(Relic::from_key(RelicKey::Shuriken), Some(Relic::Shuriken));
+        assert_eq!(Relic::from_key(RelicKey::Kunai), Some(Relic::Kunai));
+        assert_eq!(
+            Relic::from_key(RelicKey::LetterOpener),
+            Some(Relic::LetterOpener)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -580,6 +587,10 @@ impl RunState {
             | Relic::BronzeScales
             | Relic::ThreadAndNeedle
             | Relic::RedSkull
+            | Relic::Nunchaku
+            | Relic::Shuriken
+            | Relic::Kunai
+            | Relic::LetterOpener
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -710,6 +721,10 @@ impl Relic {
             Relic::BronzeScales => RelicKey::BronzeScales,
             Relic::ThreadAndNeedle => RelicKey::ThreadAndNeedle,
             Relic::RedSkull => RelicKey::RedSkull,
+            Relic::Nunchaku => RelicKey::Nunchaku,
+            Relic::Shuriken => RelicKey::Shuriken,
+            Relic::Kunai => RelicKey::Kunai,
+            Relic::LetterOpener => RelicKey::LetterOpener,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -736,6 +751,10 @@ impl Relic {
             RelicKey::BronzeScales => Some(Relic::BronzeScales),
             RelicKey::ThreadAndNeedle => Some(Relic::ThreadAndNeedle),
             RelicKey::RedSkull => Some(Relic::RedSkull),
+            RelicKey::Nunchaku => Some(Relic::Nunchaku),
+            RelicKey::Shuriken => Some(Relic::Shuriken),
+            RelicKey::Kunai => Some(Relic::Kunai),
+            RelicKey::LetterOpener => Some(Relic::LetterOpener),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),
