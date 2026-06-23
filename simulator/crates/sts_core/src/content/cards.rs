@@ -945,6 +945,66 @@ pub const SEVER_SOUL: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const SENTINEL: CardDefinition = CardDefinition {
+    id: SENTINEL_ID,
+    key: "Sentinel",
+    name: "Sentinel",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(5),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BLOODLETTING: CardDefinition = CardDefinition {
+    id: BLOODLETTING_ID,
+    key: "Bloodletting",
+    name: "Bloodletting",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const SWORD_BOOMERANG: CardDefinition = CardDefinition {
+    id: SWORD_BOOMERANG_ID,
+    key: "Sword Boomerang",
+    name: "Sword Boomerang",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(3),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const HEMOKINESIS: CardDefinition = CardDefinition {
+    id: HEMOKINESIS_ID,
+    key: "Hemokinesis",
+    name: "Hemokinesis",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(15),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IMMOLATE: CardDefinition = CardDefinition {
     id: IMMOLATE_ID,
     key: "Immolate",
@@ -1051,7 +1111,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 54] = [
+pub const ALL_CARDS: [CardDefinition; 58] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1102,6 +1162,10 @@ pub const ALL_CARDS: [CardDefinition; 54] = [
     DRAMATIC_ENTRANCE,
     SWIFT_STRIKE,
     SEVER_SOUL,
+    SENTINEL,
+    BLOODLETTING,
+    SWORD_BOOMERANG,
+    HEMOKINESIS,
     IMMOLATE,
     METALLICIZE,
     THUNDERCLAP,
