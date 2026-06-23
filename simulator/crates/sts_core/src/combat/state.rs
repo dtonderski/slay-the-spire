@@ -38,6 +38,9 @@ pub struct CombatState {
     /// Awaiting player choice for Warcry and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
+    /// Awaiting player choice for discard-pile potion effects such as Liquid Memories.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discard_select: Option<DiscardSelectState>,
     /// One-shot flag from Duplication Potion: the next played card resolves twice.
     #[serde(default, skip_serializing_if = "is_false")]
     pub duplication_potion_pending: bool,
@@ -47,6 +50,11 @@ pub struct CombatState {
 pub struct HandSelectState {
     pub source_card_id: CardId,
     pub selected_hand_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscardSelectState {
+    pub selected_discard_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,6 +168,7 @@ impl CombatState {
             shuffle_rng: None,
             potion_card_reward: None,
             hand_select: None,
+            discard_select: None,
             duplication_potion_pending: false,
         }
     }

@@ -215,6 +215,10 @@ pub enum RunAction {
         index: usize,
     },
     ConfirmHandSelect,
+    ChooseDiscardSelect {
+        index: usize,
+    },
+    ConfirmDiscardSelect,
     EnterShop,
     LeaveShop,
     OpenShopRemove,
@@ -545,6 +549,9 @@ impl RunState {
                 Err(SimError::IllegalAction("not a reward action"))
             }
             RunAction::ChooseHandSelect { .. } | RunAction::ConfirmHandSelect => {
+                Err(SimError::IllegalAction("not a reward action"))
+            }
+            RunAction::ChooseDiscardSelect { .. } | RunAction::ConfirmDiscardSelect => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
         }
