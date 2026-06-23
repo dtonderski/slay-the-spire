@@ -908,6 +908,42 @@ pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const IMMOLATE: CardDefinition = CardDefinition {
+    id: IMMOLATE_ID,
+    key: "Immolate",
+    name: "Immolate",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(21),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const METALLICIZE: CardDefinition = CardDefinition {
+    id: METALLICIZE_ID,
+    key: "Metallicize",
+    name: "Metallicize",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(3),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const THUNDERCLAP: CardDefinition = CardDefinition {
     id: THUNDERCLAP_ID,
     key: "Thunderclap",
@@ -963,7 +999,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 49] = [
+pub const ALL_CARDS: [CardDefinition; 51] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1012,6 +1048,8 @@ pub const ALL_CARDS: [CardDefinition; 49] = [
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
     SWIFT_STRIKE,
+    IMMOLATE,
+    METALLICIZE,
     THUNDERCLAP,
 ];
 

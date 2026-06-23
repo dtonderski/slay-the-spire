@@ -12,6 +12,10 @@ use crate::{
 
 #[must_use]
 pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
+    if state.hand_select.is_some() || state.potion_card_reward.is_some() {
+        return Vec::new();
+    }
+
     let mut actions = Vec::new();
 
     for card in &state.piles.hand {
@@ -73,6 +77,13 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
 }
 
 pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimResult<()> {
+    if state.hand_select.is_some() {
+        return Err(SimError::IllegalAction("hand select is open"));
+    }
+    if state.potion_card_reward.is_some() {
+        return Err(SimError::IllegalAction("combat card reward is open"));
+    }
+
     match action {
         CombatAction::EndTurn => Ok(()),
         CombatAction::PlayCard { card_id, target } => {

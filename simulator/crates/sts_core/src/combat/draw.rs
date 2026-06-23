@@ -1,6 +1,6 @@
 use crate::{
     combat::CombatState,
-    rng::{RngStream, SimulatorRng, StsRng},
+    rng::{JavaRng, RngStream, SimulatorRng, StsRng},
     CardInstance,
 };
 
@@ -60,7 +60,8 @@ fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
     }
 
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
-    rng.collections_shuffle(&mut state.piles.draw_pile);
+    let shuffle_seed = rng.random_long();
+    JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
 }
 
 #[cfg(test)]

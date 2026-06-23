@@ -7,7 +7,10 @@ use crate::{
     potion::{Potion, PotionRarity, IRONCLAD_POTION_POOL, MAX_POTIONS},
     relic::{Relic, RelicKey, RelicTier},
     rng::{RngStream, SimulatorRng, StsRng},
-    run::potion::{apply_combat_card_reward_choice, apply_potion_action},
+    run::potion::{
+        apply_combat_card_reward_choice, apply_hand_select_choice, apply_hand_select_confirm,
+        apply_potion_action,
+    },
     run::shop::apply_shop_action,
     CombatAction, ContentId, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -328,6 +331,15 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     let key = roll_relic_reward(run, tier);
     let relic_offer = Relic::from_key(key);
 
+    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+    let _elite_potion_roll = target_potion_reward_offer(
+        &mut potion_rng,
+        &mut run.potion_chance,
+        2,
+        run.potions.len(),
+    );
+    run.potion_rng_counter = potion_rng.counter();
+
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -477,15 +489,6 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let key = roll_relic_reward(run, tier);
     let relic_offer = Relic::from_key(key);
 
-    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
-    let _elite_potion_roll = target_potion_reward_offer(
-        &mut potion_rng,
-        &mut run.potion_chance,
-        2,
-        run.potions.len(),
-    );
-    run.potion_rng_counter = potion_rng.counter();
-
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -573,6 +576,8 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
             apply_potion_action(run, action)
         }
         RunAction::ChooseCombatCardReward { index } => apply_combat_card_reward_choice(run, index),
+        RunAction::ChooseHandSelect { index } => apply_hand_select_choice(run, index),
+        RunAction::ConfirmHandSelect => apply_hand_select_confirm(run),
         _ => apply_reward_action(run, action),
     }
 }
@@ -654,6 +659,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             unreachable!("validated reward action")
         }
         RunAction::ChooseCombatCardReward { .. } => {
+            unreachable!("validated reward action")
+        }
+        RunAction::ChooseHandSelect { .. } | RunAction::ConfirmHandSelect => {
             unreachable!("validated reward action")
         }
     }

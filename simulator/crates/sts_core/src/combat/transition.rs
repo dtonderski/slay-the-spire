@@ -10,9 +10,9 @@ use crate::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
         DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMMOLATE_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, THUNDERCLAP_ID,
         TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
         WHIRLWIND_PLUS_ID,
@@ -73,6 +73,7 @@ fn apply_play_card(
             definition,
         ),
         CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID => cleave_queue(card_id, definition),
+        IMMOLATE_ID => immolate_queue(card_id, definition),
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => twin_strike_queue(
             card_id,
             target.expect("validated Twin Strike has a target"),
@@ -84,6 +85,7 @@ fn apply_play_card(
         FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
         DARK_EMBRACE_ID => dark_embrace_queue(card_id),
         DEMON_FORM_ID => demon_form_queue(card_id),
+        METALLICIZE_ID => metallicize_queue(card_id, definition),
         POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID => pommel_strike_queue(
             card_id,
             target.expect("validated Pommel Strike has a target"),
@@ -303,6 +305,22 @@ fn cleave_queue(
     ]))
 }
 
+fn immolate_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = cleave_queue(card_id, definition)?;
+    let move_card = queue
+        .pop_back()
+        .expect("cleave queue ends by moving the played card");
+    queue.push_back(InternalAction::AddCardToPile {
+        content_id: crate::content::cards::BURN_ID,
+        to: CardPile::DiscardPile,
+    });
+    queue.push_back(move_card);
+    Ok(queue)
+}
+
 fn thunderclap_queue(
     state: &CombatState,
     card_id: CardId,
@@ -410,7 +428,13 @@ fn warcry_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let mut queue = VecDeque::from([
+    if lowest_other_hand_card(state, card_id).is_none() {
+        return Err(SimError::IllegalAction(
+            "Warcry requires another card in hand",
+        ));
+    }
+
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
@@ -418,19 +442,10 @@ fn warcry_queue(
         InternalAction::DrawCards {
             count: warcry_draw_count(definition),
         },
-    ]);
-
-    if let Some(put_back) = lowest_other_hand_card(state, card_id) {
-        queue.push_back(InternalAction::PutHandCardOnTopOfDraw { card_id: put_back });
-    }
-
-    queue.push_back(InternalAction::MoveCard {
-        card_id,
-        from: CardPile::Hand,
-        to: CardPile::ExhaustPile,
-    });
-
-    Ok(queue)
+        InternalAction::AwaitHandSelect {
+            source_card_id: card_id,
+        },
+    ]))
 }
 
 fn lowest_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> Option<CardId> {
@@ -646,6 +661,23 @@ fn demon_form_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
             card_id,
             from: CardPile::Hand,
             to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn metallicize_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainMetallicize {
+            amount: definition.values.block.unwrap_or(0),
+        },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
         },
     ]))
 }
@@ -947,6 +979,10 @@ fn apply_internal_action(
                 Ok(Vec::new())
             }
         }
+        InternalAction::RemoveCard { card_id, from } => {
+            remove_card_from_pile(state, card_id, from)?;
+            Ok(Vec::new())
+        }
         InternalAction::AddCardToPile { content_id, to } => {
             add_card_to_pile(state, content_id, to);
             Ok(Vec::new())
@@ -969,6 +1005,10 @@ fn apply_internal_action(
         }
         InternalAction::GainDarkEmbrace { amount } => {
             state.player.powers.dark_embrace += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainMetallicize { amount } => {
+            state.player.powers.metallicize += amount;
             Ok(Vec::new())
         }
         InternalAction::GainStrength { amount } => {
@@ -1000,6 +1040,13 @@ fn apply_internal_action(
                 .piles
                 .hand
                 .push(CardInstance::new(next_id, card.content_id));
+            Ok(Vec::new())
+        }
+        InternalAction::AwaitHandSelect { source_card_id } => {
+            state.hand_select = Some(crate::combat::HandSelectState {
+                source_card_id,
+                selected_hand_index: None,
+            });
             Ok(Vec::new())
         }
     }
@@ -1149,6 +1196,58 @@ fn apply_play_top_draw_card(
     follow_ups.push(InternalAction::CardExhausted { card_id });
 
     Ok(follow_ups)
+}
+
+pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
+    let hand_index = hand_select_ui_to_hand_index(state, ui_index)?;
+    let hand_select = state
+        .hand_select
+        .as_mut()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    hand_select.selected_hand_index = Some(hand_index);
+    Ok(())
+}
+
+pub fn hand_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
+    let source_card_id = state
+        .hand_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?
+        .source_card_id;
+    let selectable: Vec<usize> = state
+        .piles
+        .hand
+        .iter()
+        .enumerate()
+        .filter(|(_, card)| card.id != source_card_id)
+        .map(|(index, _)| index)
+        .collect();
+    selectable
+        .get(ui_index)
+        .copied()
+        .ok_or(SimError::IllegalAction("hand select index out of range"))
+}
+
+pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
+    let hand_select = state
+        .hand_select
+        .take()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    let index = hand_select
+        .selected_hand_index
+        .ok_or(SimError::IllegalAction("hand select choice is required"))?;
+    let put_back = state.piles.hand[index].id;
+    if put_back == hand_select.source_card_id {
+        return Err(SimError::IllegalAction(
+            "cannot put Warcry on top of the draw pile",
+        ));
+    }
+    let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
+    state.piles.draw_pile.push(card);
+    let warcry = remove_card_from_pile(state, hand_select.source_card_id, CardPile::Hand)?;
+    state.piles.exhaust_pile.push(warcry);
+    apply_on_exhaust_effects(state);
+    Ok(())
 }
 
 fn remove_card_from_pile(
@@ -2558,20 +2657,56 @@ mod tests {
         ];
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
 
-        let next = apply_combat_action(
+        let mut after_play = apply_combat_action(
             &state,
             CombatAction::PlayCard {
                 card_id: CardId::new(20),
                 target: None,
             },
         )
-        .expect("Warcry applies");
+        .expect("Warcry opens hand select");
 
-        assert_eq!(next.piles.draw_pile[0].content_id, DEFEND_R_ID);
-        assert_eq!(next.piles.draw_pile.len(), 1);
-        assert_eq!(next.piles.hand.len(), 1);
-        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
-        assert_eq!(next.piles.exhaust_pile[0].content_id, WARCRY_ID);
+        assert!(after_play.hand_select.is_some());
+        choose_hand_select(&mut after_play, 0).expect("choose defend");
+        confirm_hand_select(&mut after_play).expect("confirm hand select");
+
+        assert_eq!(after_play.piles.draw_pile[0].content_id, DEFEND_R_ID);
+        assert_eq!(after_play.piles.draw_pile.len(), 1);
+        assert_eq!(after_play.piles.hand.len(), 1);
+        assert_eq!(after_play.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(after_play.piles.exhaust_pile[0].content_id, WARCRY_ID);
+    }
+
+    #[test]
+    fn warcry_hand_select_puts_regret_on_draw_pile_top() {
+        use crate::content::cards::REGRET_ID;
+
+        let mut state = hand_only(WARCRY_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), WARCRY_ID),
+            CardInstance::new(CardId::new(6), REGRET_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(5),
+                target: None,
+            },
+        )
+        .expect("Warcry opens hand select");
+
+        choose_hand_select(&mut after_play, 4).expect("choose regret");
+        confirm_hand_select(&mut after_play).expect("confirm hand select");
+
+        assert_eq!(after_play.piles.draw_pile.last().unwrap().content_id, REGRET_ID);
+        assert_eq!(after_play.piles.exhaust_pile[0].content_id, WARCRY_ID);
+        assert!(after_play.hand_select.is_none());
     }
 
     #[test]
@@ -2586,17 +2721,20 @@ mod tests {
             CardInstance::new(CardId::new(31), STRIKE_R_ID),
         ];
 
-        let next = apply_combat_action(
+        let mut after_play = apply_combat_action(
             &state,
             CombatAction::PlayCard {
                 card_id: CardId::new(20),
                 target: None,
             },
         )
-        .expect("Warcry+ applies");
+        .expect("Warcry+ opens hand select");
 
-        assert_eq!(next.piles.hand.len(), 2);
-        assert_eq!(next.piles.draw_pile[0].content_id, DEFEND_R_ID);
+        choose_hand_select(&mut after_play, 0).expect("choose defend");
+        confirm_hand_select(&mut after_play).expect("confirm hand select");
+
+        assert_eq!(after_play.piles.hand.len(), 2);
+        assert_eq!(after_play.piles.draw_pile[0].content_id, DEFEND_R_ID);
     }
 
     #[test]

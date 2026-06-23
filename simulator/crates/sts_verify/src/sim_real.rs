@@ -18,10 +18,10 @@ use sts_core::{
     enter_normal_combat_reward_screen, enter_shop_room, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     initialize_combat_piles, leave_shop_merchant, leave_shop_room, select_grid_card,
-    shop_action_for_choice_index, CardId, CardInstance, CardPiles, CombatAction, CombatPhase,
-    CombatState, ContentId, EventAction, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
-    PlayerPowers, PlayerState, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase,
-    RunState, ShopPick, StsRng,
+    shop_action_for_choice_index, starter_only_deck, CardId, CardInstance, CardPiles,
+    CombatAction, CombatPhase, CombatState, ContentId, EventAction, MonsterId, MonsterIntent,
+    MonsterPowers, MonsterState, PlayerPowers, PlayerState, RelicKey, RestAction, RewardScreen,
+    RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -592,7 +592,8 @@ fn verify_seed_start_transitions(
                         compare_subset(report, action, &label, expected.clone(), expected);
                         combat_elite_boss_observed_sync = !(options
                             .disable_test_elite_boss_observed_sync
-                            && start.external_seed == "TEST");
+                            && start.external_seed == "TEST"
+                            && elite_index == 0);
                         in_elite_boss_combat = true;
                         elite_combat = true;
                         elite_index += 1;
@@ -673,9 +674,7 @@ fn verify_seed_start_transitions(
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
                         compare_subset(report, action, &label, expected.clone(), expected);
-                        combat_elite_boss_observed_sync = !(options
-                            .disable_test_elite_boss_observed_sync
-                            && start.external_seed == "TEST");
+                        combat_elite_boss_observed_sync = true;
                         in_elite_boss_combat = true;
                         observed_combat_sync = true;
                         phase = SeedStartPhase::Combat;
@@ -995,15 +994,28 @@ fn verify_seed_start_transitions(
                         .get("game_state")
                         .and_then(|game| game.get("combat_state"))
                         .is_some();
+                let combat_hand_select_choose = command.starts_with("CHOOSE")
+                    && (screen_type(&pre.message) == Some("HAND_SELECT")
+                        || seed_sim
+                            .as_ref()
+                            .and_then(|run| run.combat.as_ref())
+                            .is_some_and(|combat| combat.hand_select.is_some()));
+                let combat_hand_select_confirm = command.eq_ignore_ascii_case("CONFIRM")
+                    && (screen_type(&pre.message) == Some("HAND_SELECT")
+                        || seed_sim
+                            .as_ref()
+                            .and_then(|run| run.combat.as_ref())
+                            .is_some_and(|combat| combat.hand_select.is_some()));
+                let elite_no_sync = in_elite_boss_combat && !combat_elite_boss_observed_sync;
                 let potion_use_slot = parse_potion_use_slot(command);
                 let observed_sync = if in_elite_boss_combat {
                     combat_elite_boss_observed_sync
                 } else {
                     observed_combat_sync
                 } || (command.starts_with("POTION") && potion_use_slot.is_none())
-                    || command.eq_ignore_ascii_case("CONFIRM")
-                    || enters_hand_select
-                    || (command.starts_with("CHOOSE") && hand_select);
+                    || (!elite_no_sync && command.eq_ignore_ascii_case("CONFIRM"))
+                    || (!elite_no_sync && enters_hand_select)
+                    || (!elite_no_sync && command.starts_with("CHOOSE") && hand_select);
 
                 if observed_sync {
                     let Some(sim) = seed_sim.as_mut() else {
@@ -1151,6 +1163,78 @@ fn verify_seed_start_transitions(
                     continue;
                 }
 
+                if combat_hand_select_confirm {
+                    let next = apply_run_action(sim, RunAction::ConfirmHandSelect);
+                    let Ok(next) = next else {
+                        push_sim_error(
+                            report,
+                            action,
+                            "combat hand select confirm",
+                            next.err().unwrap(),
+                        );
+                        return SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: "seed-start combat hand select confirm simulation failed"
+                                .to_owned(),
+                        };
+                    };
+                    seed_start_compare_combat_subset(
+                        report,
+                        action,
+                        "hand select confirm",
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        false,
+                    );
+                    *sim = next;
+                    combat_step += 1;
+                    continue;
+                }
+
+                if combat_hand_select_choose {
+                    let Some(index) = choose_index(command) else {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: format!(
+                                "seed-start verifier could not parse combat hand select command {command:?}"
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return boundary;
+                    };
+                    let next = apply_run_action(sim, RunAction::ChooseHandSelect { index });
+                    let Ok(next) = next else {
+                        push_sim_error(
+                            report,
+                            action,
+                            "combat hand select",
+                            next.err().unwrap(),
+                        );
+                        return SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: "seed-start combat hand select simulation failed".to_owned(),
+                        };
+                    };
+                    seed_start_compare_combat_subset(
+                        report,
+                        action,
+                        "hand select",
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        false,
+                    );
+                    *sim = next;
+                    combat_step += 1;
+                    continue;
+                }
+
                 if !(command.starts_with("PLAY") || command.eq_ignore_ascii_case("END")) {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -1203,7 +1287,7 @@ fn verify_seed_start_transitions(
                 if is_final_combat_blow(sim, combat_action) {
                     let pre_hp = sim.player_hp;
                     let next = apply_combat_action_on_run(sim, combat_action);
-                    let Ok(next) = next else {
+                    let Ok(mut next) = next else {
                         push_sim_error(
                             report,
                             action,
@@ -1216,6 +1300,18 @@ fn verify_seed_start_transitions(
                             reason: "seed-start combat victory simulation failed".to_owned(),
                         };
                     };
+                    if post
+                        .message
+                        .get("game_state")
+                        .and_then(|game| game.get("room_type"))
+                        .and_then(Value::as_str)
+                        == Some("MonsterRoomElite")
+                    {
+                        enter_elite_combat_reward_screen(&mut next);
+                        elite_combat = false;
+                        combat_elite_boss_observed_sync = false;
+                        in_elite_boss_combat = false;
+                    }
                     let label = combat_label(command, sim);
                     if start.external_seed == "VERIFY01" {
                         if let Some(expected) =
@@ -3805,6 +3901,10 @@ fn seed_start_run_from_combat_entry(
             let simulated = initialize_combat_piles(&run.deck, rng);
             if seed_start_opening_piles_match(&simulated, message) {
                 combat.piles = simulated;
+            } else if !starter_only_deck(&run.deck) {
+                let mut fallback_rng = StsRng::new(numeric_seed + i64::from(floor));
+                fallback_rng.random_long();
+                combat.shuffle_rng = Some(fallback_rng);
             }
         }
     }
@@ -3845,6 +3945,8 @@ fn seed_start_simulated_combat_subset(
         .and_then(|combat| combat.get("monsters"));
     let screen_type = if combat.potion_card_reward.is_some() {
         "CARD_REWARD"
+    } else if combat.hand_select.is_some() {
+        "HAND_SELECT"
     } else {
         game.get("screen_type")
             .and_then(Value::as_str)
@@ -3863,7 +3965,14 @@ fn seed_start_simulated_combat_subset(
             .piles
             .hand
             .iter()
-            .map(|card| deck_content_key(card.content_id).to_owned())
+            .enumerate()
+            .filter(|(index, card)| {
+                combat.hand_select.as_ref().is_none_or(|hand_select| {
+                    card.id != hand_select.source_card_id
+                        && hand_select.selected_hand_index != Some(*index)
+                })
+            })
+            .map(|(_, card)| deck_content_key(card.content_id).to_owned())
             .collect::<Vec<_>>(),
         "draw_ids": combat
             .piles
@@ -4401,6 +4510,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         ascension: int(game, "ascension_level") as u8,
         shuffle_rng: None,
         potion_card_reward: None,
+        hand_select: None,
     };
 
     Some(RunState {
@@ -5178,7 +5288,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
-        ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
+        ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BURN_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
         COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID,
         FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
         HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID,
@@ -5191,6 +5301,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == STRIKE_R_ID => "Strike_R",
         id if id == DEFEND_R_ID => "Defend_R",
         id if id == BASH_ID => "Bash",
+        id if id == BURN_ID => "Burn",
         id if id == SLIMED_ID => "Slimed",
         id if id == THUNDERCLAP_ID => "Thunderclap",
         id if id == WARCRY_ID => "Warcry",
