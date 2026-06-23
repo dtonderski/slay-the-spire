@@ -1197,6 +1197,7 @@ mod tests {
             powers: PlayerPowers::default(),
             cannot_draw: false,
             temp_strength: 0,
+            temp_dexterity: 0,
         }
     }
 

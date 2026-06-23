@@ -12,8 +12,8 @@ use crate::{
         Potion, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT, DEXTERITY_POTION_DEXTERITY,
         ENERGY_POTION_ENERGY, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE,
         FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD,
-        GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE, STRENGTH_POTION_STRENGTH,
-        SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
+        GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE, SPEED_POTION_TEMP_DEXTERITY,
+        STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -210,6 +210,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Flex => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     combat.player.temp_strength += FLEX_POTION_TEMP_STRENGTH;
+                }
+                Potion::Speed => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.powers.dexterity += SPEED_POTION_TEMP_DEXTERITY;
+                    combat.player.temp_dexterity += SPEED_POTION_TEMP_DEXTERITY;
                 }
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -559,6 +564,46 @@ mod tests {
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.player.temp_strength, FLEX_POTION_TEMP_STRENGTH);
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn speed_potion_grants_temp_dexterity_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Speed);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use speed potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.powers.dexterity, SPEED_POTION_TEMP_DEXTERITY);
+        assert_eq!(combat.player.temp_dexterity, SPEED_POTION_TEMP_DEXTERITY);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn speed_potion_dexterity_clears_on_next_player_turn() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Speed);
+        run.combat.as_mut().expect("combat").piles.draw_pile.clear();
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use speed potion");
+        let combat = crate::combat::turn::end_player_turn(after.combat.as_ref().expect("combat"));
+
+        assert_eq!(combat.player.powers.dexterity, 0);
+        assert_eq!(combat.player.temp_dexterity, 0);
     }
 
     #[test]
