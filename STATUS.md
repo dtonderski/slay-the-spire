@@ -26,6 +26,7 @@
 - Turn-timed combat relics: Happy Flower, Orichalcum, Horn Cleat, Captain's Wheel, Mercury Hourglass, and Stone Calendar
 - Combat-victory healing relics: Black Blood and Meat on the Bone
 - Room/rest healing relics: Meal Ticket, Regal Pillow, Dream Catcher, and Eternal Feather
+- Damage mitigation relics: Torii and Tungsten Rod
 - Stateful relic: Ice Cream preserves energy between turns
 - Random-effect potion: Gamble Potion (+50/-50 gold via RNG)
 
@@ -106,7 +107,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Milestone 32 is in progress. Completed relic slices now cover simple pickup/capacity relics, start-of-combat relics, card-play counter relics, turn-timed combat relics, combat-victory healing relics, and room/rest healing relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, Potion Belt, Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, Red Skull, Nunchaku, Shuriken, Kunai, Letter Opener, Happy Flower, Orichalcum, Horn Cleat, Captain's Wheel, Mercury Hourglass, Stone Calendar, Black Blood, Meat on the Bone, Meal Ticket, Regal Pillow, Dream Catcher, and Eternal Feather. Continue by implementing the next missing relic hook family.
+Milestone 32 is in progress. Completed relic slices now cover simple pickup/capacity relics, start-of-combat relics, card-play counter relics, turn-timed combat relics, combat-victory healing relics, room/rest healing relics, and damage mitigation relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, Potion Belt, Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, Red Skull, Nunchaku, Shuriken, Kunai, Letter Opener, Happy Flower, Orichalcum, Horn Cleat, Captain's Wheel, Mercury Hourglass, Stone Calendar, Black Blood, Meat on the Bone, Meal Ticket, Regal Pillow, Dream Catcher, Eternal Feather, Torii, and Tungsten Rod. Continue by implementing the next missing relic hook family.
 
 The previous M29 cleaned single-run prefix can still be structurally checked with:
 

@@ -1118,7 +1118,7 @@ fn apply_internal_action(
             };
             check_slime_boss_split(state, info.target);
             if still_alive && spikes > 0 {
-                reflect_spikes_to_player(&mut state.player, spikes);
+                reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
             }
             Ok(Vec::new())
         }
@@ -1150,7 +1150,7 @@ fn apply_internal_action(
                 };
                 check_slime_boss_split(state, target);
                 if still_alive && spikes > 0 {
-                    reflect_spikes_to_player(&mut state.player, spikes);
+                    reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
                 }
             }
             Ok(Vec::new())

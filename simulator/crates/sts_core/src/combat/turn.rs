@@ -95,7 +95,7 @@ fn run_monster_turn(state: &mut CombatState) {
 fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
     let blocked = state.player.block.min(amount);
     state.player.block -= blocked;
-    let hp_damage = amount - blocked;
+    let hp_damage = crate::relic::mitigate_unblocked_attack_damage(&state.relics, amount - blocked);
     state.player.hp -= hp_damage;
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
@@ -216,6 +216,30 @@ mod tests {
 
         assert_eq!(next.player.hp, 18);
         assert_eq!(next.player.block, 0);
+    }
+
+    #[test]
+    fn torii_reduces_small_unblocked_monster_attack_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 1;
+        state.relics = vec![crate::Relic::Torii];
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 19);
+    }
+
+    #[test]
+    fn tungsten_rod_reduces_unblocked_monster_attack_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 4;
+        state.relics = vec![crate::Relic::TungstenRod];
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 19);
     }
 
     #[test]

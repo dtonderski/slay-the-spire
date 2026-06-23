@@ -19,7 +19,8 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
         .filter(|card| card.content_id == BURN_ID)
         .count() as i32;
 
-    state.player.hp -= burn_copies * BURN_END_TURN_DAMAGE;
+    let hp_loss = crate::relic::mitigate_hp_loss(&state.relics, burn_copies * BURN_END_TURN_DAMAGE);
+    state.player.hp -= hp_loss;
 }
 
 fn apply_regret_damage_in_hand(state: &mut CombatState) {
@@ -29,7 +30,8 @@ fn apply_regret_damage_in_hand(state: &mut CombatState) {
         .iter()
         .any(|card| card.content_id == REGRET_ID)
     {
-        state.player.hp -= state.piles.hand.len() as i32;
+        let hp_loss = crate::relic::mitigate_hp_loss(&state.relics, state.piles.hand.len() as i32);
+        state.player.hp -= hp_loss;
     }
 }
 
@@ -136,6 +138,23 @@ mod tests {
     }
 
     #[test]
+    fn tungsten_rod_reduces_burn_hp_loss_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.monsters[0].alive = false;
+        state.relics = vec![crate::Relic::TungstenRod];
+        state.piles.hand = vec![CardInstance::new(
+            CardId::new(20),
+            crate::content::cards::BURN_ID,
+        )];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 19);
+    }
+
+    #[test]
     fn regret_in_hand_deals_damage_equal_to_hand_size() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 20;
@@ -150,6 +169,23 @@ mod tests {
         let next = crate::combat::end_player_turn(&state);
 
         assert_eq!(next.player.hp, 17);
+    }
+
+    #[test]
+    fn tungsten_rod_reduces_regret_hp_loss_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.monsters[0].alive = false;
+        state.relics = vec![crate::Relic::TungstenRod];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), REGRET_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 19);
     }
 
     #[test]

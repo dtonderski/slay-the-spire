@@ -92,6 +92,12 @@ pub const MEAL_TICKET_HEAL: i32 = 15;
 pub const REGAL_PILLOW_HEAL: i32 = 15;
 /// HP healed by [Relic::EternalFeather] per five cards in the deck when resting.
 pub const ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS: i32 = 3;
+/// Maximum unblocked attack damage that [Relic::Torii] reduces.
+pub const TORII_MAX_DAMAGE: i32 = 5;
+/// Attack damage after [Relic::Torii] reduction.
+pub const TORII_REDUCED_DAMAGE: i32 = 1;
+/// HP loss prevented by [Relic::TungstenRod].
+pub const TUNGSTEN_ROD_REDUCTION: i32 = 1;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -165,6 +171,10 @@ pub const REGAL_PILLOW_ID: ContentId = ContentId::new(333);
 pub const DREAM_CATCHER_ID: ContentId = ContentId::new(334);
 /// Content id for [Relic::EternalFeather].
 pub const ETERNAL_FEATHER_ID: ContentId = ContentId::new(335);
+/// Content id for [Relic::Torii].
+pub const TORII_ID: ContentId = ContentId::new(336);
+/// Content id for [Relic::TungstenRod].
+pub const TUNGSTEN_ROD_ID: ContentId = ContentId::new(337);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -713,6 +723,8 @@ pub enum Relic {
     RegalPillow,
     DreamCatcher,
     EternalFeather,
+    Torii,
+    TungstenRod,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -755,6 +767,8 @@ impl Relic {
             Relic::RegalPillow => REGAL_PILLOW_ID,
             Relic::DreamCatcher => DREAM_CATCHER_ID,
             Relic::EternalFeather => ETERNAL_FEATHER_ID,
+            Relic::Torii => TORII_ID,
+            Relic::TungstenRod => TUNGSTEN_ROD_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -797,6 +811,8 @@ impl Relic {
             id if id == REGAL_PILLOW_ID => Some(Relic::RegalPillow),
             id if id == DREAM_CATCHER_ID => Some(Relic::DreamCatcher),
             id if id == ETERNAL_FEATHER_ID => Some(Relic::EternalFeather),
+            id if id == TORII_ID => Some(Relic::Torii),
+            id if id == TUNGSTEN_ROD_ID => Some(Relic::TungstenRod),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -863,6 +879,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::RegalPillow => {}
             Relic::DreamCatcher => {}
             Relic::EternalFeather => {}
+            Relic::Torii => {}
+            Relic::TungstenRod => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -942,6 +960,24 @@ pub fn apply_end_of_player_turn_relics(state: &mut CombatState) {
     {
         deal_unmodified_damage_to_living_monsters(state, STONE_CALENDAR_DAMAGE);
     }
+}
+
+#[must_use]
+pub fn mitigate_unblocked_attack_damage(relics: &[Relic], amount: i32) -> i32 {
+    let mut mitigated = amount;
+    if relics.contains(&Relic::Torii) && (1..=TORII_MAX_DAMAGE).contains(&mitigated) {
+        mitigated = TORII_REDUCED_DAMAGE;
+    }
+    mitigate_hp_loss(relics, mitigated)
+}
+
+#[must_use]
+pub fn mitigate_hp_loss(relics: &[Relic], amount: i32) -> i32 {
+    let mut mitigated = amount.max(0);
+    if relics.contains(&Relic::TungstenRod) {
+        mitigated = (mitigated - TUNGSTEN_ROD_REDUCTION).max(0);
+    }
+    mitigated
 }
 
 #[must_use]
@@ -1405,6 +1441,8 @@ mod tests {
         assert_eq!(Relic::RegalPillow.content_id(), REGAL_PILLOW_ID);
         assert_eq!(Relic::DreamCatcher.content_id(), DREAM_CATCHER_ID);
         assert_eq!(Relic::EternalFeather.content_id(), ETERNAL_FEATHER_ID);
+        assert_eq!(Relic::Torii.content_id(), TORII_ID);
+        assert_eq!(Relic::TungstenRod.content_id(), TUNGSTEN_ROD_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -1516,6 +1554,11 @@ mod tests {
             Relic::from_content_id(ETERNAL_FEATHER_ID),
             Some(Relic::EternalFeather)
         );
+        assert_eq!(Relic::from_content_id(TORII_ID), Some(Relic::Torii));
+        assert_eq!(
+            Relic::from_content_id(TUNGSTEN_ROD_ID),
+            Some(Relic::TungstenRod)
+        );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }
 
@@ -1523,6 +1566,23 @@ mod tests {
     fn ice_cream_preserves_energy_between_turns_flag() {
         assert!(!preserves_energy_between_turns(&[]));
         assert!(preserves_energy_between_turns(&[Relic::IceCream]));
+    }
+
+    #[test]
+    fn torii_reduces_small_unblocked_attack_damage_before_tungsten_rod() {
+        assert_eq!(mitigate_unblocked_attack_damage(&[Relic::Torii], 5), 1);
+        assert_eq!(mitigate_unblocked_attack_damage(&[Relic::Torii], 6), 6);
+        assert_eq!(
+            mitigate_unblocked_attack_damage(&[Relic::Torii, Relic::TungstenRod], 5),
+            0
+        );
+    }
+
+    #[test]
+    fn tungsten_rod_reduces_non_attack_hp_loss_by_one() {
+        assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 3), 2);
+        assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 1), 0);
+        assert_eq!(mitigate_hp_loss(&[], 3), 3);
     }
 
     #[test]
