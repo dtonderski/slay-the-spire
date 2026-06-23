@@ -335,6 +335,8 @@ pub const BRIMSTONE_MONSTER_STRENGTH: i32 = 1;
 pub const WHITE_BEAST_STATUE_ID: ContentId = ContentId::new(376);
 /// Content id for [Relic::Whetstone].
 pub const WHETSTONE_ID: ContentId = ContentId::new(377);
+/// Content id for [Relic::WarPaint].
+pub const WAR_PAINT_ID: ContentId = ContentId::new(378);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -936,6 +938,7 @@ pub enum Relic {
     Brimstone,
     WhiteBeastStatue,
     Whetstone,
+    WarPaint,
 }
 
 impl Relic {
@@ -1020,6 +1023,7 @@ impl Relic {
             Relic::Brimstone => BRIMSTONE_ID,
             Relic::WhiteBeastStatue => WHITE_BEAST_STATUE_ID,
             Relic::Whetstone => WHETSTONE_ID,
+            Relic::WarPaint => WAR_PAINT_ID,
         }
     }
 
@@ -1104,6 +1108,7 @@ impl Relic {
             id if id == BRIMSTONE_ID => Some(Relic::Brimstone),
             id if id == WHITE_BEAST_STATUE_ID => Some(Relic::WhiteBeastStatue),
             id if id == WHETSTONE_ID => Some(Relic::Whetstone),
+            id if id == WAR_PAINT_ID => Some(Relic::WarPaint),
             _ => None,
         }
     }
@@ -1223,6 +1228,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Brimstone => {}
             Relic::WhiteBeastStatue => {}
             Relic::Whetstone => {}
+            Relic::WarPaint => {}
         }
     }
 
@@ -2184,6 +2190,8 @@ mod tests {
         );
         assert_eq!(Relic::Whetstone.content_id(), WHETSTONE_ID);
         assert_eq!(Relic::from_content_id(WHETSTONE_ID), Some(Relic::Whetstone));
+        assert_eq!(Relic::WarPaint.content_id(), WAR_PAINT_ID);
+        assert_eq!(Relic::from_content_id(WAR_PAINT_ID), Some(Relic::WarPaint));
     }
 
     #[test]

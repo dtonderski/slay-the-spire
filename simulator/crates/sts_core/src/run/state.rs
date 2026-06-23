@@ -249,6 +249,7 @@ mod tests {
             Some(Relic::WhiteBeastStatue)
         );
         assert_eq!(Relic::from_key(RelicKey::Whetstone), Some(Relic::Whetstone));
+        assert_eq!(Relic::from_key(RelicKey::WarPaint), Some(Relic::WarPaint));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -538,6 +539,49 @@ mod tests {
 
         assert_eq!(run.count_content_in_deck(STRIKE_R_ID), 0);
         assert_eq!(run.count_content_in_deck(SHRUG_IT_OFF_ID), 1);
+        assert_eq!(run.misc_rng_counter, 0);
+    }
+
+    #[test]
+    fn war_paint_pickup_upgrades_two_random_skills() {
+        let mut run = RunState::map_fixture();
+        run.deck.clear();
+        run.deck
+            .push(CardInstance::new(CardId::new(500), BATTLE_TRANCE_ID));
+        run.deck
+            .push(CardInstance::new(CardId::new(501), SEEING_RED_ID));
+        run.deck
+            .push(CardInstance::new(CardId::new(502), WARCRY_ID));
+        run.deck.push(CardInstance::new(CardId::new(503), ANGER_ID));
+
+        run.gain_relic(Relic::WarPaint);
+
+        let upgraded_skills = run
+            .deck
+            .iter()
+            .filter(|card| {
+                matches!(
+                    card.content_id,
+                    crate::content::cards::BATTLE_TRANCE_PLUS_ID
+                        | crate::content::cards::SEEING_RED_PLUS_ID
+                        | crate::content::cards::WARCRY_PLUS_ID
+                )
+            })
+            .count();
+        assert_eq!(upgraded_skills, 2);
+        assert_eq!(run.card_random_rng_counter, 0);
+        assert_eq!(run.misc_rng_counter, 1);
+    }
+
+    #[test]
+    fn war_paint_pickup_without_valid_skills_does_not_consume_rng() {
+        let mut run = RunState::map_fixture();
+        run.deck.clear();
+        run.deck.push(CardInstance::new(CardId::new(500), ANGER_ID));
+
+        run.gain_relic(Relic::WarPaint);
+
+        assert_eq!(run.count_content_in_deck(ANGER_ID), 1);
         assert_eq!(run.misc_rng_counter, 0);
     }
 
@@ -1469,6 +1513,9 @@ impl RunState {
             Relic::Whetstone => {
                 self.upgrade_random_deck_cards(CardType::Attack, 2);
             }
+            Relic::WarPaint => {
+                self.upgrade_random_deck_cards(CardType::Skill, 2);
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1766,6 +1813,7 @@ impl Relic {
             Relic::Brimstone => RelicKey::Brimstone,
             Relic::WhiteBeastStatue => RelicKey::WhiteBeastStatue,
             Relic::Whetstone => RelicKey::Whetstone,
+            Relic::WarPaint => RelicKey::WarPaint,
         }
     }
 
@@ -1850,6 +1898,7 @@ impl Relic {
             RelicKey::Brimstone => Some(Relic::Brimstone),
             RelicKey::WhiteBeastStatue => Some(Relic::WhiteBeastStatue),
             RelicKey::Whetstone => Some(Relic::Whetstone),
+            RelicKey::WarPaint => Some(Relic::WarPaint),
             _ => None,
         }
     }
