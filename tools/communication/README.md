@@ -21,6 +21,7 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 - `overnight_supervisor.js` repeatedly runs the collector, validates the active trace after collector exit, and stops with a clear reason if the bridge/session files are stale or the bridge has exited.
 - `run_overnight_supervisor.cmd` starts the supervised overnight workflow. Start Slay the Spire with CommunicationMod first.
 - `overnight_collector.test.js` is a fast Node regression test for command policy edge cases seen in harvested traces.
+- `overnight_supervisor.test.js` is a fast Node regression test for stale-session and trace-path decisions in the supervisor.
 
 Useful environment variables:
 
@@ -44,4 +45,5 @@ Run collector policy tests with:
 
 ```powershell
 node tools\communication\overnight_collector.test.js
+node tools\communication\overnight_supervisor.test.js
 ```
