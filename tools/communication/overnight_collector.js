@@ -15,11 +15,14 @@ const seedPrefix = process.env.STS_AUTO_SEED_PREFIX || "M29";
 const maxRuns = Number.parseInt(process.env.STS_AUTO_MAX_RUNS || "200", 10);
 const tickMs = Number.parseInt(process.env.STS_AUTO_TICK_MS || "500", 10);
 const maxStatePolls = Number.parseInt(process.env.STS_AUTO_MAX_STATE_POLLS || "5", 10);
+const maxSameCommand = Number.parseInt(process.env.STS_AUTO_MAX_SAME_COMMAND || "2", 10);
 
 let runIndex = loadRunIndex();
 let lastStep = -1;
 let lastSignature = "";
 let repeatedStatePolls = 0;
+let lastCommandSignature = "";
+let repeatedSameCommand = 0;
 
 fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -49,6 +52,25 @@ function saveRunIndex() {
     collectorStatePath,
     `${JSON.stringify({ next_run_index: runIndex, updated_at: new Date().toISOString() }, null, 2)}\n`,
   );
+}
+
+function commandVerb(command) {
+  return String(command || "").trim().split(/\s+/)[0]?.toLowerCase() || "";
+}
+
+function commandIsAvailable(summary, command) {
+  const verb = commandVerb(command);
+  if (verb === "state") return true;
+  const available = new Set(summary.available_commands || []);
+  if (verb === "start") return available.has("start");
+  if (verb === "end") return available.has("end");
+  if (verb === "play") return available.has("play");
+  if (verb === "choose") return available.has("choose");
+  if (verb === "confirm") return available.has("confirm");
+  if (verb === "proceed") return available.has("proceed");
+  if (verb === "skip") return available.has("skip");
+  if (verb === "leave") return available.has("leave");
+  return available.has(verb);
 }
 
 function writeCommand(command) {
@@ -176,6 +198,24 @@ function mapCommand(summary) {
   return "CHOOSE 0";
 }
 
+function fallbackCommand(summary, attempted) {
+  const available = new Set(summary.available_commands || []);
+  const screen = String(summary.screen_type || "").toUpperCase();
+  if (screen === "CARD_REWARD" && commandVerb(attempted) === "choose" && available.has("skip")) {
+    return "SKIP";
+  }
+  if (screen === "COMBAT_REWARD" && available.has("proceed")) {
+    return "PROCEED";
+  }
+  if (screen === "REST" && available.has("proceed")) {
+    return "PROCEED";
+  }
+  if (screen === "SHOP_SCREEN" && available.has("leave")) {
+    return "LEAVE";
+  }
+  return "state";
+}
+
 function nextCommand(summary) {
   const available = new Set(summary.available_commands || []);
   const screen = String(summary.screen_type || "").toUpperCase();
@@ -247,8 +287,29 @@ function tick() {
   if (fs.existsSync(commandPath)) return;
   if (summary.step === lastStep) return;
   lastStep = summary.step;
-  const command = nextCommand(summary);
+  let command = nextCommand(summary);
+  if (!commandIsAvailable(summary, command)) {
+    const fallback = fallbackCommand(summary, command);
+    log(`unavailable command: ${command}; fallback: ${fallback}`);
+    command = fallback;
+  }
   const signature = stateSignature(summary);
+  const commandSignature = `${signature}\n${command}`;
+  repeatedSameCommand = commandSignature === lastCommandSignature ? repeatedSameCommand + 1 : 1;
+  if (repeatedSameCommand > maxSameCommand) {
+    const fallback = fallbackCommand(summary, command);
+    if (fallback !== command && commandIsAvailable(summary, fallback)) {
+      log(`repeated command ${command} on unchanged state; fallback: ${fallback}`);
+      command = fallback;
+      repeatedSameCommand = 1;
+      lastCommandSignature = `${signature}\n${command}`;
+    } else {
+      log(`stalled after repeating command ${command} ${repeatedSameCommand} times on step=${summary.step} screen=${summary.screen_type}`);
+      process.exit(2);
+    }
+  } else {
+    lastCommandSignature = commandSignature;
+  }
   if (command.toLowerCase() === "state") {
     repeatedStatePolls = signature === lastSignature ? repeatedStatePolls + 1 : 1;
     if (repeatedStatePolls > maxStatePolls) {

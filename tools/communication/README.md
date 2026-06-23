@@ -26,9 +26,10 @@ Useful environment variables:
 - `STS_AUTO_MAX_RUNS`: maximum started runs, default `200`
 - `STS_AUTO_TICK_MS`: polling interval, default `500`
 - `STS_AUTO_MAX_STATE_POLLS`: repeated identical `state` polls before exiting, default `5`
+- `STS_AUTO_MAX_SAME_COMMAND`: repeated identical non-state commands before fallback/exit, default `2`
 
 ## Trace Health
 
-- `trace_tools.js validate <trace.jsonl>` checks that every action has a following state or error row for the same step.
+- `trace_tools.js validate <trace.jsonl>` checks that every action has a following state or error row for the same step and prints seeds, starts, rooms, encounters, deaths, and boss metadata.
 - `trace_tools.js trim-valid-prefix <raw.jsonl> <out.jsonl>` writes the valid prefix before the first missing action response and appends metadata explaining the trim.
 - `trace_tools.js extract-run <raw.jsonl> <run-index> <out.jsonl>` extracts one run from a multi-run trace and rebases steps so the selected `START` is action step 1.

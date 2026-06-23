@@ -53,10 +53,34 @@ function summarize(records) {
   const actions = records.filter((record) => record.type === "action").length;
   const floors = new Set();
   const encounters = new Set();
+  const seeds = new Set();
+  const starts = [];
+  const rooms = [];
+  const bosses = new Set();
+  let deaths = 0;
+  let lastRoomKey = "";
   for (const record of records) {
+    if (record.type === "action" && /^START\s+/i.test(record.command || "")) {
+      starts.push({ step: record.step, command: record.command });
+    }
     const gs = record.message?.game_state;
     if (!gs) continue;
     if (gs.floor != null) floors.add(gs.floor);
+    if (gs.seed != null) seeds.add(gs.seed);
+    if (gs.act_boss) bosses.add(gs.act_boss);
+    if (gs.screen_type === "GAME_OVER" || gs.current_hp === 0) deaths += 1;
+    if (gs.floor != null && gs.room_type) {
+      const roomKey = `${gs.floor}:${gs.room_type}:${gs.room_phase || ""}`;
+      if (roomKey !== lastRoomKey) {
+        rooms.push({
+          floor: gs.floor,
+          room_type: gs.room_type,
+          room_phase: gs.room_phase || null,
+          screen_type: gs.screen_type || null,
+        });
+        lastRoomKey = roomKey;
+      }
+    }
     const monsters = gs.combat_state?.monsters?.map((monster) => monster.id || monster.name).join("+");
     if (monsters) encounters.add(monsters);
   }
@@ -65,7 +89,12 @@ function summarize(records) {
     states,
     errors,
     actions,
+    starts,
+    seeds: [...seeds],
+    act_bosses: [...bosses],
+    deaths,
     max_floor: floors.size ? Math.max(...floors) : null,
+    rooms,
     encounters: [...encounters],
   };
 }
