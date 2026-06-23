@@ -154,6 +154,11 @@ mod tests {
             Relic::from_key(RelicKey::EternalFeather),
             Some(Relic::EternalFeather)
         );
+        assert_eq!(Relic::from_key(RelicKey::Torii), Some(Relic::Torii));
+        assert_eq!(
+            Relic::from_key(RelicKey::TungstenRod),
+            Some(Relic::TungstenRod)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -648,6 +653,8 @@ impl RunState {
             | Relic::RegalPillow
             | Relic::DreamCatcher
             | Relic::EternalFeather
+            | Relic::Torii
+            | Relic::TungstenRod
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -794,6 +801,8 @@ impl Relic {
             Relic::RegalPillow => RelicKey::RegalPillow,
             Relic::DreamCatcher => RelicKey::DreamCatcher,
             Relic::EternalFeather => RelicKey::EternalFeather,
+            Relic::Torii => RelicKey::Torii,
+            Relic::TungstenRod => RelicKey::TungstenRod,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -836,6 +845,8 @@ impl Relic {
             RelicKey::RegalPillow => Some(Relic::RegalPillow),
             RelicKey::DreamCatcher => Some(Relic::DreamCatcher),
             RelicKey::EternalFeather => Some(Relic::EternalFeather),
+            RelicKey::Torii => Some(Relic::Torii),
+            RelicKey::TungstenRod => Some(Relic::TungstenRod),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

@@ -1256,6 +1256,8 @@ Completed slice:
 - implemented upgraded/conditional victory healing and added focused unit tests for win/loss timing, caps, and half-HP checks
 - expanded modeled room/rest healing relics: Meal Ticket, Regal Pillow, Dream Catcher, and Eternal Feather
 - implemented shop-entry healing, rest bonus healing, modeled Dream Catcher card reward, and focused rest/shop/event regression tests
+- expanded modeled damage mitigation relics: Torii and Tungsten Rod
+- implemented unblocked attack damage and generic HP-loss mitigation across monster attacks, spikes, Burn, and Regret with focused tests
 
 Remaining:
 
