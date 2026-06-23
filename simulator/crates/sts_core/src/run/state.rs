@@ -230,6 +230,7 @@ mod tests {
         assert_eq!(Relic::from_key(RelicKey::MoltenEgg), Some(Relic::MoltenEgg));
         assert_eq!(Relic::from_key(RelicKey::ToxicEgg), Some(Relic::ToxicEgg));
         assert_eq!(Relic::from_key(RelicKey::FrozenEgg), Some(Relic::FrozenEgg));
+        assert_eq!(Relic::from_key(RelicKey::TheBoot), Some(Relic::TheBoot));
     }
 
     #[test]
@@ -328,7 +329,10 @@ mod tests {
 
         run.gain_deck_card(POMMEL_STRIKE_ID);
 
-        assert_eq!(run.deck.last().expect("added card").content_id, POMMEL_STRIKE_ID);
+        assert_eq!(
+            run.deck.last().expect("added card").content_id,
+            POMMEL_STRIKE_ID
+        );
     }
 
     #[test]
@@ -1028,6 +1032,7 @@ impl RunState {
             | Relic::MoltenEgg
             | Relic::ToxicEgg
             | Relic::FrozenEgg
+            | Relic::TheBoot
             | Relic::PotionBelt
             | Relic::Lantern
             | Relic::BagOfPreparation
@@ -1237,6 +1242,7 @@ impl Relic {
             Relic::MoltenEgg => RelicKey::MoltenEgg,
             Relic::ToxicEgg => RelicKey::ToxicEgg,
             Relic::FrozenEgg => RelicKey::FrozenEgg,
+            Relic::TheBoot => RelicKey::TheBoot,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1302,6 +1308,7 @@ impl Relic {
             RelicKey::MoltenEgg => Some(Relic::MoltenEgg),
             RelicKey::ToxicEgg => Some(Relic::ToxicEgg),
             RelicKey::FrozenEgg => Some(Relic::FrozenEgg),
+            RelicKey::TheBoot => Some(Relic::TheBoot),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

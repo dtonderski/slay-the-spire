@@ -54,6 +54,10 @@ pub const VELVET_CHOKER_ENERGY: i32 = 1;
 pub const VELVET_CHOKER_CARD_LIMIT: u32 = 6;
 /// HP healed by [Relic::ToyOrnithopter] when a potion is used.
 pub const TOY_ORNITHOPTER_HEAL: i32 = 5;
+/// Maximum unblocked attack damage that [Relic::TheBoot] increases.
+pub const THE_BOOT_MAX_DAMAGE: i32 = 4;
+/// Unblocked attack damage after [Relic::TheBoot] increase.
+pub const THE_BOOT_DAMAGE: i32 = 5;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -257,6 +261,8 @@ pub const MOLTEN_EGG_ID: ContentId = ContentId::new(356);
 pub const TOXIC_EGG_ID: ContentId = ContentId::new(357);
 /// Content id for [Relic::FrozenEgg].
 pub const FROZEN_EGG_ID: ContentId = ContentId::new(358);
+/// Content id for [Relic::TheBoot].
+pub const THE_BOOT_ID: ContentId = ContentId::new(359);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -830,6 +836,7 @@ pub enum Relic {
     MoltenEgg,
     ToxicEgg,
     FrozenEgg,
+    TheBoot,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -895,6 +902,7 @@ impl Relic {
             Relic::MoltenEgg => MOLTEN_EGG_ID,
             Relic::ToxicEgg => TOXIC_EGG_ID,
             Relic::FrozenEgg => FROZEN_EGG_ID,
+            Relic::TheBoot => THE_BOOT_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -960,6 +968,7 @@ impl Relic {
             id if id == MOLTEN_EGG_ID => Some(Relic::MoltenEgg),
             id if id == TOXIC_EGG_ID => Some(Relic::ToxicEgg),
             id if id == FROZEN_EGG_ID => Some(Relic::FrozenEgg),
+            id if id == THE_BOOT_ID => Some(Relic::TheBoot),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -1058,6 +1067,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::MoltenEgg => {}
             Relic::ToxicEgg => {}
             Relic::FrozenEgg => {}
+            Relic::TheBoot => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1196,6 +1206,15 @@ pub fn mitigate_hp_loss(relics: &[Relic], amount: i32) -> i32 {
         mitigated = (mitigated - TUNGSTEN_ROD_REDUCTION).max(0);
     }
     mitigated
+}
+
+#[must_use]
+pub fn apply_attack_damage_relics_to_unblocked_damage(relics: &[Relic], amount: i32) -> i32 {
+    if relics.contains(&Relic::TheBoot) && (1..=THE_BOOT_MAX_DAMAGE).contains(&amount) {
+        THE_BOOT_DAMAGE
+    } else {
+        amount
+    }
 }
 
 pub fn apply_player_weak_with_relics(
@@ -1908,6 +1927,8 @@ mod tests {
             Relic::from_content_id(FROZEN_EGG_ID),
             Some(Relic::FrozenEgg)
         );
+        assert_eq!(Relic::TheBoot.content_id(), THE_BOOT_ID);
+        assert_eq!(Relic::from_content_id(THE_BOOT_ID), Some(Relic::TheBoot));
     }
 
     #[test]
@@ -1931,6 +1952,23 @@ mod tests {
         assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 3), 2);
         assert_eq!(mitigate_hp_loss(&[Relic::TungstenRod], 1), 0);
         assert_eq!(mitigate_hp_loss(&[], 3), 3);
+    }
+
+    #[test]
+    fn the_boot_increases_small_unblocked_attack_damage_to_five() {
+        assert_eq!(
+            apply_attack_damage_relics_to_unblocked_damage(&[Relic::TheBoot], 1),
+            THE_BOOT_DAMAGE
+        );
+        assert_eq!(
+            apply_attack_damage_relics_to_unblocked_damage(&[Relic::TheBoot], 4),
+            THE_BOOT_DAMAGE
+        );
+        assert_eq!(
+            apply_attack_damage_relics_to_unblocked_damage(&[Relic::TheBoot], 5),
+            5
+        );
+        assert_eq!(apply_attack_damage_relics_to_unblocked_damage(&[], 4), 4);
     }
 
     #[test]
