@@ -1335,6 +1335,8 @@ Completed slice:
 - implemented Self-Forming Clay key promotion and HP-loss block gain for monster attacks, spikes, Burn, and Regret through the shared HP-loss relic hook, with focused relic/combat tests
 - expanded modeled start-of-combat artifact relics: Clockwork Souvenir
 - implemented Clockwork Souvenir key promotion and source-backed start-of-combat Artifact gain, with focused relic tests
+- expanded modeled HP-loss draw relics: Runic Cube
+- implemented Runic Cube key promotion and source-backed draw-one on each HP-loss event through the shared HP-loss relic hook, with focused relic tests
 
 Remaining:
 
