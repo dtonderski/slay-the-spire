@@ -106,15 +106,15 @@ Continue Milestone 29 by collecting or trimming a Sentries trace that includes t
 node tools\communication\trace_tools.js validate verification\corpus\communication_mod\trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl
 ```
 
-Current seed-start verifier result for that prefix: `unexpected_diffs=1` at floor-2 combat step 29, `target is not a living monster`, after floor-1 reward return and floor-2 combat entry have verified. TEST shop/full-trace verification:
+Current seed-start verifier result for that prefix: all 225 actions verify with `unexpected_diffs=0`; `seed_start.expected_failure=true` only because the cleaned trace ends on the final reward screen before a post-reward `PROCEED`.
 
 Overnight collector hardening after the `M290001` run:
 
 - `overnight_collector.js` rejects commands whose verb is not currently listed in `available_commands`.
 - repeated identical commands on unchanged state fall back conservatively (`SKIP`, `PROCEED`, `LEAVE`, or `state`) and then exit instead of spamming forever.
-- `overnight_supervisor.js` runs the collector in restart loops, validates the current trace after collector exit, and stops with a clear stale-session/bridge-exited reason when STS or CommunicationMod needs manual recovery.
-- `overnight_collector.test.js` covers the known policy regressions: full potion belt reward, repeated card reward fallback, unavailable commands, living target selection, and state-signature changes. `overnight_supervisor.test.js` covers stale-session and active-trace decisions without requiring a live STS process.
-- `trace_tools.js validate` now reports starts, seeds, room path, encounters, deaths, and act boss metadata for harvested traces.
+- `overnight_supervisor.js` runs the collector in restart loops, validates the current trace after collector exit, logs a compact harvest-quality line, and stops with a clear stale-session/bridge-exited reason when STS or CommunicationMod needs manual recovery.
+- `overnight_collector.test.js` covers the known policy regressions: full potion belt reward, repeated card reward fallback, unavailable commands, living target selection, and state-signature changes. `overnight_supervisor.test.js` covers stale-session and trace-quality formatting without requiring a live STS process.
+- `trace_tools.js validate` now reports starts, seeds, room path, encounters, deaths, terminal state, elite/boss room coverage, and a simple harvest score for harvested traces.
 
 ```powershell
 cd simulator

@@ -58,14 +58,18 @@ function summarize(records) {
   const starts = [];
   const rooms = [];
   const bosses = new Set();
+  const eliteRoomKeys = new Set();
+  const bossRoomKeys = new Set();
   let deaths = 0;
   let lastRoomKey = "";
+  let lastState = null;
   for (const record of records) {
     if (record.type === "action" && /^START\s+/i.test(record.command || "")) {
       starts.push({ step: record.step, command: record.command });
     }
     const gs = record.message?.game_state;
     if (!gs) continue;
+    lastState = gs;
     if (gs.floor != null) floors.add(gs.floor);
     if (gs.seed != null) seeds.add(gs.seed);
     if (gs.act_boss) bosses.add(gs.act_boss);
@@ -73,6 +77,9 @@ function summarize(records) {
     if (gs.floor != null && gs.room_type) {
       const roomKey = `${gs.floor}:${gs.room_type}:${gs.room_phase || ""}`;
       if (roomKey !== lastRoomKey) {
+        const roomCountKey = `${gs.floor}:${gs.room_type}`;
+        if (/Elite/i.test(gs.room_type)) eliteRoomKeys.add(roomCountKey);
+        if (/Boss/i.test(gs.room_type)) bossRoomKeys.add(roomCountKey);
         rooms.push({
           floor: gs.floor,
           room_type: gs.room_type,
@@ -95,8 +102,72 @@ function summarize(records) {
     act_bosses: [...bosses],
     deaths,
     max_floor: floors.size ? Math.max(...floors) : null,
+    elite_rooms: eliteRoomKeys.size,
+    boss_rooms: bossRoomKeys.size,
+    terminal: summarizeTerminal(lastState),
+    coverage: summarizeCoverage({
+      actions,
+      deaths,
+      maxFloor: floors.size ? Math.max(...floors) : null,
+      eliteRooms: eliteRoomKeys.size,
+      bossRooms: bossRoomKeys.size,
+      lastState,
+    }),
     rooms,
     encounters: [...encounters],
+  };
+}
+
+function summarizeTerminal(gameState) {
+  if (!gameState) return { kind: "no_state" };
+  if (gameState.screen_type === "GAME_OVER" || gameState.current_hp === 0) {
+    return {
+      kind: "death",
+      floor: gameState.floor ?? null,
+      screen_type: gameState.screen_type ?? null,
+      room_type: gameState.room_type ?? null,
+    };
+  }
+  if (gameState.screen_type === "COMBAT_REWARD") {
+    return {
+      kind: "reward_screen",
+      floor: gameState.floor ?? null,
+      room_type: gameState.room_type ?? null,
+      rewards: gameState.screen_state?.rewards?.map((reward) => reward.reward_type).filter(Boolean) || [],
+    };
+  }
+  if (gameState.screen_type === "MAP") {
+    return {
+      kind: "map",
+      floor: gameState.floor ?? null,
+      room_type: gameState.room_type ?? null,
+    };
+  }
+  return {
+    kind: "in_progress",
+    floor: gameState.floor ?? null,
+    screen_type: gameState.screen_type ?? null,
+    room_type: gameState.room_type ?? null,
+    room_phase: gameState.room_phase ?? null,
+  };
+}
+
+function summarizeCoverage({ actions, deaths, maxFloor, eliteRooms, bossRooms, lastState }) {
+  const terminal = summarizeTerminal(lastState);
+  const score =
+    actions +
+    (maxFloor || 0) * 10 +
+    eliteRooms * 25 +
+    bossRooms * 50 -
+    deaths * 50 +
+    (terminal.kind === "map" ? 10 : 0) +
+    (terminal.kind === "reward_screen" ? 5 : 0);
+  return {
+    score,
+    has_death: deaths > 0,
+    reached_elite: eliteRooms > 0,
+    reached_boss: bossRooms > 0,
+    ended_cleanly: terminal.kind === "map" || terminal.kind === "reward_screen" || terminal.kind === "death",
   };
 }
 
@@ -223,42 +294,57 @@ function collapseCardRewardLoop(records, sourcePath) {
   return { records: collapsed, removedPairs };
 }
 
-const [command, inputPath, outputPath] = process.argv.slice(2);
-if (!command || !inputPath) usage();
+if (require.main === module) {
+  const [command, inputPath, outputPath] = process.argv.slice(2);
+  if (!command || !inputPath) usage();
 
-if (command === "validate") {
-  const result = validate(readTrace(inputPath));
-  console.log(JSON.stringify(result, null, 2));
-  process.exit(result.ok ? 0 : 1);
+  if (command === "validate") {
+    const result = validate(readTrace(inputPath));
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  if (command === "trim-valid-prefix") {
+    if (!outputPath) usage();
+    const result = trimValidPrefix(readTrace(inputPath), inputPath);
+    writeTrace(outputPath, result.records);
+    const validation = validate(result.records);
+    console.log(JSON.stringify({ ...result, records: result.records.length, validation }, null, 2));
+    process.exit(validation.ok ? 0 : 1);
+  }
+
+  if (command === "extract-run") {
+    const runIndex = Number.parseInt(outputPath, 10);
+    const destination = process.argv[5];
+    if (!Number.isInteger(runIndex) || !destination) usage();
+    const extracted = extractRun(readTrace(inputPath), inputPath, runIndex);
+    writeTrace(destination, extracted);
+    const validation = validate(extracted);
+    console.log(JSON.stringify({ records: extracted.length, validation }, null, 2));
+    process.exit(validation.ok ? 0 : 1);
+  }
+
+  if (command === "collapse-card-reward-loop") {
+    if (!outputPath) usage();
+    const result = collapseCardRewardLoop(readTrace(inputPath), inputPath);
+    writeTrace(outputPath, result.records);
+    const validation = validate(result.records);
+    console.log(JSON.stringify({ ...result, records: result.records.length, validation }, null, 2));
+    process.exit(validation.ok ? 0 : 1);
+  }
+
+  usage();
 }
 
-if (command === "trim-valid-prefix") {
-  if (!outputPath) usage();
-  const result = trimValidPrefix(readTrace(inputPath), inputPath);
-  writeTrace(outputPath, result.records);
-  const validation = validate(result.records);
-  console.log(JSON.stringify({ ...result, records: result.records.length, validation }, null, 2));
-  process.exit(validation.ok ? 0 : 1);
-}
-
-if (command === "extract-run") {
-  const runIndex = Number.parseInt(outputPath, 10);
-  const destination = process.argv[5];
-  if (!Number.isInteger(runIndex) || !destination) usage();
-  const extracted = extractRun(readTrace(inputPath), inputPath, runIndex);
-  writeTrace(destination, extracted);
-  const validation = validate(extracted);
-  console.log(JSON.stringify({ records: extracted.length, validation }, null, 2));
-  process.exit(validation.ok ? 0 : 1);
-}
-
-if (command === "collapse-card-reward-loop") {
-  if (!outputPath) usage();
-  const result = collapseCardRewardLoop(readTrace(inputPath), inputPath);
-  writeTrace(outputPath, result.records);
-  const validation = validate(result.records);
-  console.log(JSON.stringify({ ...result, records: result.records.length, validation }, null, 2));
-  process.exit(validation.ok ? 0 : 1);
-}
-
-usage();
+module.exports = {
+  cardRewardSignature,
+  collapseCardRewardLoop,
+  extractRun,
+  missingActionResponses,
+  readTrace,
+  summarize,
+  summarizeCoverage,
+  summarizeTerminal,
+  trimValidPrefix,
+  validate,
+};

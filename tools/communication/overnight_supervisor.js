@@ -83,7 +83,7 @@ function bridgeLooksStale() {
 function validateTrace(tracePath) {
   if (!tracePath || !fs.existsSync(tracePath)) {
     log(`no trace to validate: ${tracePath || "unknown"}`);
-    return false;
+    return { ok: false, result: null };
   }
   const result = childProcess.spawnSync(nodeExe, [traceToolsPath, "validate", tracePath], {
     cwd: repoRoot,
@@ -91,7 +91,33 @@ function validateTrace(tracePath) {
   });
   const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
   if (output) log(`trace validation for ${tracePath}:\n${output}`);
-  return result.status === 0;
+  const parsed = parseValidationOutput(result.stdout);
+  if (parsed?.summary) log(formatValidationSummary(parsed.summary));
+  return { ok: result.status === 0, result: parsed };
+}
+
+function parseValidationOutput(output) {
+  if (!output || !output.trim()) return null;
+  try {
+    return JSON.parse(output);
+  } catch {
+    return null;
+  }
+}
+
+function formatValidationSummary(summary) {
+  const terminal = summary.terminal || {};
+  const coverage = summary.coverage || {};
+  return [
+    "trace harvest:",
+    `actions=${summary.actions ?? "?"}`,
+    `maxFloor=${summary.max_floor ?? "?"}`,
+    `elites=${summary.elite_rooms ?? 0}`,
+    `bosses=${summary.boss_rooms ?? 0}`,
+    `deaths=${summary.deaths ?? 0}`,
+    `terminal=${terminal.kind || "unknown"}`,
+    `score=${coverage.score ?? "?"}`,
+  ].join(" ");
 }
 
 function startCollector() {
@@ -158,4 +184,6 @@ if (require.main === module) {
 module.exports = {
   bridgeLooksStaleFrom,
   currentTracePathFromStatus,
+  formatValidationSummary,
+  parseValidationOutput,
 };
