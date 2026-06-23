@@ -472,8 +472,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.potion_rng_seed as i64,
                         next.potion_rng_counter,
                     );
-                    while next.potions.len() < next.potion_capacity() {
-                        next.potions.push(target_random_potion(&mut rng));
+                    if next.can_gain_potions() {
+                        while next.potions.len() < next.potion_capacity() {
+                            next.potions.push(target_random_potion(&mut rng));
+                        }
                     }
                     next.potion_rng_counter = rng.counter();
                 }
@@ -671,6 +673,26 @@ mod tests {
         .expect("use entropic brew");
 
         assert_eq!(after.potions.len(), run.potion_capacity());
+    }
+
+    #[test]
+    fn sozu_makes_entropic_brew_consume_without_filling_slots() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(crate::Relic::Sozu);
+        run.potion_rng_seed = 22_079_335_079;
+        run.potions = vec![Potion::Fire, Potion::EntropicBrew];
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 1,
+                target: None,
+            },
+        )
+        .expect("use entropic brew");
+
+        assert_eq!(after.potions, vec![Potion::Fire]);
+        assert_eq!(after.potion_rng_counter, run.potion_rng_counter);
     }
 
     #[test]

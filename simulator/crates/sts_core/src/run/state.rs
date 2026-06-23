@@ -20,7 +20,7 @@ use crate::{
         DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE, FUSION_HAMMER_ENERGY,
         LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD,
         PANTOGRAPH_HEAL, PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, STRAWBERRY_MAX_HP,
+        PRESERVED_INSECT_HP_NUMERATOR, SOZU_ENERGY, STRAWBERRY_MAX_HP,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -211,6 +211,7 @@ mod tests {
             Relic::from_key(RelicKey::FusionHammer),
             Some(Relic::FusionHammer)
         );
+        assert_eq!(Relic::from_key(RelicKey::Sozu), Some(Relic::Sozu));
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -414,6 +415,19 @@ mod tests {
         );
         assert_eq!(combat.player.max_energy, run.energy_per_turn);
         assert_eq!(combat.player.energy, run.energy_per_turn);
+    }
+
+    #[test]
+    fn sozu_pickup_adds_energy_and_blocks_potion_gain() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::Sozu);
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY + SOZU_ENERGY);
+        assert_eq!(combat.player.max_energy, run.energy_per_turn);
+        assert_eq!(combat.player.energy, run.energy_per_turn);
+        assert!(!run.can_gain_potions());
     }
 
     #[test]
@@ -851,6 +865,10 @@ impl RunState {
                 * POTION_BELT_SLOTS
     }
 
+    pub fn can_gain_potions(&self) -> bool {
+        !self.relics.contains(&Relic::Sozu)
+    }
+
     pub fn gain_relic_key(&mut self, key: RelicKey) {
         self.ensure_ironclad_relic_pools();
         if let Some(pools) = self.relic_pools.as_mut() {
@@ -899,6 +917,9 @@ impl RunState {
             }
             Relic::FusionHammer => {
                 self.energy_per_turn += FUSION_HAMMER_ENERGY;
+            }
+            Relic::Sozu => {
+                self.energy_per_turn += SOZU_ENERGY;
             }
             Relic::BloodVial
             | Relic::PotionBelt
@@ -971,6 +992,9 @@ impl RunState {
             RunAction::TakePotionReward => {
                 if reward.potion_offer.is_none() {
                     return Err(SimError::IllegalAction("no potion reward offered"));
+                }
+                if !self.can_gain_potions() {
+                    return Err(SimError::IllegalAction("potions cannot be obtained"));
                 }
                 if self.potions.len() >= self.potion_capacity() {
                     return Err(SimError::IllegalAction("potion belt is full"));
@@ -1100,6 +1124,7 @@ impl Relic {
             Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
+            Relic::Sozu => RelicKey::Sozu,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -1158,6 +1183,7 @@ impl Relic {
             RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),
+            RelicKey::Sozu => Some(Relic::Sozu),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

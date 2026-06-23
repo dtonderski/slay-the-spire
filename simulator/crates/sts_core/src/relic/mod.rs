@@ -42,6 +42,8 @@ pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
 pub const MARK_OF_PAIN_ENERGY: i32 = 1;
 /// Energy per turn granted by [Relic::FusionHammer] on pickup.
 pub const FUSION_HAMMER_ENERGY: i32 = 1;
+/// Energy per turn granted by [Relic::Sozu] on pickup.
+pub const SOZU_ENERGY: i32 = 1;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -231,6 +233,8 @@ pub const DARKSTONE_PERIAPT_ID: ContentId = ContentId::new(349);
 pub const DU_VU_DOLL_ID: ContentId = ContentId::new(350);
 /// Content id for [Relic::FusionHammer].
 pub const FUSION_HAMMER_ID: ContentId = ContentId::new(351);
+/// Content id for [Relic::Sozu].
+pub const SOZU_ID: ContentId = ContentId::new(352);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -795,6 +799,7 @@ pub enum Relic {
     DarkstonePeriapt,
     DuVuDoll,
     FusionHammer,
+    Sozu,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -853,6 +858,7 @@ impl Relic {
             Relic::DarkstonePeriapt => DARKSTONE_PERIAPT_ID,
             Relic::DuVuDoll => DU_VU_DOLL_ID,
             Relic::FusionHammer => FUSION_HAMMER_ID,
+            Relic::Sozu => SOZU_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -911,6 +917,7 @@ impl Relic {
             id if id == DARKSTONE_PERIAPT_ID => Some(Relic::DarkstonePeriapt),
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
+            id if id == SOZU_ID => Some(Relic::Sozu),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -1002,6 +1009,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::DarkstonePeriapt => {}
             Relic::DuVuDoll => {}
             Relic::FusionHammer => {}
+            Relic::Sozu => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1797,6 +1805,8 @@ mod tests {
             Relic::from_content_id(FUSION_HAMMER_ID),
             Some(Relic::FusionHammer)
         );
+        assert_eq!(Relic::Sozu.content_id(), SOZU_ID);
+        assert_eq!(Relic::from_content_id(SOZU_ID), Some(Relic::Sozu));
     }
 
     #[test]
