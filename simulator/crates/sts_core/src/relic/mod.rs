@@ -295,6 +295,10 @@ pub const MAW_BANK_ID: ContentId = ContentId::new(365);
 pub const ANCIENT_TEA_SET_ID: ContentId = ContentId::new(366);
 /// Content id for [Relic::Calipers].
 pub const CALIPERS_ID: ContentId = ContentId::new(367);
+/// Content id for [Relic::SingingBowl].
+pub const SINGING_BOWL_ID: ContentId = ContentId::new(368);
+/// Max HP granted by [Relic::SingingBowl] when skipping a card reward.
+pub const SINGING_BOWL_MAX_HP: i32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -869,6 +873,7 @@ pub enum Relic {
     MawBank,
     AncientTeaSet,
     Calipers,
+    SingingBowl,
     DarkstonePeriapt,
     DuVuDoll,
     FusionHammer,
@@ -943,6 +948,7 @@ impl Relic {
             Relic::MawBank => MAW_BANK_ID,
             Relic::AncientTeaSet => ANCIENT_TEA_SET_ID,
             Relic::Calipers => CALIPERS_ID,
+            Relic::SingingBowl => SINGING_BOWL_ID,
             Relic::DarkstonePeriapt => DARKSTONE_PERIAPT_ID,
             Relic::DuVuDoll => DU_VU_DOLL_ID,
             Relic::FusionHammer => FUSION_HAMMER_ID,
@@ -1017,6 +1023,7 @@ impl Relic {
             id if id == MAW_BANK_ID => Some(Relic::MawBank),
             id if id == ANCIENT_TEA_SET_ID => Some(Relic::AncientTeaSet),
             id if id == CALIPERS_ID => Some(Relic::Calipers),
+            id if id == SINGING_BOWL_ID => Some(Relic::SingingBowl),
             id if id == DARKSTONE_PERIAPT_ID => Some(Relic::DarkstonePeriapt),
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
             id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
@@ -1124,6 +1131,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::MawBank => {}
             Relic::AncientTeaSet => {}
             Relic::Calipers => {}
+            Relic::SingingBowl => {}
             Relic::DarkstonePeriapt => {}
             Relic::DuVuDoll => {}
             Relic::FusionHammer => {}
@@ -2047,6 +2055,11 @@ mod tests {
         );
         assert_eq!(Relic::Calipers.content_id(), CALIPERS_ID);
         assert_eq!(Relic::from_content_id(CALIPERS_ID), Some(Relic::Calipers));
+        assert_eq!(Relic::SingingBowl.content_id(), SINGING_BOWL_ID);
+        assert_eq!(
+            Relic::from_content_id(SINGING_BOWL_ID),
+            Some(Relic::SingingBowl)
+        );
     }
 
     #[test]

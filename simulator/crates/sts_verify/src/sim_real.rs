@@ -4734,6 +4734,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
             powers: player_powers(player.get("powers")),
             cannot_draw: false,
             temp_strength: 0,
+            temp_dexterity: 0,
         },
         monsters: monsters_from_observed(combat.get("monsters"), player),
         piles: CardPiles {
@@ -4749,6 +4750,9 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         shuffle_rng: None,
         potion_card_reward: None,
         hand_select: None,
+        discard_select: None,
+        exhaust_select: None,
+        duplication_potion_pending: false,
     };
 
     Some(RunState {
@@ -4780,6 +4784,9 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         relic_rng_counter: 0,
         relic_pools: None,
         relic_keys: Vec::new(),
+        omamori_charges_used: 0,
+        maw_bank_broken: false,
+        ancient_tea_set_armed: false,
         merchant_rng_seed: 0,
         merchant_rng_counter: 0,
         event_rng_counter: 0,
@@ -4847,6 +4854,9 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         relic_rng_counter: 0,
         relic_pools: None,
         relic_keys: Vec::new(),
+        omamori_charges_used: 0,
+        maw_bank_broken: false,
+        ancient_tea_set_armed: false,
         merchant_rng_seed: 0,
         merchant_rng_counter: 0,
         event_rng_counter: 0,
