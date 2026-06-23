@@ -285,6 +285,7 @@ impl Potion {
                 | Potion::DistilledChaos
                 | Potion::LiquidMemories
                 | Potion::SneckoOil
+                | Potion::SmokeBomb
                 | Potion::Power
         )
     }
