@@ -1316,6 +1316,8 @@ Completed slice:
 - implemented Ectoplasm key promotion, pickup energy, and positive gold-gain prevention across reward, event, relic pickup, card-add, floor-entry, and potion gain paths, with focused tests
 - expanded modeled boss energy relics: Runic Dome
 - implemented Runic Dome key promotion and pickup energy with focused run-state tests
+- expanded modeled Strike-card damage relics: Strike Dummy
+- implemented Strike Dummy key promotion and +3 damage for Strike/Strike+ card transitions, with focused combat tests
 
 Remaining:
 

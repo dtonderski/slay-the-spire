@@ -321,6 +321,10 @@ pub const ECTOPLASM_ENERGY: i32 = 1;
 pub const RUNIC_DOME_ID: ContentId = ContentId::new(373);
 /// Energy per turn granted by [Relic::RunicDome] on pickup.
 pub const RUNIC_DOME_ENERGY: i32 = 1;
+/// Content id for [Relic::StrikeDummy].
+pub const STRIKE_DUMMY_ID: ContentId = ContentId::new(374);
+/// Extra damage granted by [Relic::StrikeDummy] to Strike cards.
+pub const STRIKE_DUMMY_DAMAGE: i32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -918,6 +922,7 @@ pub enum Relic {
     SlaversCollar,
     Ectoplasm,
     RunicDome,
+    StrikeDummy,
 }
 
 impl Relic {
@@ -998,6 +1003,7 @@ impl Relic {
             Relic::SlaversCollar => SLAVERS_COLLAR_ID,
             Relic::Ectoplasm => ECTOPLASM_ID,
             Relic::RunicDome => RUNIC_DOME_ID,
+            Relic::StrikeDummy => STRIKE_DUMMY_ID,
         }
     }
 
@@ -1078,6 +1084,7 @@ impl Relic {
             id if id == SLAVERS_COLLAR_ID => Some(Relic::SlaversCollar),
             id if id == ECTOPLASM_ID => Some(Relic::Ectoplasm),
             id if id == RUNIC_DOME_ID => Some(Relic::RunicDome),
+            id if id == STRIKE_DUMMY_ID => Some(Relic::StrikeDummy),
             _ => None,
         }
     }
@@ -1193,6 +1200,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::SlaversCollar => {}
             Relic::Ectoplasm => {}
             Relic::RunicDome => {}
+            Relic::StrikeDummy => {}
         }
     }
 
@@ -1376,6 +1384,14 @@ pub fn attack_damage_with_vulnerable_relics(base: i32, vulnerable: i32, relics: 
         )
     } else {
         crate::power::attack_damage_with_vulnerable(base, vulnerable)
+    }
+}
+
+pub fn strike_damage_with_relics(relics: &[Relic], base: i32) -> i32 {
+    if relics.contains(&Relic::StrikeDummy) {
+        base + STRIKE_DUMMY_DAMAGE
+    } else {
+        base
     }
 }
 
@@ -2123,6 +2139,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(RUNIC_DOME_ID),
             Some(Relic::RunicDome)
+        );
+        assert_eq!(Relic::StrikeDummy.content_id(), STRIKE_DUMMY_ID);
+        assert_eq!(
+            Relic::from_content_id(STRIKE_DUMMY_ID),
+            Some(Relic::StrikeDummy)
         );
     }
 
