@@ -9,6 +9,7 @@ pub struct PlayerPowers {
     pub vulnerable: i32,
     pub ritual: i32,
     pub metallicize: i32,
+    pub regen: i32,
     pub feel_no_pain: i32,
     pub dark_embrace: i32,
 }

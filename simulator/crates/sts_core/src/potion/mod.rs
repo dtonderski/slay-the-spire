@@ -12,6 +12,7 @@ pub const CULTIST_POTION_RITUAL: i32 = 1;
 pub const DEXTERITY_POTION_DEXTERITY: i32 = 2;
 pub const ENERGY_POTION_ENERGY: i32 = 2;
 pub const EXPLOSIVE_POTION_DAMAGE: i32 = 10;
+pub const REGEN_POTION_REGEN: i32 = 5;
 pub const STRENGTH_POTION_STRENGTH: i32 = 2;
 pub const FLEX_POTION_TEMP_STRENGTH: i32 = 5;
 pub const SPEED_POTION_TEMP_DEXTERITY: i32 = 5;
@@ -268,6 +269,7 @@ impl Potion {
                 | Potion::Dexterity
                 | Potion::Energy
                 | Potion::Explosive
+                | Potion::Regen
                 | Potion::Strength
                 | Potion::Flex
                 | Potion::Speed

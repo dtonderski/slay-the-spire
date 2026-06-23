@@ -12,6 +12,10 @@ pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
     if player.powers.metallicize > 0 {
         player.block += player.powers.metallicize;
     }
+    if player.powers.regen > 0 {
+        player.hp = (player.hp + player.powers.regen).min(player.max_hp);
+        player.powers.regen -= 1;
+    }
     if player.powers.weak > 0 {
         player.powers.weak -= 1;
     }
@@ -80,6 +84,30 @@ mod tests {
             serde_json::from_str(&json).expect("powers deserialize");
 
         assert_eq!(restored, player.powers);
+    }
+
+    #[test]
+    fn regen_heals_and_decrements_at_end_of_player_turn() {
+        let mut player = CombatState::initial_fixture().player;
+        player.hp = 70;
+        player.powers.regen = 5;
+
+        apply_player_end_of_turn_powers(&mut player);
+
+        assert_eq!(player.hp, 75);
+        assert_eq!(player.powers.regen, 4);
+    }
+
+    #[test]
+    fn regen_heal_caps_at_max_hp() {
+        let mut player = CombatState::initial_fixture().player;
+        player.hp = 78;
+        player.powers.regen = 5;
+
+        apply_player_end_of_turn_powers(&mut player);
+
+        assert_eq!(player.hp, player.max_hp);
+        assert_eq!(player.powers.regen, 4);
     }
 
     #[test]

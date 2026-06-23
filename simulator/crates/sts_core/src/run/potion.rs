@@ -13,7 +13,8 @@ use crate::{
         DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY, EXPLOSIVE_POTION_DAMAGE,
         FEAR_POTION_WEAK, FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP,
         GAMBLE_POTION_LOSS_GOLD, GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE,
-        SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
+        REGEN_POTION_REGEN, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
+        SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -206,6 +207,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     if combat.monsters.iter().all(|monster| !monster.alive) {
                         combat.phase = CombatPhase::Won;
                     }
+                }
+                Potion::Regen => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.powers.regen += REGEN_POTION_REGEN;
                 }
                 Potion::Strength => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -568,6 +573,47 @@ mod tests {
             assert_eq!(monster.hp, before - EXPLOSIVE_POTION_DAMAGE);
         }
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn regen_potion_grants_regen_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Regen);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use regen potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.powers.regen, REGEN_POTION_REGEN);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn regen_potion_heals_at_end_of_player_turn() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Regen);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.player.hp = 70;
+        combat.piles.draw_pile.clear();
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use regen potion");
+        let combat = crate::combat::turn::end_player_turn(after.combat.as_ref().expect("combat"));
+
+        assert_eq!(combat.player.hp, 69);
+        assert_eq!(combat.player.powers.regen, REGEN_POTION_REGEN - 1);
     }
 
     #[test]
