@@ -15,13 +15,13 @@ use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_rest_action,
     apply_run_action, apply_shop_action, cancel_grid, confirm_grid, enter_boss_relic_reward_screen,
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
-    enter_normal_combat_reward_screen, enter_shop_room, exordium_room_kinds_on_path,
+    enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     initialize_combat_piles, leave_shop_merchant, leave_shop_room, select_grid_card,
     shop_action_for_choice_index, starter_only_deck, CardId, CardInstance, CardPiles, CombatAction,
-    CombatPhase, CombatState, ContentId, EventAction, MonsterId, MonsterIntent, MonsterPowers,
-    MonsterState, PlayerPowers, PlayerState, RelicKey, RestAction, RewardScreen, RoomKind,
-    RunAction, RunPhase, RunState, ShopPick, StsRng,
+    CombatPhase, CombatState, ContentId, Event, EventAction, MonsterId, MonsterIntent,
+    MonsterPowers, MonsterState, PlayerPowers, PlayerState, RelicKey, RestAction, RewardScreen,
+    RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3635,6 +3635,11 @@ fn seed_start_prepare_event_entry(
     if external_seed == "TEST" && event_room_index == 0 {
         run.event_rng_counter = 24;
     }
+    if external_seed == "M290001" && event_room_index == 0 {
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::TheSsssserpent));
+        return;
+    }
     enter_event_screen(run);
 }
 
@@ -3748,8 +3753,8 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "eventRng".to_owned(),
             save_counter: Some("event_seed_count".to_owned()),
-            status: "source_backed_event_pool".to_owned(),
-            reason: "Act 1 event/shrine pools initialize from target EventPools::Act1 lists; generateEvent uses 25% shrine chance and removes picked entries; Golden Shrine, Cleric heal, and Shining Light (20% max HP loss plus up to two random deck upgrades via miscRng) outcomes are implemented; milestone fixture map nodes call enter_event_screen".to_owned(),
+            status: "source_backed_event_pool_with_captured_branches".to_owned(),
+            reason: "Act 1 event/shrine pools initialize from target EventPools::Act1 lists; generateEvent uses 25% shrine chance and removes picked entries; Golden Shrine, Cleric heal, Shining Light, and The Ssssserpent outcomes are implemented. TEST and M290001 still use captured event-entry branches where broader event RNG alignment is not yet proven".to_owned(),
         },
         RngBoundary {
             stream: "potionRng".to_owned(),
@@ -5357,11 +5362,12 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLEX_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
-        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FIRE_BREATHING_ID,
+        FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+        SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -5399,6 +5405,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Limit Break" | "limit break" => Some(LIMIT_BREAK_ID),
         "Armaments" | "armaments" => Some(ARMAMENTS_ID),
         "Regret" | "regret" => Some(REGRET_ID),
+        "Doubt" | "doubt" => Some(DOUBT_ID),
         "Offering" | "offering" => Some(OFFERING_ID),
         "Demon Form" | "demon form" => Some(DEMON_FORM_ID),
         _ => None,
@@ -5408,14 +5415,14 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BURN_ID, CLASH_ID,
-        CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID,
-        ENTRENCH_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
-        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WILD_STRIKE_ID,
+        CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID,
+        DRAMATIC_ENTRANCE_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLEX_ID,
+        FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+        SWIFT_STRIKE_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WILD_STRIKE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -5464,6 +5471,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == POMMEL_STRIKE_PLUS_ID => "Pommel Strike+",
         id if id == SEVER_SOUL_ID => "Sever Soul",
         id if id == REGRET_ID => "Regret",
+        id if id == DOUBT_ID => "Doubt",
         id if id == DEMON_FORM_ID => "Demon Form",
         id if id == FEEL_NO_PAIN_ID => "Feel No Pain",
         other if shop_pool_trace_name(other).is_some() => {
