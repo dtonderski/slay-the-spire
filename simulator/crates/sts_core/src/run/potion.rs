@@ -8,7 +8,7 @@ use crate::{
         top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState},
-    content::cards::upgrade_content_id,
+    content::cards::{get_card_definition, upgrade_content_id},
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
     ids::{CardId, MonsterId},
     potion::{
@@ -17,7 +17,7 @@ use crate::{
         ESSENCE_OF_STEEL_PLATED_ARMOR, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK,
         FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD,
         GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE, LIQUID_BRONZE_THORNS,
-        REGEN_POTION_REGEN, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
+        REGEN_POTION_REGEN, SNECKO_OIL_DRAW, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
         SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng, StsRng},
@@ -213,6 +213,18 @@ fn distilled_chaos_target(
     Ok(Some(living[index]))
 }
 
+fn randomize_playable_hand_costs_for_snecko_oil(combat: &mut CombatState, rng: &mut StsRng) {
+    for card in &mut combat.piles.hand {
+        let Some(definition) = get_card_definition(card.content_id) else {
+            continue;
+        };
+        if definition.keywords.unplayable {
+            continue;
+        }
+        card.temp_cost = Some(rng.random_int(3) as u8);
+    }
+}
+
 pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     validate_potion_action(run, action)?;
 
@@ -310,6 +322,13 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     player_draw_cards(combat, SWIFT_POTION_DRAW);
+                }
+                Potion::SneckoOil => {
+                    let mut rng = next.card_random_rng();
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    player_draw_cards(combat, SNECKO_OIL_DRAW);
+                    randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng);
+                    next.card_random_rng_counter = rng.counter();
                 }
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -432,7 +451,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{DEFEND_R_ID, STRIKE_R_ID},
+        content::cards::{DEFEND_R_ID, STRIKE_R_ID, WOUND_ID},
         MonsterId,
     };
 
@@ -1091,6 +1110,61 @@ mod tests {
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.piles.hand.len(), SWIFT_POTION_DRAW);
         assert!(combat.piles.draw_pile.is_empty());
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn snecko_oil_draws_five_and_randomizes_playable_hand_costs() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::SneckoOil);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), WOUND_ID),
+        ];
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+            CardInstance::new(CardId::new(13), DEFEND_R_ID),
+            CardInstance::new(CardId::new(14), STRIKE_R_ID),
+        ];
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use snecko oil");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.piles.hand.len(), 7);
+        assert!(combat.piles.draw_pile.is_empty());
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .filter(|card| card.temp_cost.is_some())
+                .count(),
+            6
+        );
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .find(|card| card.content_id == WOUND_ID)
+                .expect("wound")
+                .temp_cost,
+            None
+        );
+        assert_eq!(
+            after.card_random_rng_counter,
+            run.card_random_rng_counter + 6
+        );
         assert!(after.potions.is_empty());
     }
 
