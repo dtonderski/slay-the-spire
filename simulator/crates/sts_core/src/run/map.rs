@@ -45,6 +45,7 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
 
     let mut next = run.clone();
     next.map = Some(next_map);
+    next.apply_floor_entry_relics();
 
     if current_room_kind(&next) == Some(RoomKind::Rest) {
         next.phase = RunPhase::Rest;
@@ -122,6 +123,35 @@ mod tests {
         .expect("choose combat node");
 
         assert_eq!(next.phase, RunPhase::Idle);
+    }
+
+    #[test]
+    fn maw_bank_grants_gold_when_entering_map_nodes_until_broken() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(crate::Relic::MawBank);
+        let gold_before = run.gold;
+
+        let next = apply_map_action_on_run(
+            &run,
+            MapAction::ChooseNode {
+                node_id: MapNodeId::new(1),
+            },
+        )
+        .expect("choose combat node");
+
+        assert_eq!(next.gold, gold_before + crate::relic::MAW_BANK_GOLD);
+
+        let mut broken = run;
+        broken.maw_bank_broken = true;
+        let after_broken = apply_map_action_on_run(
+            &broken,
+            MapAction::ChooseNode {
+                node_id: MapNodeId::new(1),
+            },
+        )
+        .expect("choose combat node");
+
+        assert_eq!(after_broken.gold, gold_before);
     }
 
     #[test]

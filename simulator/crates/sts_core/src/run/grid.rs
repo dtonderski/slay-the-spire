@@ -90,6 +90,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                 return Err(SimError::IllegalAction("not enough gold"));
             }
             next.gold -= cost;
+            next.break_maw_bank_on_shop_spend();
             next.shop_remove_count += 1;
             next.deck.retain(|deck_card| deck_card.id != card.id);
             let remove_cost = super::shop::shop_remove_cost_for_run(&next);
@@ -144,5 +145,22 @@ mod tests {
         assert!(!after.deck.iter().any(|card| card.id == strike_id));
         assert_eq!(after.gold, 100 - super::super::shop::SHOP_BASE_REMOVE_PRICE);
         assert_eq!(after.shop_remove_count, 1);
+    }
+
+    #[test]
+    fn shop_remove_grid_breaks_maw_bank() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.gold = 100;
+        run.relics.push(crate::Relic::MawBank);
+        run.shop = Some(super::super::shop::fixed_shop_screen(
+            run.next_card_instance_id(),
+        ));
+        open_shop_remove_grid(&mut run);
+
+        let selected = select_grid_card(&run, 0).expect("select");
+        let after = confirm_grid(&selected).expect("confirm");
+
+        assert!(after.maw_bank_broken);
     }
 }

@@ -19,9 +19,10 @@ use crate::{
         RelicPoolState, RelicSpawnContext, BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD,
         COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE,
         FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
-        MARK_OF_PAIN_WOUNDS, OLD_COIN_GOLD, OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP,
-        POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR,
-        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
+        MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES, PANTOGRAPH_HEAL,
+        PEAR_MAX_HP, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
+        PRESERVED_INSECT_HP_NUMERATOR, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP,
+        VELVET_CHOKER_ENERGY,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -215,6 +216,7 @@ mod tests {
             Relic::from_key(RelicKey::SlingOfCourage),
             Some(Relic::SlingOfCourage)
         );
+        assert_eq!(Relic::from_key(RelicKey::MawBank), Some(Relic::MawBank));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -664,6 +666,8 @@ pub struct RunState {
     pub relic_keys: Vec<RelicKey>,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub omamori_charges_used: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub maw_bank_broken: bool,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -708,6 +712,10 @@ fn default_card_rarity_factor() -> i32 {
 
 fn is_zero_u32(value: &u32) -> bool {
     *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -893,6 +901,7 @@ impl RunState {
             relic_pools: None,
             relic_keys: Vec::new(),
             omamori_charges_used: 0,
+            maw_bank_broken: false,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -945,6 +954,7 @@ impl RunState {
             relic_pools: None,
             relic_keys: Vec::new(),
             omamori_charges_used: 0,
+            maw_bank_broken: false,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1086,6 +1096,18 @@ impl RunState {
         !self.relics.contains(&Relic::Sozu)
     }
 
+    pub fn apply_floor_entry_relics(&mut self) {
+        if self.relics.contains(&Relic::MawBank) && !self.maw_bank_broken {
+            self.gold += MAW_BANK_GOLD;
+        }
+    }
+
+    pub fn break_maw_bank_on_shop_spend(&mut self) {
+        if self.relics.contains(&Relic::MawBank) {
+            self.maw_bank_broken = true;
+        }
+    }
+
     pub fn gain_relic_key(&mut self, key: RelicKey) {
         self.ensure_ironclad_relic_pools();
         if let Some(pools) = self.relic_pools.as_mut() {
@@ -1181,6 +1203,7 @@ impl RunState {
             | Relic::CeramicFish
             | Relic::MembershipCard
             | Relic::SmilingMask
+            | Relic::MawBank
             | Relic::Pantograph
             | Relic::Ginger
             | Relic::Turnip
@@ -1358,6 +1381,7 @@ impl Relic {
             Relic::PreservedInsect => RelicKey::PreservedInsect,
             Relic::Omamori => RelicKey::Omamori,
             Relic::SlingOfCourage => RelicKey::SlingOfCourage,
+            Relic::MawBank => RelicKey::MawBank,
             Relic::DarkstonePeriapt => RelicKey::DarkstonePeriapt,
             Relic::DuVuDoll => RelicKey::DuVuDoll,
             Relic::FusionHammer => RelicKey::FusionHammer,
@@ -1429,6 +1453,7 @@ impl Relic {
             RelicKey::PreservedInsect => Some(Relic::PreservedInsect),
             RelicKey::Omamori => Some(Relic::Omamori),
             RelicKey::SlingOfCourage => Some(Relic::SlingOfCourage),
+            RelicKey::MawBank => Some(Relic::MawBank),
             RelicKey::DarkstonePeriapt => Some(Relic::DarkstonePeriapt),
             RelicKey::DuVuDoll => Some(Relic::DuVuDoll),
             RelicKey::FusionHammer => Some(Relic::FusionHammer),

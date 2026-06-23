@@ -565,6 +565,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             let price = offer.price;
             offer.sold = true;
             next.gold -= price;
+            next.break_maw_bank_on_shop_spend();
             next.add_deck_card(card);
         }
         RunAction::BuyShopRelic { slot } => {
@@ -574,6 +575,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             let price = offer.price;
             offer.sold = true;
             next.gold -= price;
+            next.break_maw_bank_on_shop_spend();
             next.gain_relic_key(key);
             if key == RelicKey::MembershipCard {
                 if let Some(shop) = next.shop.as_mut() {
@@ -588,6 +590,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             let price = offer.price;
             offer.sold = true;
             next.gold -= price;
+            next.break_maw_bank_on_shop_spend();
             next.potions.push(potion);
         }
         _ => unreachable!("validated shop action"),
@@ -771,6 +774,32 @@ mod tests {
             after.gold,
             gold_before - SHOP_ANGER_PRICE + crate::relic::CERAMIC_FISH_GOLD
         );
+    }
+
+    #[test]
+    fn buying_any_shop_item_breaks_maw_bank() {
+        let mut card_run = shop_run();
+        card_run.relics.push(Relic::MawBank);
+
+        let after_card =
+            apply_shop_action(&card_run, RunAction::BuyShopCard { slot: 0 }).expect("buy card");
+
+        assert!(after_card.maw_bank_broken);
+
+        let mut relic_run = shop_run();
+        relic_run.relics.push(Relic::MawBank);
+        relic_run.gold = SHOP_VAJRA_PRICE;
+        let after_relic =
+            apply_shop_action(&relic_run, RunAction::BuyShopRelic { slot: 0 }).expect("buy relic");
+
+        assert!(after_relic.maw_bank_broken);
+
+        let mut potion_run = shop_run();
+        potion_run.relics.push(Relic::MawBank);
+        let after_potion = apply_shop_action(&potion_run, RunAction::BuyShopPotion { slot: 0 })
+            .expect("buy potion");
+
+        assert!(after_potion.maw_bank_broken);
     }
 
     #[test]
