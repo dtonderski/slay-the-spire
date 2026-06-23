@@ -17,6 +17,7 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 ## Overnight Collection
 
 - `overnight_collector.js` watches `session/summary.json` and writes controller commands to `session/next_command.txt`.
+- Its map policy scores only currently visible choices, preferring elites, fights, chests, events, shops, then rests. It does not do route lookahead yet.
 - `run_overnight_collector.cmd` starts the autopilot. It persists the next seed index in `session/overnight_collector_state.json`, so restarts keep moving through seeds.
 - `overnight_preflight.js` checks whether the current bridge/session is fresh and safe for overnight supervision before starting.
 - `run_overnight_preflight.cmd` runs the preflight check.
