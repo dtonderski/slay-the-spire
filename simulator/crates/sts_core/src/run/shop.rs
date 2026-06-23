@@ -199,7 +199,11 @@ pub fn affordable_shop_picks(run: &RunState) -> Vec<ShopPick> {
         }
     }
     for (slot, offer) in shop.potions.iter().enumerate() {
-        if !offer.sold && run.gold >= offer.price && run.potions.len() < run.potion_capacity() {
+        if !offer.sold
+            && run.gold >= offer.price
+            && run.potions.len() < run.potion_capacity()
+            && run.can_gain_potions()
+        {
             picks.push(ShopPick::BuyPotion(slot));
         }
     }
@@ -442,7 +446,11 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
     }
 
     for (slot, offer) in shop.potions.iter().enumerate() {
-        if !offer.sold && run.gold >= offer.price && run.potions.len() < run.potion_capacity() {
+        if !offer.sold
+            && run.gold >= offer.price
+            && run.potions.len() < run.potion_capacity()
+            && run.can_gain_potions()
+        {
             actions.push(RunAction::BuyShopPotion { slot });
         }
     }
@@ -518,6 +526,9 @@ pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> 
                         .ok_or(SimError::IllegalAction("shop potion is not available"))?;
                     if offer.sold {
                         return Err(SimError::IllegalAction("shop potion already sold"));
+                    }
+                    if !run.can_gain_potions() {
+                        return Err(SimError::IllegalAction("potions cannot be obtained"));
                     }
                     if run.potions.len() >= run.potion_capacity() {
                         return Err(SimError::IllegalAction("potion belt is full"));
@@ -809,6 +820,18 @@ mod tests {
             apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect_err("belt full");
 
         assert_eq!(err, SimError::IllegalAction("potion belt is full"));
+    }
+
+    #[test]
+    fn sozu_rejects_shop_potion_purchase_and_hides_legal_action() {
+        let mut run = shop_run();
+        run.relics.push(Relic::Sozu);
+
+        let err = apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 })
+            .expect_err("sozu blocks potion");
+
+        assert_eq!(err, SimError::IllegalAction("potions cannot be obtained"));
+        assert!(!legal_shop_actions(&run).contains(&RunAction::BuyShopPotion { slot: 0 }));
     }
 
     #[test]

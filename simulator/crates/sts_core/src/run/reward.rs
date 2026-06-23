@@ -333,16 +333,19 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     let key = roll_relic_reward(run, tier);
     let relic_offer = Relic::from_key(key);
 
-    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
-    let potion_capacity = run.potion_capacity();
-    let _elite_potion_roll = target_potion_reward_offer(
-        &mut potion_rng,
-        &mut run.potion_chance,
-        2,
-        run.potions.len(),
-        potion_capacity,
-    );
-    run.potion_rng_counter = potion_rng.counter();
+    if run.can_gain_potions() {
+        let mut potion_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let potion_capacity = run.potion_capacity();
+        let _elite_potion_roll = target_potion_reward_offer(
+            &mut potion_rng,
+            &mut run.potion_chance,
+            2,
+            run.potions.len(),
+            potion_capacity,
+        );
+        run.potion_rng_counter = potion_rng.counter();
+    }
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -455,16 +458,22 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     let gold_offer = target_normal_combat_gold(&mut treasure_rng);
     run.treasure_rng_counter = treasure_rng.counter();
 
-    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
-    let potion_capacity = run.potion_capacity();
-    let potion_offer = target_potion_reward_offer(
-        &mut potion_rng,
-        &mut run.potion_chance,
-        1,
-        run.potions.len(),
-        potion_capacity,
-    );
-    run.potion_rng_counter = potion_rng.counter();
+    let potion_offer = if run.can_gain_potions() {
+        let mut potion_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let potion_capacity = run.potion_capacity();
+        let potion_offer = target_potion_reward_offer(
+            &mut potion_rng,
+            &mut run.potion_chance,
+            1,
+            run.potions.len(),
+            potion_capacity,
+        );
+        run.potion_rng_counter = potion_rng.counter();
+        potion_offer
+    } else {
+        None
+    };
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -495,16 +504,19 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let key = roll_relic_reward(run, tier);
     let relic_offer = Relic::from_key(key);
 
-    let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
-    let potion_capacity = run.potion_capacity();
-    let _elite_potion_roll = target_potion_reward_offer(
-        &mut potion_rng,
-        &mut run.potion_chance,
-        2,
-        run.potions.len(),
-        potion_capacity,
-    );
-    run.potion_rng_counter = potion_rng.counter();
+    if run.can_gain_potions() {
+        let mut potion_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let potion_capacity = run.potion_capacity();
+        let _elite_potion_roll = target_potion_reward_offer(
+            &mut potion_rng,
+            &mut run.potion_chance,
+            2,
+            run.potions.len(),
+            potion_capacity,
+        );
+        run.potion_rng_counter = potion_rng.counter();
+    }
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -1073,6 +1085,33 @@ mod tests {
         let err = apply_run_action(&run, RunAction::TakePotionReward).expect_err("belt full");
 
         assert_eq!(err, SimError::IllegalAction("potion belt is full"));
+    }
+
+    #[test]
+    fn sozu_rejects_taking_potion_rewards() {
+        let mut run = winning_combat_run();
+        run.relics.push(Relic::Sozu);
+        run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
+
+        let err =
+            apply_run_action(&run, RunAction::TakePotionReward).expect_err("sozu blocks potion");
+
+        assert_eq!(err, SimError::IllegalAction("potions cannot be obtained"));
+    }
+
+    #[test]
+    fn sozu_prevents_generated_potion_reward_without_advancing_potion_rng() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::Sozu);
+        run.potion_rng_seed = 22_079_335_079;
+        run.potion_chance = 70;
+        let counter_before = run.potion_rng_counter;
+
+        enter_normal_combat_reward_screen(&mut run);
+
+        assert_eq!(run.reward.as_ref().expect("reward").potion_offer, None);
+        assert_eq!(run.potion_rng_counter, counter_before);
+        assert_eq!(run.potion_chance, 70);
     }
 
     #[test]

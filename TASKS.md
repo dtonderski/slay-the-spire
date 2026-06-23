@@ -1276,6 +1276,8 @@ Completed slice:
 - implemented explicit modeled-curse classification, max-HP-on-curse-add, and strength-per-curse combat-start hooks with focused tests
 - expanded modeled boss energy/rest-restriction relics: Fusion Hammer
 - implemented Fusion Hammer pickup energy and rest-site smith disabling with focused state/rest tests
+- expanded modeled boss energy/potion-lockout relics: Sozu
+- implemented Sozu pickup energy, generated reward potion suppression, reward/shop potion acquisition rejection, and Entropic Brew no-fill behavior with focused tests
 
 Remaining:
 
