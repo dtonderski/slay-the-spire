@@ -1268,6 +1268,8 @@ Completed slice:
 - implemented Mark of Pain pickup energy and two-Wound deck mutation with focused state/relic tests
 - expanded modeled combat healing relics: Magic Flower
 - implemented source-backed combat-only `MathUtils.round(heal * 1.5)` healing for Blood Vial, Burning/Black Blood, Meat on the Bone, Pantograph, Blood Potion, and Regen with focused tests
+- expanded modeled Vulnerable synergy relics: Paper Phrog and Champion Belt
+- implemented Paper Phrog's 75% Vulnerable damage bonus and Champion Belt weak-on-player-applied-Vulnerable hooks for cards and Bag of Marbles with focused tests
 
 Remaining:
 

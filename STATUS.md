@@ -32,6 +32,7 @@
 - Debuff-immunity relics: Ginger and Turnip
 - Boss energy relic: Mark of Pain
 - Combat healing relic: Magic Flower
+- Vulnerable synergy relics: Paper Phrog and Champion Belt
 - Stateful relic: Ice Cream preserves energy between turns
 - Random-effect potion: Gamble Potion (+50/-50 gold via RNG)
 
@@ -112,7 +113,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Milestone 32 is in progress. Completed relic slices now cover simple pickup/capacity relics, start-of-combat relics, card-play counter relics, turn-timed combat relics, combat-victory healing relics, room/rest healing relics, damage mitigation relics, shop/economy relics, boss-entry relics, debuff-immunity relics, boss energy relics, and combat-healing multiplier relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, Potion Belt, Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, Red Skull, Nunchaku, Shuriken, Kunai, Letter Opener, Happy Flower, Orichalcum, Horn Cleat, Captain's Wheel, Mercury Hourglass, Stone Calendar, Black Blood, Meat on the Bone, Meal Ticket, Regal Pillow, Dream Catcher, Eternal Feather, Torii, Tungsten Rod, Ceramic Fish, Membership Card, Smiling Mask, Pantograph, Ginger, Turnip, Mark of Pain, and Magic Flower. Continue by implementing the next missing relic hook family.
+Milestone 32 is in progress. Completed relic slices now cover simple pickup/capacity relics, start-of-combat relics, card-play counter relics, turn-timed combat relics, combat-victory healing relics, room/rest healing relics, damage mitigation relics, shop/economy relics, boss-entry relics, debuff-immunity relics, boss energy relics, combat-healing multiplier relics, and Vulnerable synergy relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, Potion Belt, Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, Red Skull, Nunchaku, Shuriken, Kunai, Letter Opener, Happy Flower, Orichalcum, Horn Cleat, Captain's Wheel, Mercury Hourglass, Stone Calendar, Black Blood, Meat on the Bone, Meal Ticket, Regal Pillow, Dream Catcher, Eternal Feather, Torii, Tungsten Rod, Ceramic Fish, Membership Card, Smiling Mask, Pantograph, Ginger, Turnip, Mark of Pain, Magic Flower, Paper Phrog, and Champion Belt. Continue by implementing the next missing relic hook family.
 
 The previous M29 cleaned single-run prefix can still be structurally checked with:
 

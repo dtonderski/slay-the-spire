@@ -110,6 +110,12 @@ pub const PANTOGRAPH_HEAL: i32 = 25;
 pub const MAGIC_FLOWER_HEAL_NUMERATOR: i32 = 3;
 /// Denominator for [Relic::MagicFlower]'s 50% Ironclad healing increase.
 pub const MAGIC_FLOWER_HEAL_DENOMINATOR: i32 = 2;
+/// Numerator for [Relic::PaperPhrog]'s Vulnerable bonus damage increase.
+pub const PAPER_PHROG_VULNERABLE_BONUS_NUMERATOR: i32 = 3;
+/// Denominator for [Relic::PaperPhrog]'s Vulnerable bonus damage increase.
+pub const PAPER_PHROG_VULNERABLE_BONUS_DENOMINATOR: i32 = 4;
+/// Weak applied by [Relic::ChampionBelt] whenever the player applies Vulnerable.
+pub const CHAMPION_BELT_WEAK: i32 = 1;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -203,6 +209,10 @@ pub const TURNIP_ID: ContentId = ContentId::new(343);
 pub const MARK_OF_PAIN_ID: ContentId = ContentId::new(344);
 /// Content id for [Relic::MagicFlower].
 pub const MAGIC_FLOWER_ID: ContentId = ContentId::new(345);
+/// Content id for [Relic::PaperPhrog].
+pub const PAPER_PHROG_ID: ContentId = ContentId::new(346);
+/// Content id for [Relic::ChampionBelt].
+pub const CHAMPION_BELT_ID: ContentId = ContentId::new(347);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -761,6 +771,8 @@ pub enum Relic {
     Turnip,
     MarkOfPain,
     MagicFlower,
+    PaperPhrog,
+    ChampionBelt,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -813,6 +825,8 @@ impl Relic {
             Relic::Turnip => TURNIP_ID,
             Relic::MarkOfPain => MARK_OF_PAIN_ID,
             Relic::MagicFlower => MAGIC_FLOWER_ID,
+            Relic::PaperPhrog => PAPER_PHROG_ID,
+            Relic::ChampionBelt => CHAMPION_BELT_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -865,6 +879,8 @@ impl Relic {
             id if id == TURNIP_ID => Some(Relic::Turnip),
             id if id == MARK_OF_PAIN_ID => Some(Relic::MarkOfPain),
             id if id == MAGIC_FLOWER_ID => Some(Relic::MagicFlower),
+            id if id == PAPER_PHROG_ID => Some(Relic::PaperPhrog),
+            id if id == CHAMPION_BELT_ID => Some(Relic::ChampionBelt),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -906,7 +922,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             }
             Relic::BagOfMarbles => {
                 for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
-                    monster.powers.vulnerable += BAG_OF_MARBLES_VULNERABLE;
+                    apply_monster_vulnerable_with_relics(
+                        &mut monster.powers,
+                        relics,
+                        BAG_OF_MARBLES_VULNERABLE,
+                    );
                 }
             }
             Relic::BronzeScales => {
@@ -946,6 +966,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Turnip => {}
             Relic::MarkOfPain => {}
             Relic::MagicFlower => {}
+            Relic::PaperPhrog => {}
+            Relic::ChampionBelt => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1085,6 +1107,34 @@ pub fn apply_player_frail_with_relics(
 ) {
     if !relics.contains(&Relic::Turnip) {
         crate::power::apply_player_frail(powers, amount);
+    }
+}
+
+#[must_use]
+pub fn attack_damage_with_vulnerable_relics(base: i32, vulnerable: i32, relics: &[Relic]) -> i32 {
+    if relics.contains(&Relic::PaperPhrog) {
+        crate::power::attack_damage_with_vulnerable_bonus(
+            base,
+            vulnerable,
+            PAPER_PHROG_VULNERABLE_BONUS_NUMERATOR,
+            PAPER_PHROG_VULNERABLE_BONUS_DENOMINATOR,
+        )
+    } else {
+        crate::power::attack_damage_with_vulnerable(base, vulnerable)
+    }
+}
+
+pub fn apply_monster_vulnerable_with_relics(
+    powers: &mut crate::power::MonsterPowers,
+    relics: &[Relic],
+    amount: i32,
+) {
+    if amount <= 0 {
+        return;
+    }
+    powers.vulnerable += amount;
+    if relics.contains(&Relic::ChampionBelt) {
+        powers.weak += CHAMPION_BELT_WEAK;
     }
 }
 
@@ -1510,6 +1560,19 @@ mod tests {
             BAG_OF_MARBLES_VULNERABLE
         );
         assert_eq!(combat.monsters[1].powers.vulnerable, 0);
+    }
+
+    #[test]
+    fn champion_belt_adds_weak_when_bag_of_marbles_applies_vulnerable() {
+        let mut combat = CombatState::initial_fixture();
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::BagOfMarbles, Relic::ChampionBelt]);
+
+        assert_eq!(
+            combat.monsters[0].powers.vulnerable,
+            BAG_OF_MARBLES_VULNERABLE
+        );
+        assert_eq!(combat.monsters[0].powers.weak, CHAMPION_BELT_WEAK);
     }
 
     #[test]
