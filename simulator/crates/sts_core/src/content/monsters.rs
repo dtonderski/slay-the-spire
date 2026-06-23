@@ -638,6 +638,12 @@ pub fn content_id_from_game_monster_id(game_id: &str) -> ContentId {
     match game_id {
         "Cultist" => CULTIST_ID,
         "JawWorm" => JAW_WORM_ID,
+        "GremlinNob" => GREMLIN_NOB_ID,
+        "Lagavulin" => LAGAVULIN_ID,
+        "Sentry" => SENTRY_ID,
+        "Hexaghost" => HEXAGHOST_ID,
+        "SlimeBoss" => SLIME_BOSS_ID,
+        "TheGuardian" => GUARDIAN_ID,
         "SpikeSlime_S" | "SpikeSlime_M" | "Spike Slime (S)" | "Spike Slime (M)" => SPIKE_SLIME_ID,
         "AcidSlime_S" | "AcidSlime_M" | "Acid Slime (S)" | "Acid Slime (M)" => ACID_SLIME_ID,
         "FuzzyLouseDefensive" | "LouseDefensive" => GREEN_LOUSE_ID,
@@ -997,11 +1003,21 @@ fn lagavulin_intent(sleep_turns_remaining: u32, has_siphoned: bool) -> MonsterIn
     }
 }
 
+pub fn clear_lagavulin_metallicize_if_awake(monster: &mut MonsterState) {
+    if monster.content_id == LAGAVULIN_ID && monster.sleep_turns_remaining == 0 {
+        monster.powers.metallicize = 0;
+    }
+}
+
 /// Wakes a sleeping Lagavulin when HP damage is dealt and updates its intent for the current turn.
 pub fn wake_lagavulin_on_damage(monster: &mut MonsterState, hp_damage: i32) {
-    if monster.content_id == LAGAVULIN_ID && hp_damage > 0 && monster.sleep_turns_remaining > 0 {
-        monster.sleep_turns_remaining = 0;
-        monster.intent = lagavulin_intent(monster.sleep_turns_remaining, monster.has_siphoned);
+    if monster.content_id == LAGAVULIN_ID && hp_damage > 0 {
+        if monster.sleep_turns_remaining > 0 {
+            monster.sleep_turns_remaining = 0;
+            monster.intent = MonsterIntent::Stun;
+        }
+        monster.block = 0;
+        monster.powers.metallicize = 0;
     }
 }
 
@@ -1127,6 +1143,7 @@ pub fn apply_monster_intent(
             }
             0
         }
+        MonsterIntent::Stun => 0,
         MonsterIntent::SiphonPlayer {
             strength,
             dexterity,
@@ -1758,6 +1775,22 @@ mod tests {
     }
 
     #[test]
+    fn content_id_from_game_id_maps_elite_monsters() {
+        assert_eq!(
+            content_id_from_game_monster_id("Lagavulin"),
+            LAGAVULIN_ID
+        );
+        assert_eq!(
+            content_id_from_game_monster_id("GremlinNob"),
+            GREMLIN_NOB_ID
+        );
+        assert_eq!(
+            content_id_from_game_monster_id("TheGuardian"),
+            GUARDIAN_ID
+        );
+    }
+
+    #[test]
     fn lagavulin_has_one_hundred_nine_hp_and_starts_asleep() {
         let monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
 
@@ -1824,17 +1857,15 @@ mod tests {
     #[test]
     fn lagavulin_wake_on_damage_clears_sleep_and_sets_siphon_intent() {
         let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+        monster.block = 8;
+        monster.powers.metallicize = 8;
 
         wake_lagavulin_on_damage(&mut monster, 1);
 
         assert_eq!(monster.sleep_turns_remaining, 0);
-        assert_eq!(
-            monster.intent,
-            MonsterIntent::SiphonPlayer {
-                strength: LAGAVULIN_SIPHON_STRENGTH,
-                dexterity: LAGAVULIN_SIPHON_DEXTERITY,
-            }
-        );
+        assert_eq!(monster.block, 0);
+        assert_eq!(monster.powers.metallicize, 0);
+        assert_eq!(monster.intent, MonsterIntent::Stun);
     }
 
     #[test]

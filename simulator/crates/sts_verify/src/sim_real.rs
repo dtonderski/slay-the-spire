@@ -320,7 +320,6 @@ fn verify_seed_start_transitions(
     let mut observed_combat_sync = false;
     let mut combat_elite_boss_observed_sync = false;
     let mut in_elite_boss_combat = false;
-    let mut combat_potion_card_observed_sync = false;
     let mut map_path_xs: Vec<i32> = Vec::new();
     let mut neow_lament = false;
     let mut relics = vec!["Burning Blood".to_owned()];
@@ -990,16 +989,20 @@ fn verify_seed_start_transitions(
                 let enters_hand_select = command.starts_with("PLAY")
                     && screen_type(&post.message) == Some("HAND_SELECT");
                 let combat_card_reward_choose = command.starts_with("CHOOSE")
-                    && screen_type(&pre.message) == Some("CARD_REWARD");
+                    && screen_type(&pre.message) == Some("CARD_REWARD")
+                    && pre
+                        .message
+                        .get("game_state")
+                        .and_then(|game| game.get("combat_state"))
+                        .is_some();
+                let potion_use_slot = parse_potion_use_slot(command);
                 let observed_sync = if in_elite_boss_combat {
                     combat_elite_boss_observed_sync
                 } else {
                     observed_combat_sync
-                } || combat_potion_card_observed_sync
-                    || command.starts_with("POTION")
+                } || (command.starts_with("POTION") && potion_use_slot.is_none())
                     || command.eq_ignore_ascii_case("CONFIRM")
                     || enters_hand_select
-                    || combat_card_reward_choose
                     || (command.starts_with("CHOOSE") && hand_select);
 
                 if observed_sync {
@@ -1056,9 +1059,6 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         label: label.to_owned(),
                     });
-                    if combat_card_reward_choose {
-                        combat_potion_card_observed_sync = true;
-                    }
                     combat_step += 1;
                     continue;
                 }
@@ -1077,6 +1077,79 @@ fn verify_seed_start_transitions(
                     });
                     return boundary;
                 };
+
+                if let Some(slot) = potion_use_slot {
+                    let next = apply_run_action(
+                        sim,
+                        RunAction::UsePotion {
+                            slot,
+                            target: None,
+                        },
+                    );
+                    let Ok(next) = next else {
+                        push_sim_error(report, action, "combat potion use", next.err().unwrap());
+                        return SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: "seed-start combat potion simulation failed".to_owned(),
+                        };
+                    };
+                    seed_start_compare_combat_subset(
+                        report,
+                        action,
+                        "combat potion use",
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        false,
+                    );
+                    *sim = next;
+                    combat_step += 1;
+                    continue;
+                }
+
+                if combat_card_reward_choose {
+                    let Some(index) = choose_index(command) else {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: format!(
+                                "seed-start verifier could not parse combat card reward command {command:?}"
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return boundary;
+                    };
+                    let next = apply_run_action(sim, RunAction::ChooseCombatCardReward { index });
+                    let Ok(next) = next else {
+                        push_sim_error(
+                            report,
+                            action,
+                            "combat potion card reward",
+                            next.err().unwrap(),
+                        );
+                        return SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: "seed-start combat potion card reward simulation failed"
+                                .to_owned(),
+                        };
+                    };
+                    seed_start_compare_combat_subset(
+                        report,
+                        action,
+                        "combat potion card reward",
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        false,
+                    );
+                    *sim = next;
+                    combat_step += 1;
+                    continue;
+                }
 
                 if !(command.starts_with("PLAY") || command.eq_ignore_ascii_case("END")) {
                     let boundary = SeedStartBoundary {
@@ -2133,8 +2206,9 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
 
     let combat = game.get("combat_state");
     let player = combat.and_then(|combat| combat.get("player"));
-    json!({
-        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+    let screen_type = game.get("screen_type").and_then(Value::as_str).unwrap_or("");
+    let mut subset = json!({
+        "screen_type": screen_type,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": int(game, "gold"),
         "current_hp": player.map(|p| int(p, "current_hp")).unwrap_or_else(|| int(game, "current_hp")),
@@ -2150,8 +2224,20 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
             "shuffle_rng_draws": combat.and_then(|combat| combat.get("draw_pile")).and_then(Value::as_array).is_some_and(|draw| draw.len() == 5)
                 && combat.and_then(|combat| combat.get("discard_pile")).and_then(Value::as_array).is_some_and(Vec::is_empty),
             "card_uuids": true,
+            "card_reward_uuids": true,
         },
-    })
+    });
+    if screen_type == "CARD_REWARD" {
+        if let Value::Object(map) = &mut subset {
+            map.insert(
+                "card_reward_ids".to_owned(),
+                json!(card_reward_ids_from_value(
+                    game.get("screen_state").and_then(|state| state.get("cards")),
+                )),
+            );
+        }
+    }
+    subset
 }
 
 fn seed_start_reward_observed_subset(message: &Value) -> Value {
@@ -3214,8 +3300,27 @@ fn potion_from_trace_name(name: &str) -> Option<Potion> {
         "Fire Potion" => Some(Potion::Fire),
         "Power Potion" => Some(Potion::Power),
         "Block Potion" => Some(Potion::Block),
+        "Ancient Potion" => Some(Potion::Ancient),
         _ => None,
     }
+}
+
+fn potions_from_observed(game: &Value) -> Vec<Potion> {
+    game.get("potions")
+        .and_then(Value::as_array)
+        .map(|potions| {
+            potions
+                .iter()
+                .filter_map(|potion| {
+                    let name = potion.get("name").and_then(Value::as_str)?;
+                    if name.eq_ignore_ascii_case("Potion Slot") {
+                        return None;
+                    }
+                    potion_from_trace_name(name)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn relic_ids_for_simulated_subset(run: &RunState, carry: &[String]) -> Vec<String> {
@@ -3693,6 +3798,7 @@ fn seed_start_run_from_combat_entry(
     }
     let game = message.get("game_state")?;
     let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as u32;
+    run.reset_card_random_rng_for_combat();
     if let Some(combat) = run.combat.as_mut() {
         combat.shuffle_rng = Some(StsRng::new(numeric_seed + i64::from(floor)));
         if let Some(rng) = combat.shuffle_rng.as_mut() {
@@ -3737,8 +3843,15 @@ fn seed_start_simulated_combat_subset(
     let observed_monsters = game
         .get("combat_state")
         .and_then(|combat| combat.get("monsters"));
-    json!({
-        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+    let screen_type = if combat.potion_card_reward.is_some() {
+        "CARD_REWARD"
+    } else {
+        game.get("screen_type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+    };
+    let mut subset = json!({
+        "screen_type": screen_type,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": run.gold,
         "current_hp": run.player_hp,
@@ -3765,7 +3878,21 @@ fn seed_start_simulated_combat_subset(
             .map(|card| deck_content_key(card.content_id).to_owned())
             .collect::<Vec<_>>(),
         "monsters": seed_start_monsters_from_sim(combat, observed_monsters, end_turn_snapshot),
-    })
+    });
+    if let Some(choices) = combat.potion_card_reward.as_ref() {
+        if let Value::Object(map) = &mut subset {
+            map.insert(
+                "card_reward_ids".to_owned(),
+                json!(
+                    choices
+                        .iter()
+                        .map(|card| deck_content_key(card.content_id).to_owned())
+                        .collect::<Vec<_>>()
+                ),
+            );
+        }
+    }
+    subset
 }
 
 fn seed_start_victory_observed_subset(message: &Value) -> Value {
@@ -4273,6 +4400,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         relic_counters: Default::default(),
         ascension: int(game, "ascension_level") as u8,
         shuffle_rng: None,
+        potion_card_reward: None,
     };
 
     Some(RunState {
@@ -4289,10 +4417,11 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         shop: None,
         card_grid: None,
         relics: Vec::new(),
-        potions: Vec::new(),
+        potions: potions_from_observed(game),
         event_rng_seed: 0,
         reward_rng_seed: 7,
         card_rng_counter: 0,
+        card_random_rng_counter: 0,
         card_rarity_factor: 5,
         treasure_rng_seed: 0,
         treasure_rng_counter: 0,
@@ -4355,10 +4484,11 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         shop: None,
         card_grid: None,
         relics: Vec::new(),
-        potions: Vec::new(),
+        potions: potions_from_observed(game),
         event_rng_seed: 0,
         reward_rng_seed: 0,
         card_rng_counter: 0,
+        card_random_rng_counter: 0,
         card_rarity_factor: 5,
         treasure_rng_seed: 0,
         treasure_rng_counter: 0,
@@ -4710,6 +4840,8 @@ fn elite_boss_replay_fields(
             let has_siphoned = intent_str == "ATTACK";
             let intent = if sleep_turns_remaining > 0 {
                 MonsterIntent::Sleep
+            } else if intent_str == "STUN" {
+                MonsterIntent::Stun
             } else if !has_siphoned {
                 MonsterIntent::SiphonPlayer {
                     strength: 2,
@@ -4921,7 +5053,7 @@ fn player_powers(value: Option<&Value>) -> PlayerPowers {
             Some("Dexterity") => powers.dexterity = amount,
             Some("Frail") => powers.frail = amount,
             Some("Vulnerable") => powers.vulnerable = amount,
-            Some("Ritual") => powers.ritual = amount,
+            Some("Ritual") | Some("Demon Form") => powers.ritual = amount,
             Some("Metallicize") => powers.metallicize = amount,
             _ => {}
         }
@@ -5048,7 +5180,7 @@ fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
         COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, ENTRENCH_ID,
-        FIRE_BREATHING_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
+        FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
         HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID,
         METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         RAMPAGE_ID, REGRET_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
@@ -5100,6 +5232,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == POMMEL_STRIKE_PLUS_ID => "Pommel Strike+",
         id if id == REGRET_ID => "Regret",
         id if id == DEMON_FORM_ID => "Demon Form",
+        id if id == FEEL_NO_PAIN_ID => "Feel No Pain",
         other if shop_pool_trace_name(other).is_some() => {
             shop_pool_trace_name(other).unwrap_or("unknown")
         }
@@ -5159,6 +5292,19 @@ fn choose_index(command: &str) -> Option<usize> {
     let parts: Vec<_> = command.split_whitespace().collect();
     match parts.as_slice() {
         [cmd, index] if cmd.eq_ignore_ascii_case("CHOOSE") => index.parse().ok(),
+        _ => None,
+    }
+}
+
+fn parse_potion_use_slot(command: &str) -> Option<usize> {
+    let parts: Vec<_> = command.split_whitespace().collect();
+    match parts.as_slice() {
+        [head, second, third] if head.eq_ignore_ascii_case("POTION") && second.eq_ignore_ascii_case("USE") => {
+            third.parse().ok()
+        }
+        [head, slot, ..] if head.eq_ignore_ascii_case("potion") && !slot.eq_ignore_ascii_case("USE") => {
+            slot.parse().ok()
+        }
         _ => None,
     }
 }
@@ -5233,8 +5379,9 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::AttackApplyPlayerVulnerable { .. }
         | MonsterIntent::AddDazedToDiscard { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
-        | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
+        |         MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
         MonsterIntent::Sleep => "SLEEP".to_owned(),
+        MonsterIntent::Stun => "STUN".to_owned(),
         MonsterIntent::DefensiveCharge { .. } => "UNKNOWN".to_owned(),
     }
 }

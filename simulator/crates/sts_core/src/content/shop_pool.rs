@@ -310,3 +310,53 @@ pub fn assign_random_class_card_excluding(
         }
     }
 }
+
+/// Target Ironclad `CombatTypeCardPool::powers` from `sts_lightspeed` `CardPools.h`.
+#[must_use]
+pub fn ironclad_combat_power_discovery_pool() -> &'static [ContentId] {
+    use crate::content::cards::{
+        BARRICADE_ID, BERSERK_ID, BRUTALITY_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
+        DEMON_FORM_ID, EVOLVE_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, INFLAME_ID, JUGGERNAUT_ID,
+        METALLICIZE_ID, RUPTURE_ID,
+    };
+    const POOL: &[ContentId] = &[
+        EVOLVE_ID,
+        FIRE_BREATHING_ID,
+        RUPTURE_ID,
+        FEEL_NO_PAIN_ID,
+        DARK_EMBRACE_ID,
+        COMBUST_ID,
+        METALLICIZE_ID,
+        INFLAME_ID,
+        DEMON_FORM_ID,
+        CORRUPTION_ID,
+        BARRICADE_ID,
+        BERSERK_ID,
+        JUGGERNAUT_ID,
+        BRUTALITY_ID,
+    ];
+    POOL
+}
+
+/// Target `sts::generateDiscoveryCards` / `DiscoveryAction.generateCardChoices`.
+#[must_use]
+pub fn discovery_card_choices(
+    rng: &mut StsRng,
+    card_type: CardType,
+    count: usize,
+) -> Vec<ContentId> {
+    let pool = match card_type {
+        CardType::Power => ironclad_combat_power_discovery_pool(),
+        _ => &[],
+    };
+    assert!(!pool.is_empty(), "discovery pool must not be empty");
+    let mut choices = Vec::with_capacity(count);
+    while choices.len() < count {
+        let idx = rng.random_int((pool.len() - 1) as i32) as usize;
+        let content_id = pool[idx];
+        if !choices.contains(&content_id) {
+            choices.push(content_id);
+        }
+    }
+    choices
+}

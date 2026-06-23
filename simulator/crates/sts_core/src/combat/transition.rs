@@ -640,7 +640,7 @@ fn dark_embrace_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
 fn demon_form_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy { amount: 3 },
+        InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainRitual { amount: 2 },
         InternalAction::MoveCard {
             card_id,
@@ -866,6 +866,11 @@ fn apply_internal_action(
         }
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;
+            Ok(Vec::new())
+        }
+        InternalAction::SpendCardEnergy { card_id } => {
+            let cost = effective_hand_card_cost(state, card_id);
+            state.player.energy -= cost;
             Ok(Vec::new())
         }
         InternalAction::DealDamage { info } => {
@@ -1185,6 +1190,21 @@ fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<
     Ok(state.piles.hand.remove(index))
 }
 
+fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
+    let card = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .expect("hand card");
+    if let Some(cost) = card.temp_cost {
+        return i32::from(cost);
+    }
+    get_card_definition(card.content_id)
+        .map(|definition| i32::from(definition.cost))
+        .unwrap_or(0)
+}
+
 fn move_card(
     state: &mut CombatState,
     card_id: CardId,
@@ -1202,7 +1222,9 @@ fn move_card(
 
     match to {
         CardPile::DiscardPile => {
-            state.piles.discard_pile.push(card);
+            if !card.combat_only {
+                state.piles.discard_pile.push(card);
+            }
             Ok(())
         }
         CardPile::ExhaustPile => {

@@ -23,7 +23,7 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         }
 
-        if !is_affordable(state, definition) {
+        if !is_affordable(state, card.id, definition) {
             continue;
         }
 
@@ -101,7 +101,7 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 return Ok(());
             }
 
-            if !is_affordable(state, definition) {
+            if !is_affordable(state, card_id, definition) {
                 return Err(SimError::IllegalAction("card is unaffordable"));
             }
 
@@ -149,11 +149,26 @@ fn card_definition_for_hand_card(
     get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))
 }
 
-fn is_affordable(state: &CombatState, definition: &CardDefinition) -> bool {
+fn is_affordable(state: &CombatState, card_id: CardId, definition: &CardDefinition) -> bool {
     if is_x_cost(definition) {
         return state.player.energy >= 1;
     }
-    state.player.energy >= i32::from(definition.cost)
+    state.player.energy >= effective_hand_card_cost(state, card_id)
+}
+
+fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
+    let card = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .expect("hand card");
+    if let Some(cost) = card.temp_cost {
+        return i32::from(cost);
+    }
+    get_card_definition(card.content_id)
+        .map(|definition| i32::from(definition.cost))
+        .unwrap_or(i32::MAX)
 }
 
 fn is_x_cost(definition: &CardDefinition) -> bool {

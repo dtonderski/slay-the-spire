@@ -32,6 +32,9 @@ pub struct CombatState {
     pub ascension: u8,
     #[serde(default)]
     pub shuffle_rng: Option<StsRng>,
+    /// In-combat card reward from potions such as Power Potion.
+    #[serde(default)]
+    pub potion_card_reward: Option<Vec<CardInstance>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +105,7 @@ pub enum MonsterIntent {
     ApplyPlayerWeak { amount: i32 },
     AttackApplyPlayerVulnerable { damage: i32, vulnerable: i32 },
     Sleep,
+    Stun,
     SiphonPlayer { strength: i32, dexterity: i32 },
     AddDazedToDiscard { count: i32 },
     AddBurnToDiscard { count: i32, damage: i32 },
@@ -139,6 +143,7 @@ impl CombatState {
             relic_counters: RelicCounters::default(),
             ascension: 0,
             shuffle_rng: None,
+            potion_card_reward: None,
         }
     }
 

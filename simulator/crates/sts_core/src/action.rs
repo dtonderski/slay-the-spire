@@ -21,6 +21,9 @@ pub enum InternalAction {
     SpendEnergy {
         amount: i32,
     },
+    SpendCardEnergy {
+        card_id: CardId,
+    },
     DealDamage {
         info: DamageInfo,
     },
