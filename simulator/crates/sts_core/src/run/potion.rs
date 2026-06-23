@@ -295,12 +295,18 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Fire => {
                     let target = target.expect("validated fire potion target");
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    let monster = combat
-                        .monsters
-                        .iter_mut()
-                        .find(|monster| monster.id == target)
-                        .expect("validated potion target");
-                    deal_unmodified_damage_to_monster(monster, FIRE_POTION_DAMAGE);
+                    let killed = {
+                        let monster = combat
+                            .monsters
+                            .iter_mut()
+                            .find(|monster| monster.id == target)
+                            .expect("validated potion target");
+                        deal_unmodified_damage_to_monster(monster, FIRE_POTION_DAMAGE);
+                        !monster.alive
+                    };
+                    if killed {
+                        crate::relic::apply_monster_death_relics(combat);
+                    }
                     if combat.monsters.iter().all(|monster| !monster.alive) {
                         combat.phase = CombatPhase::Won;
                     }
@@ -355,8 +361,25 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::Explosive => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
-                        deal_unmodified_damage_to_monster(monster, EXPLOSIVE_POTION_DAMAGE);
+                    let targets = combat
+                        .monsters
+                        .iter()
+                        .filter(|monster| monster.alive)
+                        .map(|monster| monster.id)
+                        .collect::<Vec<_>>();
+                    for target in targets {
+                        let killed = {
+                            let monster = combat
+                                .monsters
+                                .iter_mut()
+                                .find(|monster| monster.id == target)
+                                .expect("target was collected from combat");
+                            deal_unmodified_damage_to_monster(monster, EXPLOSIVE_POTION_DAMAGE);
+                            !monster.alive
+                        };
+                        if killed {
+                            crate::relic::apply_monster_death_relics(combat);
+                        }
                     }
                     if combat.monsters.iter().all(|monster| !monster.alive) {
                         combat.phase = CombatPhase::Won;
@@ -561,6 +584,46 @@ mod tests {
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.monsters[0].hp, hp_before - FIRE_POTION_DAMAGE);
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn gremlin_horn_triggers_when_potion_kills_monster() {
+        use crate::{
+            content::monsters::{monster_state, FIXED_SIMPLE_MONSTER},
+            CardId, CardInstance,
+        };
+
+        let mut run = RunState::combat_fixture();
+        run.relics.push(Relic::GremlinHorn);
+        run.potions.push(Potion::Fire);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.relics = run.relics.clone();
+        combat.player.energy = 0;
+        combat.monsters[0].hp = FIRE_POTION_DAMAGE;
+        combat
+            .monsters
+            .push(monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)));
+        combat.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+        let target = combat.monsters[0].id;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(target),
+            },
+        )
+        .expect("use fire potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert!(!combat.monsters[0].alive);
+        assert!(combat.monsters[1].alive);
+        assert_eq!(combat.player.energy, crate::relic::GREMLIN_HORN_ENERGY);
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
     }
 
     #[test]

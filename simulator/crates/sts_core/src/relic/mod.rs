@@ -365,6 +365,12 @@ pub const CLOCKWORK_SOUVENIR_ID: ContentId = ContentId::new(383);
 pub const RUNIC_CUBE_ID: ContentId = ContentId::new(384);
 /// Content id for [Relic::TheAbacus].
 pub const THE_ABACUS_ID: ContentId = ContentId::new(385);
+/// Content id for [Relic::GremlinHorn].
+pub const GREMLIN_HORN_ID: ContentId = ContentId::new(386);
+/// Energy granted by [Relic::GremlinHorn] when a monster dies.
+pub const GREMLIN_HORN_ENERGY: i32 = 1;
+/// Cards drawn by [Relic::GremlinHorn] when a monster dies.
+pub const GREMLIN_HORN_DRAW: usize = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -980,6 +986,7 @@ pub enum Relic {
     ClockworkSouvenir,
     RunicCube,
     TheAbacus,
+    GremlinHorn,
 }
 
 impl Relic {
@@ -1072,6 +1079,7 @@ impl Relic {
             Relic::ClockworkSouvenir => CLOCKWORK_SOUVENIR_ID,
             Relic::RunicCube => RUNIC_CUBE_ID,
             Relic::TheAbacus => THE_ABACUS_ID,
+            Relic::GremlinHorn => GREMLIN_HORN_ID,
         }
     }
 
@@ -1164,6 +1172,7 @@ impl Relic {
             id if id == CLOCKWORK_SOUVENIR_ID => Some(Relic::ClockworkSouvenir),
             id if id == RUNIC_CUBE_ID => Some(Relic::RunicCube),
             id if id == THE_ABACUS_ID => Some(Relic::TheAbacus),
+            id if id == GREMLIN_HORN_ID => Some(Relic::GremlinHorn),
             _ => None,
         }
     }
@@ -1293,6 +1302,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::SelfFormingClay => {}
             Relic::RunicCube => {}
             Relic::TheAbacus => {}
+            Relic::GremlinHorn => {}
         }
     }
 
@@ -1302,6 +1312,13 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
 pub fn apply_shuffle_relics(state: &mut CombatState) {
     if state.relics.contains(&Relic::TheAbacus) {
         state.player.block += THE_ABACUS_BLOCK;
+    }
+}
+
+pub fn apply_monster_death_relics(state: &mut CombatState) {
+    if state.relics.contains(&Relic::GremlinHorn) {
+        state.player.energy += GREMLIN_HORN_ENERGY;
+        crate::combat::transition::player_draw_cards(state, GREMLIN_HORN_DRAW);
     }
 }
 
@@ -2327,6 +2344,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(THE_ABACUS_ID),
             Some(Relic::TheAbacus)
+        );
+        assert_eq!(Relic::GremlinHorn.content_id(), GREMLIN_HORN_ID);
+        assert_eq!(
+            Relic::from_content_id(GREMLIN_HORN_ID),
+            Some(Relic::GremlinHorn)
         );
     }
 
