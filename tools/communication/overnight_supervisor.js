@@ -107,6 +107,36 @@ function reportTrace(tracePath) {
   return parsed;
 }
 
+function bestRunPath(tracePath) {
+  const parsed = path.parse(tracePath);
+  return path.join(parsed.dir, `${parsed.name}.best-run${parsed.ext || ".jsonl"}`);
+}
+
+function extractBestRunTrace(tracePath) {
+  if (!tracePath || !fs.existsSync(tracePath)) return { ok: false, destination: null };
+  const destination = bestRunPath(tracePath);
+  if (fs.existsSync(destination)) {
+    const existing = validateTrace(destination);
+    if (existing.ok) {
+      log(`existing best-run trace is already valid: ${destination}`);
+      return { ok: true, destination, reused: true };
+    }
+  }
+  const result = childProcess.spawnSync(nodeExe, [traceToolsPath, "extract-best-run", tracePath, destination], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+  if (output) log(`best-run extract for ${tracePath} -> ${destination}:\n${output}`);
+  return { ok: result.status === 0, destination, reused: false };
+}
+
+function reportAndExtractBestRun(tracePath) {
+  const report = reportTrace(tracePath);
+  if (report?.best_run) extractBestRunTrace(tracePath);
+  return report;
+}
+
 function validPrefixPath(tracePath) {
   const parsed = path.parse(tracePath);
   return path.join(parsed.dir, `${parsed.name}.valid-prefix${parsed.ext || ".jsonl"}`);
@@ -133,14 +163,14 @@ function trimValidPrefix(tracePath) {
 function validateOrTrimTrace(tracePath) {
   const validation = validateTrace(tracePath);
   if (validation.ok) {
-    reportTrace(tracePath);
+    reportAndExtractBestRun(tracePath);
     return { validation, trimmed: null };
   }
   if (!tracePath || !fs.existsSync(tracePath)) return { validation, trimmed: null };
   const trimmed = trimValidPrefix(tracePath);
   if (trimmed.ok) {
     if (!trimmed.reused) validateTrace(trimmed.destination);
-    reportTrace(trimmed.destination);
+    reportAndExtractBestRun(trimmed.destination);
   }
   return { validation, trimmed };
 }
@@ -250,8 +280,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  bestRunPath,
   bridgeLooksStaleFrom,
   currentTracePathFromStatus,
+  extractBestRunTrace,
   formatBestRunSummary,
   formatValidationSummary,
   parseValidationOutput,

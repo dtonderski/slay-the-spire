@@ -18,7 +18,7 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 
 - `overnight_collector.js` watches `session/summary.json` and writes controller commands to `session/next_command.txt`.
 - `run_overnight_collector.cmd` starts the autopilot. It persists the next seed index in `session/overnight_collector_state.json`, so restarts keep moving through seeds.
-- `overnight_supervisor.js` repeatedly runs the collector, validates the active trace after collector exit, writes a `.valid-prefix.jsonl` salvage file when a trace has a missing action response, logs compact harvest-quality and best-run lines, and stops with a clear reason if the bridge/session files are stale or the bridge has exited.
+- `overnight_supervisor.js` repeatedly runs the collector, validates the active trace after collector exit, writes a `.valid-prefix.jsonl` salvage file when a trace has a missing action response, writes a `.best-run.jsonl` extracted keeper from valid traces, logs compact harvest-quality and best-run lines, and stops with a clear reason if the bridge/session files are stale or the bridge has exited.
 - `run_overnight_supervisor.cmd` starts the supervised overnight workflow. Start Slay the Spire with CommunicationMod first.
 - `overnight_collector.test.js` is a fast Node regression test for command policy edge cases seen in harvested traces.
 - `overnight_supervisor.test.js` is a fast Node regression test for stale-session and trace-path decisions in the supervisor.
@@ -43,6 +43,7 @@ Useful environment variables:
 - `trace_tools.js report <trace.jsonl>` adds per-run summaries for multi-run overnight traces and identifies the best run by harvest score.
 - `trace_tools.js trim-valid-prefix <raw.jsonl> <out.jsonl>` writes the valid prefix before the first missing action response and appends metadata explaining the trim.
 - `trace_tools.js extract-run <raw.jsonl> <run-index> <out.jsonl>` extracts one run from a multi-run trace and rebases steps so the selected `START` is action step 1.
+- `trace_tools.js extract-best-run <trace.jsonl> <out.jsonl>` extracts the highest-scoring run and adds metadata with the selected run index and coverage score.
 - `trace_tools.js collapse-card-reward-loop <trace.jsonl> <out.jsonl>` removes no-progress `SKIP` / reopen-same-card-reward loops from old autopilot traces while preserving the eventual card pick.
 
 Run collector policy tests with:

@@ -9,6 +9,7 @@ function usage() {
   console.error("  node tools/communication/trace_tools.js report <trace.jsonl>");
   console.error("  node tools/communication/trace_tools.js trim-valid-prefix <input.jsonl> <output.jsonl>");
   console.error("  node tools/communication/trace_tools.js extract-run <input.jsonl> <run-index> <output.jsonl>");
+  console.error("  node tools/communication/trace_tools.js extract-best-run <input.jsonl> <output.jsonl>");
   console.error("  node tools/communication/trace_tools.js collapse-card-reward-loop <input.jsonl> <output.jsonl>");
   process.exit(2);
 }
@@ -178,12 +179,18 @@ function startRecords(records) {
     .filter(({ record }) => record.type === "action" && /^START\s+/i.test(record.command || ""));
 }
 
+function isPreStartPreamble(record) {
+  if (record?.type !== "state") return false;
+  const gs = record.message?.game_state;
+  return record.message?.in_game === false || !gs || gs.screen_type === "MAIN_MENU";
+}
+
 function splitRuns(records, sourcePath = "") {
   const starts = startRecords(records);
   return starts.map((start, runIndex) => {
     const next = starts[runIndex + 1];
     const firstIndex =
-      start.index > 0 && records[start.index - 1].type === "state"
+      start.index > 0 && isPreStartPreamble(records[start.index - 1])
         ? start.index - 1
         : start.index;
     const lastIndex = next ? next.index : records.length;
@@ -265,10 +272,10 @@ function extractRun(records, sourcePath, runIndex) {
   }
   const next = starts[runIndex + 1];
   const firstIndex =
-    selected.index > 0 && records[selected.index - 1].type === "state"
+    selected.index > 0 && isPreStartPreamble(records[selected.index - 1])
       ? selected.index - 1
       : selected.index;
-  const lastIndex = next ? next.index - 1 : records.length;
+  const lastIndex = next ? next.index : records.length;
   const stepOffset = selected.record.step - 1;
   const extracted = records.slice(firstIndex, lastIndex).map((record) => {
     const copy = { ...record };
@@ -286,6 +293,31 @@ function extractRun(records, sourcePath, runIndex) {
     created_at: new Date().toISOString(),
   });
   return extracted;
+}
+
+function extractBestRun(records, sourcePath) {
+  const runs = splitRuns(records, sourcePath);
+  const selected = bestRun(runs);
+  if (!selected) {
+    throw new Error("no START actions found");
+  }
+  const extracted = extractRun(records, sourcePath, selected.run_index);
+  extracted.unshift({
+    type: "metadata",
+    schema: 1,
+    source: "communication_mod",
+    event: "extracted_best_run",
+    source_trace: path.basename(sourcePath),
+    source_run_index: selected.run_index,
+    source_start_step: selected.start_step,
+    score: selected.validation.summary.coverage?.score ?? null,
+    max_floor: selected.validation.summary.max_floor ?? null,
+    elite_rooms: selected.validation.summary.elite_rooms ?? 0,
+    boss_rooms: selected.validation.summary.boss_rooms ?? 0,
+    deaths: selected.validation.summary.deaths ?? 0,
+    created_at: new Date().toISOString(),
+  });
+  return { records: extracted, selected };
 }
 
 function cardRewardSignature(record) {
@@ -378,6 +410,15 @@ if (require.main === module) {
     process.exit(validation.ok ? 0 : 1);
   }
 
+  if (command === "extract-best-run") {
+    if (!outputPath) usage();
+    const result = extractBestRun(readTrace(inputPath), inputPath);
+    writeTrace(outputPath, result.records);
+    const validation = validate(result.records);
+    console.log(JSON.stringify({ records: result.records.length, selected: result.selected, validation }, null, 2));
+    process.exit(validation.ok ? 0 : 1);
+  }
+
   if (command === "collapse-card-reward-loop") {
     if (!outputPath) usage();
     const result = collapseCardRewardLoop(readTrace(inputPath), inputPath);
@@ -393,6 +434,7 @@ if (require.main === module) {
 module.exports = {
   cardRewardSignature,
   collapseCardRewardLoop,
+  extractBestRun,
   extractRun,
   bestRun,
   missingActionResponses,
