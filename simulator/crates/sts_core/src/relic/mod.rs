@@ -40,6 +40,8 @@ pub const RED_SKULL_STRENGTH: i32 = 3;
 pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
 /// Energy per turn granted by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_ENERGY: i32 = 1;
+/// Energy per turn granted by [Relic::FusionHammer] on pickup.
+pub const FUSION_HAMMER_ENERGY: i32 = 1;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -227,6 +229,8 @@ pub const PRESERVED_INSECT_ID: ContentId = ContentId::new(348);
 pub const DARKSTONE_PERIAPT_ID: ContentId = ContentId::new(349);
 /// Content id for [Relic::DuVuDoll].
 pub const DU_VU_DOLL_ID: ContentId = ContentId::new(350);
+/// Content id for [Relic::FusionHammer].
+pub const FUSION_HAMMER_ID: ContentId = ContentId::new(351);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -790,6 +794,7 @@ pub enum Relic {
     PreservedInsect,
     DarkstonePeriapt,
     DuVuDoll,
+    FusionHammer,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -847,6 +852,7 @@ impl Relic {
             Relic::PreservedInsect => PRESERVED_INSECT_ID,
             Relic::DarkstonePeriapt => DARKSTONE_PERIAPT_ID,
             Relic::DuVuDoll => DU_VU_DOLL_ID,
+            Relic::FusionHammer => FUSION_HAMMER_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -904,6 +910,7 @@ impl Relic {
             id if id == PRESERVED_INSECT_ID => Some(Relic::PreservedInsect),
             id if id == DARKSTONE_PERIAPT_ID => Some(Relic::DarkstonePeriapt),
             id if id == DU_VU_DOLL_ID => Some(Relic::DuVuDoll),
+            id if id == FUSION_HAMMER_ID => Some(Relic::FusionHammer),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -994,6 +1001,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PreservedInsect => {}
             Relic::DarkstonePeriapt => {}
             Relic::DuVuDoll => {}
+            Relic::FusionHammer => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -1784,6 +1792,11 @@ mod tests {
             Some(Relic::TungstenRod)
         );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
+        assert_eq!(Relic::FusionHammer.content_id(), FUSION_HAMMER_ID);
+        assert_eq!(
+            Relic::from_content_id(FUSION_HAMMER_ID),
+            Some(Relic::FusionHammer)
+        );
     }
 
     #[test]
