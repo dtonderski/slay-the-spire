@@ -96,6 +96,38 @@ function validateTrace(tracePath) {
   return { ok: result.status === 0, result: parsed };
 }
 
+function validPrefixPath(tracePath) {
+  const parsed = path.parse(tracePath);
+  return path.join(parsed.dir, `${parsed.name}.valid-prefix${parsed.ext || ".jsonl"}`);
+}
+
+function trimValidPrefix(tracePath) {
+  const destination = validPrefixPath(tracePath);
+  if (fs.existsSync(destination)) {
+    const existing = validateTrace(destination);
+    if (existing.ok) {
+      log(`existing valid-prefix trace is already valid: ${destination}`);
+      return { ok: true, destination, reused: true, output: "" };
+    }
+  }
+  const result = childProcess.spawnSync(nodeExe, [traceToolsPath, "trim-valid-prefix", tracePath, destination], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
+  if (output) log(`trace trim for ${tracePath} -> ${destination}:\n${output}`);
+  return { ok: result.status === 0, destination, output };
+}
+
+function validateOrTrimTrace(tracePath) {
+  const validation = validateTrace(tracePath);
+  if (validation.ok) return { validation, trimmed: null };
+  if (!tracePath || !fs.existsSync(tracePath)) return { validation, trimmed: null };
+  const trimmed = trimValidPrefix(tracePath);
+  if (trimmed.ok && !trimmed.reused) validateTrace(trimmed.destination);
+  return { validation, trimmed };
+}
+
 function parseValidationOutput(output) {
   if (!output || !output.trim()) return null;
   try {
@@ -151,6 +183,7 @@ async function main() {
     const stale = bridgeLooksStale();
     if (stale.stale) {
       log(`cannot start collector: ${stale.reason}`);
+      validateOrTrimTrace(currentTracePath());
       process.exitCode = 2;
       return;
     }
@@ -161,7 +194,7 @@ async function main() {
     const result = await waitForCollector(collector);
     const afterTrace = currentTracePath() || beforeTrace;
     log(`collector exited code=${result.code} signal=${result.signal || ""}`);
-    validateTrace(afterTrace);
+    validateOrTrimTrace(afterTrace);
 
     const afterStale = bridgeLooksStale();
     if (afterStale.stale) {
@@ -186,4 +219,5 @@ module.exports = {
   currentTracePathFromStatus,
   formatValidationSummary,
   parseValidationOutput,
+  validPrefixPath,
 };
