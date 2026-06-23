@@ -13,8 +13,8 @@ use crate::{
         DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY, EXPLOSIVE_POTION_DAMAGE,
         FEAR_POTION_WEAK, FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP,
         GAMBLE_POTION_LOSS_GOLD, GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE,
-        REGEN_POTION_REGEN, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
-        SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
+        LIQUID_BRONZE_THORNS, REGEN_POTION_REGEN, SPEED_POTION_TEMP_DEXTERITY,
+        STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -207,6 +207,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     if combat.monsters.iter().all(|monster| !monster.alive) {
                         combat.phase = CombatPhase::Won;
                     }
+                }
+                Potion::LiquidBronze => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.powers.thorns += LIQUID_BRONZE_THORNS;
                 }
                 Potion::Regen => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -614,6 +618,25 @@ mod tests {
 
         assert_eq!(combat.player.hp, 69);
         assert_eq!(combat.player.powers.regen, REGEN_POTION_REGEN - 1);
+    }
+
+    #[test]
+    fn liquid_bronze_grants_thorns_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::LiquidBronze);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use liquid bronze");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.powers.thorns, LIQUID_BRONZE_THORNS);
+        assert!(after.potions.is_empty());
     }
 
     #[test]

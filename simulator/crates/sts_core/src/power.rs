@@ -10,6 +10,7 @@ pub struct PlayerPowers {
     pub ritual: i32,
     pub metallicize: i32,
     pub regen: i32,
+    pub thorns: i32,
     pub feel_no_pain: i32,
     pub dark_embrace: i32,
 }
