@@ -118,6 +118,7 @@ Overnight collector hardening after the `M290001` run:
 - `trace_tools.js validate` now reports starts, seeds, room path, encounters, deaths, terminal state, elite/boss room coverage, and a simple harvest score for harvested traces. `trace_tools.js report` adds per-run summaries and best-run selection for multi-run overnight captures, and `extract-best-run` materializes the highest-scoring run as a verifier-ready single-run trace.
 - `harvest_status.js` is the non-mutating status check for the latest `harvest_report.json`; it validates referenced raw, valid-prefix, and best-run artifacts without creating or rewriting trace files.
 - `overnight_preflight.js` checks for stale session files, pending `next_command.txt`, bridge-exited status, and sent-command/newer-than-summary mismatches before starting an overnight supervised run.
+- `run_overnight_preflight.cmd` and `run_communication_checks.cmd` provide one-command Windows entry points for preflight and communication-tool regression checks.
 
 ```powershell
 cd simulator

@@ -1140,6 +1140,7 @@ Blocked capture:
 - `overnight_supervisor.js` adds the intended overnight entry point: it restarts the collector, validates the active trace after each collector exit or stale-session startup, writes a `.valid-prefix.jsonl` salvage file for traces missing an action response, extracts a `.best-run.jsonl` keeper from valid traces, updates `session/harvest_report.json`, logs trace-quality coverage plus the best individual run from multi-run captures, and refuses to continue on stale bridge/session files instead of silently writing commands into a dead CommunicationMod session.
 - `harvest_status.js` inspects the latest harvest report without mutating traces, so an overnight run can be checked quickly before deciding which generated artifacts to keep.
 - `overnight_preflight.js` checks whether the bridge/session is fresh and safe before starting overnight supervision; it catches stale files, pending commands, exited bridge state, and sent-command/newer-than-summary mismatches.
+- `run_overnight_preflight.cmd` and `run_communication_checks.cmd` provide one-command Windows entry points for preflight and communication-tool regression checks.
 - `overnight_collector.test.js`, `overnight_supervisor.test.js`, and `trace_tools.test.js` are the regression gates for autopilot command policy, supervisor trace reporting, and harvested-trace validation before the next live overnight attempt.
 
 Acceptance tests:
