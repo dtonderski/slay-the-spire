@@ -1,7 +1,7 @@
 use crate::{
     combat::{CombatPhase, CombatState},
     content::character::BURNING_BLOOD_HEAL_AMOUNT,
-    relic::{Relic, BLACK_BLOOD_HEAL, MEAT_ON_THE_BONE_HEAL},
+    relic::{heal_player_in_combat_with_relics, Relic, BLACK_BLOOD_HEAL, MEAT_ON_THE_BONE_HEAL},
 };
 
 pub fn apply_burning_blood(state: &mut CombatState) {
@@ -14,10 +14,20 @@ pub fn apply_burning_blood(state: &mut CombatState) {
     } else {
         BURNING_BLOOD_HEAL_AMOUNT
     };
-    state.player.hp = (state.player.hp + burning_blood_heal).min(state.player.max_hp);
+    heal_player_in_combat_with_relics(
+        &mut state.player.hp,
+        state.player.max_hp,
+        burning_blood_heal,
+        &state.relics,
+    );
 
     if state.relics.contains(&Relic::MeatOnTheBone) && state.player.hp * 2 <= state.player.max_hp {
-        state.player.hp = (state.player.hp + MEAT_ON_THE_BONE_HEAL).min(state.player.max_hp);
+        heal_player_in_combat_with_relics(
+            &mut state.player.hp,
+            state.player.max_hp,
+            MEAT_ON_THE_BONE_HEAL,
+            &state.relics,
+        );
     }
 }
 
@@ -73,6 +83,19 @@ mod tests {
         apply_burning_blood(&mut state);
 
         assert_eq!(state.player.hp, 60 + BLACK_BLOOD_HEAL);
+    }
+
+    #[test]
+    fn magic_flower_increases_victory_healing_by_half() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::MagicFlower];
+        state.player.hp = 60;
+        state.player.max_hp = IRONCLAD_A0_BASE_HP;
+        state.phase = CombatPhase::Won;
+
+        apply_burning_blood(&mut state);
+
+        assert_eq!(state.player.hp, 60 + BURNING_BLOOD_HEAL_AMOUNT * 3 / 2);
     }
 
     #[test]

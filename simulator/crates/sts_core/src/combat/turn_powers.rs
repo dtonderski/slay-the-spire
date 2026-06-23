@@ -1,11 +1,16 @@
 use crate::combat::{CombatState, MonsterState, PlayerState};
 use crate::power::attack_damage_with_vulnerable;
+use crate::relic::{heal_player_in_combat_with_relics, Relic};
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
-    apply_player_end_of_turn_powers(&mut state.player);
+    apply_player_end_of_turn_powers_with_relics(&mut state.player, &state.relics);
 }
 
 pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
+    apply_player_end_of_turn_powers_with_relics(player, &[]);
+}
+
+pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, relics: &[Relic]) {
     if player.powers.ritual > 0 {
         player.powers.strength += player.powers.ritual;
     }
@@ -16,7 +21,12 @@ pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
         player.block += player.powers.plated_armor;
     }
     if player.powers.regen > 0 {
-        player.hp = (player.hp + player.powers.regen).min(player.max_hp);
+        heal_player_in_combat_with_relics(
+            &mut player.hp,
+            player.max_hp,
+            player.powers.regen,
+            relics,
+        );
         player.powers.regen -= 1;
     }
     if player.powers.weak > 0 {
@@ -56,7 +66,7 @@ pub fn monster_damage_to_player(player: &PlayerState, monster: &MonsterState, ba
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{combat::CombatPhase, content::character::IRONCLAD_A0_BASE_HP, CombatState};
+    use crate::{combat::CombatPhase, content::character::IRONCLAD_A0_BASE_HP, CombatState, Relic};
 
     #[test]
     fn ritual_grants_strength_at_end_of_player_turn() {
@@ -122,6 +132,19 @@ mod tests {
 
         assert_eq!(player.hp, player.max_hp);
         assert_eq!(player.powers.regen, 4);
+    }
+
+    #[test]
+    fn magic_flower_increases_regen_combat_healing() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::MagicFlower];
+        state.player.hp = 60;
+        state.player.powers.regen = 5;
+
+        apply_end_of_player_turn_powers(&mut state);
+
+        assert_eq!(state.player.hp, 68);
+        assert_eq!(state.player.powers.regen, 4);
     }
 
     #[test]
