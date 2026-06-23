@@ -1282,6 +1282,8 @@ Completed slice:
 - implemented Busted Crown pickup energy and one-choice card rewards with focused state/reward RNG tests
 - expanded modeled boss energy/card-limit relics: Velvet Choker
 - implemented Velvet Choker pickup energy, per-turn card play counter tracking, and six-card legal-action limit with focused state/relic/legal tests
+- expanded modeled potion-use healing relics: Toy Ornithopter
+- implemented Toy Ornithopter promotion from relic keys and potion-use healing for combat/non-combat potion use, including discard no-op and Magic Flower combat-healing coverage
 
 Remaining:
 
