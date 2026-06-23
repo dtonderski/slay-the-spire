@@ -1320,6 +1320,8 @@ Completed slice:
 - implemented Strike Dummy key promotion and +3 damage for Strike/Strike+ card transitions, with focused combat tests
 - expanded modeled shop start-turn strength relics: Brimstone
 - implemented Brimstone key promotion and start-of-player-turn Strength for the player and living monsters, with focused relic tests
+- expanded modeled potion reward guarantee relics: White Beast Statue
+- implemented White Beast Statue key promotion and guaranteed normal-combat potion rewards when potion gain is allowed, without mutating normal potion chance, with focused reward tests
 
 Remaining:
 

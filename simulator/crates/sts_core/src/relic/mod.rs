@@ -331,6 +331,8 @@ pub const BRIMSTONE_ID: ContentId = ContentId::new(375);
 pub const BRIMSTONE_PLAYER_STRENGTH: i32 = 2;
 /// Strength granted to each enemy by [Relic::Brimstone] at the start of each player turn.
 pub const BRIMSTONE_MONSTER_STRENGTH: i32 = 1;
+/// Content id for [Relic::WhiteBeastStatue].
+pub const WHITE_BEAST_STATUE_ID: ContentId = ContentId::new(376);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -930,6 +932,7 @@ pub enum Relic {
     RunicDome,
     StrikeDummy,
     Brimstone,
+    WhiteBeastStatue,
 }
 
 impl Relic {
@@ -1012,6 +1015,7 @@ impl Relic {
             Relic::RunicDome => RUNIC_DOME_ID,
             Relic::StrikeDummy => STRIKE_DUMMY_ID,
             Relic::Brimstone => BRIMSTONE_ID,
+            Relic::WhiteBeastStatue => WHITE_BEAST_STATUE_ID,
         }
     }
 
@@ -1094,6 +1098,7 @@ impl Relic {
             id if id == RUNIC_DOME_ID => Some(Relic::RunicDome),
             id if id == STRIKE_DUMMY_ID => Some(Relic::StrikeDummy),
             id if id == BRIMSTONE_ID => Some(Relic::Brimstone),
+            id if id == WHITE_BEAST_STATUE_ID => Some(Relic::WhiteBeastStatue),
             _ => None,
         }
     }
@@ -1211,6 +1216,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::RunicDome => {}
             Relic::StrikeDummy => {}
             Relic::Brimstone => {}
+            Relic::WhiteBeastStatue => {}
         }
     }
 
@@ -2165,6 +2171,11 @@ mod tests {
         );
         assert_eq!(Relic::Brimstone.content_id(), BRIMSTONE_ID);
         assert_eq!(Relic::from_content_id(BRIMSTONE_ID), Some(Relic::Brimstone));
+        assert_eq!(Relic::WhiteBeastStatue.content_id(), WHITE_BEAST_STATUE_ID);
+        assert_eq!(
+            Relic::from_content_id(WHITE_BEAST_STATUE_ID),
+            Some(Relic::WhiteBeastStatue)
+        );
     }
 
     #[test]
