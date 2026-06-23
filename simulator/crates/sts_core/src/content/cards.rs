@@ -908,6 +908,21 @@ pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const SEVER_SOUL: CardDefinition = CardDefinition {
+    id: SEVER_SOUL_ID,
+    key: "Sever Soul",
+    name: "Sever Soul",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(16),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IMMOLATE: CardDefinition = CardDefinition {
     id: IMMOLATE_ID,
     key: "Immolate",
@@ -999,7 +1014,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 51] = [
+pub const ALL_CARDS: [CardDefinition; 52] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1048,6 +1063,7 @@ pub const ALL_CARDS: [CardDefinition; 51] = [
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
     SWIFT_STRIKE,
+    SEVER_SOUL,
     IMMOLATE,
     METALLICIZE,
     THUNDERCLAP,
@@ -1312,5 +1328,13 @@ mod tests {
     fn searing_blow_plus_deals_eight_more_damage() {
         assert_eq!(SEARING_BLOW.values.damage, Some(12));
         assert_eq!(SEARING_BLOW_PLUS.values.damage, Some(20));
+    }
+
+    #[test]
+    fn sever_soul_has_expected_values() {
+        assert_eq!(SEVER_SOUL.cost, 2);
+        assert_eq!(SEVER_SOUL.target, TargetRequirement::Enemy);
+        assert_eq!(SEVER_SOUL.card_type, CardType::Attack);
+        assert_eq!(SEVER_SOUL.values.damage, Some(16));
     }
 }

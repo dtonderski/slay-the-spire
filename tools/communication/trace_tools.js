@@ -7,6 +7,7 @@ function usage() {
   console.error("Usage:");
   console.error("  node tools/communication/trace_tools.js validate <trace.jsonl>");
   console.error("  node tools/communication/trace_tools.js trim-valid-prefix <input.jsonl> <output.jsonl>");
+  console.error("  node tools/communication/trace_tools.js extract-run <input.jsonl> <run-index> <output.jsonl>");
   process.exit(2);
 }
 
@@ -105,6 +106,39 @@ function trimValidPrefix(records, sourcePath) {
   };
 }
 
+function extractRun(records, sourcePath, runIndex) {
+  const starts = records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => record.type === "action" && /^START\s+/i.test(record.command || ""));
+  const selected = starts[runIndex];
+  if (!selected) {
+    throw new Error(`run index ${runIndex} not found; found ${starts.length} START actions`);
+  }
+  const next = starts[runIndex + 1];
+  const firstIndex =
+    selected.index > 0 && records[selected.index - 1].type === "state"
+      ? selected.index - 1
+      : selected.index;
+  const lastIndex = next ? next.index - 1 : records.length;
+  const stepOffset = selected.record.step - 1;
+  const extracted = records.slice(firstIndex, lastIndex).map((record) => {
+    const copy = { ...record };
+    if (typeof copy.step === "number") copy.step -= stepOffset;
+    return copy;
+  });
+  extracted.unshift({
+    type: "metadata",
+    schema: 1,
+    source: "communication_mod",
+    event: "extracted_run",
+    source_trace: path.basename(sourcePath),
+    source_run_index: runIndex,
+    source_start_step: selected.record.step,
+    created_at: new Date().toISOString(),
+  });
+  return extracted;
+}
+
 const [command, inputPath, outputPath] = process.argv.slice(2);
 if (!command || !inputPath) usage();
 
@@ -120,6 +154,17 @@ if (command === "trim-valid-prefix") {
   writeTrace(outputPath, result.records);
   const validation = validate(result.records);
   console.log(JSON.stringify({ ...result, records: result.records.length, validation }, null, 2));
+  process.exit(validation.ok ? 0 : 1);
+}
+
+if (command === "extract-run") {
+  const runIndex = Number.parseInt(outputPath, 10);
+  const destination = process.argv[5];
+  if (!Number.isInteger(runIndex) || !destination) usage();
+  const extracted = extractRun(readTrace(inputPath), inputPath, runIndex);
+  writeTrace(destination, extracted);
+  const validation = validate(extracted);
+  console.log(JSON.stringify({ records: extracted.length, validation }, null, 2));
   process.exit(validation.ok ? 0 : 1);
 }
 

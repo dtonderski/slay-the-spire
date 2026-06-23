@@ -10,12 +10,12 @@ use crate::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
         DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMMOLATE_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, THUNDERCLAP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID,
+        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMMOLATE_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -104,6 +104,12 @@ fn apply_play_card(
         SEARING_BLOW_ID | SEARING_BLOW_PLUS_ID => generic_attack_queue(
             card_id,
             target.expect("validated Searing Blow has a target"),
+            definition,
+        ),
+        SEVER_SOUL_ID => sever_soul_queue(
+            state,
+            card_id,
+            target.expect("validated Sever Soul has a target"),
             definition,
         ),
         _ if definition.values.damage.is_some()
@@ -210,6 +216,47 @@ fn generic_skill_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn sever_soul_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+    for card in &state.piles.hand {
+        let Some(card_definition) = get_card_definition(card.content_id) else {
+            continue;
+        };
+        if card.id != card_id && card_definition.card_type != CardType::Attack {
+            queue.push_back(InternalAction::MoveCard {
+                card_id: card.id,
+                from: CardPile::Hand,
+                to: CardPile::ExhaustPile,
+            });
+        }
+    }
+    queue.extend([
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]);
+    Ok(queue)
 }
 
 fn slimed_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
@@ -1343,9 +1390,9 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
         FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     };
 
     #[test]
@@ -2704,7 +2751,10 @@ mod tests {
         choose_hand_select(&mut after_play, 4).expect("choose regret");
         confirm_hand_select(&mut after_play).expect("confirm hand select");
 
-        assert_eq!(after_play.piles.draw_pile.last().unwrap().content_id, REGRET_ID);
+        assert_eq!(
+            after_play.piles.draw_pile.last().unwrap().content_id,
+            REGRET_ID
+        );
         assert_eq!(after_play.piles.exhaust_pile[0].content_id, WARCRY_ID);
         assert!(after_play.hand_select.is_none());
     }
@@ -2779,6 +2829,61 @@ mod tests {
         .expect("Searing Blow applies");
 
         assert_eq!(next.monsters[0].hp, 28);
+    }
+
+    #[test]
+    fn sever_soul_deals_sixteen_damage() {
+        let state = hand_only(SEVER_SOUL_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Sever Soul applies");
+
+        assert_eq!(next.monsters[0].hp, 24);
+        assert_eq!(next.player.energy, 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, SEVER_SOUL_ID);
+    }
+
+    #[test]
+    fn sever_soul_exhausts_non_attack_cards_in_hand() {
+        let mut state = hand_only(SEVER_SOUL_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SEVER_SOUL_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+            CardInstance::new(CardId::new(23), BATTLE_TRANCE_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Sever Soul applies");
+
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, BATTLE_TRANCE_ID]
+        );
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![ANGER_ID]
+        );
     }
 
     fn hand_only(content_id: crate::ContentId) -> CombatState {
