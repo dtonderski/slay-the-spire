@@ -1141,6 +1141,7 @@ Blocked capture:
 - `harvest_status.js` inspects the latest harvest report without mutating traces, so an overnight run can be checked quickly before deciding which generated artifacts to keep.
 - `overnight_preflight.js` checks whether the bridge/session is fresh and safe before starting overnight supervision; it catches stale files, pending commands, exited bridge state, and sent-command/newer-than-summary mismatches.
 - `run_overnight_preflight.cmd` and `run_communication_checks.cmd` provide one-command Windows entry points for preflight and communication-tool regression checks.
+- `run_overnight_guarded.cmd` is the safer overnight entry point: it runs preflight and starts the supervisor only when the bridge/session is fresh.
 - `overnight_collector.test.js`, `overnight_supervisor.test.js`, and `trace_tools.test.js` are the regression gates for autopilot command policy, supervisor trace reporting, and harvested-trace validation before the next live overnight attempt.
 
 Acceptance tests:
