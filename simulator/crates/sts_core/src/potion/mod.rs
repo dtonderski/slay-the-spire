@@ -8,6 +8,7 @@ pub const BLOCK_POTION_BLOCK: i32 = 12;
 pub const FEAR_POTION_WEAK: i32 = 3;
 pub const BLOOD_POTION_HEAL_PERCENT: i32 = 20;
 pub const HEART_OF_IRON_METALLICIZE: i32 = 6;
+pub const CULTIST_POTION_RITUAL: i32 = 1;
 pub const DEXTERITY_POTION_DEXTERITY: i32 = 2;
 pub const ENERGY_POTION_ENERGY: i32 = 2;
 pub const EXPLOSIVE_POTION_DAMAGE: i32 = 10;
@@ -263,6 +264,7 @@ impl Potion {
                 | Potion::Weak
                 | Potion::Blood
                 | Potion::HeartOfIron
+                | Potion::Cultist
                 | Potion::Dexterity
                 | Potion::Energy
                 | Potion::Explosive
