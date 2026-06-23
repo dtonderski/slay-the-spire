@@ -1310,6 +1310,8 @@ Completed slice:
 - implemented Chemical X key promotion and +2 Whirlwind X value, including zero-energy Chemical X play, with focused legal/combat tests
 - expanded modeled boss energy/enemy-strength relics: Philosopher's Stone
 - implemented Philosopher's Stone key promotion, pickup energy, and combat-start monster Strength, with focused run-state tests
+- expanded modeled boss conditional-energy relics: Slaver's Collar
+- implemented Slaver's Collar key promotion and elite/boss-only combat energy, with focused run-state tests
 
 Remaining:
 

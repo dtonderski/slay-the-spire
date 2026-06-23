@@ -309,6 +309,10 @@ pub const PHILOSOPHERS_STONE_ID: ContentId = ContentId::new(370);
 pub const PHILOSOPHERS_STONE_ENERGY: i32 = 1;
 /// Strength granted to monsters by [Relic::PhilosophersStone] at combat start.
 pub const PHILOSOPHERS_STONE_MONSTER_STRENGTH: i32 = 1;
+/// Content id for [Relic::SlaversCollar].
+pub const SLAVERS_COLLAR_ID: ContentId = ContentId::new(371);
+/// Energy per turn granted by [Relic::SlaversCollar] during elite and boss combats.
+pub const SLAVERS_COLLAR_ENERGY: i32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -903,6 +907,7 @@ pub enum Relic {
     IceCream,
     ChemicalX,
     PhilosophersStone,
+    SlaversCollar,
 }
 
 impl Relic {
@@ -980,6 +985,7 @@ impl Relic {
             Relic::IceCream => ICE_CREAM_ID,
             Relic::ChemicalX => CHEMICAL_X_ID,
             Relic::PhilosophersStone => PHILOSOPHERS_STONE_ID,
+            Relic::SlaversCollar => SLAVERS_COLLAR_ID,
         }
     }
 
@@ -1057,6 +1063,7 @@ impl Relic {
             id if id == ICE_CREAM_ID => Some(Relic::IceCream),
             id if id == CHEMICAL_X_ID => Some(Relic::ChemicalX),
             id if id == PHILOSOPHERS_STONE_ID => Some(Relic::PhilosophersStone),
+            id if id == SLAVERS_COLLAR_ID => Some(Relic::SlaversCollar),
             _ => None,
         }
     }
@@ -1169,6 +1176,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::IceCream => {}
             Relic::ChemicalX => {}
             Relic::PhilosophersStone => {}
+            Relic::SlaversCollar => {}
         }
     }
 
@@ -2087,6 +2095,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(PHILOSOPHERS_STONE_ID),
             Some(Relic::PhilosophersStone)
+        );
+        assert_eq!(Relic::SlaversCollar.content_id(), SLAVERS_COLLAR_ID);
+        assert_eq!(
+            Relic::from_content_id(SLAVERS_COLLAR_ID),
+            Some(Relic::SlaversCollar)
         );
     }
 
