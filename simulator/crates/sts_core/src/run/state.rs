@@ -188,6 +188,14 @@ mod tests {
             Relic::from_key(RelicKey::MagicFlower),
             Some(Relic::MagicFlower)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::PaperPhrog),
+            Some(Relic::PaperPhrog)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::ChampionBelt),
+            Some(Relic::ChampionBelt)
+        );
         assert_eq!(Relic::from_key(RelicKey::ToyOrnithopter), None);
     }
 
@@ -789,6 +797,8 @@ impl RunState {
             | Relic::Ginger
             | Relic::Turnip
             | Relic::MagicFlower
+            | Relic::PaperPhrog
+            | Relic::ChampionBelt
             | Relic::Vajra
             | Relic::OddlySmoothStone
             | Relic::Anchor
@@ -945,6 +955,8 @@ impl Relic {
             Relic::Turnip => RelicKey::Turnip,
             Relic::MarkOfPain => RelicKey::MarkOfPain,
             Relic::MagicFlower => RelicKey::MagicFlower,
+            Relic::PaperPhrog => RelicKey::PaperPhrog,
+            Relic::ChampionBelt => RelicKey::ChampionBelt,
             Relic::CoffeeDripper => RelicKey::CoffeeDripper,
             Relic::Anchor => RelicKey::Anchor,
             Relic::InkBottle => RelicKey::InkBottle,
@@ -997,6 +1009,8 @@ impl Relic {
             RelicKey::Turnip => Some(Relic::Turnip),
             RelicKey::MarkOfPain => Some(Relic::MarkOfPain),
             RelicKey::MagicFlower => Some(Relic::MagicFlower),
+            RelicKey::PaperPhrog => Some(Relic::PaperPhrog),
+            RelicKey::ChampionBelt => Some(Relic::ChampionBelt),
             RelicKey::CoffeeDripper => Some(Relic::CoffeeDripper),
             RelicKey::Anchor => Some(Relic::Anchor),
             RelicKey::InkBottle => Some(Relic::InkBottle),

@@ -1107,11 +1107,17 @@ fn apply_internal_action(
         InternalAction::DealDamage { info } => {
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
+            let relics = state.relics.clone();
             let (spikes, still_alive) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
-                let hp_damage =
-                    deal_damage_info_to_monster(monster, info, player_powers, temp_strength);
+                let hp_damage = deal_damage_info_to_monster(
+                    monster,
+                    info,
+                    player_powers,
+                    temp_strength,
+                    &relics,
+                );
                 wake_lagavulin_on_damage(monster, hp_damage);
                 guardian_on_hp_damage(monster, hp_damage);
                 (spikes, monster.alive)
@@ -1125,6 +1131,7 @@ fn apply_internal_action(
         InternalAction::DealDamageAll { source, amount } => {
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
+            let relics = state.relics.clone();
             let targets: Vec<(MonsterId, i32)> = state
                 .monsters
                 .iter()
@@ -1143,6 +1150,7 @@ fn apply_internal_action(
                         },
                         player_powers,
                         temp_strength,
+                        &relics,
                     );
                     wake_lagavulin_on_damage(monster, hp_damage);
                     guardian_on_hp_damage(monster, hp_damage);
@@ -1161,8 +1169,13 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::ApplyVulnerable { target, amount } => {
+            let relics = state.relics.clone();
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                monster.powers.vulnerable += amount;
+                crate::relic::apply_monster_vulnerable_with_relics(
+                    &mut monster.powers,
+                    &relics,
+                    amount,
+                );
             }
             Ok(Vec::new())
         }
@@ -1800,6 +1813,17 @@ mod tests {
         let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
 
         assert_eq!(next.monsters[0].powers.vulnerable, 2);
+    }
+
+    #[test]
+    fn champion_belt_adds_weak_when_bash_applies_vulnerable() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::ChampionBelt];
+
+        let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+        assert_eq!(next.monsters[0].powers.weak, 1);
     }
 
     #[test]

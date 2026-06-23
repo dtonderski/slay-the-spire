@@ -34,8 +34,18 @@ pub struct MonsterPowers {
 /// Slay the Spire-style vulnerable bonus: attack damage is increased by 50%, floored.
 #[must_use]
 pub fn attack_damage_with_vulnerable(base: i32, vulnerable: i32) -> i32 {
+    attack_damage_with_vulnerable_bonus(base, vulnerable, 1, 2)
+}
+
+#[must_use]
+pub fn attack_damage_with_vulnerable_bonus(
+    base: i32,
+    vulnerable: i32,
+    bonus_numerator: i32,
+    bonus_denominator: i32,
+) -> i32 {
     if vulnerable > 0 {
-        base + base / 2
+        base + base * bonus_numerator / bonus_denominator
     } else {
         base
     }
@@ -110,6 +120,13 @@ mod tests {
         assert_eq!(attack_damage_with_vulnerable(6, 2), 9);
         assert_eq!(attack_damage_with_vulnerable(7, 1), 10);
         assert_eq!(attack_damage_with_vulnerable(6, 0), 6);
+    }
+
+    #[test]
+    fn vulnerable_bonus_can_use_alternate_multiplier() {
+        assert_eq!(attack_damage_with_vulnerable_bonus(8, 1, 3, 4), 14);
+        assert_eq!(attack_damage_with_vulnerable_bonus(7, 1, 3, 4), 12);
+        assert_eq!(attack_damage_with_vulnerable_bonus(8, 0, 3, 4), 8);
     }
 
     #[test]

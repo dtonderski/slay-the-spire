@@ -1,7 +1,7 @@
 use crate::{
     combat::{MonsterState, PlayerState},
     ids::{CardId, MonsterId},
-    power::{calculate_attack_damage, PlayerPowers},
+    power::PlayerPowers,
     relic::Relic,
 };
 use serde::{Deserialize, Serialize};
@@ -40,12 +40,18 @@ pub fn deal_damage_info_to_monster(
     info: DamageInfo,
     player: PlayerPowers,
     temp_strength: i32,
+    relics: &[Relic],
 ) -> i32 {
-    let amount = calculate_attack_damage(
-        info.amount,
-        player,
-        temp_strength,
+    let with_strength = (info.amount + player.strength + temp_strength).max(0);
+    let with_weak = if player.weak > 0 {
+        with_strength * 3 / 4
+    } else {
+        with_strength
+    };
+    let amount = crate::relic::attack_damage_with_vulnerable_relics(
+        with_weak,
         monster.powers.vulnerable,
+        relics,
     );
     deal_unmodified_damage_to_monster(monster, amount)
 }
@@ -147,7 +153,7 @@ mod tests {
             amount: 6,
         };
 
-        deal_damage_info_to_monster(&mut monster, info, PlayerPowers::default(), 0);
+        deal_damage_info_to_monster(&mut monster, info, PlayerPowers::default(), 0, &[]);
 
         assert_eq!(monster.block, 0);
         assert_eq!(monster.hp, 8);
@@ -186,6 +192,7 @@ mod tests {
                 ..Default::default()
             },
             0,
+            &[],
         );
 
         assert_eq!(monster.hp, 12);
@@ -224,9 +231,49 @@ mod tests {
                 ..Default::default()
             },
             0,
+            &[],
         );
 
         assert_eq!(monster.hp, 15);
+    }
+
+    #[test]
+    fn paper_phrog_increases_vulnerable_bonus_damage_to_seventy_five_percent() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 30,
+            block: 0,
+            alive: true,
+            powers: crate::MonsterPowers {
+                vulnerable: 1,
+                ..Default::default()
+            },
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+        let info = DamageInfo {
+            source: DamageSource::Card(CardId::new(1)),
+            target: MonsterId::new(1),
+            amount: 8,
+        };
+
+        deal_damage_info_to_monster(
+            &mut monster,
+            info,
+            PlayerPowers::default(),
+            0,
+            &[Relic::PaperPhrog],
+        );
+
+        assert_eq!(monster.hp, 16);
     }
 
     #[test]
