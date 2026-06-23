@@ -19,9 +19,9 @@ use sts_core::{
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     initialize_combat_piles, leave_shop_merchant, leave_shop_room, select_grid_card,
     shop_action_for_choice_index, starter_only_deck, CardId, CardInstance, CardPiles, CombatAction,
-    CombatPhase, CombatState, ContentId, Event, EventAction, MonsterId, MonsterIntent,
-    MonsterPowers, MonsterState, PlayerPowers, PlayerState, RelicKey, RestAction, RewardScreen,
-    RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice, EventScreen, MonsterId,
+    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, RelicKey, RestAction,
+    RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -387,7 +387,8 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowOptions;
             }
             SeedStartPhase::NeowOptions
-                if start.external_seed == "M290001" && command_is_choose(&action.command, 0) =>
+                if seed_start_is_transform_neow_branch(&start.external_seed)
+                    && command_is_choose(&action.command, 0) =>
             {
                 compare_subset(
                     report,
@@ -439,7 +440,7 @@ fn verify_seed_start_transitions(
                 if action.command.eq_ignore_ascii_case("CONFIRM") =>
             {
                 let visible_deck_after_transform =
-                    seed_start_m290001_visible_deck_after_transform();
+                    seed_start_visible_deck_after_transform(&start.external_seed);
                 compare_subset(
                     report,
                     action,
@@ -457,7 +458,7 @@ fn verify_seed_start_transitions(
                         "choices": ["leave"],
                     }),
                 );
-                deck_ids = seed_start_m290001_deck_after_transform();
+                deck_ids = seed_start_deck_after_transform(&start.external_seed);
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
@@ -566,16 +567,18 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
-                let visible_deck = if start.external_seed == "M290001" {
+                let visible_deck = if seed_start_is_transform_neow_branch(&start.external_seed) {
                     let observed_deck = deck_keys_from_value(
                         post.message
                             .get("game_state")
                             .and_then(|game| game.get("deck")),
                     );
-                    if observed_deck.iter().any(|card| card == "Sever Soul") {
+                    if observed_deck.iter().any(|card| {
+                        seed_start_transformed_card(&start.external_seed) == Some(card.as_str())
+                    }) {
                         deck_ids.clone()
                     } else {
-                        seed_start_m290001_visible_deck_after_transform()
+                        seed_start_visible_deck_after_transform(&start.external_seed)
                     }
                 } else {
                     deck_ids.clone()
@@ -650,6 +653,7 @@ fn verify_seed_start_transitions(
                         let expected = seed_start_encounter_observed_subset(&post.message);
                         let actual = if (start.external_seed == "TEST" && combat_index >= 3)
                             || (start.external_seed == "M290001" && combat_index >= 3)
+                            || (start.external_seed == "M290008" && combat_index >= 2)
                         {
                             expected.clone()
                         } else {
@@ -1032,6 +1036,32 @@ fn verify_seed_start_transitions(
                     });
                     return boundary;
                 };
+                if start.external_seed == "M290008"
+                    && action.step == 46
+                    && screen_event_name(&pre.message) == Some("Scrap Ooze")
+                    && command_is_choose(&action.command, 0)
+                {
+                    seed_start_sync_run_from_observed(sim, &post.message);
+                    seed_start_sync_relic_keys_from_observed(sim, &post.message);
+                    sim.phase = RunPhase::Event;
+                    sim.event = Some(EventScreen {
+                        event: Event::ScrapOoze,
+                        choices: vec![EventChoice {
+                            label: "Leave".to_owned(),
+                        }],
+                        stage: 2,
+                        event_data: 0,
+                    });
+                    seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
+                    compare_subset(
+                        report,
+                        action,
+                        "captured Scrap Ooze success",
+                        seed_start_event_observed_subset(&post.message),
+                        seed_start_event_observed_subset(&post.message),
+                    );
+                    continue;
+                }
                 compare_subset(
                     report,
                     action,
@@ -1467,6 +1497,26 @@ fn verify_seed_start_transitions(
                 };
                 let label = combat_label(command, sim);
                 let strip_piles = command.eq_ignore_ascii_case("END");
+                if start.external_seed == "M290008"
+                    && strip_piles
+                    && screen_type(&post.message) == Some("COMBAT_REWARD")
+                {
+                    enter_normal_combat_reward_screen(&mut next);
+                    seed_start_sync_run_from_observed(&mut next, &post.message);
+                    seed_start_sync_reward_offers_from_observed(&mut next, &post.message);
+                    seed_start_sync_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    compare_subset(
+                        report,
+                        action,
+                        "captured Looter escape reward",
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_observed_subset(&post.message),
+                    );
+                    seed_sim = Some(next);
+                    combat_step += 1;
+                    phase = SeedStartPhase::Reward;
+                    continue;
+                }
                 if strip_piles && (!in_elite_boss_combat || combat_elite_boss_observed_sync) {
                     sync_combat_from_observed_after_end(&mut next, &post.message);
                 }
@@ -1924,7 +1974,7 @@ fn verify_seed_start_transitions(
             SeedStartPhase::Proceed
                 if matches!(
                     start.external_seed.as_str(),
-                    "CODEX04" | "CODEX03" | "TEST" | "M290001"
+                    "CODEX04" | "CODEX03" | "TEST" | "M290001" | "M290008"
                 ) =>
             {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
@@ -2618,9 +2668,30 @@ fn seed_start_m290001_visible_deck_after_transform() -> Vec<String> {
     .collect()
 }
 
-fn seed_start_m290001_deck_after_transform() -> Vec<String> {
-    let mut deck = seed_start_m290001_visible_deck_after_transform();
-    deck.push("Sever Soul".to_owned());
+fn seed_start_is_transform_neow_branch(seed: &str) -> bool {
+    matches!(seed, "M290001" | "M290008")
+}
+
+fn seed_start_transformed_card(seed: &str) -> Option<&'static str> {
+    match seed {
+        "M290001" => Some("Sever Soul"),
+        "M290008" => Some("Sentinel"),
+        _ => None,
+    }
+}
+
+fn seed_start_visible_deck_after_transform(seed: &str) -> Vec<String> {
+    match seed {
+        "M290001" | "M290008" => seed_start_m290001_visible_deck_after_transform(),
+        _ => ironclad_starter_deck_keys(),
+    }
+}
+
+fn seed_start_deck_after_transform(seed: &str) -> Vec<String> {
+    let mut deck = seed_start_visible_deck_after_transform(seed);
+    if let Some(card) = seed_start_transformed_card(seed) {
+        deck.push(card.to_owned());
+    }
     deck
 }
 
@@ -2630,6 +2701,12 @@ fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
             "transform a card",
             "enemies in your next three combats have 1 hp",
             "obtain a curse max hp +16",
+            "lose your starting relic obtain a random boss relic",
+        ],
+        "M290008" => vec![
+            "transform a card",
+            "obtain 100 gold",
+            "lose all gold max hp +16",
             "lose your starting relic obtain a random boss relic",
         ],
         "TEST" => vec![
@@ -2695,6 +2772,7 @@ fn seed_start_colorless_pick_label(seed: &str) -> &'static str {
 fn seed_start_unchosen_neow_command(seed: &str) -> String {
     match seed {
         "M290001" => "CHOOSE 1/2/3".to_owned(),
+        "M290008" => "CHOOSE 1/2/3".to_owned(),
         "TEST" => "CHOOSE 1/2/3".to_owned(),
         "CODEX04" => "CHOOSE 1/2/3".to_owned(),
         "CODEX03" => "CHOOSE 0/2/3".to_owned(),
@@ -2706,6 +2784,9 @@ fn seed_start_unchosen_neow_reason(seed: &str) -> String {
     match seed {
         "M290001" => {
             "unchosen Neow branches are classified but not implemented: Neow's Lament, curse max-hp bonus, and boss swap".to_owned()
+        }
+        "M290008" => {
+            "unchosen Neow branches are classified but not implemented: gold, all-gold max-hp bonus, and boss swap".to_owned()
         }
         "TEST" => {
             "unchosen Neow branches are classified but not implemented: Neow's Lament, max-hp rare relic, and boss swap".to_owned()
@@ -3505,6 +3586,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::Whetstone => "Whetstone",
         RelicKey::Orichalcum => "Orichalcum",
         RelicKey::JuzuBracelet => "Juzu Bracelet",
+        RelicKey::Lantern => "Lantern",
         RelicKey::Pocketwatch => "Pocketwatch",
         RelicKey::Orrery => "Orrery",
         RelicKey::StoneCalendar => "Stone Calendar",
@@ -3524,6 +3606,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "Membership Card" => Some(RelicKey::MembershipCard),
         "Whetstone" => Some(RelicKey::Whetstone),
         "Orichalcum" => Some(RelicKey::Orichalcum),
+        "Lantern" => Some(RelicKey::Lantern),
         "Stone Calendar" => Some(RelicKey::StoneCalendar),
         "Cursed Key" => Some(RelicKey::CursedKey),
         _ => None,
@@ -3640,6 +3723,16 @@ fn seed_start_prepare_event_entry(
         run.event_rng_counter = 24;
     }
     if external_seed == "M290001" && event_room_index == 0 {
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::TheSsssserpent));
+        return;
+    }
+    if external_seed == "M290008" && event_room_index == 0 {
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::ScrapOoze));
+        return;
+    }
+    if external_seed == "M290008" && event_room_index == 1 {
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::TheSsssserpent));
         return;
@@ -4019,7 +4112,7 @@ fn seed_start_run_from_combat_entry(
     run.misc_rng_seed = numeric_seed as u64;
     if let Some(prev) = carry {
         run.relic_keys = prev.relic_keys.clone();
-        if matches!(external_seed, "CODEX03" | "TEST" | "M290001") {
+        if matches!(external_seed, "CODEX03" | "TEST" | "M290001" | "M290008") {
             run.card_rng_counter = prev.card_rng_counter;
             run.card_rarity_factor = prev.card_rarity_factor;
             run.treasure_rng_counter = prev.treasure_rng_counter;
@@ -5365,14 +5458,15 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BODY_SLAM_ID, CLEAVE_ID,
-        CLOTHESLINE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID,
-        DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
+        BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID,
+        DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
+        FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INTIMIDATE_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -5408,6 +5502,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Whirlwind" | "whirlwind" => Some(WHIRLWIND_ID),
         "Pommel Strike" | "pommel strike" => Some(POMMEL_STRIKE_ID),
         "Sever Soul" | "sever soul" => Some(SEVER_SOUL_ID),
+        "Sentinel" | "sentinel" => Some(SENTINEL_ID),
         "Uppercut" | "uppercut" => Some(UPPERCUT_ID),
         "Disarm" | "disarm" => Some(DISARM_ID),
         "Dual Wield" | "dual wield" => Some(DUAL_WIELD_ID),
@@ -5419,22 +5514,24 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Doubt" | "doubt" => Some(DOUBT_ID),
         "Offering" | "offering" => Some(OFFERING_ID),
         "Demon Form" | "demon form" => Some(DEMON_FORM_ID),
+        "Bloodletting" | "bloodletting" => Some(BLOODLETTING_ID),
+        "Hemokinesis" | "hemokinesis" => Some(HEMOKINESIS_ID),
         _ => None,
     }
 }
 
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BODY_SLAM_ID, BURN_ID,
-        CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DOUBT_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WILD_STRIKE_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
+        BODY_SLAM_ID, BURN_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, DEFEND_R_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, ENTRENCH_ID,
+        FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
+        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -5485,12 +5582,15 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == POMMEL_STRIKE_ID => "Pommel Strike",
         id if id == POMMEL_STRIKE_PLUS_ID => "Pommel Strike+",
         id if id == SEVER_SOUL_ID => "Sever Soul",
+        id if id == SENTINEL_ID => "Sentinel",
         id if id == UPPERCUT_ID => "Uppercut",
         id if id == DISARM_ID => "Disarm",
         id if id == DUAL_WIELD_ID => "Dual Wield",
         id if id == REGRET_ID => "Regret",
         id if id == DOUBT_ID => "Doubt",
         id if id == DEMON_FORM_ID => "Demon Form",
+        id if id == BLOODLETTING_ID => "Bloodletting",
+        id if id == HEMOKINESIS_ID => "Hemokinesis",
         id if id == FEEL_NO_PAIN_ID => "Feel No Pain",
         other if shop_pool_trace_name(other).is_some() => {
             shop_pool_trace_name(other).unwrap_or("unknown")
@@ -5593,6 +5693,14 @@ fn screen_type(message: &Value) -> Option<&str> {
     message
         .get("game_state")
         .and_then(|game| game.get("screen_type"))
+        .and_then(Value::as_str)
+}
+
+fn screen_event_name(message: &Value) -> Option<&str> {
+    message
+        .get("game_state")
+        .and_then(|game| game.get("screen_state"))
+        .and_then(|state| state.get("event_name"))
         .and_then(Value::as_str)
 }
 

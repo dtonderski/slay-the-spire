@@ -14,8 +14,8 @@ use crate::{
         INFLAME_PLUS_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
         SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -102,6 +102,7 @@ fn apply_play_card(
             target.expect("validated Uppercut has a target"),
             definition,
         ),
+        SWORD_BOOMERANG_ID => sword_boomerang_queue(state, card_id, definition),
         WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
         HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
         WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
@@ -177,6 +178,60 @@ fn generic_attack_queue(
                 source: DamageSource::Card(card_id),
                 target,
                 amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn sword_boomerang_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let living_targets = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| monster.id)
+        .collect::<Vec<_>>();
+    let first = living_targets
+        .first()
+        .copied()
+        .ok_or(SimError::InvalidState(
+            "Sword Boomerang requires a living monster",
+        ))?;
+    let last = living_targets.last().copied().unwrap_or(first);
+    let damage = definition.values.damage.unwrap_or(0);
+
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target: first,
+                amount: damage,
+            },
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target: last,
+                amount: damage,
+            },
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target: last,
+                amount: damage,
             },
         },
         InternalAction::MoveCard {

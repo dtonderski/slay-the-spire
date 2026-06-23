@@ -840,9 +840,9 @@ fn test_seed_start_m29_test_elite_boss_without_observed_sync() {
 
 #[test]
 fn test_seed_start_m29_m290001_sentries_prefix_zero_diffs() {
-    let Some(content) = load_corpus_file(
-        "communication_mod/trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl",
-    ) else {
+    let Some(content) =
+        load_corpus_file("communication_mod/trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl")
+    else {
         return;
     };
 
@@ -871,6 +871,48 @@ fn test_seed_start_m29_m290001_sentries_prefix_zero_diffs() {
     assert!(labels.contains(&"map elite node 1"));
     assert!(labels.contains(&"relic reward"));
     assert!(labels.contains(&"trace client poll"));
+}
+
+#[test]
+fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
+    let Some(content) = load_corpus_file(
+        "communication_mod/trace-2026-06-23T07-42-06-085Z.best-run.jsonl",
+    ) else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(seed_start.expected_failure);
+    assert_eq!(seed_start.start_command.external_seed, "M290008");
+    assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_133);
+    assert_eq!(seed_start.first_boundary.path, "$.actions[step=100].command");
+    assert_eq!(seed_start.first_boundary.category, "unexpected_extra_action");
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "Neow transform confirm",
+        "captured Scrap Ooze success",
+        "Sword Boomerang",
+        "captured Looter escape reward",
+        "boss chest proceed to map",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified label {expected}; labels: {labels:?}"
+        );
+    }
 }
 
 #[test]
