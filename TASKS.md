@@ -1248,6 +1248,8 @@ Completed slice:
 - added focused unit tests for key mapping, pickup effects, start-combat heal, and capacity integration
 - expanded modeled start-of-combat relics: Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, and Red Skull
 - implemented their combat entry hooks and added focused unit tests for energy, draw, vulnerable, thorns, plated armor, and conditional strength
+- expanded modeled card-play relics: Nunchaku, Shuriken, Kunai, and Letter Opener
+- implemented card-play counters/effects and added focused unit tests for energy, strength, dexterity, all-enemy damage, turn resets, and counter serialization
 
 Remaining:
 

@@ -46,6 +46,22 @@ pub const INK_BOTTLE_THRESHOLD: u32 = 10;
 pub const ORNAMENTAL_FAN_THRESHOLD: u32 = 3;
 /// Block granted by [Relic::OrnamentalFan] every third attack in a turn.
 pub const ORNAMENTAL_FAN_BLOCK: i32 = 4;
+/// Attacks before [Relic::Nunchaku] grants energy.
+pub const NUNCHAKU_THRESHOLD: u32 = 10;
+/// Energy granted by [Relic::Nunchaku].
+pub const NUNCHAKU_ENERGY: i32 = 1;
+/// Attacks in one turn before [Relic::Shuriken] grants strength.
+pub const SHURIKEN_THRESHOLD: u32 = 3;
+/// Strength granted by [Relic::Shuriken].
+pub const SHURIKEN_STRENGTH: i32 = 1;
+/// Attacks in one turn before [Relic::Kunai] grants dexterity.
+pub const KUNAI_THRESHOLD: u32 = 3;
+/// Dexterity granted by [Relic::Kunai].
+pub const KUNAI_DEXTERITY: i32 = 1;
+/// Skills in one turn before [Relic::LetterOpener] deals damage.
+pub const LETTER_OPENER_THRESHOLD: u32 = 3;
+/// Damage dealt by [Relic::LetterOpener] to all enemies.
+pub const LETTER_OPENER_DAMAGE: i32 = 5;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -87,6 +103,14 @@ pub const BRONZE_SCALES_ID: ContentId = ContentId::new(317);
 pub const THREAD_AND_NEEDLE_ID: ContentId = ContentId::new(318);
 /// Content id for [Relic::RedSkull].
 pub const RED_SKULL_ID: ContentId = ContentId::new(319);
+/// Content id for [Relic::Nunchaku].
+pub const NUNCHAKU_ID: ContentId = ContentId::new(320);
+/// Content id for [Relic::Shuriken].
+pub const SHURIKEN_ID: ContentId = ContentId::new(321);
+/// Content id for [Relic::Kunai].
+pub const KUNAI_ID: ContentId = ContentId::new(322);
+/// Content id for [Relic::LetterOpener].
+pub const LETTER_OPENER_ID: ContentId = ContentId::new(323);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -94,6 +118,18 @@ pub struct RelicCounters {
     pub ink_bottle_cards_played: u32,
     #[serde(default)]
     pub ornamental_fan_attacks_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub nunchaku_attacks_played: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub shuriken_attacks_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub kunai_attacks_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub letter_opener_skills_this_turn: u32,
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -603,6 +639,10 @@ pub enum Relic {
     BronzeScales,
     ThreadAndNeedle,
     RedSkull,
+    Nunchaku,
+    Shuriken,
+    Kunai,
+    LetterOpener,
     CoffeeDripper,
     Anchor,
     InkBottle,
@@ -629,6 +669,10 @@ impl Relic {
             Relic::BronzeScales => BRONZE_SCALES_ID,
             Relic::ThreadAndNeedle => THREAD_AND_NEEDLE_ID,
             Relic::RedSkull => RED_SKULL_ID,
+            Relic::Nunchaku => NUNCHAKU_ID,
+            Relic::Shuriken => SHURIKEN_ID,
+            Relic::Kunai => KUNAI_ID,
+            Relic::LetterOpener => LETTER_OPENER_ID,
             Relic::CoffeeDripper => COFFEE_DRIPPER_ID,
             Relic::Anchor => ANCHOR_ID,
             Relic::InkBottle => INK_BOTTLE_ID,
@@ -655,6 +699,10 @@ impl Relic {
             id if id == BRONZE_SCALES_ID => Some(Relic::BronzeScales),
             id if id == THREAD_AND_NEEDLE_ID => Some(Relic::ThreadAndNeedle),
             id if id == RED_SKULL_ID => Some(Relic::RedSkull),
+            id if id == NUNCHAKU_ID => Some(Relic::Nunchaku),
+            id if id == SHURIKEN_ID => Some(Relic::Shuriken),
+            id if id == KUNAI_ID => Some(Relic::Kunai),
+            id if id == LETTER_OPENER_ID => Some(Relic::LetterOpener),
             id if id == COFFEE_DRIPPER_ID => Some(Relic::CoffeeDripper),
             id if id == ANCHOR_ID => Some(Relic::Anchor),
             id if id == INK_BOTTLE_ID => Some(Relic::InkBottle),
@@ -705,6 +753,10 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                     combat.player.powers.strength += RED_SKULL_STRENGTH;
                 }
             }
+            Relic::Nunchaku => {}
+            Relic::Shuriken => {}
+            Relic::Kunai => {}
+            Relic::LetterOpener => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
                 combat.player.block += ANCHOR_BLOCK;
@@ -724,6 +776,9 @@ pub fn preserves_energy_between_turns(relics: &[Relic]) -> bool {
 
 pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.ornamental_fan_attacks_this_turn = 0;
+    state.relic_counters.shuriken_attacks_this_turn = 0;
+    state.relic_counters.kunai_attacks_this_turn = 0;
+    state.relic_counters.letter_opener_skills_this_turn = 0;
 }
 
 #[must_use]
@@ -748,6 +803,43 @@ pub fn apply_on_card_play_relics(
             follow_ups.push(InternalAction::GainBlock {
                 amount: ORNAMENTAL_FAN_BLOCK,
             });
+        }
+    }
+
+    if state.relics.contains(&Relic::Nunchaku) && card_type == CardType::Attack {
+        state.relic_counters.nunchaku_attacks_played += 1;
+        if state.relic_counters.nunchaku_attacks_played >= NUNCHAKU_THRESHOLD {
+            state.relic_counters.nunchaku_attacks_played = 0;
+            state.player.energy += NUNCHAKU_ENERGY;
+        }
+    }
+
+    if state.relics.contains(&Relic::Shuriken) && card_type == CardType::Attack {
+        state.relic_counters.shuriken_attacks_this_turn += 1;
+        if state.relic_counters.shuriken_attacks_this_turn >= SHURIKEN_THRESHOLD {
+            state.relic_counters.shuriken_attacks_this_turn = 0;
+            state.player.powers.strength += SHURIKEN_STRENGTH;
+        }
+    }
+
+    if state.relics.contains(&Relic::Kunai) && card_type == CardType::Attack {
+        state.relic_counters.kunai_attacks_this_turn += 1;
+        if state.relic_counters.kunai_attacks_this_turn >= KUNAI_THRESHOLD {
+            state.relic_counters.kunai_attacks_this_turn = 0;
+            state.player.powers.dexterity += KUNAI_DEXTERITY;
+        }
+    }
+
+    if state.relics.contains(&Relic::LetterOpener) && card_type == CardType::Skill {
+        state.relic_counters.letter_opener_skills_this_turn += 1;
+        if state.relic_counters.letter_opener_skills_this_turn >= LETTER_OPENER_THRESHOLD {
+            state.relic_counters.letter_opener_skills_this_turn = 0;
+            for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+                crate::combat::damage::deal_unmodified_damage_to_monster(
+                    monster,
+                    LETTER_OPENER_DAMAGE,
+                );
+            }
         }
     }
 
@@ -1133,6 +1225,10 @@ mod tests {
         assert_eq!(Relic::BronzeScales.content_id(), BRONZE_SCALES_ID);
         assert_eq!(Relic::ThreadAndNeedle.content_id(), THREAD_AND_NEEDLE_ID);
         assert_eq!(Relic::RedSkull.content_id(), RED_SKULL_ID);
+        assert_eq!(Relic::Nunchaku.content_id(), NUNCHAKU_ID);
+        assert_eq!(Relic::Shuriken.content_id(), SHURIKEN_ID);
+        assert_eq!(Relic::Kunai.content_id(), KUNAI_ID);
+        assert_eq!(Relic::LetterOpener.content_id(), LETTER_OPENER_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
@@ -1189,6 +1285,13 @@ mod tests {
             Some(Relic::ThreadAndNeedle)
         );
         assert_eq!(Relic::from_content_id(RED_SKULL_ID), Some(Relic::RedSkull));
+        assert_eq!(Relic::from_content_id(NUNCHAKU_ID), Some(Relic::Nunchaku));
+        assert_eq!(Relic::from_content_id(SHURIKEN_ID), Some(Relic::Shuriken));
+        assert_eq!(Relic::from_content_id(KUNAI_ID), Some(Relic::Kunai));
+        assert_eq!(
+            Relic::from_content_id(LETTER_OPENER_ID),
+            Some(Relic::LetterOpener)
+        );
         assert_eq!(Relic::from_content_id(ContentId::new(999)), None);
     }
 
@@ -1261,6 +1364,95 @@ mod tests {
     }
 
     #[test]
+    fn nunchaku_grants_energy_on_tenth_attack_without_turn_reset() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Nunchaku];
+        combat.player.energy = 0;
+
+        for _ in 0..9 {
+            let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        }
+        reset_turn_relic_counters(&mut combat);
+        assert_eq!(combat.player.energy, 0);
+        assert_eq!(combat.relic_counters.nunchaku_attacks_played, 9);
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        assert_eq!(combat.player.energy, NUNCHAKU_ENERGY);
+        assert_eq!(combat.relic_counters.nunchaku_attacks_played, 0);
+    }
+
+    #[test]
+    fn shuriken_grants_strength_on_third_attack_this_turn() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Shuriken];
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        assert_eq!(combat.player.powers.strength, 0);
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        assert_eq!(combat.player.powers.strength, SHURIKEN_STRENGTH);
+        assert_eq!(combat.relic_counters.shuriken_attacks_this_turn, 0);
+    }
+
+    #[test]
+    fn kunai_grants_dexterity_on_third_attack_this_turn() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Kunai];
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+
+        assert_eq!(combat.player.powers.dexterity, KUNAI_DEXTERITY);
+        assert_eq!(combat.relic_counters.kunai_attacks_this_turn, 0);
+    }
+
+    #[test]
+    fn letter_opener_deals_damage_to_all_living_monsters_on_third_skill() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::LetterOpener];
+        combat
+            .monsters
+            .push(crate::content::monsters::monster_state(
+                &crate::content::monsters::CULTIST_A0,
+                crate::MonsterId::new(2),
+            ));
+        combat.monsters[1].alive = false;
+        let hp_before = combat.monsters[0].hp;
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
+        assert_eq!(combat.monsters[0].hp, hp_before);
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
+        assert_eq!(combat.monsters[0].hp, hp_before - LETTER_OPENER_DAMAGE);
+        assert_eq!(
+            combat.monsters[1].hp,
+            crate::content::monsters::CULTIST_A0.hp
+        );
+        assert_eq!(combat.relic_counters.letter_opener_skills_this_turn, 0);
+    }
+
+    #[test]
+    fn turn_reset_clears_turn_scoped_card_play_relic_counters() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relic_counters.ornamental_fan_attacks_this_turn = 2;
+        combat.relic_counters.shuriken_attacks_this_turn = 2;
+        combat.relic_counters.kunai_attacks_this_turn = 2;
+        combat.relic_counters.letter_opener_skills_this_turn = 2;
+        combat.relic_counters.nunchaku_attacks_played = 9;
+
+        reset_turn_relic_counters(&mut combat);
+
+        assert_eq!(combat.relic_counters.ornamental_fan_attacks_this_turn, 0);
+        assert_eq!(combat.relic_counters.shuriken_attacks_this_turn, 0);
+        assert_eq!(combat.relic_counters.kunai_attacks_this_turn, 0);
+        assert_eq!(combat.relic_counters.letter_opener_skills_this_turn, 0);
+        assert_eq!(combat.relic_counters.nunchaku_attacks_played, 9);
+    }
+
+    #[test]
     fn reset_turn_relic_counters_clears_ornamental_fan_attacks() {
         let mut combat = CombatState::initial_fixture();
         combat.relic_counters.ornamental_fan_attacks_this_turn = 2;
@@ -1275,6 +1467,10 @@ mod tests {
         let counters = RelicCounters {
             ink_bottle_cards_played: 7,
             ornamental_fan_attacks_this_turn: 2,
+            nunchaku_attacks_played: 9,
+            shuriken_attacks_this_turn: 1,
+            kunai_attacks_this_turn: 2,
+            letter_opener_skills_this_turn: 1,
         };
 
         let json = serde_json::to_string(&counters).expect("counters serialize");

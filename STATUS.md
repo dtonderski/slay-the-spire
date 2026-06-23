@@ -22,6 +22,7 @@
 - Start-combat relic: Anchor block
 - On-card-play relic: Ink Bottle draw after 10 cards
 - Damage/block relic: Ornamental Fan block every 3 attacks per turn
+- Card-play counter relics: Nunchaku, Shuriken, Kunai, and Letter Opener
 - Stateful relic: Ice Cream preserves energy between turns
 - Random-effect potion: Gamble Potion (+50/-50 gold via RNG)
 
@@ -102,7 +103,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Milestone 32 is in progress. Completed relic slices now cover simple pickup/capacity relics plus start-of-combat relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, Potion Belt, Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, and Red Skull. Continue by implementing the next missing relic hook family.
+Milestone 32 is in progress. Completed relic slices now cover simple pickup/capacity relics, start-of-combat relics, and card-play counter relics: Blood Vial, Pear, Mango, Old Coin, Lee's Waffle, Potion Belt, Lantern, Bag of Preparation, Bag of Marbles, Bronze Scales, Thread and Needle, Red Skull, Nunchaku, Shuriken, Kunai, and Letter Opener. Continue by implementing the next missing relic hook family.
 
 The previous M29 cleaned single-run prefix can still be structurally checked with:
 
