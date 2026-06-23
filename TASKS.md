@@ -1183,7 +1183,7 @@ Still future work:
 
 ## Milestone 31: Potion Completion Pass
 
-Status: in progress.
+Status: complete.
 
 Goal: implement all potion use effects and legality rules reachable by Ironclad runs.
 
@@ -1205,13 +1205,13 @@ Completed slice:
 - implemented Snecko Oil draw-five and playable-hand cost randomization with `cardRandomRng`
 - implemented Smoke Bomb non-boss escape with no reward
 - implemented Elixir multi-card hand exhaust selection
+- implemented Fairy in a Bottle passive lethal-damage revive and direct-use rejection
 - preserved existing Fire, Block, Fear, Gamble, Power, discard, target validation, and potion-reward/shop belt behavior
 - added unit tests for each new deterministic potion effect
 
 Remaining:
 
-- passive potion behavior: Fairy
-- source-backed temporary/deferred powers that are not yet represented in `PlayerPowers` or combat turn cleanup
+- no known Ironclad reward-pool potion remains unimplemented in `sts_core`
 - potion-heavy seed-start trace verification once a suitable captured trace reaches these effects
 
 Acceptance tests:
