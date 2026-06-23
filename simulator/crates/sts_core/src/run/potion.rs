@@ -1,15 +1,17 @@
 use crate::{
     card::{CardInstance, CardType},
+    combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{choose_hand_select, confirm_hand_select, hand_select_ui_to_hand_index},
     combat::CombatPhase,
-    combat::damage::deal_unmodified_damage_to_monster,
+    content::shop_pool::discovery_card_choices,
     ids::CardId,
     potion::{
-        Potion, BLOCK_POTION_BLOCK, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE, GAMBLE_POTION_LOSS_GOLD,
-        GAMBLE_POTION_WIN_GOLD,
+        Potion, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT, DEXTERITY_POTION_DEXTERITY,
+        ENERGY_POTION_ENERGY, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK, FIRE_POTION_DAMAGE,
+        FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD, GAMBLE_POTION_WIN_GOLD,
+        HEART_OF_IRON_METALLICIZE, STRENGTH_POTION_STRENGTH, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng},
-    content::shop_pool::discovery_card_choices,
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -56,7 +58,9 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
                 .ok_or(SimError::IllegalAction("potion slot is not available"))?;
             Ok(())
         }
-        RunAction::ChooseCombatCardReward { index } => validate_combat_card_reward_choice(run, index),
+        RunAction::ChooseCombatCardReward { index } => {
+            validate_combat_card_reward_choice(run, index)
+        }
         RunAction::ChooseHandSelect { index } => validate_hand_select_choice(run, index),
         RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
         _ => Err(SimError::IllegalAction("not a potion action")),
@@ -64,16 +68,17 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
 }
 
 pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<()> {
-    let combat = run
-        .combat
-        .as_ref()
-        .ok_or(SimError::IllegalAction("combat card reward requires combat"))?;
+    let combat = run.combat.as_ref().ok_or(SimError::IllegalAction(
+        "combat card reward requires combat",
+    ))?;
     let choices = combat
         .potion_card_reward
         .as_ref()
         .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
     if index >= choices.len() {
-        return Err(SimError::IllegalAction("combat card reward index out of range"));
+        return Err(SimError::IllegalAction(
+            "combat card reward index out of range",
+        ));
     }
     Ok(())
 }
@@ -125,10 +130,11 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     let choices = combat.potion_card_reward.take().expect("validated reward");
     let choice = choices[index];
     let card_id = CardId::new(combat.piles.max_card_instance_id() + 1);
-    combat
-        .piles
-        .hand
-        .push(CardInstance::combat_generated(card_id, choice.content_id, 0));
+    combat.piles.hand.push(CardInstance::combat_generated(
+        card_id,
+        choice.content_id,
+        0,
+    ));
     Ok(next)
 }
 
@@ -167,6 +173,54 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         .expect("validated potion target");
                     monster.powers.weak += FEAR_POTION_WEAK;
                 }
+                Potion::Blood => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    let heal = combat.player.max_hp * BLOOD_POTION_HEAL_PERCENT / 100;
+                    combat.player.hp = (combat.player.hp + heal).min(combat.player.max_hp);
+                }
+                Potion::HeartOfIron => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.powers.metallicize += HEART_OF_IRON_METALLICIZE;
+                }
+                Potion::Dexterity => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.powers.dexterity += DEXTERITY_POTION_DEXTERITY;
+                }
+                Potion::Energy => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.energy += ENERGY_POTION_ENERGY;
+                }
+                Potion::Explosive => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
+                        deal_unmodified_damage_to_monster(monster, EXPLOSIVE_POTION_DAMAGE);
+                    }
+                    if combat.monsters.iter().all(|monster| !monster.alive) {
+                        combat.phase = CombatPhase::Won;
+                    }
+                }
+                Potion::Strength => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    combat.player.powers.strength += STRENGTH_POTION_STRENGTH;
+                }
+                Potion::Weak => {
+                    let target = target.expect("validated weak potion target");
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    let monster = combat
+                        .monsters
+                        .iter_mut()
+                        .find(|monster| monster.id == target)
+                        .expect("validated potion target");
+                    monster.powers.weak += WEAK_POTION_WEAK;
+                }
+                Potion::FruitJuice => {
+                    next.player_max_hp += FRUIT_JUICE_MAX_HP;
+                    next.player_hp += FRUIT_JUICE_MAX_HP;
+                    if let Some(combat) = next.combat.as_mut() {
+                        combat.player.max_hp += FRUIT_JUICE_MAX_HP;
+                        combat.player.hp += FRUIT_JUICE_MAX_HP;
+                    }
+                }
                 Potion::Gamble => {
                     let mut rng = SimulatorRng::new(next.potion_rng_seed);
                     let win = rng.next_bool(RngStream::Potion, "gamble_potion");
@@ -186,10 +240,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         .into_iter()
                         .enumerate()
                         .map(|(index, content_id)| {
-                            CardInstance::new(
-                                CardId::new(next_card_id + index as u64),
-                                content_id,
-                            )
+                            CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                         })
                         .collect();
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -340,6 +391,175 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.monsters[0].powers.weak, FEAR_POTION_WEAK);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn blood_potion_heals_twenty_percent_of_max_hp_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Blood);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.player.hp = 50;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use blood potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.hp, 66);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn heart_of_iron_grants_metallicize_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::HeartOfIron);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use heart of iron");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.powers.metallicize, HEART_OF_IRON_METALLICIZE);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn dexterity_potion_grants_dexterity_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Dexterity);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use dexterity potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.powers.dexterity, DEXTERITY_POTION_DEXTERITY);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn energy_potion_grants_two_energy_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Energy);
+        run.combat.as_mut().expect("combat").player.energy = 1;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use energy potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.energy, 1 + ENERGY_POTION_ENERGY);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn explosive_potion_hits_all_living_monsters_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.combat = Some(crate::combat::CombatState::sentry_fixture());
+        run.potions.push(Potion::Explosive);
+        let hp_before: Vec<_> = run
+            .combat
+            .as_ref()
+            .expect("combat")
+            .monsters
+            .iter()
+            .map(|monster| monster.hp)
+            .collect();
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use explosive potion");
+
+        let combat = after.combat.expect("combat continues");
+        for (monster, before) in combat.monsters.iter().zip(hp_before) {
+            assert_eq!(monster.hp, before - EXPLOSIVE_POTION_DAMAGE);
+        }
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn strength_potion_grants_strength_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Strength);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use strength potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.player.powers.strength, STRENGTH_POTION_STRENGTH);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn weak_potion_applies_weak_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Weak);
+        let monster_id = run.combat.as_ref().expect("combat").monsters[0].id;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(monster_id),
+            },
+        )
+        .expect("use weak potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.monsters[0].powers.weak, WEAK_POTION_WEAK);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn fruit_juice_increases_max_hp_outside_combat_and_is_consumed() {
+        let mut run = RunState::map_fixture();
+        run.potions.push(Potion::FruitJuice);
+        let max_hp_before = run.player_max_hp;
+        let current_hp_before = run.player_hp;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use fruit juice");
+
+        assert_eq!(after.player_max_hp, max_hp_before + FRUIT_JUICE_MAX_HP);
+        assert_eq!(after.player_hp, current_hp_before + FRUIT_JUICE_MAX_HP);
         assert!(after.potions.is_empty());
     }
 

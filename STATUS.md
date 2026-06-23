@@ -10,7 +10,7 @@
 ### Run / Meta
 - Reward screen with source-backed card/gold/potion/relic RNG; elite/chest/boss relic reward screens from persisted pools
 - Shop: full target-style inventory (7 cards, 3 relics, 3 potions, remove service) via `merchantRng`/`cardRng`/`potionRng` and relic pools; legacy fixed Anger/Vajra/Fire fixture when `merchant_rng_seed == 0`
-- Potions: Fire, Block, Fear, Gamble; full 33-potion Ironclad reward pool for drops
+- Potions: Fire, Block, Fear, Gamble, Power, plus deterministic Blood, Heart of Iron, Dexterity, Energy, Explosive, Strength, Weak, and Fruit Juice effects; full 33-potion Ironclad reward pool for drops
 - Events: Act 1 event/shrine pools with `generateEvent` shrine chance; map event rooms call `enter_event_screen`; Shining Light costs 20% max HP and upgrades up to two random upgradeable deck cards
 - Rest: heal, smith, card removal (deterministic heal amount; no RNG)
 
@@ -100,7 +100,9 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 ## Next Task
 
-Continue Milestone 29 by collecting or trimming a Sentries trace that includes the final post-reward `PROCEED`, or by declaring the current cleaned prefix as the M29 evidence fixture if reward-screen termination is acceptable. The cleaned single-run prefix can be structurally checked with:
+Continue Milestone 31 by implementing the next potion family with source-backed semantics: discovery/card-generation potions (`Attack`, `Skill`, `Colorless`, `Swift`) or temporary-power cleanup potions (`Flex`, `Speed`, `Ancient`, `Liquid Bronze`, `Regen`) after adding any missing power fields. The current M31 slice covers deterministic potion effects for Blood, Heart of Iron, Dexterity, Energy, Explosive, Strength, Weak, and Fruit Juice.
+
+The previous M29 cleaned single-run prefix can still be structurally checked with:
 
 ```powershell
 node tools\communication\trace_tools.js validate verification\corpus\communication_mod\trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl

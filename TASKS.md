@@ -1183,7 +1183,7 @@ Still future work:
 
 ## Milestone 31: Potion Completion Pass
 
-Status: planned.
+Status: in progress.
 
 Goal: implement all potion use effects and legality rules reachable by Ironclad runs.
 
@@ -1194,6 +1194,18 @@ Tasks:
 - implement RNG-affecting potion behavior
 - verify potion-heavy captured traces where available
 - add unit tests for each potion effect
+
+Completed slice:
+
+- implemented deterministic Ironclad potion effects for Blood, Heart of Iron, Dexterity, Energy, Explosive, Strength, Weak, and Fruit Juice
+- preserved existing Fire, Block, Fear, Gamble, Power, discard, target validation, and potion-reward/shop belt behavior
+- added unit tests for each new deterministic potion effect
+
+Remaining:
+
+- random/discovery/hand-pile potions: Attack, Skill, Colorless, Swift, Blessing of the Forge, Regen, Ancient, Liquid Bronze, Essence of Steel, Duplication, Distilled Chaos, Liquid Memories, Cultist, Snecko Oil, Smoke Bomb, Entropic Brew, Elixir, Flex, Speed, Fairy
+- source-backed temporary/deferred powers that are not yet represented in `PlayerPowers` or combat turn cleanup
+- potion-heavy seed-start trace verification once a suitable captured trace reaches these effects
 
 Acceptance tests:
 

@@ -6,6 +6,14 @@ pub const MAX_POTIONS: usize = 3;
 pub const FIRE_POTION_DAMAGE: i32 = 20;
 pub const BLOCK_POTION_BLOCK: i32 = 12;
 pub const FEAR_POTION_WEAK: i32 = 3;
+pub const BLOOD_POTION_HEAL_PERCENT: i32 = 20;
+pub const HEART_OF_IRON_METALLICIZE: i32 = 6;
+pub const DEXTERITY_POTION_DEXTERITY: i32 = 2;
+pub const ENERGY_POTION_ENERGY: i32 = 2;
+pub const EXPLOSIVE_POTION_DAMAGE: i32 = 10;
+pub const STRENGTH_POTION_STRENGTH: i32 = 2;
+pub const WEAK_POTION_WEAK: i32 = 3;
+pub const FRUIT_JUICE_MAX_HP: i32 = 5;
 pub const GAMBLE_POTION_WIN_GOLD: i32 = 50;
 pub const GAMBLE_POTION_LOSS_GOLD: i32 = 50;
 
@@ -246,7 +254,17 @@ impl Potion {
     pub fn requires_combat(self) -> bool {
         matches!(
             self,
-            Potion::Fire | Potion::Fear | Potion::Block | Potion::Weak
+            Potion::Fire
+                | Potion::Fear
+                | Potion::Block
+                | Potion::Weak
+                | Potion::Blood
+                | Potion::HeartOfIron
+                | Potion::Dexterity
+                | Potion::Energy
+                | Potion::Explosive
+                | Potion::Strength
+                | Potion::Power
         )
     }
 
