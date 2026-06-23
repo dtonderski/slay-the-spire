@@ -1331,6 +1331,8 @@ Completed slice:
 - implemented Centennial Puzzle key promotion and first combat HP-loss draw-three hook for monster attacks, spikes, Burn, and Regret, with focused relic/combat tests
 - expanded modeled attack-counter relics: Pen Nib
 - implemented Pen Nib key promotion and tenth-Attack damage doubling with a persisted attack counter, including focused single-hit and multi-hit combat tests
+- expanded modeled HP-loss response relics: Self-Forming Clay
+- implemented Self-Forming Clay key promotion and HP-loss block gain for monster attacks, spikes, Burn, and Regret through the shared HP-loss relic hook, with focused relic/combat tests
 
 Remaining:
 

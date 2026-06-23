@@ -68,6 +68,8 @@ pub const THE_BOOT_DAMAGE: i32 = 5;
 pub const AKABEKO_DAMAGE: i32 = 8;
 /// Cards drawn after first HP loss each combat by [Relic::CentennialPuzzle].
 pub const CENTENNIAL_PUZZLE_DRAW: usize = 3;
+/// Block granted by [Relic::SelfFormingClay] after HP loss.
+pub const SELF_FORMING_CLAY_BLOCK: i32 = 3;
 /// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
@@ -349,6 +351,8 @@ pub const AKABEKO_ID: ContentId = ContentId::new(379);
 pub const CENTENNIAL_PUZZLE_ID: ContentId = ContentId::new(380);
 /// Content id for [Relic::PenNib].
 pub const PEN_NIB_ID: ContentId = ContentId::new(381);
+/// Content id for [Relic::SelfFormingClay].
+pub const SELF_FORMING_CLAY_ID: ContentId = ContentId::new(382);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -960,6 +964,7 @@ pub enum Relic {
     Akabeko,
     CentennialPuzzle,
     PenNib,
+    SelfFormingClay,
 }
 
 impl Relic {
@@ -1048,6 +1053,7 @@ impl Relic {
             Relic::Akabeko => AKABEKO_ID,
             Relic::CentennialPuzzle => CENTENNIAL_PUZZLE_ID,
             Relic::PenNib => PEN_NIB_ID,
+            Relic::SelfFormingClay => SELF_FORMING_CLAY_ID,
         }
     }
 
@@ -1136,6 +1142,7 @@ impl Relic {
             id if id == AKABEKO_ID => Some(Relic::Akabeko),
             id if id == CENTENNIAL_PUZZLE_ID => Some(Relic::CentennialPuzzle),
             id if id == PEN_NIB_ID => Some(Relic::PenNib),
+            id if id == SELF_FORMING_CLAY_ID => Some(Relic::SelfFormingClay),
             _ => None,
         }
     }
@@ -1259,6 +1266,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Akabeko => {}
             Relic::CentennialPuzzle => {}
             Relic::PenNib => {}
+            Relic::SelfFormingClay => {}
         }
     }
 
@@ -1308,6 +1316,9 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) {
     {
         state.relic_counters.centennial_puzzle_triggers = 1;
         crate::combat::transition::player_draw_cards(state, CENTENNIAL_PUZZLE_DRAW);
+    }
+    if state.relics.contains(&Relic::SelfFormingClay) {
+        state.player.block += SELF_FORMING_CLAY_BLOCK;
     }
 }
 
@@ -2253,6 +2264,11 @@ mod tests {
         );
         assert_eq!(Relic::PenNib.content_id(), PEN_NIB_ID);
         assert_eq!(Relic::from_content_id(PEN_NIB_ID), Some(Relic::PenNib));
+        assert_eq!(Relic::SelfFormingClay.content_id(), SELF_FORMING_CLAY_ID);
+        assert_eq!(
+            Relic::from_content_id(SELF_FORMING_CLAY_ID),
+            Some(Relic::SelfFormingClay)
+        );
     }
 
     #[test]
@@ -2766,6 +2782,19 @@ mod tests {
         assert_eq!(combat.relic_counters.centennial_puzzle_triggers, 1);
         assert_eq!(combat.piles.hand.len(), 3);
         assert!(combat.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn self_forming_clay_grants_block_after_hp_loss() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::SelfFormingClay];
+        combat.player.block = 2;
+
+        apply_player_hp_loss_relics(&mut combat, 1);
+        apply_player_hp_loss_relics(&mut combat, 2);
+        apply_player_hp_loss_relics(&mut combat, 0);
+
+        assert_eq!(combat.player.block, 2 + SELF_FORMING_CLAY_BLOCK * 2);
     }
 
     #[test]
