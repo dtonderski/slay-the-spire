@@ -244,6 +244,10 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::Brimstone), Some(Relic::Brimstone));
         assert_eq!(
+            Relic::from_key(RelicKey::WhiteBeastStatue),
+            Some(Relic::WhiteBeastStatue)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1462,7 +1466,8 @@ impl RunState {
             | Relic::ChemicalX
             | Relic::SlaversCollar
             | Relic::StrikeDummy
-            | Relic::Brimstone => {}
+            | Relic::Brimstone
+            | Relic::WhiteBeastStatue => {}
         }
     }
 
@@ -1660,6 +1665,7 @@ impl Relic {
             Relic::RunicDome => RelicKey::RunicDome,
             Relic::StrikeDummy => RelicKey::StrikeDummy,
             Relic::Brimstone => RelicKey::Brimstone,
+            Relic::WhiteBeastStatue => RelicKey::WhiteBeastStatue,
         }
     }
 
@@ -1742,6 +1748,7 @@ impl Relic {
             RelicKey::RunicDome => Some(Relic::RunicDome),
             RelicKey::StrikeDummy => Some(Relic::StrikeDummy),
             RelicKey::Brimstone => Some(Relic::Brimstone),
+            RelicKey::WhiteBeastStatue => Some(Relic::WhiteBeastStatue),
             _ => None,
         }
     }

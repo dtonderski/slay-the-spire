@@ -316,9 +316,14 @@ pub fn target_potion_reward_offer(
     reward_count: usize,
     potion_belt_count: usize,
     potion_capacity: usize,
+    guaranteed_potion: bool,
 ) -> Option<Potion> {
     if potion_belt_count >= potion_capacity {
         return None;
+    }
+
+    if guaranteed_potion {
+        return Some(target_random_potion(rng));
     }
 
     let mut chance = BASE_POTION_DROP_CHANCE + *potion_chance;
@@ -367,6 +372,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
             2,
             run.potions.len(),
             potion_capacity,
+            run.relics.contains(&Relic::WhiteBeastStatue),
         );
         run.potion_rng_counter = potion_rng.counter();
     }
@@ -467,6 +473,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
             1,
             run.potions.len(),
             potion_capacity,
+            run.relics.contains(&Relic::WhiteBeastStatue),
         );
         run.potion_rng_counter = potion_rng.counter();
         potion_offer
@@ -513,6 +520,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
             2,
             run.potions.len(),
             potion_capacity,
+            run.relics.contains(&Relic::WhiteBeastStatue),
         );
         run.potion_rng_counter = potion_rng.counter();
     }
@@ -1262,6 +1270,20 @@ mod tests {
     }
 
     #[test]
+    fn white_beast_statue_guarantees_normal_combat_potion_reward() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::WhiteBeastStatue);
+        run.potion_rng_seed = 22_079_335_079;
+        run.potion_chance = -40;
+
+        enter_normal_combat_reward_screen(&mut run);
+
+        assert!(run.reward.as_ref().expect("reward").potion_offer.is_some());
+        assert_eq!(run.potion_chance, -40);
+        assert!(run.potion_rng_counter > 0);
+    }
+
+    #[test]
     fn take_potion_reward_allows_extra_slots_with_potion_belt() {
         let mut run = winning_combat_run();
         run.relics.push(Relic::PotionBelt);
@@ -1387,6 +1409,7 @@ mod tests {
             2,
             0,
             crate::potion::MAX_POTIONS,
+            false,
         );
 
         assert_eq!(offer, None);
@@ -1405,11 +1428,31 @@ mod tests {
             2,
             0,
             crate::potion::MAX_POTIONS,
+            false,
         );
 
         assert!(offer.is_some());
         assert_eq!(potion_chance, 60);
         assert!(rng.counter() > 1);
+    }
+
+    #[test]
+    fn white_beast_statue_guarantees_potion_offer_without_chance_roll() {
+        let mut rng = StsRng::new(0);
+        let mut potion_chance = 0;
+
+        let offer = target_potion_reward_offer(
+            &mut rng,
+            &mut potion_chance,
+            4,
+            0,
+            crate::potion::MAX_POTIONS,
+            true,
+        );
+
+        assert!(offer.is_some());
+        assert_eq!(potion_chance, 0);
+        assert!(rng.counter() > 0);
     }
 
     #[test]
