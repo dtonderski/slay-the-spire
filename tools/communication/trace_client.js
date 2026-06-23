@@ -74,6 +74,13 @@ function summarize(message) {
     current_hp: gs.current_hp ?? null,
     max_hp: gs.max_hp ?? null,
     gold: gs.gold ?? null,
+    potions: (gs.potions ?? []).map((potion, index) => ({
+      index,
+      name: potion.name,
+      id: potion.id,
+      can_use: potion.can_use,
+      can_discard: potion.can_discard,
+    })),
     choices: gs.choice_list ?? null,
   };
 
