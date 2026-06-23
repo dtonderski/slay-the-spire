@@ -1177,6 +1177,11 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
     ALL_CARDS.iter().find(|definition| definition.id == id)
 }
 
+#[must_use]
+pub fn is_curse_content_id(id: ContentId) -> bool {
+    matches!(id, id if id == REGRET_ID || id == DOUBT_ID || id == ASCENDERS_BANE_ID)
+}
+
 /// Maps a base card content id to its upgraded (+) version, if one exists.
 #[must_use]
 pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
@@ -1227,6 +1232,14 @@ mod tests {
         assert_eq!(BASH.card_type, CardType::Attack);
         assert_eq!(BASH.values.damage, Some(8));
         assert_eq!(BASH.values.vulnerable, Some(2));
+    }
+
+    #[test]
+    fn modeled_curse_ids_are_classified_explicitly() {
+        assert!(is_curse_content_id(REGRET_ID));
+        assert!(is_curse_content_id(DOUBT_ID));
+        assert!(is_curse_content_id(ASCENDERS_BANE_ID));
+        assert!(!is_curse_content_id(WOUND_ID));
     }
 
     #[test]

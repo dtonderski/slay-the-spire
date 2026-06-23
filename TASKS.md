@@ -1272,6 +1272,8 @@ Completed slice:
 - implemented Paper Phrog's 75% Vulnerable damage bonus and Champion Belt weak-on-player-applied-Vulnerable hooks for cards and Bag of Marbles with focused tests
 - expanded modeled elite HP relics: Preserved Insect
 - implemented elite-room monster HP reduction at combat initialization with focused elite/non-elite tests
+- expanded modeled curse synergy relics: Darkstone Periapt and Du-Vu Doll
+- implemented explicit modeled-curse classification, max-HP-on-curse-add, and strength-per-curse combat-start hooks with focused tests
 
 Remaining:
 
