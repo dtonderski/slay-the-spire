@@ -254,6 +254,24 @@ mod tests {
     }
 
     #[test]
+    fn self_forming_clay_block_can_absorb_later_monster_attack() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 0;
+        state.relics = vec![crate::Relic::SelfFormingClay];
+        state.monsters[0].intent = MonsterIntent::Attack { damage: 2 };
+        let mut second_monster = state.monsters[0].clone();
+        second_monster.id = crate::MonsterId::new(2);
+        second_monster.intent = MonsterIntent::Attack { damage: 2 };
+        state.monsters.push(second_monster);
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 18);
+        assert_eq!(next.player.block, 0);
+    }
+
+    #[test]
     fn end_turn_enters_next_player_turn_with_refilled_energy() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 0;
