@@ -16,6 +16,11 @@ pub fn rest_heal_amount(max_hp: i32) -> i32 {
 }
 
 #[must_use]
+pub fn can_smith(run: &RunState) -> bool {
+    !run.relics.contains(&Relic::FusionHammer)
+}
+
+#[must_use]
 pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     if run.phase != RunPhase::Rest {
         return Vec::new();
@@ -29,12 +34,12 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
         .deck
         .iter()
         .any(|card| upgrade_content_id(card.content_id).is_some());
-    if has_upgradeable {
+    if has_upgradeable && can_smith(run) {
         actions.push(RestAction::OpenSmith);
     }
     for card in &run.deck {
         actions.push(RestAction::RemoveCard { card_id: card.id });
-        if upgrade_content_id(card.content_id).is_some() {
+        if upgrade_content_id(card.content_id).is_some() && can_smith(run) {
             actions.push(RestAction::Smith { card_id: card.id });
         }
     }
@@ -52,9 +57,15 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
         }
         RestAction::Heal if legal_rest_actions(run).contains(&action) => Ok(()),
         RestAction::Heal => Err(SimError::IllegalAction("heal is not available")),
+        RestAction::OpenSmith if !can_smith(run) => {
+            Err(SimError::IllegalAction("smith is not available"))
+        }
         RestAction::OpenSmith if legal_rest_actions(run).contains(&action) => Ok(()),
         RestAction::OpenSmith => Err(SimError::IllegalAction("smith is not available")),
         RestAction::Smith { card_id } => {
+            if !can_smith(run) {
+                return Err(SimError::IllegalAction("smith is not available"));
+            }
             let card = run
                 .deck
                 .iter()
@@ -279,6 +290,36 @@ mod tests {
             .expect_err("already upgraded");
 
         assert_eq!(err, SimError::IllegalAction("card cannot be upgraded"));
+    }
+
+    #[test]
+    fn fusion_hammer_disables_smith_actions_but_keeps_rest_and_remove() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.relics.push(Relic::FusionHammer);
+        let strike_id = run.deck[0].id;
+
+        let actions = legal_rest_actions(&run);
+
+        assert!(actions.contains(&RestAction::Heal));
+        assert!(actions.contains(&RestAction::RemoveCard { card_id: strike_id }));
+        assert!(!actions.contains(&RestAction::OpenSmith));
+        assert!(!actions.contains(&RestAction::Smith { card_id: strike_id }));
+    }
+
+    #[test]
+    fn fusion_hammer_rejects_direct_smith_actions() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.relics.push(Relic::FusionHammer);
+        let strike_id = run.deck[0].id;
+
+        let open_err = apply_rest_action(&run, RestAction::OpenSmith).expect_err("open blocked");
+        let smith_err = apply_rest_action(&run, RestAction::Smith { card_id: strike_id })
+            .expect_err("smith blocked");
+
+        assert_eq!(open_err, SimError::IllegalAction("smith is not available"));
+        assert_eq!(smith_err, SimError::IllegalAction("smith is not available"));
     }
 
     #[test]

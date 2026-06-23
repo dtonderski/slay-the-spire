@@ -1274,6 +1274,8 @@ Completed slice:
 - implemented elite-room monster HP reduction at combat initialization with focused elite/non-elite tests
 - expanded modeled curse synergy relics: Darkstone Periapt and Du-Vu Doll
 - implemented explicit modeled-curse classification, max-HP-on-curse-add, and strength-per-curse combat-start hooks with focused tests
+- expanded modeled boss energy/rest-restriction relics: Fusion Hammer
+- implemented Fusion Hammer pickup energy and rest-site smith disabling with focused state/rest tests
 
 Remaining:
 
