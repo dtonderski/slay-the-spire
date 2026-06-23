@@ -108,6 +108,12 @@ node tools\communication\trace_tools.js validate verification\corpus\communicati
 
 Current seed-start verifier result for that prefix: `unexpected_diffs=1` at floor-2 combat step 29, `target is not a living monster`, after floor-1 reward return and floor-2 combat entry have verified. TEST shop/full-trace verification:
 
+Overnight collector hardening after the `M290001` run:
+
+- `overnight_collector.js` rejects commands whose verb is not currently listed in `available_commands`.
+- repeated identical commands on unchanged state fall back conservatively (`SKIP`, `PROCEED`, `LEAVE`, or `state`) and then exit instead of spamming forever.
+- `trace_tools.js validate` now reports starts, seeds, room path, encounters, deaths, and act boss metadata for harvested traces.
+
 ```powershell
 cd simulator
 cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-21T09-57-10-380Z.jsonl
