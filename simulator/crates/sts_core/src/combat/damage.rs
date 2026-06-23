@@ -17,10 +17,11 @@ pub enum DamageSource {
     Card(CardId),
 }
 
-pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) {
+pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
-    monster.hp -= amount - blocked;
+    let hp_damage = amount - blocked;
+    monster.hp -= hp_damage;
 
     if monster.hp <= 0 {
         monster.alive = false;
@@ -29,6 +30,8 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
         monster.block += monster.powers.curl_up;
         monster.powers.curl_up = 0;
     }
+
+    hp_damage
 }
 
 pub fn deal_damage_info_to_monster(
@@ -36,14 +39,14 @@ pub fn deal_damage_info_to_monster(
     info: DamageInfo,
     player: PlayerPowers,
     temp_strength: i32,
-) {
+) -> i32 {
     let amount = calculate_attack_damage(
         info.amount,
         player,
         temp_strength,
         monster.powers.vulnerable,
     );
-    deal_unmodified_damage_to_monster(monster, amount);
+    deal_unmodified_damage_to_monster(monster, amount)
 }
 
 /// Reflects thorns-style spikes damage to the player after an attack hits the monster.
@@ -79,6 +82,8 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
             rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
@@ -103,6 +108,8 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
             rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
@@ -128,6 +135,8 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
             rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
@@ -157,6 +166,8 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
             rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
@@ -193,6 +204,8 @@ mod tests {
             has_siphoned: false,
             split_triggered: false,
             defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
             rolled_attack_damage: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };

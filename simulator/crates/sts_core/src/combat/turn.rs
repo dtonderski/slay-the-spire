@@ -60,7 +60,10 @@ fn run_monster_turn(state: &mut CombatState) {
     let total_damage: i32 = monsters
         .iter_mut()
         .filter(|monster| monster.alive)
-        .map(|monster| apply_monster_intent(monster, player, piles, ascension))
+        .map(|monster| {
+            let player_snapshot = player.clone();
+            apply_monster_intent(monster, player, piles, ascension, &player_snapshot)
+        })
         .sum();
 
     if total_damage > 0 {
@@ -77,6 +80,10 @@ fn run_monster_turn(state: &mut CombatState) {
             }
             apply_end_of_monster_turn_powers(monster);
         }
+    }
+
+    if state.player.powers.vulnerable > 0 {
+        state.player.powers.vulnerable -= 1;
     }
 
     state.player.block = 0;

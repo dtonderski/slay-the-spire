@@ -106,10 +106,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
-        RunState,
-    };
+    use crate::{content::cards::STRIKE_R_PLUS_ID, RunState};
 
     #[test]
     fn rest_smith_grid_upgrades_selected_card() {

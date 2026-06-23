@@ -63,6 +63,9 @@ pub enum InternalAction {
     GainTempStrength {
         amount: i32,
     },
+    GainRitual {
+        amount: i32,
+    },
     ApplyWeak {
         target: MonsterId,
         amount: i32,

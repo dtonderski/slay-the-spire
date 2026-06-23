@@ -9,14 +9,18 @@ use crate::{
     content::cards::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID,
-        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
+        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, THUNDERCLAP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID,
     },
-    content::monsters::{check_slime_boss_split, get_monster_definition, wake_lagavulin_on_damage},
+    content::monsters::{
+        check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
+        wake_lagavulin_on_damage,
+    },
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
     rng::SimulatorRng,
@@ -79,6 +83,7 @@ fn apply_play_card(
         BURNING_PACT_ID => burning_pact_queue(state, card_id),
         FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
         DARK_EMBRACE_ID => dark_embrace_queue(card_id),
+        DEMON_FORM_ID => demon_form_queue(card_id),
         POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID => pommel_strike_queue(
             card_id,
             target.expect("validated Pommel Strike has a target"),
@@ -89,6 +94,7 @@ fn apply_play_card(
         INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
         SPOT_WEAKNESS_ID | SPOT_WEAKNESS_PLUS_ID => spot_weakness_queue(state, card_id, definition),
+        THUNDERCLAP_ID => thunderclap_queue(state, card_id, definition),
         WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
         HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
         WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
@@ -295,6 +301,38 @@ fn cleave_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn thunderclap_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamageAll {
+            source: card_id,
+            amount: definition.values.damage.unwrap_or(0),
+        },
+    ]);
+
+    for monster in state.monsters.iter().filter(|monster| monster.alive) {
+        queue.push_back(InternalAction::ApplyVulnerable {
+            target: monster.id,
+            amount: definition.values.vulnerable.unwrap_or(0),
+        });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+
+    Ok(queue)
 }
 
 fn whirlwind_queue(
@@ -599,6 +637,19 @@ fn dark_embrace_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
     ]))
 }
 
+fn demon_form_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 3 },
+        InternalAction::GainRitual { amount: 2 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
 fn pommel_strike_queue(
     card_id: CardId,
     target: MonsterId,
@@ -823,8 +874,10 @@ fn apply_internal_action(
             let (spikes, still_alive) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
-                deal_damage_info_to_monster(monster, info, player_powers, temp_strength);
-                wake_lagavulin_on_damage(monster);
+                let hp_damage =
+                    deal_damage_info_to_monster(monster, info, player_powers, temp_strength);
+                wake_lagavulin_on_damage(monster, hp_damage);
+                guardian_on_hp_damage(monster, hp_damage);
                 (spikes, monster.alive)
             };
             check_slime_boss_split(state, info.target);
@@ -845,7 +898,7 @@ fn apply_internal_action(
             for (target, spikes) in targets {
                 let still_alive = {
                     let monster = living_monster_mut(state, target)?;
-                    deal_damage_info_to_monster(
+                    let hp_damage = deal_damage_info_to_monster(
                         monster,
                         DamageInfo {
                             source: DamageSource::Card(source),
@@ -855,7 +908,8 @@ fn apply_internal_action(
                         player_powers,
                         temp_strength,
                     );
-                    wake_lagavulin_on_damage(monster);
+                    wake_lagavulin_on_damage(monster, hp_damage);
+                    guardian_on_hp_damage(monster, hp_damage);
                     monster.alive
                 };
                 check_slime_boss_split(state, target);
@@ -918,6 +972,10 @@ fn apply_internal_action(
         }
         InternalAction::GainTempStrength { amount } => {
             state.player.temp_strength += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainRitual { amount } => {
+            state.player.powers.ritual += amount;
             Ok(Vec::new())
         }
         InternalAction::CardExhausted { .. } => {
@@ -988,13 +1046,13 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
         return;
     }
 
-    for monster in &state.monsters {
+    for monster in &mut state.monsters {
         if !monster.alive {
             continue;
         }
         if let Some(monster_def) = get_monster_definition(monster.content_id) {
             if monster_def.enrage_weak_on_skill > 0 {
-                state.player.powers.weak += monster_def.enrage_weak_on_skill;
+                monster.powers.anger += monster_def.enrage_weak_on_skill;
             }
         }
     }
@@ -2394,12 +2452,12 @@ mod tests {
     }
 
     #[test]
-    fn gremlin_nob_enrage_applies_two_weak_on_skill_play() {
+    fn gremlin_nob_enrage_applies_two_anger_on_skill_play() {
         let state = CombatState::gremlin_nob_fixture();
 
         let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
 
-        assert_eq!(next.player.powers.weak, 2);
+        assert_eq!(next.monsters[0].powers.anger, 2);
     }
 
     #[test]
@@ -2408,7 +2466,7 @@ mod tests {
 
         let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
 
-        assert_eq!(next.player.powers.weak, 0);
+        assert_eq!(next.monsters[0].powers.anger, 0);
     }
 
     #[test]
@@ -2436,7 +2494,7 @@ mod tests {
         )
         .expect("second Defend applies");
 
-        assert_eq!(after_second.player.powers.weak, 4);
+        assert_eq!(after_second.monsters[0].powers.anger, 4);
     }
 
     #[test]

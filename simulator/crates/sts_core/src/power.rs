@@ -6,6 +6,7 @@ pub struct PlayerPowers {
     pub weak: i32,
     pub dexterity: i32,
     pub frail: i32,
+    pub vulnerable: i32,
     pub ritual: i32,
     pub metallicize: i32,
     pub feel_no_pain: i32,
@@ -20,6 +21,10 @@ pub struct MonsterPowers {
     pub ritual: i32,
     pub spikes: i32,
     pub curl_up: i32,
+    /// Gremlin Nob enrage stacks (Anger); each stack adds +1 attack damage.
+    pub anger: i32,
+    /// Lagavulin sleep stance block gain per turn.
+    pub metallicize: i32,
 }
 
 /// Slay the Spire-style vulnerable bonus: attack damage is increased by 50%, floored.
@@ -43,7 +48,7 @@ pub fn calculate_attack_damage(
     temp_strength: i32,
     target_vulnerable: i32,
 ) -> i32 {
-    let with_strength = base + player.strength + temp_strength;
+    let with_strength = (base + player.strength + temp_strength).max(0);
     let with_weak = if player.weak > 0 {
         with_strength * 3 / 4
     } else {
@@ -56,7 +61,7 @@ pub fn calculate_attack_damage(
 /// Block from cards: add dexterity, then apply frail reduction (25%, floored).
 #[must_use]
 pub fn calculate_block(base: i32, player: PlayerPowers) -> i32 {
-    let with_dexterity = base + player.dexterity;
+    let with_dexterity = (base + player.dexterity).max(0);
     if player.frail > 0 {
         with_dexterity * 3 / 4
     } else {
