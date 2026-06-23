@@ -1323,11 +1323,11 @@ mod tests {
     #[test]
     fn take_relic_reward_accepts_unimplemented_relic_key_offer() {
         let mut run = winning_combat_run();
-        run.reward.as_mut().expect("reward").relic_key_offer = Some(crate::RelicKey::Whetstone);
+        run.reward.as_mut().expect("reward").relic_key_offer = Some(crate::RelicKey::PenNib);
 
         let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic key");
 
-        assert_eq!(next.relic_keys, vec![crate::RelicKey::Whetstone]);
+        assert_eq!(next.relic_keys, vec![crate::RelicKey::PenNib]);
         assert!(next.relics.is_empty());
     }
 

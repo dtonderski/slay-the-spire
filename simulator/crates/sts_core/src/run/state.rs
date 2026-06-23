@@ -25,6 +25,7 @@ use crate::{
         PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
         SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
     },
+    rng::JavaRng,
     rng::StsRng,
     SimError, SimResult,
 };
@@ -247,6 +248,7 @@ mod tests {
             Relic::from_key(RelicKey::WhiteBeastStatue),
             Some(Relic::WhiteBeastStatue)
         );
+        assert_eq!(Relic::from_key(RelicKey::Whetstone), Some(Relic::Whetstone));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -478,6 +480,65 @@ mod tests {
             run.deck.last().expect("added card").content_id,
             POMMEL_STRIKE_ID
         );
+    }
+
+    #[test]
+    fn whetstone_pickup_upgrades_two_random_non_starter_attacks() {
+        let mut run = RunState::map_fixture();
+        run.deck.clear();
+        run.deck.push(CardInstance::new(CardId::new(500), ANGER_ID));
+        run.deck
+            .push(CardInstance::new(CardId::new(501), CLEAVE_ID));
+        run.deck
+            .push(CardInstance::new(CardId::new(502), POMMEL_STRIKE_ID));
+        run.deck
+            .push(CardInstance::new(CardId::new(503), SHRUG_IT_OFF_ID));
+
+        run.gain_relic(Relic::Whetstone);
+
+        let upgraded_attacks = run
+            .deck
+            .iter()
+            .filter(|card| {
+                matches!(
+                    card.content_id,
+                    crate::content::cards::ANGER_PLUS_ID
+                        | crate::content::cards::CLEAVE_PLUS_ID
+                        | crate::content::cards::POMMEL_STRIKE_PLUS_ID
+                )
+            })
+            .count();
+        assert_eq!(upgraded_attacks, 2);
+        assert_eq!(run.card_random_rng_counter, 0);
+        assert_eq!(run.misc_rng_counter, 1);
+    }
+
+    #[test]
+    fn whetstone_pickup_can_upgrade_starter_strikes() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::Whetstone);
+
+        assert_eq!(
+            run.count_content_in_deck(crate::content::cards::STRIKE_R_PLUS_ID),
+            2
+        );
+        assert_eq!(run.count_content_in_deck(STRIKE_R_ID), 3);
+        assert_eq!(run.misc_rng_counter, 1);
+    }
+
+    #[test]
+    fn whetstone_pickup_without_valid_attacks_does_not_consume_rng() {
+        let mut run = RunState::map_fixture();
+        run.deck.clear();
+        run.deck
+            .push(CardInstance::new(CardId::new(500), SHRUG_IT_OFF_ID));
+
+        run.gain_relic(Relic::Whetstone);
+
+        assert_eq!(run.count_content_in_deck(STRIKE_R_ID), 0);
+        assert_eq!(run.count_content_in_deck(SHRUG_IT_OFF_ID), 1);
+        assert_eq!(run.misc_rng_counter, 0);
     }
 
     #[test]
@@ -1405,6 +1466,9 @@ impl RunState {
             Relic::RunicDome => {
                 self.energy_per_turn += RUNIC_DOME_ENERGY;
             }
+            Relic::Whetstone => {
+                self.upgrade_random_deck_cards(CardType::Attack, 2);
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1468,6 +1532,41 @@ impl RunState {
             | Relic::StrikeDummy
             | Relic::Brimstone
             | Relic::WhiteBeastStatue => {}
+        }
+    }
+
+    fn upgrade_random_deck_cards(&mut self, card_type: CardType, amount: usize) {
+        let mut upgradeable: Vec<_> = self
+            .deck
+            .iter()
+            .enumerate()
+            .filter_map(|(index, card)| {
+                let definition = get_card_definition(card.content_id)?;
+                if definition.card_type == card_type
+                    && upgrade_content_id(card.content_id).is_some()
+                {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if upgradeable.is_empty() {
+            return;
+        }
+
+        let mut misc_rng = StsRng::with_counter(self.misc_rng_seed as i64, self.misc_rng_counter);
+        let shuffle_seed = misc_rng.random_long();
+        self.misc_rng_counter = misc_rng.counter();
+
+        JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
+
+        for deck_index in upgradeable.into_iter().take(amount) {
+            let content_id = self.deck[deck_index].content_id;
+            let upgraded =
+                upgrade_content_id(content_id).expect("upgradeable card validated before shuffle");
+            self.deck[deck_index].content_id = upgraded;
         }
     }
 
@@ -1666,6 +1765,7 @@ impl Relic {
             Relic::StrikeDummy => RelicKey::StrikeDummy,
             Relic::Brimstone => RelicKey::Brimstone,
             Relic::WhiteBeastStatue => RelicKey::WhiteBeastStatue,
+            Relic::Whetstone => RelicKey::Whetstone,
         }
     }
 
@@ -1749,6 +1849,7 @@ impl Relic {
             RelicKey::StrikeDummy => Some(Relic::StrikeDummy),
             RelicKey::Brimstone => Some(Relic::Brimstone),
             RelicKey::WhiteBeastStatue => Some(Relic::WhiteBeastStatue),
+            RelicKey::Whetstone => Some(Relic::Whetstone),
             _ => None,
         }
     }
