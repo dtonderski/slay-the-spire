@@ -22,8 +22,8 @@ use crate::{
         MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD,
         OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH,
-        SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
+        PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
+        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
     },
     rng::StsRng,
     SimError, SimResult,
@@ -237,6 +237,7 @@ mod tests {
             Some(Relic::SlaversCollar)
         );
         assert_eq!(Relic::from_key(RelicKey::Ectoplasm), Some(Relic::Ectoplasm));
+        assert_eq!(Relic::from_key(RelicKey::RunicDome), Some(Relic::RunicDome));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -314,6 +315,21 @@ mod tests {
         assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY + ECTOPLASM_ENERGY);
         run.gain_gold(25);
         assert_eq!(run.gold, gold_before);
+    }
+
+    #[test]
+    fn runic_dome_pickup_adds_energy_for_combat() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::RunicDome);
+
+        assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY + RUNIC_DOME_ENERGY);
+        let combat = run.init_combat(CombatState::initial_fixture());
+        assert_eq!(
+            combat.player.max_energy,
+            BASE_PLAYER_ENERGY + RUNIC_DOME_ENERGY
+        );
+        assert_eq!(combat.player.energy, BASE_PLAYER_ENERGY + RUNIC_DOME_ENERGY);
     }
 
     #[test]
@@ -1377,6 +1393,9 @@ impl RunState {
             Relic::Ectoplasm => {
                 self.energy_per_turn += ECTOPLASM_ENERGY;
             }
+            Relic::RunicDome => {
+                self.energy_per_turn += RUNIC_DOME_ENERGY;
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1631,6 +1650,7 @@ impl Relic {
             Relic::PhilosophersStone => RelicKey::PhilosophersStone,
             Relic::SlaversCollar => RelicKey::SlaversCollar,
             Relic::Ectoplasm => RelicKey::Ectoplasm,
+            Relic::RunicDome => RelicKey::RunicDome,
         }
     }
 
@@ -1710,6 +1730,7 @@ impl Relic {
             RelicKey::PhilosophersStone => Some(Relic::PhilosophersStone),
             RelicKey::SlaversCollar => Some(Relic::SlaversCollar),
             RelicKey::Ectoplasm => Some(Relic::Ectoplasm),
+            RelicKey::RunicDome => Some(Relic::RunicDome),
             _ => None,
         }
     }

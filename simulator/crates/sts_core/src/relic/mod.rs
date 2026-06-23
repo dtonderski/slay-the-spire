@@ -317,6 +317,10 @@ pub const SLAVERS_COLLAR_ENERGY: i32 = 1;
 pub const ECTOPLASM_ID: ContentId = ContentId::new(372);
 /// Energy per turn granted by [Relic::Ectoplasm] on pickup.
 pub const ECTOPLASM_ENERGY: i32 = 1;
+/// Content id for [Relic::RunicDome].
+pub const RUNIC_DOME_ID: ContentId = ContentId::new(373);
+/// Energy per turn granted by [Relic::RunicDome] on pickup.
+pub const RUNIC_DOME_ENERGY: i32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -913,6 +917,7 @@ pub enum Relic {
     PhilosophersStone,
     SlaversCollar,
     Ectoplasm,
+    RunicDome,
 }
 
 impl Relic {
@@ -992,6 +997,7 @@ impl Relic {
             Relic::PhilosophersStone => PHILOSOPHERS_STONE_ID,
             Relic::SlaversCollar => SLAVERS_COLLAR_ID,
             Relic::Ectoplasm => ECTOPLASM_ID,
+            Relic::RunicDome => RUNIC_DOME_ID,
         }
     }
 
@@ -1071,6 +1077,7 @@ impl Relic {
             id if id == PHILOSOPHERS_STONE_ID => Some(Relic::PhilosophersStone),
             id if id == SLAVERS_COLLAR_ID => Some(Relic::SlaversCollar),
             id if id == ECTOPLASM_ID => Some(Relic::Ectoplasm),
+            id if id == RUNIC_DOME_ID => Some(Relic::RunicDome),
             _ => None,
         }
     }
@@ -1185,6 +1192,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PhilosophersStone => {}
             Relic::SlaversCollar => {}
             Relic::Ectoplasm => {}
+            Relic::RunicDome => {}
         }
     }
 
@@ -2111,6 +2119,11 @@ mod tests {
         );
         assert_eq!(Relic::Ectoplasm.content_id(), ECTOPLASM_ID);
         assert_eq!(Relic::from_content_id(ECTOPLASM_ID), Some(Relic::Ectoplasm));
+        assert_eq!(Relic::RunicDome.content_id(), RUNIC_DOME_ID);
+        assert_eq!(
+            Relic::from_content_id(RUNIC_DOME_ID),
+            Some(Relic::RunicDome)
+        );
     }
 
     #[test]
