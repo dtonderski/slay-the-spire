@@ -1333,6 +1333,8 @@ Completed slice:
 - implemented Pen Nib key promotion and tenth-Attack damage doubling with a persisted attack counter, including focused single-hit and multi-hit combat tests
 - expanded modeled HP-loss response relics: Self-Forming Clay
 - implemented Self-Forming Clay key promotion and HP-loss block gain for monster attacks, spikes, Burn, and Regret through the shared HP-loss relic hook, with focused relic/combat tests
+- expanded modeled start-of-combat artifact relics: Clockwork Souvenir
+- implemented Clockwork Souvenir key promotion and source-backed start-of-combat Artifact gain, with focused relic tests
 
 Remaining:
 

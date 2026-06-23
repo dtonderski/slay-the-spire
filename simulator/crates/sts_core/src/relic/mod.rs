@@ -34,6 +34,8 @@ pub const BAG_OF_MARBLES_VULNERABLE: i32 = 1;
 pub const BRONZE_SCALES_THORNS: i32 = 3;
 /// Plated Armor granted by [Relic::ThreadAndNeedle] at combat start.
 pub const THREAD_AND_NEEDLE_PLATED_ARMOR: i32 = 4;
+/// Artifact granted by [Relic::ClockworkSouvenir] at combat start.
+pub const CLOCKWORK_SOUVENIR_ARTIFACT: i32 = 1;
 /// Strength granted by [Relic::RedSkull] while starting combat at or below half HP.
 pub const RED_SKULL_STRENGTH: i32 = 3;
 /// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
@@ -353,6 +355,8 @@ pub const CENTENNIAL_PUZZLE_ID: ContentId = ContentId::new(380);
 pub const PEN_NIB_ID: ContentId = ContentId::new(381);
 /// Content id for [Relic::SelfFormingClay].
 pub const SELF_FORMING_CLAY_ID: ContentId = ContentId::new(382);
+/// Content id for [Relic::ClockworkSouvenir].
+pub const CLOCKWORK_SOUVENIR_ID: ContentId = ContentId::new(383);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -965,6 +969,7 @@ pub enum Relic {
     CentennialPuzzle,
     PenNib,
     SelfFormingClay,
+    ClockworkSouvenir,
 }
 
 impl Relic {
@@ -1054,6 +1059,7 @@ impl Relic {
             Relic::CentennialPuzzle => CENTENNIAL_PUZZLE_ID,
             Relic::PenNib => PEN_NIB_ID,
             Relic::SelfFormingClay => SELF_FORMING_CLAY_ID,
+            Relic::ClockworkSouvenir => CLOCKWORK_SOUVENIR_ID,
         }
     }
 
@@ -1143,6 +1149,7 @@ impl Relic {
             id if id == CENTENNIAL_PUZZLE_ID => Some(Relic::CentennialPuzzle),
             id if id == PEN_NIB_ID => Some(Relic::PenNib),
             id if id == SELF_FORMING_CLAY_ID => Some(Relic::SelfFormingClay),
+            id if id == CLOCKWORK_SOUVENIR_ID => Some(Relic::ClockworkSouvenir),
             _ => None,
         }
     }
@@ -1191,6 +1198,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             }
             Relic::ThreadAndNeedle => {
                 combat.player.powers.plated_armor += THREAD_AND_NEEDLE_PLATED_ARMOR;
+            }
+            Relic::ClockworkSouvenir => {
+                combat.player.powers.artifact += CLOCKWORK_SOUVENIR_ARTIFACT;
             }
             Relic::RedSkull => {
                 if combat.player.hp * 2 <= combat.player.max_hp {
@@ -1979,6 +1989,15 @@ mod tests {
     }
 
     #[test]
+    fn clockwork_souvenir_grants_artifact_at_combat_start() {
+        let mut combat = CombatState::initial_fixture();
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::ClockworkSouvenir]);
+
+        assert_eq!(combat.player.powers.artifact, CLOCKWORK_SOUVENIR_ARTIFACT);
+    }
+
+    #[test]
     fn red_skull_grants_strength_only_at_or_below_half_hp() {
         let mut high_hp = CombatState::initial_fixture();
         high_hp.player.hp = high_hp.player.max_hp / 2 + 1;
@@ -2268,6 +2287,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(SELF_FORMING_CLAY_ID),
             Some(Relic::SelfFormingClay)
+        );
+        assert_eq!(Relic::ClockworkSouvenir.content_id(), CLOCKWORK_SOUVENIR_ID);
+        assert_eq!(
+            Relic::from_content_id(CLOCKWORK_SOUVENIR_ID),
+            Some(Relic::ClockworkSouvenir)
         );
     }
 
