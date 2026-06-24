@@ -402,6 +402,10 @@ mod tests {
             Relic::from_key(RelicKey::BirdFacedUrn),
             Some(Relic::BirdFacedUrn)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::TheCourier),
+            Some(Relic::TheCourier)
+        );
     }
 
     #[test]
@@ -1928,7 +1932,8 @@ impl RunState {
             | Relic::BlackStar
             | Relic::Matryoshka
             | Relic::DeadBranch
-            | Relic::MummifiedHand => {}
+            | Relic::MummifiedHand
+            | Relic::TheCourier => {}
         }
     }
 
@@ -2236,6 +2241,7 @@ impl Relic {
             Relic::TinyHouse => RelicKey::TinyHouse,
             Relic::DeadBranch => RelicKey::DeadBranch,
             Relic::MummifiedHand => RelicKey::MummifiedHand,
+            Relic::TheCourier => RelicKey::TheCourier,
         }
     }
 
@@ -2366,6 +2372,7 @@ impl Relic {
             RelicKey::TinyHouse => Some(Relic::TinyHouse),
             RelicKey::DeadBranch => Some(Relic::DeadBranch),
             RelicKey::MummifiedHand => Some(Relic::MummifiedHand),
+            RelicKey::TheCourier => Some(Relic::TheCourier),
             _ => None,
         }
     }
