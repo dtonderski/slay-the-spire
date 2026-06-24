@@ -348,6 +348,10 @@ mod tests {
             Some(Relic::DollysMirror)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::PrayerWheel),
+            Some(Relic::PrayerWheel)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1140,6 +1144,36 @@ pub struct RewardScreen {
     /// Normal combat rewards defer card RNG until the player opens the card screen.
     #[serde(default)]
     pub card_reward_pending: bool,
+    /// Number of unopened card reward screens remaining.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub pending_card_reward_count: u8,
+}
+
+impl RewardScreen {
+    #[must_use]
+    pub fn pending_card_reward_count(&self) -> u8 {
+        if self.pending_card_reward_count > 0 {
+            self.pending_card_reward_count
+        } else if self.card_reward_pending {
+            1
+        } else {
+            0
+        }
+    }
+
+    pub fn set_pending_card_rewards(&mut self, count: u8) {
+        self.pending_card_reward_count = count;
+        self.card_reward_pending = count > 0;
+    }
+
+    pub fn consume_pending_card_reward(&mut self) {
+        let count = self.pending_card_reward_count().saturating_sub(1);
+        self.set_pending_card_rewards(count);
+    }
+}
+
+fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1665,6 +1699,7 @@ impl RunState {
             | Relic::FrozenEgg
             | Relic::TheBoot
             | Relic::BirdFacedUrn
+            | Relic::PrayerWheel
             | Relic::PotionBelt
             | Relic::Lantern
             | Relic::BagOfPreparation
@@ -1840,7 +1875,7 @@ impl RunState {
                 Ok(())
             }
             RunAction::OpenCardReward => {
-                if !reward.card_reward_pending {
+                if reward.pending_card_reward_count() == 0 {
                     return Err(SimError::IllegalAction("no card reward offered"));
                 }
                 if reward.card_reward_active {
@@ -2019,6 +2054,7 @@ impl Relic {
             Relic::BottledLightning => RelicKey::BottledLightning,
             Relic::BottledTornado => RelicKey::BottledTornado,
             Relic::DollysMirror => RelicKey::DollysMirror,
+            Relic::PrayerWheel => RelicKey::PrayerWheel,
         }
     }
 
@@ -2138,6 +2174,7 @@ impl Relic {
             RelicKey::BottledLightning => Some(Relic::BottledLightning),
             RelicKey::BottledTornado => Some(Relic::BottledTornado),
             RelicKey::DollysMirror => Some(Relic::DollysMirror),
+            RelicKey::PrayerWheel => Some(Relic::PrayerWheel),
             _ => None,
         }
     }
