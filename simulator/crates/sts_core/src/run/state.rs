@@ -284,6 +284,10 @@ mod tests {
             Some(Relic::MedicalKit)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::LizardTail),
+            Some(Relic::LizardTail)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -992,6 +996,8 @@ pub struct RunState {
     pub maw_bank_broken: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub ancient_tea_set_armed: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub lizard_tail_used: bool,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1253,6 +1259,7 @@ impl RunState {
             omamori_charges_used: 0,
             maw_bank_broken: false,
             ancient_tea_set_armed: false,
+            lizard_tail_used: false,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1307,6 +1314,7 @@ impl RunState {
             omamori_charges_used: 0,
             maw_bank_broken: false,
             ancient_tea_set_armed: false,
+            lizard_tail_used: false,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1623,7 +1631,8 @@ impl RunState {
             | Relic::Sundial
             | Relic::CharonsAshes
             | Relic::BlueCandle
-            | Relic::MedicalKit => {}
+            | Relic::MedicalKit
+            | Relic::LizardTail => {}
         }
     }
 
@@ -1871,6 +1880,7 @@ impl Relic {
             Relic::CharonsAshes => RelicKey::CharonsAshes,
             Relic::BlueCandle => RelicKey::BlueCandle,
             Relic::MedicalKit => RelicKey::MedicalKit,
+            Relic::LizardTail => RelicKey::LizardTail,
         }
     }
 
@@ -1968,6 +1978,7 @@ impl Relic {
             RelicKey::CharonsAshes => Some(Relic::CharonsAshes),
             RelicKey::BlueCandle => Some(Relic::BlueCandle),
             RelicKey::MedicalKit => Some(Relic::MedicalKit),
+            RelicKey::LizardTail => Some(Relic::LizardTail),
             _ => None,
         }
     }
