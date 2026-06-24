@@ -413,6 +413,8 @@ pub const SACRED_BARK_ID: ContentId = ContentId::new(397);
 pub const RUNIC_PYRAMID_ID: ContentId = ContentId::new(398);
 /// Content id for [Relic::FrozenEye].
 pub const FROZEN_EYE_ID: ContentId = ContentId::new(399);
+/// Content id for [Relic::PeacePipe].
+pub const PEACE_PIPE_ID: ContentId = ContentId::new(400);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1046,6 +1048,7 @@ pub enum Relic {
     SacredBark,
     RunicPyramid,
     FrozenEye,
+    PeacePipe,
 }
 
 impl Relic {
@@ -1152,6 +1155,7 @@ impl Relic {
             Relic::SacredBark => SACRED_BARK_ID,
             Relic::RunicPyramid => RUNIC_PYRAMID_ID,
             Relic::FrozenEye => FROZEN_EYE_ID,
+            Relic::PeacePipe => PEACE_PIPE_ID,
         }
     }
 
@@ -1258,6 +1262,7 @@ impl Relic {
             id if id == SACRED_BARK_ID => Some(Relic::SacredBark),
             id if id == RUNIC_PYRAMID_ID => Some(Relic::RunicPyramid),
             id if id == FROZEN_EYE_ID => Some(Relic::FrozenEye),
+            id if id == PEACE_PIPE_ID => Some(Relic::PeacePipe),
             _ => None,
         }
     }
@@ -1270,6 +1275,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::SacredBark => {}
             Relic::RunicPyramid => {}
             Relic::FrozenEye => {}
+            Relic::PeacePipe => {}
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -2537,6 +2543,8 @@ mod tests {
             Relic::from_content_id(FROZEN_EYE_ID),
             Some(Relic::FrozenEye)
         );
+        assert_eq!(Relic::PeacePipe.content_id(), PEACE_PIPE_ID);
+        assert_eq!(Relic::from_content_id(PEACE_PIPE_ID), Some(Relic::PeacePipe));
     }
 
     #[test]

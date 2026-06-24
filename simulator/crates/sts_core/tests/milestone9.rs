@@ -82,7 +82,6 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
         expected.push(RestAction::OpenSmith);
     }
     for card in &run.deck {
-        expected.push(RestAction::RemoveCard { card_id: card.id });
         if upgrade_content_id(card.content_id).is_some() {
             expected.push(RestAction::Smith { card_id: card.id });
         }
@@ -410,6 +409,7 @@ fn buy_shop_card_is_illegal_outside_shop_phase() {
 #[test]
 fn remove_card_at_rest_drops_strike_from_deck() {
     let mut run = RunState::map_fixture();
+    run.relics.push(Relic::PeacePipe);
     run = apply_map_action_on_run(
         &run,
         MapAction::ChooseNode {

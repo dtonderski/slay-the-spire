@@ -21,6 +21,11 @@ pub fn can_smith(run: &RunState) -> bool {
 }
 
 #[must_use]
+pub fn can_remove_at_rest(run: &RunState) -> bool {
+    run.relics.contains(&Relic::PeacePipe)
+}
+
+#[must_use]
 pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     if run.phase != RunPhase::Rest {
         return Vec::new();
@@ -38,7 +43,9 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
         actions.push(RestAction::OpenSmith);
     }
     for card in &run.deck {
-        actions.push(RestAction::RemoveCard { card_id: card.id });
+        if can_remove_at_rest(run) {
+            actions.push(RestAction::RemoveCard { card_id: card.id });
+        }
         if upgrade_content_id(card.content_id).is_some() && can_smith(run) {
             actions.push(RestAction::Smith { card_id: card.id });
         }
@@ -78,6 +85,9 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
             }
         }
         RestAction::RemoveCard { card_id } => {
+            if !can_remove_at_rest(run) {
+                return Err(SimError::IllegalAction("remove is not available"));
+            }
             if run.deck.iter().any(|card| card.id == card_id) {
                 Ok(())
             } else {
@@ -293,10 +303,10 @@ mod tests {
     }
 
     #[test]
-    fn fusion_hammer_disables_smith_actions_but_keeps_rest_and_remove() {
+    fn fusion_hammer_disables_smith_actions_but_keeps_rest_and_peace_pipe_remove() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Rest;
-        run.relics.push(Relic::FusionHammer);
+        run.relics.extend([Relic::FusionHammer, Relic::PeacePipe]);
         let strike_id = run.deck[0].id;
 
         let actions = legal_rest_actions(&run);
@@ -355,7 +365,6 @@ mod tests {
             expected.push(RestAction::OpenSmith);
         }
         for card in &run.deck {
-            expected.push(RestAction::RemoveCard { card_id: card.id });
             if upgrade_content_id(card.content_id).is_some() {
                 expected.push(RestAction::Smith { card_id: card.id });
             }
@@ -364,9 +373,22 @@ mod tests {
     }
 
     #[test]
-    fn remove_card_drops_card_from_master_deck() {
+    fn remove_card_without_peace_pipe_is_illegal() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Rest;
+        let strike_id = run.deck[0].id;
+
+        let err = apply_rest_action(&run, RestAction::RemoveCard { card_id: strike_id })
+            .expect_err("remove blocked");
+
+        assert_eq!(err, SimError::IllegalAction("remove is not available"));
+    }
+
+    #[test]
+    fn peace_pipe_remove_card_drops_card_from_master_deck() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.relics.push(Relic::PeacePipe);
         let strike_id = run.deck[0].id;
         let starting_len = run.deck.len();
 
