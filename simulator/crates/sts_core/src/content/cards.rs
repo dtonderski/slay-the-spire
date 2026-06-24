@@ -983,6 +983,27 @@ pub const CLOTHESLINE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const INTIMIDATE: CardDefinition = CardDefinition {
+    id: INTIMIDATE_ID,
+    key: "INTIMIDATE",
+    name: "Intimidate",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const SEVER_SOUL: CardDefinition = CardDefinition {
     id: SEVER_SOUL_ID,
     key: "Sever Soul",
@@ -1164,7 +1185,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 61] = [
+pub const ALL_CARDS: [CardDefinition; 62] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1217,6 +1238,7 @@ pub const ALL_CARDS: [CardDefinition; 61] = [
     SWIFT_STRIKE,
     IRON_WAVE,
     CLOTHESLINE,
+    INTIMIDATE,
     SEVER_SOUL,
     SENTINEL,
     BLOODLETTING,
@@ -1275,6 +1297,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == WARCRY_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         _ => None,
     }
@@ -1396,6 +1419,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(CLOTHESLINE_ID),
             Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn intimidate_has_expected_values() {
+        assert_eq!(INTIMIDATE.cost, 0);
+        assert_eq!(INTIMIDATE.target, TargetRequirement::None);
+        assert_eq!(INTIMIDATE.card_type, CardType::Skill);
+        assert!(INTIMIDATE.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(INTIMIDATE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
 
