@@ -1284,6 +1284,8 @@ Completed slice:
 - implemented Busted Crown pickup energy and one-choice card rewards with focused state/reward RNG tests
 - expanded modeled boss energy/card-limit relics: Velvet Choker
 - implemented Velvet Choker pickup energy, per-turn card play counter tracking, and six-card legal-action limit with focused state/relic/legal tests
+- expanded modeled hand-retention relics: Runic Pyramid
+- implemented Runic Pyramid key promotion and end-turn non-Ethereal hand retention after Burn/Regret/Ethereal cleanup, with focused hand/relic tests
 - expanded modeled potion-use healing relics: Toy Ornithopter
 - implemented Toy Ornithopter promotion from relic keys and potion-use healing for combat/non-combat potion use, including discard no-op and Magic Flower combat-healing coverage
 - expanded modeled card-add upgrade relics: Molten Egg, Toxic Egg, and Frozen Egg

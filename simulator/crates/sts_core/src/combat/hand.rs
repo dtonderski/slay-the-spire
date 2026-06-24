@@ -59,6 +59,10 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
 }
 
 fn discard_non_retain_hand(state: &mut CombatState) {
+    if state.relics.contains(&crate::Relic::RunicPyramid) {
+        return;
+    }
+
     let mut retained = Vec::new();
     let mut discarded = Vec::new();
 
@@ -216,6 +220,44 @@ mod tests {
 
         assert_eq!(next.piles.hand.len(), 1);
         assert_eq!(next.piles.hand[0].content_id, RETAIN_DEFEND_ID);
+    }
+
+    #[test]
+    fn runic_pyramid_keeps_non_retain_hand_cards_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::RunicPyramid];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), crate::content::cards::STRIKE_R_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+        let hand: Vec<_> = next.piles.hand.iter().map(|card| card.id).collect();
+
+        assert_eq!(hand, vec![CardId::new(20), CardId::new(21)]);
+        assert!(next.piles.discard_pile.is_empty());
+    }
+
+    #[test]
+    fn runic_pyramid_still_exhausts_unplayed_ethereal_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::RunicPyramid];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), ETHEREAL_STRIKE_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].id, CardId::new(21));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == ETHEREAL_STRIKE_ID));
     }
 
     #[test]
