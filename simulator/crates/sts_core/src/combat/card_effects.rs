@@ -7,8 +7,8 @@ use crate::{
     },
     content::cards::{
         get_card_definition, is_curse_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
-        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BODY_SLAM_ID, BURNING_PACT_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID,
+        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID,
         DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID,
         FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
@@ -67,6 +67,11 @@ pub(super) fn play_card_queue(
             state,
             card_id,
             target.expect("validated Body Slam has a target"),
+            definition,
+        ),
+        CLASH_ID => generic_attack_queue(
+            card_id,
+            target.expect("validated Clash has a target"),
             definition,
         ),
         CLOTHESLINE_ID => clothesline_queue(

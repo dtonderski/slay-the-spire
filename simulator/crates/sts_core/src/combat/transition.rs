@@ -798,8 +798,8 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BODY_SLAM_ID,
-        BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
-        DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID,
+        BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID,
+        DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID,
         INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
         SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
@@ -1128,6 +1128,70 @@ mod tests {
             apply_combat_action(&state, body_slam_action(&state)).expect("Body Slam applies");
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+    }
+
+    #[test]
+    fn clash_deals_fourteen_damage_without_spending_energy() {
+        let state = hand_only(CLASH_ID);
+
+        let next = apply_combat_action(&state, clash_action(&state)).expect("Clash applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 14);
+        assert_eq!(next.player.energy, state.player.energy);
+    }
+
+    #[test]
+    fn clash_moves_to_discard_after_play() {
+        let state = hand_only(CLASH_ID);
+        let clash_id = hand_card_id(&state, CLASH_ID);
+
+        let next = apply_combat_action(&state, clash_action(&state)).expect("Clash applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == clash_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == clash_id));
+    }
+
+    #[test]
+    fn clash_event_log_records_zero_energy_attack() {
+        let state = hand_only(CLASH_ID);
+        let clash_id = hand_card_id(&state, CLASH_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, clash_action(&state)).expect("Clash applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: clash_id },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(clash_id),
+                        target: MonsterId::new(1),
+                        amount: 14,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: clash_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_clash() {
+        let mut state = hand_only(CLASH_ID);
+        state.relics.push(Relic::Akabeko);
+
+        let next = apply_combat_action(&state, clash_action(&state)).expect("Clash applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 22);
     }
 
     #[test]
@@ -3171,6 +3235,13 @@ mod tests {
     fn body_slam_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BODY_SLAM_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn clash_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, CLASH_ID),
             target: Some(MonsterId::new(1)),
         }
     }
