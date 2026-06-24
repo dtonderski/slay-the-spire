@@ -459,6 +459,10 @@ pub const HOLY_WATER_ID: ContentId = ContentId::new(417);
 pub const RING_OF_THE_SNAKE_ID: ContentId = ContentId::new(418);
 /// Content id for [Relic::RingOfTheSerpent].
 pub const RING_OF_THE_SERPENT_ID: ContentId = ContentId::new(419);
+/// Content id for [Relic::Cauldron].
+pub const CAULDRON_ID: ContentId = ContentId::new(420);
+/// Random potion rolls granted by [Relic::Cauldron] on pickup.
+pub const CAULDRON_POTIONS: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1122,6 +1126,7 @@ pub enum Relic {
     HolyWater,
     RingOfTheSnake,
     RingOfTheSerpent,
+    Cauldron,
 }
 
 impl Relic {
@@ -1248,6 +1253,7 @@ impl Relic {
             Relic::HolyWater => HOLY_WATER_ID,
             Relic::RingOfTheSnake => RING_OF_THE_SNAKE_ID,
             Relic::RingOfTheSerpent => RING_OF_THE_SERPENT_ID,
+            Relic::Cauldron => CAULDRON_ID,
         }
     }
 
@@ -1374,6 +1380,7 @@ impl Relic {
             id if id == HOLY_WATER_ID => Some(Relic::HolyWater),
             id if id == RING_OF_THE_SNAKE_ID => Some(Relic::RingOfTheSnake),
             id if id == RING_OF_THE_SERPENT_ID => Some(Relic::RingOfTheSerpent),
+            id if id == CAULDRON_ID => Some(Relic::Cauldron),
             _ => None,
         }
     }
@@ -1405,6 +1412,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::HolyWater => {}
             Relic::RingOfTheSnake => {}
             Relic::RingOfTheSerpent => {}
+            Relic::Cauldron => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -2804,6 +2812,8 @@ mod tests {
             Relic::from_content_id(RING_OF_THE_SERPENT_ID),
             Some(Relic::RingOfTheSerpent)
         );
+        assert_eq!(Relic::Cauldron.content_id(), CAULDRON_ID);
+        assert_eq!(Relic::from_content_id(CAULDRON_ID), Some(Relic::Cauldron));
     }
 
     #[test]

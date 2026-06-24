@@ -1387,6 +1387,8 @@ Completed slice:
 - implemented Prayer Wheel key promotion, content-id round trips, normal-combat two-card-reward pending counts, and sequential card reward opening/taking with focused reward tests
 - expanded starter/fallback no-op relics for off-character imports: Cracked Core, Frozen Core, Pure Water, Holy Water, Ring of the Snake, and Ring of the Serpent
 - implemented off-character starter/replacement key promotion and content-id round trips as no-op relics within the Ironclad simulator scope
+- expanded modeled random-potion pickup relics: Cauldron
+- implemented Cauldron key promotion, content-id round trips, and pickup-triggered random potion filling up to available capacity while respecting Sozu and existing filled slots
 
 Remaining:
 
