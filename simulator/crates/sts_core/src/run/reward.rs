@@ -647,8 +647,14 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let transition = apply_combat_action_with_events(combat, action)?;
     let mut next_combat = transition.state;
     let mut next = run.clone();
+    if let Some(rng) = next_combat.card_random_rng.as_ref() {
+        next.card_random_rng_counter = rng.counter();
+    }
     apply_mummified_hand_for_power_play(&mut next, &mut next_combat, combat, &transition.event_log);
     apply_dead_branch_for_exhaust_log(&mut next, &mut next_combat, &transition.event_log);
+    if next_combat.card_random_rng.is_some() {
+        next_combat.card_random_rng = Some(next.card_random_rng());
+    }
     apply_fairy_if_lethal(&mut next, &mut next_combat);
     next.combat = Some(next_combat.clone());
     next.player_hp = next_combat.player.hp;
@@ -1050,6 +1056,33 @@ mod tests {
         );
         assert_eq!(after.player_hp, combat.player.hp);
         assert_eq!(after.potions, vec![Potion::Fire]);
+    }
+
+    #[test]
+    fn snecko_eye_combat_draws_advance_run_card_random_counter() {
+        let mut run = RunState::combat_fixture();
+        run.relics.push(Relic::SneckoEye);
+        run.card_random_rng_counter = 0;
+        let mut combat = run.combat.take().expect("combat fixture");
+        combat.relics = run.relics.clone();
+        combat.card_random_rng = Some(run.card_random_rng());
+        combat.piles.hand.clear();
+        combat.piles.draw_pile = (10..20)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        combat.monsters[0].hp = 100;
+        run.combat = Some(combat);
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+        let combat = after.combat.as_ref().expect("combat continues");
+
+        assert_eq!(combat.piles.hand.len(), 7);
+        assert_eq!(after.card_random_rng_counter, 7);
+        assert_eq!(
+            combat.card_random_rng.as_ref().expect("card rng").counter(),
+            after.card_random_rng_counter
+        );
     }
 
     #[test]

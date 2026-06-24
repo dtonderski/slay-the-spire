@@ -28,6 +28,10 @@ pub const TINY_HOUSE_HEAL: i32 = 7;
 pub const TINY_HOUSE_GOLD: i32 = 50;
 /// Card reward screens granted by [Relic::Orrery] on pickup.
 pub const ORRERY_CARD_REWARDS: u8 = 5;
+/// Extra cards drawn each hand by [Relic::SneckoEye].
+pub const SNECKO_EYE_DRAW: usize = 2;
+/// Energy granted by [Relic::SneckoEye] on pickup.
+pub const SNECKO_EYE_ENERGY: i32 = 1;
 /// Extra potion slots granted by [Relic::PotionBelt] on pickup.
 pub const POTION_BELT_SLOTS: usize = 2;
 /// HP healed by [Relic::BloodVial] at combat start.
@@ -487,6 +491,8 @@ pub const CURSED_KEY_ID: ContentId = ContentId::new(426);
 pub const TINY_CHEST_ID: ContentId = ContentId::new(427);
 /// Content id for [Relic::Orrery].
 pub const ORRERY_ID: ContentId = ContentId::new(428);
+/// Content id for [Relic::SneckoEye].
+pub const SNECKO_EYE_ID: ContentId = ContentId::new(429);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1161,6 +1167,7 @@ pub enum Relic {
     CursedKey,
     TinyChest,
     Orrery,
+    SneckoEye,
 }
 
 impl Relic {
@@ -1296,6 +1303,7 @@ impl Relic {
             Relic::CursedKey => CURSED_KEY_ID,
             Relic::TinyChest => TINY_CHEST_ID,
             Relic::Orrery => ORRERY_ID,
+            Relic::SneckoEye => SNECKO_EYE_ID,
         }
     }
 
@@ -1431,6 +1439,7 @@ impl Relic {
             id if id == CURSED_KEY_ID => Some(Relic::CursedKey),
             id if id == TINY_CHEST_ID => Some(Relic::TinyChest),
             id if id == ORRERY_ID => Some(Relic::Orrery),
+            id if id == SNECKO_EYE_ID => Some(Relic::SneckoEye),
             _ => None,
         }
     }
@@ -1471,6 +1480,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::CursedKey => {}
             Relic::TinyChest => {}
             Relic::Orrery => {}
+            Relic::SneckoEye => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }

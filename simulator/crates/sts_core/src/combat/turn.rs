@@ -1,6 +1,6 @@
 use crate::{
-    combat::hand::resolve_end_of_turn_hand,
     combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
+    combat::{draw::apply_snecko_eye_cost_randomization, hand::resolve_end_of_turn_hand},
     combat::{CombatPhase, CombatState},
     content::monsters::{
         apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent,
@@ -143,7 +143,7 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
 }
 
 fn draw_next_hand_without_shuffle(state: &mut CombatState) {
-    while state.piles.hand.len() < HAND_SIZE {
+    while state.piles.hand.len() < target_hand_size(state) {
         if state.piles.draw_pile.is_empty() {
             if let Some(rng) = state.shuffle_rng.as_mut() {
                 if !state.piles.discard_pile.is_empty() {
@@ -159,10 +159,20 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
             break;
         }
 
-        if let Some(card) = state.piles.draw_pile.pop() {
+        if let Some(mut card) = state.piles.draw_pile.pop() {
+            apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
         }
     }
+}
+
+fn target_hand_size(state: &CombatState) -> usize {
+    HAND_SIZE
+        + if state.relics.contains(&crate::Relic::SneckoEye) {
+            crate::relic::SNECKO_EYE_DRAW
+        } else {
+            0
+        }
 }
 
 fn prepare_next_intents(state: &mut CombatState) {
@@ -421,6 +431,26 @@ mod tests {
         assert_eq!(next.piles.hand.len(), 1);
         assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
         assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn snecko_eye_draws_seven_each_turn_and_randomizes_drawn_costs() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::SneckoEye];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.hand.clear();
+        state.piles.draw_pile = (10..20)
+            .map(|id| crate::CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+
+        start_player_turn(&mut state);
+
+        assert_eq!(state.piles.hand.len(), 7);
+        assert!(state.piles.hand.iter().all(|card| card.temp_cost.is_some()));
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            7
+        );
     }
 
     #[test]

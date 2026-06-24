@@ -1,7 +1,8 @@
 use crate::{
     combat::CombatState,
+    content::cards::get_card_definition,
     rng::{JavaRng, RngStream, SimulatorRng, StsRng},
-    CardInstance,
+    CardInstance, Relic,
 };
 
 /// CommunicationMod lists draw piles bottom-first; the game draws from the top (last entry).
@@ -19,7 +20,8 @@ pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng)
             break;
         }
 
-        if let Some(card) = draw_card_from_pile_top(state) {
+        if let Some(mut card) = draw_card_from_pile_top(state) {
+            apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
         }
     }
@@ -35,10 +37,27 @@ pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut 
             break;
         }
 
-        if let Some(card) = draw_card_from_pile_top(state) {
+        if let Some(mut card) = draw_card_from_pile_top(state) {
+            apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
         }
     }
+}
+
+pub(crate) fn apply_snecko_eye_cost_randomization(
+    state: &mut CombatState,
+    card: &mut CardInstance,
+) {
+    if !state.relics.contains(&Relic::SneckoEye) {
+        return;
+    }
+    if !get_card_definition(card.content_id).is_some_and(|definition| definition.cost > 0) {
+        return;
+    }
+    let Some(rng) = state.card_random_rng.as_mut() else {
+        return;
+    };
+    card.temp_cost = Some(rng.random_int(3) as u8);
 }
 
 fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut SimulatorRng) {
