@@ -1043,6 +1043,21 @@ pub const PERFECTED_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const POWER_THROUGH: CardDefinition = CardDefinition {
+    id: POWER_THROUGH_ID,
+    key: "POWER_THROUGH",
+    name: "Power Through",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(15),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -1296,7 +1311,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 69] = [
+pub const ALL_CARDS: [CardDefinition; 70] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1353,6 +1368,7 @@ pub const ALL_CARDS: [CardDefinition; 69] = [
     WILD_STRIKE,
     HEAVY_BLADE,
     PERFECTED_STRIKE,
+    POWER_THROUGH,
     CLOTHESLINE,
     INTIMIDATE,
     SEVER_SOUL,
@@ -1400,6 +1416,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1593,6 +1610,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(PERFECTED_STRIKE_ID),
             Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn power_through_has_expected_values() {
+        assert_eq!(POWER_THROUGH.cost, 1);
+        assert_eq!(POWER_THROUGH.target, TargetRequirement::None);
+        assert_eq!(POWER_THROUGH.card_type, CardType::Skill);
+        assert_eq!(POWER_THROUGH.values.block, Some(15));
+        assert_eq!(
+            card_type_and_rarity(POWER_THROUGH_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
 
