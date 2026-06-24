@@ -411,6 +411,7 @@ mod tests {
             Some(Relic::IncenseBurner)
         );
         assert_eq!(Relic::from_key(RelicKey::CursedKey), Some(Relic::CursedKey));
+        assert_eq!(Relic::from_key(RelicKey::TinyChest), Some(Relic::TinyChest));
     }
 
     #[test]
@@ -1235,6 +1236,8 @@ pub struct RunState {
     pub matryoshka_chests_opened: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub incense_burner_counter: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub tiny_chest_counter: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1543,6 +1546,7 @@ impl RunState {
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
+            tiny_chest_counter: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1601,6 +1605,7 @@ impl RunState {
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
+            tiny_chest_counter: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1976,7 +1981,8 @@ impl RunState {
             | Relic::DeadBranch
             | Relic::MummifiedHand
             | Relic::TheCourier
-            | Relic::IncenseBurner => {}
+            | Relic::IncenseBurner
+            | Relic::TinyChest => {}
         }
     }
 
@@ -2287,6 +2293,7 @@ impl Relic {
             Relic::TheCourier => RelicKey::TheCourier,
             Relic::IncenseBurner => RelicKey::IncenseBurner,
             Relic::CursedKey => RelicKey::CursedKey,
+            Relic::TinyChest => RelicKey::TinyChest,
         }
     }
 
@@ -2420,6 +2427,7 @@ impl Relic {
             RelicKey::TheCourier => Some(Relic::TheCourier),
             RelicKey::IncenseBurner => Some(Relic::IncenseBurner),
             RelicKey::CursedKey => Some(Relic::CursedKey),
+            RelicKey::TinyChest => Some(Relic::TinyChest),
             _ => None,
         }
     }
