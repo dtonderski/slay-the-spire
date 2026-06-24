@@ -19,7 +19,9 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
         .filter(|card| card.content_id == BURN_ID)
         .count() as i32;
 
-    let hp_loss = crate::relic::mitigate_hp_loss(&state.relics, burn_copies * BURN_END_TURN_DAMAGE);
+    let mitigated =
+        crate::relic::mitigate_hp_loss(&state.relics, burn_copies * BURN_END_TURN_DAMAGE);
+    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp -= hp_loss;
     crate::relic::apply_player_hp_loss_relics(state, hp_loss);
 }
@@ -31,7 +33,9 @@ fn apply_regret_damage_in_hand(state: &mut CombatState) {
         .iter()
         .any(|card| card.content_id == REGRET_ID)
     {
-        let hp_loss = crate::relic::mitigate_hp_loss(&state.relics, state.piles.hand.len() as i32);
+        let mitigated =
+            crate::relic::mitigate_hp_loss(&state.relics, state.piles.hand.len() as i32);
+        let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
         state.player.hp -= hp_loss;
         crate::relic::apply_player_hp_loss_relics(state, hp_loss);
     }
@@ -158,6 +162,24 @@ mod tests {
         let next = crate::combat::end_player_turn(&state);
 
         assert_eq!(next.player.hp, 19);
+    }
+
+    #[test]
+    fn buffer_prevents_burn_hp_loss_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.powers.buffer = 1;
+        state.monsters[0].alive = false;
+        state.piles.hand = vec![CardInstance::new(
+            CardId::new(20),
+            crate::content::cards::BURN_ID,
+        )];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
+        assert_eq!(next.player.powers.buffer, 0);
     }
 
     #[test]

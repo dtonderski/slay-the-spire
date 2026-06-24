@@ -427,6 +427,10 @@ pub const UNCEASING_TOP_ID: ContentId = ContentId::new(403);
 pub const UNCEASING_TOP_DRAW: usize = 1;
 /// Content id for [Relic::Shovel].
 pub const SHOVEL_ID: ContentId = ContentId::new(404);
+/// Content id for [Relic::FossilizedHelix].
+pub const FOSSILIZED_HELIX_ID: ContentId = ContentId::new(405);
+/// Buffer granted by [Relic::FossilizedHelix] at combat start.
+pub const FOSSILIZED_HELIX_BUFFER: i32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1075,6 +1079,7 @@ pub enum Relic {
     Girya,
     UnceasingTop,
     Shovel,
+    FossilizedHelix,
 }
 
 impl Relic {
@@ -1186,6 +1191,7 @@ impl Relic {
             Relic::Girya => GIRYA_ID,
             Relic::UnceasingTop => UNCEASING_TOP_ID,
             Relic::Shovel => SHOVEL_ID,
+            Relic::FossilizedHelix => FOSSILIZED_HELIX_ID,
         }
     }
 
@@ -1297,6 +1303,7 @@ impl Relic {
             id if id == GIRYA_ID => Some(Relic::Girya),
             id if id == UNCEASING_TOP_ID => Some(Relic::UnceasingTop),
             id if id == SHOVEL_ID => Some(Relic::Shovel),
+            id if id == FOSSILIZED_HELIX_ID => Some(Relic::FossilizedHelix),
             _ => None,
         }
     }
@@ -1314,6 +1321,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Girya => {}
             Relic::UnceasingTop => {}
             Relic::Shovel => {}
+            Relic::FossilizedHelix => {
+                combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
+            }
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -1519,6 +1529,15 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) {
     }
     if state.relics.contains(&Relic::RunicCube) {
         crate::combat::transition::player_draw_cards(state, RUNIC_CUBE_DRAW);
+    }
+}
+
+pub fn apply_buffer_to_hp_loss(powers: &mut crate::power::PlayerPowers, hp_loss: i32) -> i32 {
+    if hp_loss > 0 && powers.buffer > 0 {
+        powers.buffer -= 1;
+        0
+    } else {
+        hp_loss
     }
 }
 
@@ -2626,6 +2645,11 @@ mod tests {
         );
         assert_eq!(Relic::Shovel.content_id(), SHOVEL_ID);
         assert_eq!(Relic::from_content_id(SHOVEL_ID), Some(Relic::Shovel));
+        assert_eq!(Relic::FossilizedHelix.content_id(), FOSSILIZED_HELIX_ID);
+        assert_eq!(
+            Relic::from_content_id(FOSSILIZED_HELIX_ID),
+            Some(Relic::FossilizedHelix)
+        );
     }
 
     #[test]
@@ -3283,5 +3307,14 @@ mod tests {
         apply_start_of_combat_relics(&mut combat, &[Relic::Anchor]);
 
         assert_eq!(combat.player.block, ANCHOR_BLOCK);
+    }
+
+    #[test]
+    fn fossilized_helix_grants_one_buffer_at_combat_start() {
+        let mut combat = CombatState::initial_fixture();
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::FossilizedHelix]);
+
+        assert_eq!(combat.player.powers.buffer, FOSSILIZED_HELIX_BUFFER);
     }
 }

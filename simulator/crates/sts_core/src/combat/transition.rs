@@ -1363,7 +1363,9 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::LoseHp { amount } => {
-            let hp_loss = crate::relic::mitigate_hp_loss(&state.relics, amount);
+            let mitigated = crate::relic::mitigate_hp_loss(&state.relics, amount);
+            let hp_loss =
+                crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
             state.player.hp -= hp_loss;
             crate::relic::apply_player_hp_loss_relics(state, hp_loss);
             Ok(Vec::new())
@@ -2129,6 +2131,32 @@ mod tests {
         .expect("Regret applies with Blue Candle");
 
         assert_eq!(next.player.hp, 50 - crate::relic::BLUE_CANDLE_HP_LOSS);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn buffer_prevents_blue_candle_hp_loss() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::BlueCandle];
+        state.player.hp = 50;
+        state.player.powers.buffer = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), REGRET_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Regret applies with Blue Candle");
+
+        assert_eq!(next.player.hp, 50);
+        assert_eq!(next.player.powers.buffer, 0);
         assert!(next
             .piles
             .exhaust_pile

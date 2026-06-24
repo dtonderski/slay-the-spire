@@ -322,6 +322,10 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::Shovel), Some(Relic::Shovel));
         assert_eq!(
+            Relic::from_key(RelicKey::FossilizedHelix),
+            Some(Relic::FossilizedHelix)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1697,7 +1701,8 @@ impl RunState {
             | Relic::OrangePellets
             | Relic::Girya
             | Relic::UnceasingTop
-            | Relic::Shovel => {}
+            | Relic::Shovel
+            | Relic::FossilizedHelix => {}
         }
     }
 
@@ -1959,6 +1964,7 @@ impl Relic {
             Relic::Girya => RelicKey::Girya,
             Relic::UnceasingTop => RelicKey::UnceasingTop,
             Relic::Shovel => RelicKey::Shovel,
+            Relic::FossilizedHelix => RelicKey::FossilizedHelix,
         }
     }
 
@@ -2070,6 +2076,7 @@ impl Relic {
             RelicKey::Girya => Some(Relic::Girya),
             RelicKey::UnceasingTop => Some(Relic::UnceasingTop),
             RelicKey::Shovel => Some(Relic::Shovel),
+            RelicKey::FossilizedHelix => Some(Relic::FossilizedHelix),
             _ => None,
         }
     }

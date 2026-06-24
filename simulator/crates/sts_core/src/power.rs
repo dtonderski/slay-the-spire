@@ -15,6 +15,12 @@ pub struct PlayerPowers {
     pub artifact: i32,
     pub feel_no_pain: i32,
     pub dark_embrace: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub buffer: i32,
+}
+
+fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
