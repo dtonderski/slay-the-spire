@@ -16,7 +16,7 @@ use crate::{
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
         TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{
@@ -72,6 +72,11 @@ pub(super) fn play_card_queue(
         CLASH_ID => generic_attack_queue(
             card_id,
             target.expect("validated Clash has a target"),
+            definition,
+        ),
+        WILD_STRIKE_ID => wild_strike_queue(
+            card_id,
+            target.expect("validated Wild Strike has a target"),
             definition,
         ),
         HEAVY_BLADE_ID => heavy_blade_queue(
@@ -463,6 +468,35 @@ fn heavy_blade_queue(
                 target,
                 amount: (definition.values.damage.unwrap_or(0) + extra_strength).max(0),
             },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn wild_strike_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+        InternalAction::AddCardToPile {
+            content_id: WOUND_ID,
+            to: CardPile::DrawPile,
         },
         InternalAction::MoveCard {
             card_id,

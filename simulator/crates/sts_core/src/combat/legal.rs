@@ -343,7 +343,7 @@ mod tests {
             POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
             SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
             STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID,
-            WHIRLWIND_PLUS_ID, WOUND_ID,
+            WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -748,6 +748,57 @@ mod tests {
                 card_id: CardId::new(20),
                 target: Some(MonsterId::new(1)),
             })
+        );
+    }
+
+    #[test]
+    fn wild_strike_is_legal_with_target() {
+        let state = hand_with_card(WILD_STRIKE_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn wild_strike_rejects_missing_target() {
+        let state = hand_with_card(WILD_STRIKE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn wild_strike_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(WILD_STRIKE_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction("card is unaffordable"))
         );
     }
 

@@ -804,7 +804,7 @@ mod tests {
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1192,6 +1192,106 @@ mod tests {
         let next = apply_combat_action(&state, clash_action(&state)).expect("Clash applies");
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 22);
+    }
+
+    #[test]
+    fn wild_strike_deals_twelve_damage_spends_one_and_adds_wound_to_draw() {
+        let mut state = hand_only(WILD_STRIKE_ID);
+        state.piles.draw_pile.clear();
+
+        let next =
+            apply_combat_action(&state, wild_strike_action(&state)).expect("Wild Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.draw_pile[0].content_id, WOUND_ID);
+    }
+
+    #[test]
+    fn wild_strike_moves_to_discard_after_play() {
+        let state = hand_only(WILD_STRIKE_ID);
+        let wild_strike_id = hand_card_id(&state, WILD_STRIKE_ID);
+
+        let next =
+            apply_combat_action(&state, wild_strike_action(&state)).expect("Wild Strike applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == wild_strike_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == wild_strike_id));
+    }
+
+    #[test]
+    fn wild_strike_appends_wound_to_draw_pile_locally() {
+        let mut state = hand_only(WILD_STRIKE_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next =
+            apply_combat_action(&state, wild_strike_action(&state)).expect("Wild Strike applies");
+
+        assert_eq!(next.piles.draw_pile.len(), 2);
+        assert_eq!(next.piles.draw_pile[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.piles.draw_pile[1].content_id, WOUND_ID);
+    }
+
+    #[test]
+    fn wild_strike_applies_strength_normally() {
+        let mut state = hand_only(WILD_STRIKE_ID);
+        state.player.powers.strength = 2;
+
+        let next =
+            apply_combat_action(&state, wild_strike_action(&state)).expect("Wild Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 14);
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_wild_strike() {
+        let mut state = hand_only(WILD_STRIKE_ID);
+        state.relics.push(Relic::Akabeko);
+
+        let next =
+            apply_combat_action(&state, wild_strike_action(&state)).expect("Wild Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 20);
+    }
+
+    #[test]
+    fn wild_strike_event_log_records_damage_wound_and_pile_move() {
+        let state = hand_only(WILD_STRIKE_ID);
+        let wild_strike_id = hand_card_id(&state, WILD_STRIKE_ID);
+
+        let transition = apply_combat_action_with_events(&state, wild_strike_action(&state))
+            .expect("Wild Strike applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: wild_strike_id
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(wild_strike_id),
+                        target: MonsterId::new(1),
+                        amount: 12,
+                    },
+                },
+                InternalAction::AddCardToPile {
+                    content_id: WOUND_ID,
+                    to: CardPile::DrawPile,
+                },
+                InternalAction::MoveCard {
+                    card_id: wild_strike_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -3335,6 +3435,13 @@ mod tests {
     fn clash_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, CLASH_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn wild_strike_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, WILD_STRIKE_ID),
             target: Some(MonsterId::new(1)),
         }
     }
