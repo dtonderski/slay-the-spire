@@ -412,6 +412,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         pending_relic_key_offer,
         card_reward_active: false,
         card_reward_pending: false,
+        pending_card_reward_count: 0,
     });
 }
 
@@ -431,6 +432,7 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
         pending_relic_key_offer: None,
         card_reward_active: false,
         card_reward_pending: false,
+        pending_card_reward_count: 0,
     });
 }
 
@@ -500,6 +502,12 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         None
     };
 
+    let pending_card_reward_count = if run.relics.contains(&Relic::PrayerWheel) {
+        2
+    } else {
+        1
+    };
+
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -512,6 +520,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         pending_relic_key_offer: None,
         card_reward_active: false,
         card_reward_pending: true,
+        pending_card_reward_count,
     });
 }
 
@@ -563,6 +572,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         pending_relic_key_offer,
         card_reward_active: false,
         card_reward_pending: true,
+        pending_card_reward_count: 1,
     });
 }
 
@@ -601,6 +611,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         pending_relic_key_offer,
         card_reward_active: false,
         card_reward_pending: false,
+        pending_card_reward_count: 0,
     });
 }
 
@@ -702,14 +713,14 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .expect("validated reward card");
             reward.choices.clear();
             reward.card_reward_active = false;
-            reward.card_reward_pending = false;
+            reward.consume_pending_card_reward();
             next.add_deck_card(choice);
         }
         RunAction::TakeSingingBowlReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
             reward.choices.clear();
             reward.card_reward_active = false;
-            reward.card_reward_pending = false;
+            reward.consume_pending_card_reward();
             next.player_max_hp += SINGING_BOWL_MAX_HP;
             next.player_hp += SINGING_BOWL_MAX_HP;
         }
@@ -742,11 +753,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             advance_pending_relic_offer(&mut next);
         }
         RunAction::OpenCardReward => {
-            if next
-                .reward
-                .as_ref()
-                .is_some_and(|reward| reward.choices.is_empty() && reward.card_reward_pending)
-            {
+            if next.reward.as_ref().is_some_and(|reward| {
+                reward.choices.is_empty() && reward.pending_card_reward_count() > 0
+            }) {
                 roll_pending_card_reward_choices(&mut next);
             }
             next.reward
@@ -1120,6 +1129,43 @@ mod tests {
         assert_eq!(content_ids, vec![BODY_SLAM_ID, TWIN_STRIKE_ID]);
         assert_eq!(run.card_rarity_factor, 3);
         assert_eq!(run.card_rng_counter, 6);
+    }
+
+    #[test]
+    fn prayer_wheel_adds_second_normal_combat_card_reward() {
+        let mut run = winning_combat_run();
+
+        run.relics.push(Relic::PrayerWheel);
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+
+        let reward = run.reward.as_ref().expect("reward screen present");
+        assert!(reward.card_reward_pending);
+        assert_eq!(reward.pending_card_reward_count(), 2);
+
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open first cards");
+        let first_card_id = run.reward.as_ref().expect("reward").choices[0].id;
+        run = apply_run_action(
+            &run,
+            RunAction::TakeCardReward {
+                card_id: first_card_id,
+            },
+        )
+        .expect("take first card");
+
+        let reward = run.reward.as_ref().expect("reward screen present");
+        assert!(!reward.card_reward_active);
+        assert!(reward.choices.is_empty());
+        assert!(reward.card_reward_pending);
+        assert_eq!(reward.pending_card_reward_count(), 1);
+
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open second cards");
+        let reward = run.reward.as_ref().expect("reward screen present");
+        assert!(reward.card_reward_active);
+        assert_eq!(reward.pending_card_reward_count(), 1);
+        assert_eq!(reward.choices.len(), 3);
     }
 
     #[test]

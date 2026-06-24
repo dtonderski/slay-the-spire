@@ -4798,6 +4798,9 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
+        lizard_tail_used: false,
+        girya_lifts: 0,
+        matryoshka_chests_opened: 0,
         treasure_room: None,
     })
 }
@@ -4810,6 +4813,8 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         potion_offer: None,
         relic_offer: None,
         relic_key_offer: None,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
         card_reward_active: game
             .get("screen_type")
             .and_then(Value::as_str)
@@ -4824,6 +4829,21 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
             )
             .iter()
             .any(|reward_type| reward_type == "CARD"),
+        pending_card_reward_count: if game
+            .get("screen_type")
+            .and_then(Value::as_str)
+            .is_some_and(|screen| screen == "COMBAT_REWARD")
+            && reward_types_from_value(
+                game.get("screen_state")
+                    .and_then(|state| state.get("rewards")),
+            )
+            .iter()
+            .any(|reward_type| reward_type == "CARD")
+        {
+            1
+        } else {
+            0
+        },
     };
     Some(RunState {
         phase: RunPhase::Reward,
@@ -4868,6 +4888,9 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
+        lizard_tail_used: false,
+        girya_lifts: 0,
+        matryoshka_chests_opened: 0,
         treasure_room: None,
     })
 }

@@ -1383,6 +1383,8 @@ Completed slice:
 - implemented bottled-card key promotion, content-id round trips, pickup-triggered filtered card grids, persistent deck-card bottle flags, and opening-hand placement with focused grid/reward/combat-setup tests
 - expanded modeled card-copy relics: Dolly's Mirror
 - implemented Dolly's Mirror key promotion, content-id round trips, pickup-triggered deck selection grid, and selected-card duplication with a fresh card instance id and focused grid/reward tests
+- expanded modeled card reward count relics: Prayer Wheel
+- implemented Prayer Wheel key promotion, content-id round trips, normal-combat two-card-reward pending counts, and sequential card reward opening/taking with focused reward tests
 
 Remaining:
 

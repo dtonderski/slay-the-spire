@@ -143,6 +143,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     pending_relic_key_offer: None,
                     card_reward_active: false,
                     card_reward_pending: true,
+                    pending_card_reward_count: 1,
                 });
                 roll_pending_card_reward_choices(&mut next);
                 next.reward
@@ -179,6 +180,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 pending_relic_key_offer: None,
                 card_reward_active: false,
                 card_reward_pending: false,
+                pending_card_reward_count: 0,
             });
         }
         RestAction::Smith { card_id } => {
@@ -467,7 +469,10 @@ mod tests {
         run.phase = RunPhase::Rest;
 
         let missing_relic = apply_rest_action(&run, RestAction::Lift).expect_err("no girya");
-        assert_eq!(missing_relic, SimError::IllegalAction("lift is not available"));
+        assert_eq!(
+            missing_relic,
+            SimError::IllegalAction("lift is not available")
+        );
 
         run.relics.push(Relic::Girya);
         run.girya_lifts = GIRYA_MAX_LIFTS;
