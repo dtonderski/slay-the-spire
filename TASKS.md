@@ -1292,6 +1292,8 @@ Completed slice:
 - implemented Peace Pipe key promotion, content-id round trips, and rest-site card removal gating so removal is no longer available without Peace Pipe, with focused rest/milestone tests
 - expanded modeled debuff-cleanse relics: Orange Pellets
 - implemented Orange Pellets key promotion, persistent card-type flags, Attack/Skill/Power trigger reset, and modeled player debuff cleanup with focused relic tests
+- expanded modeled rest strength relics: Girya
+- implemented Girya key promotion, content-id round trips, campfire Lift action with three-lift cap, persisted lift count, and combat-start Strength from stored lifts with focused rest/state tests
 - expanded modeled potion-use healing relics: Toy Ornithopter
 - implemented Toy Ornithopter promotion from relic keys and potion-use healing for combat/non-combat potion use, including discard no-op and Magic Flower combat-healing coverage
 - expanded modeled card-add upgrade relics: Molten Egg, Toxic Egg, and Frozen Egg
