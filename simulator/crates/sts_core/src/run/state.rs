@@ -309,6 +309,7 @@ mod tests {
             Relic::from_key(RelicKey::RunicPyramid),
             Some(Relic::RunicPyramid)
         );
+        assert_eq!(Relic::from_key(RelicKey::FrozenEye), Some(Relic::FrozenEye));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1661,7 +1662,8 @@ impl RunState {
             | Relic::Circlet
             | Relic::RedCirclet
             | Relic::SacredBark
-            | Relic::RunicPyramid => {}
+            | Relic::RunicPyramid
+            | Relic::FrozenEye => {}
         }
     }
 
@@ -1917,6 +1919,7 @@ impl Relic {
             Relic::RedCirclet => RelicKey::RedCirclet,
             Relic::SacredBark => RelicKey::SacredBark,
             Relic::RunicPyramid => RelicKey::RunicPyramid,
+            Relic::FrozenEye => RelicKey::FrozenEye,
         }
     }
 
@@ -2022,6 +2025,7 @@ impl Relic {
             RelicKey::RedCirclet => Some(Relic::RedCirclet),
             RelicKey::SacredBark => Some(Relic::SacredBark),
             RelicKey::RunicPyramid => Some(Relic::RunicPyramid),
+            RelicKey::FrozenEye => Some(Relic::FrozenEye),
             _ => None,
         }
     }
