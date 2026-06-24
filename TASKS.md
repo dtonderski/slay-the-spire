@@ -1385,6 +1385,8 @@ Completed slice:
 - implemented Dolly's Mirror key promotion, content-id round trips, pickup-triggered deck selection grid, and selected-card duplication with a fresh card instance id and focused grid/reward tests
 - expanded modeled card reward count relics: Prayer Wheel
 - implemented Prayer Wheel key promotion, content-id round trips, normal-combat two-card-reward pending counts, and sequential card reward opening/taking with focused reward tests
+- expanded starter/fallback no-op relics for off-character imports: Cracked Core, Frozen Core, Pure Water, Holy Water, Ring of the Snake, and Ring of the Serpent
+- implemented off-character starter/replacement key promotion and content-id round trips as no-op relics within the Ironclad simulator scope
 
 Remaining:
 
