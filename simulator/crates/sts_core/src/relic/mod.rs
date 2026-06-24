@@ -425,6 +425,8 @@ pub const GIRYA_ID: ContentId = ContentId::new(402);
 pub const UNCEASING_TOP_ID: ContentId = ContentId::new(403);
 /// Cards drawn by [Relic::UnceasingTop] when the player's hand becomes empty.
 pub const UNCEASING_TOP_DRAW: usize = 1;
+/// Content id for [Relic::Shovel].
+pub const SHOVEL_ID: ContentId = ContentId::new(404);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1072,6 +1074,7 @@ pub enum Relic {
     OrangePellets,
     Girya,
     UnceasingTop,
+    Shovel,
 }
 
 impl Relic {
@@ -1182,6 +1185,7 @@ impl Relic {
             Relic::OrangePellets => ORANGE_PELLETS_ID,
             Relic::Girya => GIRYA_ID,
             Relic::UnceasingTop => UNCEASING_TOP_ID,
+            Relic::Shovel => SHOVEL_ID,
         }
     }
 
@@ -1292,6 +1296,7 @@ impl Relic {
             id if id == ORANGE_PELLETS_ID => Some(Relic::OrangePellets),
             id if id == GIRYA_ID => Some(Relic::Girya),
             id if id == UNCEASING_TOP_ID => Some(Relic::UnceasingTop),
+            id if id == SHOVEL_ID => Some(Relic::Shovel),
             _ => None,
         }
     }
@@ -1308,6 +1313,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::OrangePellets => {}
             Relic::Girya => {}
             Relic::UnceasingTop => {}
+            Relic::Shovel => {}
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -2618,6 +2624,8 @@ mod tests {
             Relic::from_content_id(UNCEASING_TOP_ID),
             Some(Relic::UnceasingTop)
         );
+        assert_eq!(Relic::Shovel.content_id(), SHOVEL_ID);
+        assert_eq!(Relic::from_content_id(SHOVEL_ID), Some(Relic::Shovel));
     }
 
     #[test]

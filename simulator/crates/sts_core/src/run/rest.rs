@@ -5,7 +5,7 @@ use crate::{
 };
 
 use super::grid::open_rest_smith_grid;
-use super::reward::roll_pending_card_reward_choices;
+use super::reward::{roll_event_relic_reward, roll_pending_card_reward_choices};
 use crate::RewardScreen;
 
 pub const REST_HEAL_PERCENT: i32 = 30;
@@ -31,6 +31,11 @@ pub fn can_lift(run: &RunState) -> bool {
 }
 
 #[must_use]
+pub fn can_dig(run: &RunState) -> bool {
+    run.relics.contains(&Relic::Shovel)
+}
+
+#[must_use]
 pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     if run.phase != RunPhase::Rest {
         return Vec::new();
@@ -49,6 +54,9 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     }
     if can_lift(run) {
         actions.push(RestAction::Lift);
+    }
+    if can_dig(run) {
+        actions.push(RestAction::Dig);
     }
     for card in &run.deck {
         if can_remove_at_rest(run) {
@@ -79,6 +87,8 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
         RestAction::OpenSmith => Err(SimError::IllegalAction("smith is not available")),
         RestAction::Lift if can_lift(run) => Ok(()),
         RestAction::Lift => Err(SimError::IllegalAction("lift is not available")),
+        RestAction::Dig if can_dig(run) => Ok(()),
+        RestAction::Dig => Err(SimError::IllegalAction("dig is not available")),
         RestAction::Smith { card_id } => {
             if !can_smith(run) {
                 return Err(SimError::IllegalAction("smith is not available"));
@@ -147,6 +157,25 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         RestAction::Lift => {
             next.girya_lifts += 1;
             next.phase = RunPhase::Idle;
+        }
+        RestAction::Dig => {
+            let act = next.current_act;
+            let key = roll_event_relic_reward(&mut next, act);
+            let relic_offer = Relic::from_key(key);
+            next.phase = RunPhase::Reward;
+            next.reward = Some(RewardScreen {
+                choices: Vec::new(),
+                gold_offer: 0,
+                potion_offer: None,
+                relic_offer,
+                relic_key_offer: if relic_offer.is_some() {
+                    None
+                } else {
+                    Some(key)
+                },
+                card_reward_active: false,
+                card_reward_pending: false,
+            });
         }
         RestAction::Smith { card_id } => {
             let upgraded_content_id = next
@@ -441,6 +470,39 @@ mod tests {
 
         let capped = apply_rest_action(&run, RestAction::Lift).expect_err("capped");
         assert_eq!(capped, SimError::IllegalAction("lift is not available"));
+    }
+
+    #[test]
+    fn shovel_dig_opens_relic_reward_screen() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.relics.push(Relic::Shovel);
+        let relic_counter_before = run.relic_rng_counter;
+
+        assert!(legal_rest_actions(&run).contains(&RestAction::Dig));
+
+        let after = apply_rest_action(&run, RestAction::Dig).expect("dig applies");
+        let reward = after.reward.as_ref().expect("dig reward");
+
+        assert_eq!(after.phase, RunPhase::Reward);
+        assert!(reward.relic_offer.is_some() || reward.relic_key_offer.is_some());
+        assert!(reward.choices.is_empty());
+        assert_eq!(reward.gold_offer, 0);
+        assert!(reward.potion_offer.is_none());
+        assert!(!reward.card_reward_active);
+        assert!(!reward.card_reward_pending);
+        assert!(after.relic_rng_counter > relic_counter_before);
+    }
+
+    #[test]
+    fn shovel_dig_is_illegal_without_relic() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+
+        let err = apply_rest_action(&run, RestAction::Dig).expect_err("no shovel");
+
+        assert_eq!(err, SimError::IllegalAction("dig is not available"));
+        assert!(!legal_rest_actions(&run).contains(&RestAction::Dig));
     }
 
     #[test]
