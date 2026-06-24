@@ -10,7 +10,7 @@ use crate::{
         BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
-        IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, METALLICIZE_ID, POMMEL_STRIKE_ID,
+        IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
@@ -55,6 +55,11 @@ pub(super) fn play_card_queue(
         ANGER_ID | ANGER_PLUS_ID => anger_queue(
             card_id,
             target.expect("validated Anger has a target"),
+            definition,
+        ),
+        IRON_WAVE_ID => iron_wave_queue(
+            card_id,
+            target.expect("validated Iron Wave has a target"),
             definition,
         ),
         CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID => cleave_queue(card_id, definition),
@@ -353,6 +358,34 @@ fn generic_attack_queue(
                 target,
                 amount: definition.values.damage.unwrap_or(0),
             },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn iron_wave_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+        InternalAction::GainBlock {
+            amount: definition.values.block.unwrap_or(0),
         },
         InternalAction::MoveCard {
             card_id,

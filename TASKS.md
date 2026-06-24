@@ -1459,18 +1459,24 @@ Do not implement:
 
 ## Milestone 32B: Deterministic Content Completion Sweep
 
-Status: planned.
+Status: in progress.
 
 Goal: use the Milestone 32A matrix to implement missing deterministic Ironclad A0 content proactively, instead of waiting for traces to encounter it.
 
 Tasks:
 
 - implement missing deterministic potion, card, relic, event, room, reward, rest, and monster/boss behaviors that do not depend on unresolved RNG stream order or hidden target timing
+  - [x] Implement base Iron Wave (`IRON_WAVE`, ContentId(100)) as a deterministic common attack: 1 energy, targeted enemy, 5 damage, 5 block, no trace-parity claim.
 - add focused unit tests for every newly completed surface
+  - [x] Add Iron Wave definition, legality, transition, discard, and event-log tests.
 - add serialization and counter round-trip tests for newly stateful surfaces
+  - [x] No new stateful surface in the Iron Wave slice.
 - add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
+  - [x] Iron Wave covers damage/block/pile movement through the existing card queue and transition hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
+  - [x] Move Iron Wave from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
+  - [x] Iron Wave matrix caveat names the missing real-game trace parity evidence.
 
 Acceptance tests:
 
