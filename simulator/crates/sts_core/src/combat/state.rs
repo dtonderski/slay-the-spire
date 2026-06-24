@@ -43,7 +43,7 @@ pub struct CombatState {
     /// Awaiting player choice for discard-pile potion effects such as Liquid Memories.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discard_select: Option<DiscardSelectState>,
-    /// Awaiting player choice for multi-card hand exhaust effects such as Elixir.
+    /// Awaiting player choice for multi-card hand effects such as Elixir or Gambling Chip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exhaust_select: Option<ExhaustSelectState>,
     /// One-shot flag from Duplication Potion: the next played card resolves twice.
@@ -64,7 +64,16 @@ pub struct DiscardSelectState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExhaustSelectState {
+    #[serde(default)]
+    pub purpose: ExhaustSelectPurpose,
     pub selected_hand_indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ExhaustSelectPurpose {
+    #[default]
+    Exhaust,
+    GamblingChip,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
