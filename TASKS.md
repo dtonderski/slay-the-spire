@@ -1416,7 +1416,7 @@ Do not implement:
 
 ## Milestone 32A: Content Inventory and Coverage Matrix
 
-Status: planned.
+Status: complete.
 
 Goal: stop discovering core Ironclad surfaces only when a captured trace happens to hit them. Build a complete Ironclad-relevant content inventory and compare it against simulator implementation, tests, and parity evidence before continuing broad-run generalization.
 
@@ -1428,13 +1428,19 @@ Principle:
 
 Tasks:
 
-- inventory all Ironclad-relevant cards, colorless cards reachable by Ironclad, potions, relics, monsters, bosses, events, rooms, rewards, shops, rest actions, keys, and ascension deltas
-- create or update a support matrix with columns for content ID, category, implementation status, unit-test status, seed-start trace status, source/bytecode evidence, wiki/reference evidence, and known caveats
-- classify each surface as `implemented`, `placeholder`, `inventory_only`, `unsupported`, `waived`, or `not_in_scope`
-- identify deterministic surfaces that can be safely implemented from inventory data without waiting for a trace
-- identify parity-sensitive surfaces that require source-backed or trace-backed evidence before claims
-- add a coverage-report command or test fixture that fails when known Ironclad A0 content is missing from the matrix
-- document the difference between content completeness, unit correctness, and seed-start parity
+- [x] inventory all Ironclad-relevant cards, colorless cards reachable by Ironclad, potions, relics, monsters, bosses, events, rooms, rewards, shops, rest actions, keys, and ascension deltas
+- [x] create or update a support matrix with columns for content ID, category, implementation status, unit-test status, seed-start trace status, source/bytecode evidence, wiki/reference evidence, and known caveats
+- [x] classify each surface as `implemented`, `placeholder`, `inventory_only`, `unsupported`, `waived`, or `not_in_scope`
+- [x] identify deterministic surfaces that can be safely implemented from inventory data without waiting for a trace
+- [x] identify parity-sensitive surfaces that require source-backed or trace-backed evidence before claims
+- [x] add a coverage-report command or test fixture that fails when known Ironclad A0 content is missing from the matrix
+- [x] document the difference between content completeness, unit correctness, and seed-start parity
+
+Completed artifacts:
+
+- `simulator/docs/content_support_matrix.md` defines the matrix vocabulary and evidence rules.
+- `simulator/docs/m32a_cards_matrix.md`, `simulator/docs/m32a_relic_potion_matrix.md`, and `simulator/docs/m32a_run_world_matrix.md` split the inventory by domain.
+- `simulator/crates/sts_core/tests/m32a_matrix.rs` fails when known Ironclad A0 cards, generated card-pool IDs, relics, potions, monsters, encounters, events, room kinds, or named run-world surfaces are missing from the matrix.
 
 Acceptance tests:
 
