@@ -435,6 +435,10 @@ mod tests {
             Some(Relic::GamblingChip)
         );
         assert_eq!(Relic::from_key(RelicKey::Toolbox), Some(Relic::Toolbox));
+        assert_eq!(
+            Relic::from_key(RelicKey::JuzuBracelet),
+            Some(Relic::JuzuBracelet)
+        );
     }
 
     #[test]
@@ -1351,6 +1355,8 @@ pub struct RunState {
     #[serde(default = "default_energy_per_turn")]
     pub energy_per_turn: i32,
     pub map: Option<MapRunState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_room_override: Option<RoomKind>,
     pub combat: Option<CombatState>,
     pub reward: Option<RewardScreen>,
     #[serde(default)]
@@ -1406,6 +1412,12 @@ pub struct RunState {
     pub incense_burner_counter: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub tiny_chest_counter: u32,
+    #[serde(default = "default_event_room_monster_chance")]
+    pub event_room_monster_chance: u32,
+    #[serde(default = "default_event_room_shop_chance")]
+    pub event_room_shop_chance: u32,
+    #[serde(default = "default_event_room_treasure_chance")]
+    pub event_room_treasure_chance: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub wing_boots_charges: u32,
     #[serde(default)]
@@ -1448,6 +1460,22 @@ pub const REWARD_GOLD_AMOUNT: i32 = 20;
 
 fn default_card_rarity_factor() -> i32 {
     5
+}
+
+pub const DEFAULT_EVENT_ROOM_MONSTER_CHANCE: u32 = 10;
+pub const DEFAULT_EVENT_ROOM_SHOP_CHANCE: u32 = 3;
+pub const DEFAULT_EVENT_ROOM_TREASURE_CHANCE: u32 = 2;
+
+fn default_event_room_monster_chance() -> u32 {
+    DEFAULT_EVENT_ROOM_MONSTER_CHANCE
+}
+
+fn default_event_room_shop_chance() -> u32 {
+    DEFAULT_EVENT_ROOM_SHOP_CHANCE
+}
+
+fn default_event_room_treasure_chance() -> u32 {
+    DEFAULT_EVENT_ROOM_TREASURE_CHANCE
 }
 
 fn is_zero_u32(value: &u32) -> bool {
@@ -1679,6 +1707,9 @@ impl RunState {
 
     #[must_use]
     pub fn current_room_kind(&self) -> Option<RoomKind> {
+        if let Some(room_kind) = self.current_room_override {
+            return Some(room_kind);
+        }
         self.map.as_ref().and_then(|map_state| {
             map_state
                 .map
@@ -1718,6 +1749,7 @@ impl RunState {
             gold: STARTING_GOLD,
             energy_per_turn: BASE_PLAYER_ENERGY,
             map: None,
+            current_room_override: None,
             combat: None,
             reward: None,
             event: None,
@@ -1747,6 +1779,9 @@ impl RunState {
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
             tiny_chest_counter: 0,
+            event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
+            event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
+            event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
             wing_boots_charges: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
@@ -1778,6 +1813,7 @@ impl RunState {
             gold: STARTING_GOLD,
             energy_per_turn: BASE_PLAYER_ENERGY,
             map: Some(milestone8_fixture()),
+            current_room_override: None,
             combat: None,
             reward: None,
             event: None,
@@ -1807,6 +1843,9 @@ impl RunState {
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
             tiny_chest_counter: 0,
+            event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
+            event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
+            event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
             wing_boots_charges: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
@@ -2209,7 +2248,8 @@ impl RunState {
             | Relic::TinyChest
             | Relic::StrangeSpoon
             | Relic::GamblingChip
-            | Relic::Toolbox => {}
+            | Relic::Toolbox
+            | Relic::JuzuBracelet => {}
         }
     }
 
@@ -2530,6 +2570,7 @@ impl Relic {
             Relic::Astrolabe => RelicKey::Astrolabe,
             Relic::GamblingChip => RelicKey::GamblingChip,
             Relic::Toolbox => RelicKey::Toolbox,
+            Relic::JuzuBracelet => RelicKey::JuzuBracelet,
         }
     }
 
@@ -2673,6 +2714,7 @@ impl Relic {
             RelicKey::Astrolabe => Some(Relic::Astrolabe),
             RelicKey::GamblingChip => Some(Relic::GamblingChip),
             RelicKey::Toolbox => Some(Relic::Toolbox),
+            RelicKey::JuzuBracelet => Some(Relic::JuzuBracelet),
             _ => None,
         }
     }

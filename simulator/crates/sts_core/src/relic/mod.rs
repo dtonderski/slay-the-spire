@@ -509,6 +509,8 @@ pub const ASTROLABE_ID: ContentId = ContentId::new(434);
 pub const GAMBLING_CHIP_ID: ContentId = ContentId::new(435);
 /// Content id for [Relic::Toolbox].
 pub const TOOLBOX_ID: ContentId = ContentId::new(436);
+/// Content id for [Relic::JuzuBracelet].
+pub const JUZU_BRACELET_ID: ContentId = ContentId::new(437);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1191,6 +1193,7 @@ pub enum Relic {
     Astrolabe,
     GamblingChip,
     Toolbox,
+    JuzuBracelet,
 }
 
 impl Relic {
@@ -1334,6 +1337,7 @@ impl Relic {
             Relic::Astrolabe => ASTROLABE_ID,
             Relic::GamblingChip => GAMBLING_CHIP_ID,
             Relic::Toolbox => TOOLBOX_ID,
+            Relic::JuzuBracelet => JUZU_BRACELET_ID,
         }
     }
 
@@ -1477,6 +1481,7 @@ impl Relic {
             id if id == ASTROLABE_ID => Some(Relic::Astrolabe),
             id if id == GAMBLING_CHIP_ID => Some(Relic::GamblingChip),
             id if id == TOOLBOX_ID => Some(Relic::Toolbox),
+            id if id == JUZU_BRACELET_ID => Some(Relic::JuzuBracelet),
             _ => None,
         }
     }
@@ -1525,6 +1530,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Astrolabe => {}
             Relic::GamblingChip => {}
             Relic::Toolbox => {}
+            Relic::JuzuBracelet => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
