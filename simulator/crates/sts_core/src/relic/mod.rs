@@ -415,6 +415,8 @@ pub const RUNIC_PYRAMID_ID: ContentId = ContentId::new(398);
 pub const FROZEN_EYE_ID: ContentId = ContentId::new(399);
 /// Content id for [Relic::PeacePipe].
 pub const PEACE_PIPE_ID: ContentId = ContentId::new(400);
+/// Content id for [Relic::OrangePellets].
+pub const ORANGE_PELLETS_ID: ContentId = ContentId::new(401);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -450,10 +452,20 @@ pub struct RelicCounters {
     pub happy_flower_turns: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub sundial_shuffles: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub orange_pellets_attack_played: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub orange_pellets_skill_played: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub orange_pellets_power_played: bool,
 }
 
 fn is_zero_u32(value: &u32) -> bool {
     *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1049,6 +1061,7 @@ pub enum Relic {
     RunicPyramid,
     FrozenEye,
     PeacePipe,
+    OrangePellets,
 }
 
 impl Relic {
@@ -1156,6 +1169,7 @@ impl Relic {
             Relic::RunicPyramid => RUNIC_PYRAMID_ID,
             Relic::FrozenEye => FROZEN_EYE_ID,
             Relic::PeacePipe => PEACE_PIPE_ID,
+            Relic::OrangePellets => ORANGE_PELLETS_ID,
         }
     }
 
@@ -1263,6 +1277,7 @@ impl Relic {
             id if id == RUNIC_PYRAMID_ID => Some(Relic::RunicPyramid),
             id if id == FROZEN_EYE_ID => Some(Relic::FrozenEye),
             id if id == PEACE_PIPE_ID => Some(Relic::PeacePipe),
+            id if id == ORANGE_PELLETS_ID => Some(Relic::OrangePellets),
             _ => None,
         }
     }
@@ -1276,6 +1291,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::RunicPyramid => {}
             Relic::FrozenEye => {}
             Relic::PeacePipe => {}
+            Relic::OrangePellets => {}
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -1750,7 +1766,33 @@ pub fn apply_on_card_play_relics(
         );
     }
 
+    apply_orange_pellets_on_card_play(state, card_type);
+
     follow_ups
+}
+
+fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardType) {
+    if !state.relics.contains(&Relic::OrangePellets) {
+        return;
+    }
+
+    match card_type {
+        CardType::Attack => state.relic_counters.orange_pellets_attack_played = true,
+        CardType::Skill => state.relic_counters.orange_pellets_skill_played = true,
+        CardType::Power => state.relic_counters.orange_pellets_power_played = true,
+        CardType::Status => {}
+    }
+
+    if state.relic_counters.orange_pellets_attack_played
+        && state.relic_counters.orange_pellets_skill_played
+        && state.relic_counters.orange_pellets_power_played
+    {
+        crate::power::clear_player_debuffs(&mut state.player.powers);
+        state.player.cannot_draw = false;
+        state.relic_counters.orange_pellets_attack_played = false;
+        state.relic_counters.orange_pellets_skill_played = false;
+        state.relic_counters.orange_pellets_power_played = false;
+    }
 }
 
 #[must_use]
@@ -2545,6 +2587,11 @@ mod tests {
         );
         assert_eq!(Relic::PeacePipe.content_id(), PEACE_PIPE_ID);
         assert_eq!(Relic::from_content_id(PEACE_PIPE_ID), Some(Relic::PeacePipe));
+        assert_eq!(Relic::OrangePellets.content_id(), ORANGE_PELLETS_ID);
+        assert_eq!(
+            Relic::from_content_id(ORANGE_PELLETS_ID),
+            Some(Relic::OrangePellets)
+        );
     }
 
     #[test]
@@ -2650,6 +2697,55 @@ mod tests {
         let _ = apply_on_card_play_relics(&mut combat, CardType::Power);
 
         assert_eq!(combat.player.hp, 73);
+    }
+
+    #[test]
+    fn orange_pellets_clears_player_debuffs_after_attack_skill_and_power() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::OrangePellets];
+        combat.player.powers.strength = -2;
+        combat.player.powers.dexterity = -1;
+        combat.player.powers.weak = 2;
+        combat.player.powers.frail = 3;
+        combat.player.powers.vulnerable = 4;
+        combat.player.powers.artifact = 1;
+        combat.player.cannot_draw = true;
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
+
+        assert_eq!(combat.player.powers.weak, 2);
+        assert!(combat.player.cannot_draw);
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Power);
+
+        assert_eq!(combat.player.powers.strength, 0);
+        assert_eq!(combat.player.powers.dexterity, 0);
+        assert_eq!(combat.player.powers.weak, 0);
+        assert_eq!(combat.player.powers.frail, 0);
+        assert_eq!(combat.player.powers.vulnerable, 0);
+        assert_eq!(combat.player.powers.artifact, 1);
+        assert!(!combat.player.cannot_draw);
+    }
+
+    #[test]
+    fn orange_pellets_resets_after_trigger() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::OrangePellets];
+
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Power);
+
+        assert!(!combat.relic_counters.orange_pellets_attack_played);
+        assert!(!combat.relic_counters.orange_pellets_skill_played);
+        assert!(!combat.relic_counters.orange_pellets_power_played);
+
+        combat.player.powers.weak = 1;
+        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+
+        assert_eq!(combat.player.powers.weak, 1);
+        assert!(combat.relic_counters.orange_pellets_attack_played);
     }
 
     #[test]
@@ -3036,6 +3132,9 @@ mod tests {
             player_turns_started: 6,
             happy_flower_turns: 2,
             sundial_shuffles: 2,
+            orange_pellets_attack_played: true,
+            orange_pellets_skill_played: true,
+            orange_pellets_power_played: false,
         };
 
         let json = serde_json::to_string(&counters).expect("counters serialize");
