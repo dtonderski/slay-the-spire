@@ -302,6 +302,10 @@ mod tests {
             Some(Relic::RedCirclet)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::SacredBark),
+            Some(Relic::SacredBark)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1651,7 +1655,8 @@ impl RunState {
             | Relic::HandDrill
             | Relic::BurningBlood
             | Relic::Circlet
-            | Relic::RedCirclet => {}
+            | Relic::RedCirclet
+            | Relic::SacredBark => {}
         }
     }
 
@@ -1905,6 +1910,7 @@ impl Relic {
             Relic::HandDrill => RelicKey::HandDrill,
             Relic::Circlet => RelicKey::Circlet,
             Relic::RedCirclet => RelicKey::RedCirclet,
+            Relic::SacredBark => RelicKey::SacredBark,
         }
     }
 
@@ -2008,6 +2014,7 @@ impl Relic {
             RelicKey::HandDrill => Some(Relic::HandDrill),
             RelicKey::Circlet => Some(Relic::Circlet),
             RelicKey::RedCirclet => Some(Relic::RedCirclet),
+            RelicKey::SacredBark => Some(Relic::SacredBark),
             _ => None,
         }
     }

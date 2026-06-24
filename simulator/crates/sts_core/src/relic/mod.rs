@@ -407,6 +407,8 @@ pub const BURNING_BLOOD_ID: ContentId = ContentId::new(394);
 pub const CIRCLET_ID: ContentId = ContentId::new(395);
 /// Content id for [Relic::RedCirclet].
 pub const RED_CIRCLET_ID: ContentId = ContentId::new(396);
+/// Content id for [Relic::SacredBark].
+pub const SACRED_BARK_ID: ContentId = ContentId::new(397);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1037,6 +1039,7 @@ pub enum Relic {
     HandDrill,
     Circlet,
     RedCirclet,
+    SacredBark,
 }
 
 impl Relic {
@@ -1140,6 +1143,7 @@ impl Relic {
             Relic::HandDrill => HAND_DRILL_ID,
             Relic::Circlet => CIRCLET_ID,
             Relic::RedCirclet => RED_CIRCLET_ID,
+            Relic::SacredBark => SACRED_BARK_ID,
         }
     }
 
@@ -1243,6 +1247,7 @@ impl Relic {
             id if id == HAND_DRILL_ID => Some(Relic::HandDrill),
             id if id == CIRCLET_ID => Some(Relic::Circlet),
             id if id == RED_CIRCLET_ID => Some(Relic::RedCirclet),
+            id if id == SACRED_BARK_ID => Some(Relic::SacredBark),
             _ => None,
         }
     }
@@ -1252,6 +1257,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
     for relic in relics {
         match relic {
             Relic::BurningBlood => {}
+            Relic::SacredBark => {}
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -2503,6 +2509,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(RED_CIRCLET_ID),
             Some(Relic::RedCirclet)
+        );
+        assert_eq!(Relic::SacredBark.content_id(), SACRED_BARK_ID);
+        assert_eq!(
+            Relic::from_content_id(SACRED_BARK_ID),
+            Some(Relic::SacredBark)
         );
     }
 

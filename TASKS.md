@@ -1278,6 +1278,8 @@ Completed slice:
 - implemented Fusion Hammer pickup energy and rest-site smith disabling with focused state/rest tests
 - expanded modeled boss energy/potion-lockout relics: Sozu
 - implemented Sozu pickup energy, generated reward potion suppression, reward/shop potion acquisition rejection, and Entropic Brew no-fill behavior with focused tests
+- expanded modeled potion potency relics: Sacred Bark
+- implemented Sacred Bark key promotion and doubled modeled potion potency for direct combat/non-combat potion effects plus Fairy revive healing, with focused potion/reward/relic tests
 - expanded modeled boss energy/card-reward relics: Busted Crown
 - implemented Busted Crown pickup energy and one-choice card rewards with focused state/reward RNG tests
 - expanded modeled boss energy/card-limit relics: Velvet Choker

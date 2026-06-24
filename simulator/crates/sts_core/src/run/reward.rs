@@ -623,7 +623,12 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
     };
 
     run.potions.remove(slot);
-    combat.player.hp = (combat.player.max_hp * FAIRY_HEAL_PERCENT / 100).max(1);
+    let multiplier = if run.relics.contains(&Relic::SacredBark) {
+        2
+    } else {
+        1
+    };
+    combat.player.hp = (combat.player.max_hp * FAIRY_HEAL_PERCENT * multiplier / 100).max(1);
     combat.phase = CombatPhase::WaitingForPlayer;
 }
 
@@ -837,6 +842,25 @@ mod tests {
         );
         assert_eq!(after.player_hp, combat.player.hp);
         assert_eq!(after.potions, vec![Potion::Fire]);
+    }
+
+    #[test]
+    fn sacred_bark_doubles_fairy_revive_healing() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::SacredBark]);
+        run.potions.push(Potion::Fairy);
+        run.combat.as_mut().expect("combat").player.hp = 1;
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(
+            combat.player.hp,
+            combat.player.max_hp * FAIRY_HEAL_PERCENT * 2 / 100
+        );
+        assert_eq!(after.player_hp, combat.player.hp);
+        assert!(after.potions.is_empty());
     }
 
     #[test]
