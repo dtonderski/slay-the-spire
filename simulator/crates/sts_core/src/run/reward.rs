@@ -347,6 +347,23 @@ fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
     pools.return_random_relic(tier, &context)
 }
 
+fn split_relic_offer(key: RelicKey) -> (Option<Relic>, Option<RelicKey>) {
+    let relic_offer = Relic::from_key(key);
+    let relic_key_offer = if relic_offer.is_some() {
+        None
+    } else {
+        Some(key)
+    };
+    (relic_offer, relic_key_offer)
+}
+
+fn roll_black_star_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey>) {
+    let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
+    let tier = target_relic_tier(&mut relic_rng, run.current_act);
+    run.relic_rng_counter = relic_rng.counter();
+    split_relic_offer(roll_relic_reward(run, tier))
+}
+
 pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
@@ -360,7 +377,13 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     run.relic_rng_counter = relic_rng.counter();
 
     let key = roll_relic_reward(run, tier);
-    let relic_offer = Relic::from_key(key);
+    let (relic_offer, relic_key_offer) = split_relic_offer(key);
+    let (pending_relic_offer, pending_relic_key_offer) =
+        if kind == CombatRewardKind::Elite && run.relics.contains(&Relic::BlackStar) {
+            roll_black_star_relic_offer(run)
+        } else {
+            (None, None)
+        };
 
     if run.can_gain_potions() {
         let mut potion_rng =
@@ -384,11 +407,9 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         gold_offer: 0,
         potion_offer: None,
         relic_offer,
-        relic_key_offer: if relic_offer.is_some() {
-            None
-        } else {
-            Some(key)
-        },
+        relic_key_offer,
+        pending_relic_offer,
+        pending_relic_key_offer,
         card_reward_active: false,
         card_reward_pending: false,
     });
@@ -397,7 +418,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
 pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
     let key = roll_relic_reward(run, RelicTier::Boss);
 
-    let relic_offer = Relic::from_key(key);
+    let (relic_offer, relic_key_offer) = split_relic_offer(key);
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -405,11 +426,9 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
         gold_offer: 0,
         potion_offer: None,
         relic_offer,
-        relic_key_offer: if relic_offer.is_some() {
-            None
-        } else {
-            Some(key)
-        },
+        relic_key_offer,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
         card_reward_active: false,
         card_reward_pending: false,
     });
@@ -489,6 +508,8 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         potion_offer,
         relic_offer: None,
         relic_key_offer: None,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
         card_reward_active: false,
         card_reward_pending: true,
     });
@@ -508,7 +529,12 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let tier = target_elite_relic_tier(&mut relic_rng);
     run.relic_rng_counter = relic_rng.counter();
     let key = roll_relic_reward(run, tier);
-    let relic_offer = Relic::from_key(key);
+    let (relic_offer, relic_key_offer) = split_relic_offer(key);
+    let (pending_relic_offer, pending_relic_key_offer) = if run.relics.contains(&Relic::BlackStar) {
+        roll_black_star_relic_offer(run)
+    } else {
+        (None, None)
+    };
 
     if run.can_gain_potions() {
         let mut potion_rng =
@@ -532,11 +558,9 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         gold_offer,
         potion_offer: None,
         relic_offer,
-        relic_key_offer: if relic_offer.is_some() {
-            None
-        } else {
-            Some(key)
-        },
+        relic_key_offer,
+        pending_relic_offer,
+        pending_relic_key_offer,
         card_reward_active: false,
         card_reward_pending: true,
     });
@@ -556,7 +580,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         .expect("treasure room must be initialized before opening chest")
         .relic_tier;
     let key = roll_relic_reward(run, tier);
-    let relic_offer = Relic::from_key(key);
+    let (relic_offer, relic_key_offer) = split_relic_offer(key);
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -565,11 +589,9 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         gold_offer: 0,
         potion_offer: None,
         relic_offer,
-        relic_key_offer: if relic_offer.is_some() {
-            None
-        } else {
-            Some(key)
-        },
+        relic_key_offer,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
         card_reward_active: false,
         card_reward_pending: false,
     });
@@ -701,12 +723,16 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.potions.push(potion);
         }
         RunAction::TakeRelicReward => {
-            let reward = next.reward.as_mut().expect("validated reward screen");
-            if let Some(relic) = reward.relic_offer.take() {
+            let (relic_offer, relic_key_offer) = {
+                let reward = next.reward.as_mut().expect("validated reward screen");
+                (reward.relic_offer.take(), reward.relic_key_offer.take())
+            };
+            if let Some(relic) = relic_offer {
                 next.gain_relic(relic);
-            } else if let Some(key) = reward.relic_key_offer.take() {
+            } else if let Some(key) = relic_key_offer {
                 next.gain_relic_key(key);
             }
+            advance_pending_relic_offer(&mut next);
         }
         RunAction::OpenCardReward => {
             if next
@@ -755,6 +781,20 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
     Ok(next)
 }
 
+fn advance_pending_relic_offer(run: &mut RunState) {
+    let Some(reward) = run.reward.as_mut() else {
+        return;
+    };
+
+    reward.relic_offer = reward.pending_relic_offer.take();
+    reward.relic_key_offer = if reward.relic_offer.is_some() {
+        reward.pending_relic_key_offer = None;
+        None
+    } else {
+        reward.pending_relic_key_offer.take()
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -763,6 +803,24 @@ mod tests {
         STRIKE_R_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
+
+    fn offered_relic_key(reward: &RewardScreen) -> Option<RelicKey> {
+        reward
+            .relic_offer
+            .map(Relic::key)
+            .or(reward.relic_key_offer)
+    }
+
+    fn pending_relic_key(reward: &RewardScreen) -> Option<RelicKey> {
+        reward
+            .pending_relic_offer
+            .map(Relic::key)
+            .or(reward.pending_relic_key_offer)
+    }
+
+    fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
+        run.relics.iter().any(|relic| relic.key() == key) || run.relic_keys.contains(&key)
+    }
 
     fn reward_pool_content_ids() -> Vec<crate::ContentId> {
         IRONCLAD_REWARD_ENTRIES
@@ -1712,6 +1770,37 @@ mod tests {
         assert!(reward.relic_offer.is_some() || reward.relic_key_offer.is_some());
         assert_eq!(reward.gold_offer, 0);
         assert!(reward.choices.is_empty());
+    }
+
+    #[test]
+    fn black_star_elite_reward_queues_second_relic_offer() {
+        let mut run = RunState::combat_fixture();
+        run.relic_rng_seed = 22_079_335_079;
+        run.current_floor = 5;
+        run.relics.push(Relic::BlackStar);
+
+        enter_elite_combat_reward_screen(&mut run);
+
+        let reward = run.reward.as_ref().expect("elite reward");
+        let first_key = offered_relic_key(reward).expect("first relic offer");
+        let second_key = pending_relic_key(reward).expect("black star relic offer");
+        assert_ne!(first_key, second_key);
+
+        let after_first =
+            apply_run_action(&run, RunAction::TakeRelicReward).expect("take first relic");
+        assert!(run_has_relic_key(&after_first, first_key));
+        assert_eq!(
+            offered_relic_key(after_first.reward.as_ref().expect("reward")),
+            Some(second_key)
+        );
+
+        let after_second =
+            apply_run_action(&after_first, RunAction::TakeRelicReward).expect("take second relic");
+        assert!(run_has_relic_key(&after_second, first_key));
+        assert!(run_has_relic_key(&after_second, second_key));
+        let reward = after_second.reward.as_ref().expect("reward");
+        assert_eq!(offered_relic_key(reward), None);
+        assert_eq!(pending_relic_key(reward), None);
     }
 
     #[test]

@@ -325,6 +325,7 @@ mod tests {
             Relic::from_key(RelicKey::FossilizedHelix),
             Some(Relic::FossilizedHelix)
         );
+        assert_eq!(Relic::from_key(RelicKey::BlackStar), Some(Relic::BlackStar));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1107,6 +1108,10 @@ pub struct RewardScreen {
     pub relic_offer: Option<Relic>,
     #[serde(default)]
     pub relic_key_offer: Option<RelicKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_relic_offer: Option<Relic>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_relic_key_offer: Option<RelicKey>,
     #[serde(default)]
     pub card_reward_active: bool,
     /// Normal combat rewards defer card RNG until the player opens the card screen.
@@ -1702,7 +1707,8 @@ impl RunState {
             | Relic::Girya
             | Relic::UnceasingTop
             | Relic::Shovel
-            | Relic::FossilizedHelix => {}
+            | Relic::FossilizedHelix
+            | Relic::BlackStar => {}
         }
     }
 
@@ -1965,6 +1971,7 @@ impl Relic {
             Relic::UnceasingTop => RelicKey::UnceasingTop,
             Relic::Shovel => RelicKey::Shovel,
             Relic::FossilizedHelix => RelicKey::FossilizedHelix,
+            Relic::BlackStar => RelicKey::BlackStar,
         }
     }
 
@@ -2077,6 +2084,7 @@ impl Relic {
             RelicKey::UnceasingTop => Some(Relic::UnceasingTop),
             RelicKey::Shovel => Some(Relic::Shovel),
             RelicKey::FossilizedHelix => Some(Relic::FossilizedHelix),
+            RelicKey::BlackStar => Some(Relic::BlackStar),
             _ => None,
         }
     }
