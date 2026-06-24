@@ -875,9 +875,9 @@ fn test_seed_start_m29_m290001_sentries_prefix_zero_diffs() {
 
 #[test]
 fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
-    let Some(content) = load_corpus_file(
-        "communication_mod/trace-2026-06-23T07-42-06-085Z.best-run.jsonl",
-    ) else {
+    let Some(content) =
+        load_corpus_file("communication_mod/trace-2026-06-23T07-42-06-085Z.best-run.jsonl")
+    else {
         return;
     };
 
@@ -893,8 +893,14 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
     assert!(seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "M290008");
     assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_133);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[step=100].command");
-    assert_eq!(seed_start.first_boundary.category, "unexpected_extra_action");
+    assert_eq!(
+        seed_start.first_boundary.path,
+        "$.actions[step=100].command"
+    );
+    assert_eq!(
+        seed_start.first_boundary.category,
+        "unexpected_extra_action"
+    );
 
     let labels: Vec<_> = report
         .verified

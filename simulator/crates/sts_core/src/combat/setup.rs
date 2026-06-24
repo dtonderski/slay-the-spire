@@ -1,7 +1,7 @@
 use crate::{
     card::CardInstance,
     combat::CardPiles,
-    content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+    content::cards::{get_card_definition, is_basic_starter_card},
     relic::{Relic, SNECKO_EYE_DRAW},
     rng::StsRng,
     ContentId,
@@ -117,12 +117,8 @@ fn opening_hand_size(relics: &[Relic]) -> usize {
 
 #[must_use]
 pub fn starter_only_deck(deck: &[CardInstance]) -> bool {
-    deck.iter().all(|card| {
-        matches!(
-            card.content_id,
-            id if id == STRIKE_R_ID || id == DEFEND_R_ID || id == BASH_ID
-        )
-    })
+    deck.iter()
+        .all(|card| is_basic_starter_card(card.content_id))
 }
 
 #[cfg(test)]

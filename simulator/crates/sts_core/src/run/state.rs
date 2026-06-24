@@ -1,14 +1,11 @@
 use crate::{
-    card::{CardInstance, CardRarity, CardType},
+    card::{CardInstance, CardType},
     combat::state::BASE_PLAYER_ENERGY,
     combat::CombatState,
     content::ascension::AscensionConfig,
     content::cards::{
-        get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, BASH_ID,
-        BATTLE_TRANCE_ID, BURNING_PACT_ID, CLEAVE_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
-        DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, HAVOC_ID, INFLAME_ID,
-        POMMEL_STRIKE_ID, SEARING_BLOW_ID, SEEING_RED_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
-        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WHIRLWIND_ID, WOUND_ID,
+        card_type_and_rarity, get_card_definition, is_basic_starter_card, is_curse_content_id,
+        upgrade_content_id, WOUND_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::shop_pool::colorless_discovery_card_choices,
@@ -44,7 +41,9 @@ fn default_energy_per_turn() -> i32 {
 mod tests {
     use super::*;
     use crate::content::cards::{
-        ANGER_ID, FEEL_NO_PAIN_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_PLUS_ID,
+        ANGER_ID, BATTLE_TRANCE_ID, CLEAVE_ID, FEEL_NO_PAIN_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, WARCRY_ID,
     };
     use crate::ids::MapNodeId;
 
@@ -63,6 +62,115 @@ mod tests {
 
         assert_eq!(run.relic_rng_counter, 5);
         assert_eq!(run.relic_pools, Some(first));
+    }
+
+    #[test]
+    fn rng_stream_accessors_preserve_flat_run_state_fields() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 100;
+        run.card_rng_counter = 1;
+        run.card_random_rng_counter = 2;
+        run.event_rng_seed = 200;
+        run.event_rng_counter = 3;
+        run.merchant_rng_seed = 300;
+        run.merchant_rng_counter = 4;
+        run.misc_rng_seed = 400;
+        run.misc_rng_counter = 5;
+        run.potion_rng_seed = 500;
+        run.potion_rng_counter = 6;
+        run.relic_rng_seed = 600;
+        run.relic_rng_counter = 7;
+        run.treasure_rng_seed = 700;
+        run.treasure_rng_counter = 8;
+        run.current_floor = 9;
+
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::CardReward),
+            RunRngStreamState {
+                seed: 100,
+                counter: 1
+            }
+        );
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::CardRandom),
+            RunRngStreamState {
+                seed: 109,
+                counter: 2
+            }
+        );
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::Event),
+            RunRngStreamState {
+                seed: 200,
+                counter: 3
+            }
+        );
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::Merchant),
+            RunRngStreamState {
+                seed: 300,
+                counter: 4
+            }
+        );
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::Misc),
+            RunRngStreamState {
+                seed: 400,
+                counter: 5
+            }
+        );
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::Potion),
+            RunRngStreamState {
+                seed: 500,
+                counter: 6
+            }
+        );
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::Relic),
+            RunRngStreamState {
+                seed: 600,
+                counter: 7
+            }
+        );
+        assert_eq!(
+            run.rng_stream_state(RunRngStream::Treasure),
+            RunRngStreamState {
+                seed: 700,
+                counter: 8
+            }
+        );
+
+        run.set_rng_stream_counter(RunRngStream::CardReward, 11);
+        run.set_rng_stream_counter(RunRngStream::CardRandom, 12);
+        run.set_rng_stream_counter(RunRngStream::Event, 13);
+        run.set_rng_stream_counter(RunRngStream::Merchant, 14);
+        run.set_rng_stream_counter(RunRngStream::Misc, 15);
+        run.set_rng_stream_counter(RunRngStream::Potion, 16);
+        run.set_rng_stream_counter(RunRngStream::Relic, 17);
+        run.set_rng_stream_counter(RunRngStream::Treasure, 18);
+
+        assert_eq!(run.card_rng_counter, 11);
+        assert_eq!(run.card_random_rng_counter, 12);
+        assert_eq!(run.event_rng_counter, 13);
+        assert_eq!(run.merchant_rng_counter, 14);
+        assert_eq!(run.misc_rng_counter, 15);
+        assert_eq!(run.potion_rng_counter, 16);
+        assert_eq!(run.relic_rng_counter, 17);
+        assert_eq!(run.treasure_rng_counter, 18);
+    }
+
+    #[test]
+    fn rng_stream_accessors_do_not_change_run_state_serialization_shape() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 100;
+        run.card_rng_counter = 3;
+
+        let value = serde_json::to_value(&run).expect("serialize run state");
+
+        assert_eq!(value["reward_rng_seed"], 100);
+        assert_eq!(value["card_rng_counter"], 3);
+        assert!(value.get("rng_streams").is_none());
     }
 
     #[test]
@@ -1450,6 +1558,24 @@ pub struct RunState {
     pub treasure_room: Option<super::reward::TreasureRoomState>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunRngStream {
+    CardReward,
+    CardRandom,
+    Event,
+    Merchant,
+    Misc,
+    Potion,
+    Relic,
+    Treasure,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunRngStreamState {
+    pub seed: u64,
+    pub counter: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunPhase {
     Combat,
@@ -1591,6 +1717,68 @@ pub enum RunAction {
 
 impl RunState {
     #[must_use]
+    pub fn rng_stream_state(&self, stream: RunRngStream) -> RunRngStreamState {
+        match stream {
+            RunRngStream::CardReward => RunRngStreamState {
+                seed: self.reward_rng_seed,
+                counter: self.card_rng_counter,
+            },
+            RunRngStream::CardRandom => RunRngStreamState {
+                seed: (self.reward_rng_seed as i64).wrapping_add(i64::from(self.current_floor))
+                    as u64,
+                counter: self.card_random_rng_counter,
+            },
+            RunRngStream::Event => RunRngStreamState {
+                seed: self.event_rng_seed,
+                counter: self.event_rng_counter,
+            },
+            RunRngStream::Merchant => RunRngStreamState {
+                seed: self.merchant_rng_seed,
+                counter: self.merchant_rng_counter,
+            },
+            RunRngStream::Misc => RunRngStreamState {
+                seed: self.misc_rng_seed,
+                counter: self.misc_rng_counter,
+            },
+            RunRngStream::Potion => RunRngStreamState {
+                seed: self.potion_rng_seed,
+                counter: self.potion_rng_counter,
+            },
+            RunRngStream::Relic => RunRngStreamState {
+                seed: self.relic_rng_seed,
+                counter: self.relic_rng_counter,
+            },
+            RunRngStream::Treasure => RunRngStreamState {
+                seed: self.treasure_rng_seed,
+                counter: self.treasure_rng_counter,
+            },
+        }
+    }
+
+    pub fn set_rng_stream_counter(&mut self, stream: RunRngStream, counter: u32) {
+        match stream {
+            RunRngStream::CardReward => self.card_rng_counter = counter,
+            RunRngStream::CardRandom => self.card_random_rng_counter = counter,
+            RunRngStream::Event => self.event_rng_counter = counter,
+            RunRngStream::Merchant => self.merchant_rng_counter = counter,
+            RunRngStream::Misc => self.misc_rng_counter = counter,
+            RunRngStream::Potion => self.potion_rng_counter = counter,
+            RunRngStream::Relic => self.relic_rng_counter = counter,
+            RunRngStream::Treasure => self.treasure_rng_counter = counter,
+        }
+    }
+
+    #[must_use]
+    pub fn rng_for_stream(&self, stream: RunRngStream) -> StsRng {
+        let state = self.rng_stream_state(stream);
+        StsRng::with_counter(state.seed as i64, state.counter)
+    }
+
+    pub fn store_rng_counter(&mut self, stream: RunRngStream, rng: &StsRng) {
+        self.set_rng_stream_counter(stream, rng.counter());
+    }
+
+    #[must_use]
     pub fn init_combat(&self, base: CombatState) -> CombatState {
         let mut combat = base;
         combat.player.hp = self.player_hp;
@@ -1699,10 +1887,7 @@ impl RunState {
 
     #[must_use]
     pub fn card_random_rng(&self) -> StsRng {
-        StsRng::with_counter(
-            self.reward_rng_seed as i64 + i64::from(self.current_floor),
-            self.card_random_rng_counter,
-        )
+        self.rng_for_stream(RunRngStream::CardRandom)
     }
 
     pub fn reset_card_random_rng_for_combat(&mut self) {
@@ -2724,37 +2909,4 @@ impl Relic {
             RelicKey::PrismaticShard => Some(Relic::PrismaticShard),
         }
     }
-}
-
-fn card_type_and_rarity(content_id: ContentId) -> Option<(CardType, CardRarity)> {
-    match content_id {
-        id if id == STRIKE_R_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == SHRUG_IT_OFF_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == TRUE_GRIT_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == POMMEL_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == BATTLE_TRANCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == SEEING_RED_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == BURNING_PACT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == WHIRLWIND_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == HAVOC_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == WARCRY_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        _ => None,
-    }
-}
-
-fn is_basic_starter_card(content_id: ContentId) -> bool {
-    matches!(content_id, id if id == STRIKE_R_ID || id == DEFEND_R_ID || id == BASH_ID)
 }

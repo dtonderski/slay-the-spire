@@ -1,6 +1,7 @@
 use crate::{
     card::{
-        CardDefinition, CardKeywords, CardType, CardValues, TargetRequirement, CARD_KEYWORDS_NONE,
+        CardDefinition, CardKeywords, CardRarity, CardType, CardValues, TargetRequirement,
+        CARD_KEYWORDS_NONE,
     },
     ContentId,
 };
@@ -1203,6 +1204,46 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
 #[must_use]
 pub fn is_curse_content_id(id: ContentId) -> bool {
     matches!(id, id if id == REGRET_ID || id == DOUBT_ID || id == CURSE_OF_THE_BELL_ID || id == ASCENDERS_BANE_ID)
+}
+
+#[must_use]
+pub fn is_basic_starter_card(id: ContentId) -> bool {
+    matches!(id, id if id == STRIKE_R_ID || id == DEFEND_R_ID || id == BASH_ID)
+}
+
+#[must_use]
+pub fn is_pandoras_box_removed_starter(id: ContentId) -> bool {
+    matches!(id, id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID || id == DEFEND_R_ID)
+}
+
+#[must_use]
+pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
+    match id {
+        id if id == STRIKE_R_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == SHRUG_IT_OFF_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == TRUE_GRIT_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == POMMEL_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == BATTLE_TRANCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SEEING_RED_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == BURNING_PACT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == WHIRLWIND_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == HAVOC_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == WARCRY_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        _ => None,
+    }
 }
 
 /// Maps a base card content id to its upgraded (+) version, if one exists.

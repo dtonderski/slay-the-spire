@@ -476,7 +476,7 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
 }
 
 #[must_use]
-pub fn fixed_shop_screen(next_card_id: u64) -> ShopScreen {
+pub fn legacy_fixed_shop_screen(next_card_id: u64) -> ShopScreen {
     ShopScreen {
         cards: vec![ShopCardSlot {
             card: CardInstance::new(CardId::new(next_card_id), ANGER_ID),
@@ -498,6 +498,16 @@ pub fn fixed_shop_screen(next_card_id: u64) -> ShopScreen {
     }
 }
 
+/// Compatibility wrapper for [`legacy_fixed_shop_screen`].
+///
+/// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. This is the early
+/// milestone Anger/Vajra/Fire Potion shop fixture used when no merchant RNG seed
+/// is available.
+#[must_use]
+pub fn fixed_shop_screen(next_card_id: u64) -> ShopScreen {
+    legacy_fixed_shop_screen(next_card_id)
+}
+
 pub fn enter_shop_room(run: &mut RunState) {
     run.phase = RunPhase::Shop;
     run.shop = None;
@@ -507,7 +517,7 @@ pub fn enter_shop_room(run: &mut RunState) {
 pub fn open_shop_merchant(run: &mut RunState) {
     run.phase = RunPhase::Shop;
     run.shop = Some(if run.merchant_rng_seed == 0 {
-        fixed_shop_screen(run.next_card_instance_id())
+        legacy_fixed_shop_screen(run.next_card_instance_id())
     } else {
         generate_shop_screen(run)
     });

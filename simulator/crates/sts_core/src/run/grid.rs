@@ -2,8 +2,8 @@ use crate::{
     card::{CardInstance, CardType},
     content::{
         cards::{
-            get_card_definition, upgrade_content_id, CURSE_OF_THE_BELL_ID, DEFEND_R_ID,
-            STRIKE_R_ID, STRIKE_R_PLUS_ID,
+            get_card_definition, is_pandoras_box_removed_starter, upgrade_content_id,
+            CURSE_OF_THE_BELL_ID,
         },
         reward_pool::{ironclad_reward_content_ids, ironclad_truly_random_card_pool},
     },
@@ -163,10 +163,6 @@ pub fn open_astrolabe_grid(run: &mut RunState) {
         selected: None,
         selected_indices: Vec::new(),
     });
-}
-
-fn is_pandoras_box_removed_starter(content_id: crate::ContentId) -> bool {
-    matches!(content_id, id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID || id == DEFEND_R_ID)
 }
 
 const ASTROLABE_TRANSFORM_COUNT: usize = 3;
