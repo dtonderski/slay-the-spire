@@ -20,6 +20,14 @@ Use this file to track parallel worker branches before integration. Each worker 
 | `codex/m32a-relic-potion-inventory` | Fill relic and potion rows. | `simulator/docs/m32a_relic_potion_matrix.md` only. |
 | `codex/m32a-run-world-inventory` | Fill monster, boss, encounter, event, room, reward, shop, rest, map, ascension, verifier, and corpus rows. | `simulator/docs/m32a_run_world_matrix.md` only. |
 
+## Active Workers
+
+| Agent | Branch equivalent | Scope | Write set | Status |
+| --- | --- | --- | --- | --- |
+| Poincare | `codex/m32a-card-inventory` | Fill card inventory matrix rows. | `simulator/docs/m32a_cards_matrix.md` | completed |
+| Galileo | `codex/m32a-relic-potion-inventory` | Fill relic/potion inventory matrix rows. | `simulator/docs/m32a_relic_potion_matrix.md` | completed, integrated with Fairy caveat correction |
+| Averroes | `codex/m32a-run-world-inventory` | Fill run/world inventory matrix rows. | `simulator/docs/m32a_run_world_matrix.md` | completed |
+
 ## Worker Contract
 
 - Start from the current integration branch checkpoint.
