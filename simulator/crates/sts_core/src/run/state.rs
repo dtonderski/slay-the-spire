@@ -406,6 +406,22 @@ mod tests {
             Relic::from_key(RelicKey::TheCourier),
             Some(Relic::TheCourier)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::IncenseBurner),
+            Some(Relic::IncenseBurner)
+        );
+    }
+
+    #[test]
+    fn incense_burner_counter_persists_from_combat_entry() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::IncenseBurner]);
+        run.incense_burner_counter = 5;
+
+        let combat = run.init_combat_consuming_relics(CombatState::initial_fixture());
+
+        assert_eq!(combat.relic_counters.incense_burner_counter, 0);
+        assert_eq!(combat.player.powers.intangible, 1);
+        assert_eq!(run.incense_burner_counter, 0);
     }
 
     #[test]
@@ -1204,6 +1220,8 @@ pub struct RunState {
     pub girya_lifts: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub matryoshka_chests_opened: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub incense_burner_counter: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1412,6 +1430,9 @@ impl RunState {
                 monster.powers.strength += PHILOSOPHERS_STONE_MONSTER_STRENGTH;
             }
         }
+        if self.relics.contains(&Relic::IncenseBurner) {
+            combat.relic_counters.incense_burner_counter = self.incense_burner_counter;
+        }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         combat
     }
@@ -1421,6 +1442,9 @@ impl RunState {
         let combat = self.init_combat(base);
         if self.ancient_tea_set_armed {
             self.ancient_tea_set_armed = false;
+        }
+        if self.relics.contains(&Relic::IncenseBurner) {
+            self.incense_burner_counter = combat.relic_counters.incense_burner_counter;
         }
         combat
     }
@@ -1505,6 +1529,7 @@ impl RunState {
             lizard_tail_used: false,
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
+            incense_burner_counter: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1562,6 +1587,7 @@ impl RunState {
             lizard_tail_used: false,
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
+            incense_burner_counter: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1933,7 +1959,8 @@ impl RunState {
             | Relic::Matryoshka
             | Relic::DeadBranch
             | Relic::MummifiedHand
-            | Relic::TheCourier => {}
+            | Relic::TheCourier
+            | Relic::IncenseBurner => {}
         }
     }
 
@@ -2242,6 +2269,7 @@ impl Relic {
             Relic::DeadBranch => RelicKey::DeadBranch,
             Relic::MummifiedHand => RelicKey::MummifiedHand,
             Relic::TheCourier => RelicKey::TheCourier,
+            Relic::IncenseBurner => RelicKey::IncenseBurner,
         }
     }
 
@@ -2373,6 +2401,7 @@ impl Relic {
             RelicKey::DeadBranch => Some(Relic::DeadBranch),
             RelicKey::MummifiedHand => Some(Relic::MummifiedHand),
             RelicKey::TheCourier => Some(Relic::TheCourier),
+            RelicKey::IncenseBurner => Some(Relic::IncenseBurner),
             _ => None,
         }
     }

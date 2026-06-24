@@ -477,6 +477,8 @@ pub const DEAD_BRANCH_ID: ContentId = ContentId::new(422);
 pub const MUMMIFIED_HAND_ID: ContentId = ContentId::new(423);
 /// Content id for [Relic::TheCourier].
 pub const THE_COURIER_ID: ContentId = ContentId::new(424);
+/// Content id for [Relic::IncenseBurner].
+pub const INCENSE_BURNER_ID: ContentId = ContentId::new(425);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -518,6 +520,8 @@ pub struct RelicCounters {
     pub orange_pellets_skill_played: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub orange_pellets_power_played: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub incense_burner_counter: u32,
 }
 
 fn is_zero_u32(value: &u32) -> bool {
@@ -1145,6 +1149,7 @@ pub enum Relic {
     DeadBranch,
     MummifiedHand,
     TheCourier,
+    IncenseBurner,
 }
 
 impl Relic {
@@ -1276,6 +1281,7 @@ impl Relic {
             Relic::DeadBranch => DEAD_BRANCH_ID,
             Relic::MummifiedHand => MUMMIFIED_HAND_ID,
             Relic::TheCourier => THE_COURIER_ID,
+            Relic::IncenseBurner => INCENSE_BURNER_ID,
         }
     }
 
@@ -1407,6 +1413,7 @@ impl Relic {
             id if id == DEAD_BRANCH_ID => Some(Relic::DeadBranch),
             id if id == MUMMIFIED_HAND_ID => Some(Relic::MummifiedHand),
             id if id == THE_COURIER_ID => Some(Relic::TheCourier),
+            id if id == INCENSE_BURNER_ID => Some(Relic::IncenseBurner),
             _ => None,
         }
     }
@@ -1443,6 +1450,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::DeadBranch => {}
             Relic::MummifiedHand => {}
             Relic::TheCourier => {}
+            Relic::IncenseBurner => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -1735,6 +1743,14 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
             monster.powers.strength += BRIMSTONE_MONSTER_STRENGTH;
         }
     }
+
+    if state.relics.contains(&Relic::IncenseBurner) {
+        state.relic_counters.incense_burner_counter += 1;
+        if state.relic_counters.incense_burner_counter >= 6 {
+            state.relic_counters.incense_burner_counter = 0;
+            state.player.powers.intangible += 1;
+        }
+    }
 }
 
 fn has_start_of_turn_relic(state: &CombatState) -> bool {
@@ -1749,6 +1765,7 @@ fn has_start_of_turn_relic(state: &CombatState) -> bool {
                 | Relic::MercuryHourglass
                 | Relic::StoneCalendar
                 | Relic::Brimstone
+                | Relic::IncenseBurner
         )
     })
 }
@@ -3361,6 +3378,30 @@ mod tests {
     }
 
     #[test]
+    fn incense_burner_grants_intangible_on_sixth_turn_start() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::IncenseBurner];
+        combat.relic_counters.incense_burner_counter = 5;
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.relic_counters.incense_burner_counter, 0);
+        assert_eq!(combat.player.powers.intangible, 1);
+    }
+
+    #[test]
+    fn incense_burner_advances_without_trigger_before_six() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::IncenseBurner];
+        combat.relic_counters.incense_burner_counter = 4;
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.relic_counters.incense_burner_counter, 5);
+        assert_eq!(combat.player.powers.intangible, 0);
+    }
+
+    #[test]
     fn reset_turn_relic_counters_clears_ornamental_fan_attacks() {
         let mut combat = CombatState::initial_fixture();
         combat.relic_counters.ornamental_fan_attacks_this_turn = 2;
@@ -3392,6 +3433,7 @@ mod tests {
             orange_pellets_attack_played: true,
             orange_pellets_skill_played: true,
             orange_pellets_power_played: false,
+            incense_burner_counter: 5,
         };
 
         let json = serde_json::to_string(&counters).expect("counters serialize");

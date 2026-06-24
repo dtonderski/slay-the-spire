@@ -109,6 +109,9 @@ fn run_monster_turn(state: &mut CombatState) {
     if state.player.powers.vulnerable > 0 {
         state.player.powers.vulnerable -= 1;
     }
+    if state.player.powers.intangible > 0 {
+        state.player.powers.intangible -= 1;
+    }
 
     apply_turn_transition_block_loss(state);
 }
@@ -122,9 +125,15 @@ fn apply_turn_transition_block_loss(state: &mut CombatState) {
 }
 
 fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
-    let blocked = state.player.block.min(amount);
+    let incoming = if state.player.powers.intangible > 0 && amount > 1 {
+        1
+    } else {
+        amount
+    };
+    let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
-    let mitigated = crate::relic::mitigate_unblocked_attack_damage(&state.relics, amount - blocked);
+    let mitigated =
+        crate::relic::mitigate_unblocked_attack_damage(&state.relics, incoming - blocked);
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp -= hp_damage;
     crate::relic::apply_player_hp_loss_relics(state, hp_damage);
@@ -285,6 +294,19 @@ mod tests {
 
         assert_eq!(next.player.hp, 20);
         assert_eq!(next.player.powers.buffer, 0);
+    }
+
+    #[test]
+    fn intangible_caps_monster_attack_damage_until_monster_turn_cleanup() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.powers.intangible = 1;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 19);
+        assert_eq!(next.player.powers.intangible, 0);
     }
 
     #[test]
