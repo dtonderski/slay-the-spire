@@ -998,6 +998,21 @@ pub const CLASH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const WILD_STRIKE: CardDefinition = CardDefinition {
+    id: WILD_STRIKE_ID,
+    key: "WILD_STRIKE",
+    name: "Wild Strike",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(12),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const HEAVY_BLADE: CardDefinition = CardDefinition {
     id: HEAVY_BLADE_ID,
     key: "HEAVY_BLADE",
@@ -1230,7 +1245,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 65] = [
+pub const ALL_CARDS: [CardDefinition; 66] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1284,6 +1299,7 @@ pub const ALL_CARDS: [CardDefinition; 65] = [
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
+    WILD_STRIKE,
     HEAVY_BLADE,
     CLOTHESLINE,
     INTIMIDATE,
@@ -1327,6 +1343,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1482,6 +1499,18 @@ mod tests {
         assert_eq!(CLASH.values.damage, Some(14));
         assert_eq!(
             card_type_and_rarity(CLASH_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn wild_strike_has_expected_values() {
+        assert_eq!(WILD_STRIKE.cost, 1);
+        assert_eq!(WILD_STRIKE.target, TargetRequirement::Enemy);
+        assert_eq!(WILD_STRIKE.card_type, CardType::Attack);
+        assert_eq!(WILD_STRIKE.values.damage, Some(12));
+        assert_eq!(
+            card_type_and_rarity(WILD_STRIKE_ID),
             Some((CardType::Attack, CardRarity::Common))
         );
     }
