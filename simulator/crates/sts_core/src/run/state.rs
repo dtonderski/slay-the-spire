@@ -344,6 +344,10 @@ mod tests {
             Some(Relic::BottledTornado)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::DollysMirror),
+            Some(Relic::DollysMirror)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1651,6 +1655,9 @@ impl RunState {
             Relic::BottledTornado => {
                 super::grid::open_bottle_grid(self, CardType::Power);
             }
+            Relic::DollysMirror => {
+                super::grid::open_dollys_mirror_grid(self);
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -2011,6 +2018,7 @@ impl Relic {
             Relic::BottledFlame => RelicKey::BottledFlame,
             Relic::BottledLightning => RelicKey::BottledLightning,
             Relic::BottledTornado => RelicKey::BottledTornado,
+            Relic::DollysMirror => RelicKey::DollysMirror,
         }
     }
 
@@ -2129,6 +2137,7 @@ impl Relic {
             RelicKey::BottledFlame => Some(Relic::BottledFlame),
             RelicKey::BottledLightning => Some(Relic::BottledLightning),
             RelicKey::BottledTornado => Some(Relic::BottledTornado),
+            RelicKey::DollysMirror => Some(Relic::DollysMirror),
             _ => None,
         }
     }

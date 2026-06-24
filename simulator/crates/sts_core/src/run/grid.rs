@@ -10,6 +10,7 @@ pub enum GridPurpose {
     ShopRemove,
     EmptyCage { remaining: u8 },
     Bottle { card_type: CardType },
+    DollysMirror,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -67,6 +68,18 @@ pub fn open_bottle_grid(run: &mut RunState, card_type: CardType) {
     run.card_grid = Some(CardGridScreen {
         cards,
         purpose: GridPurpose::Bottle { card_type },
+        selected: None,
+    });
+}
+
+pub fn open_dollys_mirror_grid(run: &mut RunState) {
+    if run.deck.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards: run.deck.clone(),
+        purpose: GridPurpose::DollysMirror,
         selected: None,
     });
 }
@@ -159,6 +172,13 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                     break;
                 }
             }
+            next.card_grid = None;
+        }
+        GridPurpose::DollysMirror => {
+            let mut copy = card;
+            copy.id = crate::ids::CardId::new(next.next_card_instance_id());
+            copy.bottled = false;
+            next.add_deck_card(copy);
             next.card_grid = None;
         }
     }
@@ -278,5 +298,25 @@ mod tests {
             .deck
             .iter()
             .any(|card| card.content_id == ANGER_ID && card.bottled));
+    }
+
+    #[test]
+    fn dollys_mirror_grid_duplicates_selected_card_as_new_instance() {
+        let mut run = RunState::map_fixture();
+        let source_id = run.deck[0].id;
+        run.deck[0].bottled = true;
+        open_dollys_mirror_grid(&mut run);
+        let deck_len = run.deck.len();
+
+        let selected = select_grid_card(&run, 0).expect("select");
+        let after = confirm_grid(&selected).expect("confirm");
+
+        assert!(after.card_grid.is_none());
+        assert_eq!(after.deck.len(), deck_len + 1);
+        assert_eq!(after.deck[0].id, source_id);
+        let copy = after.deck.last().expect("copy");
+        assert_ne!(copy.id, source_id);
+        assert_eq!(copy.content_id, after.deck[0].content_id);
+        assert!(!copy.bottled);
     }
 }
