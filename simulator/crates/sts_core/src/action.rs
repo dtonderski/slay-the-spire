@@ -58,6 +58,9 @@ pub enum InternalAction {
     GainEnergy {
         amount: i32,
     },
+    LoseHp {
+        amount: i32,
+    },
     SetCannotDraw,
     GainFeelNoPain {
         amount: i32,

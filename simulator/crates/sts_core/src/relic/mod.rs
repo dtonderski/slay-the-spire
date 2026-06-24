@@ -381,6 +381,12 @@ pub const SUNDIAL_ID: ContentId = ContentId::new(387);
 pub const CHARONS_ASHES_ID: ContentId = ContentId::new(388);
 /// Damage dealt to all enemies by [Relic::CharonsAshes] when a card is exhausted.
 pub const CHARONS_ASHES_DAMAGE: i32 = 3;
+/// Content id for [Relic::BlueCandle].
+pub const BLUE_CANDLE_ID: ContentId = ContentId::new(389);
+/// HP lost when [Relic::BlueCandle] exhausts a Curse.
+pub const BLUE_CANDLE_HP_LOSS: i32 = 1;
+/// Content id for [Relic::MedicalKit].
+pub const MEDICAL_KIT_ID: ContentId = ContentId::new(390);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1001,6 +1007,8 @@ pub enum Relic {
     GremlinHorn,
     Sundial,
     CharonsAshes,
+    BlueCandle,
+    MedicalKit,
 }
 
 impl Relic {
@@ -1096,6 +1104,8 @@ impl Relic {
             Relic::GremlinHorn => GREMLIN_HORN_ID,
             Relic::Sundial => SUNDIAL_ID,
             Relic::CharonsAshes => CHARONS_ASHES_ID,
+            Relic::BlueCandle => BLUE_CANDLE_ID,
+            Relic::MedicalKit => MEDICAL_KIT_ID,
         }
     }
 
@@ -1191,6 +1201,8 @@ impl Relic {
             id if id == GREMLIN_HORN_ID => Some(Relic::GremlinHorn),
             id if id == SUNDIAL_ID => Some(Relic::Sundial),
             id if id == CHARONS_ASHES_ID => Some(Relic::CharonsAshes),
+            id if id == BLUE_CANDLE_ID => Some(Relic::BlueCandle),
+            id if id == MEDICAL_KIT_ID => Some(Relic::MedicalKit),
             _ => None,
         }
     }
@@ -1323,6 +1335,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::GremlinHorn => {}
             Relic::Sundial => {}
             Relic::CharonsAshes => {}
+            Relic::BlueCandle => {}
+            Relic::MedicalKit => {}
         }
     }
 
@@ -1664,6 +1678,21 @@ pub fn apply_on_card_play_relics(
 pub fn can_play_card_with_relics(state: &CombatState) -> bool {
     !state.relics.contains(&Relic::VelvetChoker)
         || state.relic_counters.cards_played_this_turn < VELVET_CHOKER_CARD_LIMIT
+}
+
+#[must_use]
+pub fn can_play_unplayable_card_with_relics(
+    relics: &[Relic],
+    card_type: CardType,
+    content_id: ContentId,
+) -> bool {
+    if crate::content::cards::is_curse_content_id(content_id) {
+        relics.contains(&Relic::BlueCandle)
+    } else if card_type == CardType::Status {
+        relics.contains(&Relic::MedicalKit)
+    } else {
+        false
+    }
 }
 
 fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i32) {
@@ -2382,6 +2411,16 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(CHARONS_ASHES_ID),
             Some(Relic::CharonsAshes)
+        );
+        assert_eq!(Relic::BlueCandle.content_id(), BLUE_CANDLE_ID);
+        assert_eq!(
+            Relic::from_content_id(BLUE_CANDLE_ID),
+            Some(Relic::BlueCandle)
+        );
+        assert_eq!(Relic::MedicalKit.content_id(), MEDICAL_KIT_ID);
+        assert_eq!(
+            Relic::from_content_id(MEDICAL_KIT_ID),
+            Some(Relic::MedicalKit)
         );
     }
 
