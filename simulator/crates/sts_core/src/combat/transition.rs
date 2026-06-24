@@ -1755,6 +1755,18 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
 
 pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     state.exhaust_select = Some(crate::combat::ExhaustSelectState {
+        purpose: crate::combat::ExhaustSelectPurpose::Exhaust,
+        selected_hand_indices: Vec::new(),
+    });
+    Ok(())
+}
+
+pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
+    if state.piles.hand.is_empty() {
+        return Ok(());
+    }
+    state.exhaust_select = Some(crate::combat::ExhaustSelectState {
+        purpose: crate::combat::ExhaustSelectPurpose::GamblingChip,
         selected_hand_indices: Vec::new(),
     });
     Ok(())
@@ -1795,6 +1807,9 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
         .exhaust_select
         .take()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::GamblingChip {
+        return confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices);
+    }
     let mut selected = exhaust_select.selected_hand_indices;
     selected.sort_unstable();
     selected.dedup();
@@ -1806,6 +1821,24 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
         state.piles.exhaust_pile.push(card);
         apply_on_exhaust_effects(state);
     }
+    Ok(())
+}
+
+fn confirm_gambling_chip_select(
+    state: &mut CombatState,
+    mut selected: Vec<usize>,
+) -> SimResult<()> {
+    selected.sort_unstable();
+    selected.dedup();
+    let count = selected.len();
+    for index in selected.into_iter().rev() {
+        if index >= state.piles.hand.len() {
+            return Err(SimError::IllegalAction("exhaust select index out of range"));
+        }
+        let card = state.piles.hand.remove(index);
+        state.piles.discard_pile.push(card);
+    }
+    player_draw_cards(state, count);
     Ok(())
 }
 

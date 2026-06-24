@@ -429,6 +429,10 @@ mod tests {
             Some(Relic::PandorasBox)
         );
         assert_eq!(Relic::from_key(RelicKey::Astrolabe), Some(Relic::Astrolabe));
+        assert_eq!(
+            Relic::from_key(RelicKey::GamblingChip),
+            Some(Relic::GamblingChip)
+        );
     }
 
     #[test]
@@ -1208,6 +1212,77 @@ mod tests {
         assert_eq!(run.relics, vec![Relic::Lantern]);
         assert!(run.relic_keys.is_empty());
     }
+
+    #[test]
+    fn gambling_chip_opens_start_of_combat_discard_selection() {
+        let mut run = RunState::map_fixture();
+        run.gain_relic_key(RelicKey::GamblingChip);
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(
+            combat
+                .exhaust_select
+                .as_ref()
+                .expect("Gambling Chip selection")
+                .purpose,
+            crate::combat::state::ExhaustSelectPurpose::GamblingChip
+        );
+        assert!(combat
+            .exhaust_select
+            .as_ref()
+            .expect("Gambling Chip selection")
+            .selected_hand_indices
+            .is_empty());
+    }
+
+    #[test]
+    fn gambling_chip_discards_selected_hand_cards_and_redraws() {
+        let mut run = RunState::map_fixture();
+        run.gain_relic_key(RelicKey::GamblingChip);
+        let combat = run.init_combat(CombatState::initial_fixture());
+        let discarded = combat.piles.hand[0].id;
+        let drawn = combat.piles.draw_pile.last().expect("draw pile card").id;
+        run.phase = RunPhase::Combat;
+        run.combat = Some(combat);
+
+        let selected =
+            crate::run::apply_run_action(&run, RunAction::ChooseExhaustSelect { index: 0 })
+                .expect("select discard");
+        let confirmed = crate::run::apply_run_action(&selected, RunAction::ConfirmExhaustSelect)
+            .expect("confirm discard");
+        let combat = confirmed.combat.expect("combat remains active");
+
+        assert!(combat.exhaust_select.is_none());
+        assert!(combat.piles.hand.iter().any(|card| card.id == drawn));
+        assert!(!combat.piles.hand.iter().any(|card| card.id == discarded));
+        assert!(combat
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == discarded));
+        assert!(combat.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn gambling_chip_confirmation_does_not_trigger_dead_branch() {
+        let mut run = RunState::map_fixture();
+        run.gain_relic_key(RelicKey::GamblingChip);
+        run.gain_relic(Relic::DeadBranch);
+        let combat = run.init_combat(CombatState::initial_fixture());
+        run.phase = RunPhase::Combat;
+        run.combat = Some(combat);
+
+        let selected =
+            crate::run::apply_run_action(&run, RunAction::ChooseExhaustSelect { index: 0 })
+                .expect("select discard");
+        let confirmed = crate::run::apply_run_action(&selected, RunAction::ConfirmExhaustSelect)
+            .expect("confirm discard");
+        let combat = confirmed.combat.expect("combat remains active");
+
+        assert!(combat.piles.exhaust_pile.is_empty());
+        assert!(!combat.piles.hand.iter().any(|card| card.combat_only));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1494,6 +1569,10 @@ impl RunState {
             combat.relic_counters.incense_burner_counter = self.incense_burner_counter;
         }
         apply_start_of_combat_relics(&mut combat, &self.relics);
+        if self.relics.contains(&Relic::GamblingChip) {
+            crate::combat::open_gambling_chip_select(&mut combat)
+                .expect("Gambling Chip selection opens without validation side effects");
+        }
         combat
     }
 
@@ -2051,7 +2130,8 @@ impl RunState {
             | Relic::TheCourier
             | Relic::IncenseBurner
             | Relic::TinyChest
-            | Relic::StrangeSpoon => {}
+            | Relic::StrangeSpoon
+            | Relic::GamblingChip => {}
         }
     }
 
@@ -2370,6 +2450,7 @@ impl Relic {
             Relic::CallingBell => RelicKey::CallingBell,
             Relic::PandorasBox => RelicKey::PandorasBox,
             Relic::Astrolabe => RelicKey::Astrolabe,
+            Relic::GamblingChip => RelicKey::GamblingChip,
         }
     }
 
@@ -2511,6 +2592,7 @@ impl Relic {
             RelicKey::CallingBell => Some(Relic::CallingBell),
             RelicKey::PandorasBox => Some(Relic::PandorasBox),
             RelicKey::Astrolabe => Some(Relic::Astrolabe),
+            RelicKey::GamblingChip => Some(Relic::GamblingChip),
             _ => None,
         }
     }

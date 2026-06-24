@@ -19,11 +19,12 @@ pub use setup::{
     order_deck_for_combat_shuffle, starter_only_deck,
 };
 pub use state::{
-    CardPiles, CombatPhase, CombatState, DiscardSelectState, ExhaustSelectState, HandSelectState,
-    MonsterIntent, MonsterState, PlayerState, BASE_PLAYER_ENERGY,
+    CardPiles, CombatPhase, CombatState, DiscardSelectState, ExhaustSelectPurpose,
+    ExhaustSelectState, HandSelectState, MonsterIntent, MonsterState, PlayerState,
+    BASE_PLAYER_ENERGY,
 };
 pub use transition::{
     apply_combat_action, apply_combat_action_with_events, choose_hand_select, confirm_hand_select,
-    hand_select_ui_to_hand_index, CombatTransition,
+    hand_select_ui_to_hand_index, open_gambling_chip_select, CombatTransition,
 };
 pub use turn::end_player_turn;
