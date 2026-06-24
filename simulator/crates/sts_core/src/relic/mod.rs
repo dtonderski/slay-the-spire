@@ -437,6 +437,12 @@ pub const BLACK_STAR_ID: ContentId = ContentId::new(406);
 pub const MATRYOSHKA_ID: ContentId = ContentId::new(407);
 /// Content id for [Relic::EmptyCage].
 pub const EMPTY_CAGE_ID: ContentId = ContentId::new(408);
+/// Content id for [Relic::BottledFlame].
+pub const BOTTLED_FLAME_ID: ContentId = ContentId::new(409);
+/// Content id for [Relic::BottledLightning].
+pub const BOTTLED_LIGHTNING_ID: ContentId = ContentId::new(410);
+/// Content id for [Relic::BottledTornado].
+pub const BOTTLED_TORNADO_ID: ContentId = ContentId::new(411);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1089,6 +1095,9 @@ pub enum Relic {
     BlackStar,
     Matryoshka,
     EmptyCage,
+    BottledFlame,
+    BottledLightning,
+    BottledTornado,
 }
 
 impl Relic {
@@ -1204,6 +1213,9 @@ impl Relic {
             Relic::BlackStar => BLACK_STAR_ID,
             Relic::Matryoshka => MATRYOSHKA_ID,
             Relic::EmptyCage => EMPTY_CAGE_ID,
+            Relic::BottledFlame => BOTTLED_FLAME_ID,
+            Relic::BottledLightning => BOTTLED_LIGHTNING_ID,
+            Relic::BottledTornado => BOTTLED_TORNADO_ID,
         }
     }
 
@@ -1319,6 +1331,9 @@ impl Relic {
             id if id == BLACK_STAR_ID => Some(Relic::BlackStar),
             id if id == MATRYOSHKA_ID => Some(Relic::Matryoshka),
             id if id == EMPTY_CAGE_ID => Some(Relic::EmptyCage),
+            id if id == BOTTLED_FLAME_ID => Some(Relic::BottledFlame),
+            id if id == BOTTLED_LIGHTNING_ID => Some(Relic::BottledLightning),
+            id if id == BOTTLED_TORNADO_ID => Some(Relic::BottledTornado),
             _ => None,
         }
     }
@@ -1339,6 +1354,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BlackStar => {}
             Relic::Matryoshka => {}
             Relic::EmptyCage => {}
+            Relic::BottledFlame => {}
+            Relic::BottledLightning => {}
+            Relic::BottledTornado => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -2682,6 +2700,21 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(EMPTY_CAGE_ID),
             Some(Relic::EmptyCage)
+        );
+        assert_eq!(Relic::BottledFlame.content_id(), BOTTLED_FLAME_ID);
+        assert_eq!(
+            Relic::from_content_id(BOTTLED_FLAME_ID),
+            Some(Relic::BottledFlame)
+        );
+        assert_eq!(Relic::BottledLightning.content_id(), BOTTLED_LIGHTNING_ID);
+        assert_eq!(
+            Relic::from_content_id(BOTTLED_LIGHTNING_ID),
+            Some(Relic::BottledLightning)
+        );
+        assert_eq!(Relic::BottledTornado.content_id(), BOTTLED_TORNADO_ID);
+        assert_eq!(
+            Relic::from_content_id(BOTTLED_TORNADO_ID),
+            Some(Relic::BottledTornado)
         );
     }
 

@@ -1,5 +1,7 @@
 use crate::{
-    card::CardInstance, content::cards::upgrade_content_id, RunPhase, RunState, SimError, SimResult,
+    card::{CardInstance, CardType},
+    content::cards::{get_card_definition, upgrade_content_id},
+    RunPhase, RunState, SimError, SimResult,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -7,6 +9,7 @@ pub enum GridPurpose {
     RestSmith,
     ShopRemove,
     EmptyCage { remaining: u8 },
+    Bottle { card_type: CardType },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -41,6 +44,29 @@ pub fn open_empty_cage_grid(run: &mut RunState) {
     run.card_grid = Some(CardGridScreen {
         cards: run.deck.clone(),
         purpose: GridPurpose::EmptyCage { remaining: 2 },
+        selected: None,
+    });
+}
+
+pub fn open_bottle_grid(run: &mut RunState, card_type: CardType) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| {
+            !card.bottled
+                && get_card_definition(card.content_id)
+                    .map(|definition| definition.card_type == card_type)
+                    .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::Bottle { card_type },
         selected: None,
     });
 }
@@ -126,6 +152,15 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                 next.card_grid = None;
             }
         }
+        GridPurpose::Bottle { .. } => {
+            for deck_card in &mut next.deck {
+                if deck_card.id == card.id {
+                    deck_card.bottled = true;
+                    break;
+                }
+            }
+            next.card_grid = None;
+        }
     }
 
     Ok(next)
@@ -134,7 +169,10 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{content::cards::STRIKE_R_PLUS_ID, RunState};
+    use crate::{
+        content::cards::{ANGER_ID, FEEL_NO_PAIN_ID, STRIKE_R_PLUS_ID},
+        RunState,
+    };
 
     #[test]
     fn rest_smith_grid_upgrades_selected_card() {
@@ -215,5 +253,30 @@ mod tests {
         assert!(!after_second.deck.iter().any(|card| card.id == second_id));
         assert_eq!(after_second.deck.len(), deck_len - 2);
         assert!(after_second.card_grid.is_none());
+    }
+
+    #[test]
+    fn bottle_grid_filters_by_type_and_marks_selected_card() {
+        let mut run = RunState::map_fixture();
+        run.gain_deck_card(ANGER_ID);
+        run.gain_deck_card(FEEL_NO_PAIN_ID);
+        open_bottle_grid(&mut run, CardType::Power);
+
+        let grid = run.card_grid.as_ref().expect("bottle grid");
+        assert_eq!(grid.cards.len(), 1);
+        assert_eq!(grid.cards[0].content_id, FEEL_NO_PAIN_ID);
+
+        let selected = select_grid_card(&run, 0).expect("select");
+        let after = confirm_grid(&selected).expect("confirm");
+
+        assert!(after.card_grid.is_none());
+        assert!(after
+            .deck
+            .iter()
+            .any(|card| card.content_id == FEEL_NO_PAIN_ID && card.bottled));
+        assert!(!after
+            .deck
+            .iter()
+            .any(|card| card.content_id == ANGER_ID && card.bottled));
     }
 }

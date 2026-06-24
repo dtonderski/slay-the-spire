@@ -13,8 +13,8 @@ pub use event::{
     EventScreen, GOLDEN_SHRINE_GOLD,
 };
 pub use grid::{
-    cancel_grid, confirm_grid, open_empty_cage_grid, open_rest_smith_grid, open_shop_remove_grid,
-    select_grid_card, CardGridScreen, GridPurpose,
+    cancel_grid, confirm_grid, open_bottle_grid, open_empty_cage_grid, open_rest_smith_grid,
+    open_shop_remove_grid, select_grid_card, CardGridScreen, GridPurpose,
 };
 pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
 pub use potion::{apply_potion_action, validate_potion_action};

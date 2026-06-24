@@ -63,6 +63,9 @@ pub struct CardValues {
 pub struct CardInstance {
     pub id: CardId,
     pub content_id: ContentId,
+    /// Cards selected by bottled relics begin combat in the opening hand.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bottled: bool,
     /// Combat-only generated cards (for example Power Potion) may override printed cost.
     #[serde(default)]
     pub temp_cost: Option<u8>,
@@ -77,6 +80,7 @@ impl CardInstance {
         Self {
             id,
             content_id,
+            bottled: false,
             temp_cost: None,
             combat_only: false,
         }
@@ -87,8 +91,13 @@ impl CardInstance {
         Self {
             id,
             content_id,
+            bottled: false,
             temp_cost: Some(temp_cost),
             combat_only: true,
         }
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
