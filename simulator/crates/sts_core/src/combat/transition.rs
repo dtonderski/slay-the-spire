@@ -799,7 +799,7 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
-        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, METALLICIZE_ID,
+        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, IRON_WAVE_ID, METALLICIZE_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
@@ -982,6 +982,66 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.id == bash_id));
+    }
+
+    #[test]
+    fn iron_wave_deals_five_damage_and_gains_five_block() {
+        let state = hand_only(IRON_WAVE_ID);
+
+        let next =
+            apply_combat_action(&state, iron_wave_action(&state)).expect("Iron Wave applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 5);
+        assert_eq!(next.player.block, state.player.block + 5);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+    }
+
+    #[test]
+    fn iron_wave_moves_to_discard_after_play() {
+        let state = hand_only(IRON_WAVE_ID);
+        let iron_wave_id = hand_card_id(&state, IRON_WAVE_ID);
+
+        let next =
+            apply_combat_action(&state, iron_wave_action(&state)).expect("Iron Wave applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == iron_wave_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == iron_wave_id));
+    }
+
+    #[test]
+    fn iron_wave_event_log_records_damage_then_block() {
+        let state = hand_only(IRON_WAVE_ID);
+        let iron_wave_id = hand_card_id(&state, IRON_WAVE_ID);
+
+        let transition = apply_combat_action_with_events(&state, iron_wave_action(&state))
+            .expect("Iron Wave applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: iron_wave_id
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(iron_wave_id),
+                        target: MonsterId::new(1),
+                        amount: 5,
+                    },
+                },
+                InternalAction::GainBlock { amount: 5 },
+                InternalAction::MoveCard {
+                    card_id: iron_wave_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -2886,6 +2946,13 @@ mod tests {
     fn bash_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BASH_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn iron_wave_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, IRON_WAVE_ID),
             target: Some(MonsterId::new(1)),
         }
     }

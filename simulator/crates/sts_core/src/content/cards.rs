@@ -953,6 +953,21 @@ pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const IRON_WAVE: CardDefinition = CardDefinition {
+    id: IRON_WAVE_ID,
+    key: "IRON_WAVE",
+    name: "Iron Wave",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(5),
+        block: Some(5),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SEVER_SOUL: CardDefinition = CardDefinition {
     id: SEVER_SOUL_ID,
     key: "Sever Soul",
@@ -1134,7 +1149,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 59] = [
+pub const ALL_CARDS: [CardDefinition; 60] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1185,6 +1200,7 @@ pub const ALL_CARDS: [CardDefinition; 59] = [
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
     SWIFT_STRIKE,
+    IRON_WAVE,
     SEVER_SOUL,
     SENTINEL,
     BLOODLETTING,
@@ -1222,6 +1238,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == STRIKE_R_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1338,6 +1355,19 @@ mod tests {
         assert_eq!(TWIN_STRIKE.target, TargetRequirement::Enemy);
         assert_eq!(TWIN_STRIKE.card_type, CardType::Attack);
         assert_eq!(TWIN_STRIKE.values.damage, Some(5));
+    }
+
+    #[test]
+    fn iron_wave_has_expected_values() {
+        assert_eq!(IRON_WAVE.cost, 1);
+        assert_eq!(IRON_WAVE.target, TargetRequirement::Enemy);
+        assert_eq!(IRON_WAVE.card_type, CardType::Attack);
+        assert_eq!(IRON_WAVE.values.damage, Some(5));
+        assert_eq!(IRON_WAVE.values.block, Some(5));
+        assert_eq!(
+            card_type_and_rarity(IRON_WAVE_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
     }
 
     #[test]
