@@ -2943,22 +2943,22 @@ fn shop_card_trace_label(run: &RunState, content_id: ContentId) -> String {
 fn shop_card_display_key(run: &RunState, content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{HAVOC_ID, INFLAME_ID, SHRUG_IT_OFF_ID};
     if let Some(name) = shop_pool_trace_name(content_id) {
-        if run.relic_keys.iter().any(|key| *key == RelicKey::ToxicEgg) && name == "Thinking Ahead" {
+        if run_has_relic_key(run, RelicKey::ToxicEgg) && name == "Thinking Ahead" {
             return "Thinking Ahead+";
         }
         return name;
     }
-    if run.relic_keys.iter().any(|key| *key == RelicKey::ToxicEgg) {
+    if run_has_relic_key(run, RelicKey::ToxicEgg) {
         match content_id {
             id if id == SHRUG_IT_OFF_ID => return "Shrug It Off+",
             id if id == HAVOC_ID => return "Havoc+",
             _ => {}
         }
     }
-    if run.relic_keys.iter().any(|key| *key == RelicKey::FrozenEgg) && content_id == INFLAME_ID {
+    if run_has_relic_key(run, RelicKey::FrozenEgg) && content_id == INFLAME_ID {
         return "Inflame+";
     }
-    if run.relic_keys.iter().any(|key| *key == RelicKey::ToxicEgg) {
+    if run_has_relic_key(run, RelicKey::ToxicEgg) {
         match content_id {
             id if id == sts_core::content::cards::ARMAMENTS_ID => return "Armaments+",
             id if id == sts_core::content::cards::METALLICIZE_ID => return "Metallicize+",
@@ -3064,6 +3064,7 @@ fn seed_start_sync_run_from_observed(run: &mut RunState, message: &Value) {
     run.player_max_hp = int(game, "max_hp");
     run.gold = int(game, "gold");
     run.deck = card_instances_from_array(game.get("deck"), 1);
+    seed_start_sync_relics_from_game(run, game);
 }
 
 fn seed_start_sync_reward_offers_from_observed(run: &mut RunState, message: &Value) {
@@ -3597,6 +3598,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
 
 fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
     match name {
+        "Burning Blood" => Some(RelicKey::BurningBlood),
         "Dream Catcher" => Some(RelicKey::DreamCatcher),
         "Toxic Egg" => Some(RelicKey::ToxicEgg),
         "Frozen Egg" => Some(RelicKey::FrozenEgg),
@@ -3650,6 +3652,12 @@ fn relic_ids_for_simulated_subset(run: &RunState, carry: &[String]) -> Vec<Strin
     } else {
         carry.to_vec()
     };
+    for relic in &run.relics {
+        let name = relic_key_trace_name(relic.key()).to_owned();
+        if name != "Unknown Relic" && !out.contains(&name) {
+            out.push(name);
+        }
+    }
     for key in &run.relic_keys {
         let name = relic_key_trace_name(*key).to_owned();
         if name != "Unknown Relic" && !out.contains(&name) {
@@ -3659,14 +3667,32 @@ fn relic_ids_for_simulated_subset(run: &RunState, carry: &[String]) -> Vec<Strin
     out
 }
 
+fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
+    run.relic_keys.contains(&key) || run.relics.iter().any(|relic| relic.key() == key)
+}
+
 fn seed_start_sync_relic_keys_from_observed(run: &mut RunState, message: &Value) {
     let Some(game) = message.get("game_state") else {
         return;
     };
-    run.relic_keys = relic_keys_from_value(game.get("relics"))
+    seed_start_sync_relics_from_game(run, game);
+}
+
+fn seed_start_sync_relics_from_game(run: &mut RunState, game: &Value) {
+    run.relics.clear();
+    run.relic_keys.clear();
+    for key in relic_keys_from_value(game.get("relics"))
         .iter()
         .filter_map(|name| relic_key_from_trace_name(name))
-        .collect();
+    {
+        if let Some(relic) = Relic::from_key(key) {
+            if !run.relics.iter().any(|owned| owned.key() == key) {
+                run.relics.push(relic);
+            }
+        } else if !run.relic_keys.contains(&key) {
+            run.relic_keys.push(key);
+        }
+    }
 }
 
 fn seed_start_sync_carry_from_run(
@@ -3675,6 +3701,12 @@ fn seed_start_sync_carry_from_run(
     deck_ids: &mut Vec<String>,
 ) {
     *deck_ids = deck_content_keys(&run.deck);
+    for relic in &run.relics {
+        let name = relic_key_trace_name(relic.key()).to_owned();
+        if !relics.contains(&name) {
+            relics.push(name);
+        }
+    }
     for key in &run.relic_keys {
         let name = relic_key_trace_name(*key).to_owned();
         if !relics.contains(&name) {
@@ -4244,12 +4276,43 @@ fn seed_start_simulated_combat_subset(
                 "card_reward_ids".to_owned(),
                 json!(choices
                     .iter()
-                    .map(|card| deck_content_key(card.content_id).to_owned())
+                    .map(|card| combat_reward_card_display_key(combat, card.content_id).to_owned())
                     .collect::<Vec<_>>()),
             );
         }
     }
     subset
+}
+
+fn combat_reward_card_display_key(combat: &CombatState, content_id: ContentId) -> &'static str {
+    use sts_core::content::cards::{
+        ARMAMENTS_ID, FLEX_ID, METALLICIZE_ID, OFFERING_ID, SHRUG_IT_OFF_ID, WARCRY_PLUS_ID,
+    };
+    if content_id == WARCRY_PLUS_ID {
+        return "Warcry+";
+    }
+    if combat
+        .relics
+        .iter()
+        .any(|relic| relic.key() == RelicKey::ToxicEgg)
+    {
+        if content_id == ARMAMENTS_ID {
+            return "Armaments+";
+        }
+        if content_id == METALLICIZE_ID {
+            return "Metallicize+";
+        }
+        if content_id == FLEX_ID {
+            return "Flex+";
+        }
+        if content_id == OFFERING_ID {
+            return "Offering+";
+        }
+        if content_id == SHRUG_IT_OFF_ID {
+            return "Shrug It Off+";
+        }
+    }
+    deck_content_key(content_id)
 }
 
 fn seed_start_victory_observed_subset(message: &Value) -> Value {
@@ -5687,7 +5750,7 @@ fn reward_card_display_key(run: &RunState, content_id: ContentId) -> &'static st
     if content_id == WARCRY_PLUS_ID {
         return "Warcry+";
     }
-    if run.relic_keys.iter().any(|key| *key == RelicKey::ToxicEgg) {
+    if run_has_relic_key(run, RelicKey::ToxicEgg) {
         if content_id == ARMAMENTS_ID {
             return "Armaments+";
         }
