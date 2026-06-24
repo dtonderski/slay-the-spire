@@ -32,6 +32,8 @@ pub struct CombatState {
     pub ascension: u8,
     #[serde(default)]
     pub shuffle_rng: Option<StsRng>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_random_rng: Option<StsRng>,
     /// In-combat card reward from potions such as Power Potion.
     #[serde(default)]
     pub potion_card_reward: Option<Vec<CardInstance>>,
@@ -174,6 +176,7 @@ impl CombatState {
             relic_counters: RelicCounters::default(),
             ascension: 0,
             shuffle_rng: None,
+            card_random_rng: None,
             potion_card_reward: None,
             hand_select: None,
             discard_select: None,

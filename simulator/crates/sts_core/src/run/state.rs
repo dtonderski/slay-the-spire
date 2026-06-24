@@ -23,8 +23,9 @@ use crate::{
         OMAMORI_CHARGES, ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP,
         PHILOSOPHERS_STONE_ENERGY, PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS,
         PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
-        SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP,
-        TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
+        SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SNECKO_EYE_ENERGY, SOZU_ENERGY,
+        STRAWBERRY_MAX_HP, TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP,
+        VELVET_CHOKER_ENERGY,
     },
     rng::JavaRng,
     rng::StsRng,
@@ -413,6 +414,7 @@ mod tests {
         assert_eq!(Relic::from_key(RelicKey::CursedKey), Some(Relic::CursedKey));
         assert_eq!(Relic::from_key(RelicKey::TinyChest), Some(Relic::TinyChest));
         assert_eq!(Relic::from_key(RelicKey::Orrery), Some(Relic::Orrery));
+        assert_eq!(Relic::from_key(RelicKey::SneckoEye), Some(Relic::SneckoEye));
     }
 
     #[test]
@@ -1111,6 +1113,25 @@ mod tests {
     }
 
     #[test]
+    fn snecko_eye_pickup_adds_energy_and_combat_card_random_rng() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 123;
+        run.current_floor = 4;
+        run.card_random_rng_counter = 2;
+
+        run.gain_relic(Relic::SneckoEye);
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY + SNECKO_EYE_ENERGY);
+        assert_eq!(combat.player.max_energy, run.energy_per_turn);
+        assert_eq!(combat.player.energy, run.energy_per_turn);
+        assert_eq!(
+            combat.card_random_rng.as_ref().expect("card rng").counter(),
+            run.card_random_rng_counter
+        );
+    }
+
+    #[test]
     fn velvet_choker_pickup_adds_energy_for_combat() {
         let mut run = RunState::map_fixture();
 
@@ -1396,6 +1417,9 @@ impl RunState {
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
         combat.ascension = self.ascension;
+        if self.relics.contains(&Relic::SneckoEye) {
+            combat.card_random_rng = Some(self.card_random_rng());
+        }
         if matches!(
             self.current_room_kind(),
             Some(RoomKind::Elite | RoomKind::Boss)
@@ -1830,6 +1854,9 @@ impl RunState {
             }
             Relic::BustedCrown => {
                 self.energy_per_turn += BUSTED_CROWN_ENERGY;
+            }
+            Relic::SneckoEye => {
+                self.energy_per_turn += SNECKO_EYE_ENERGY;
             }
             Relic::VelvetChoker => {
                 self.energy_per_turn += VELVET_CHOKER_ENERGY;
@@ -2303,6 +2330,7 @@ impl Relic {
             Relic::CursedKey => RelicKey::CursedKey,
             Relic::TinyChest => RelicKey::TinyChest,
             Relic::Orrery => RelicKey::Orrery,
+            Relic::SneckoEye => RelicKey::SneckoEye,
         }
     }
 
@@ -2438,6 +2466,7 @@ impl Relic {
             RelicKey::CursedKey => Some(Relic::CursedKey),
             RelicKey::TinyChest => Some(Relic::TinyChest),
             RelicKey::Orrery => Some(Relic::Orrery),
+            RelicKey::SneckoEye => Some(Relic::SneckoEye),
             _ => None,
         }
     }

@@ -2,6 +2,7 @@ use crate::{
     card::CardInstance,
     combat::CardPiles,
     content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+    relic::{Relic, SNECKO_EYE_DRAW},
     rng::StsRng,
     ContentId,
 };
@@ -59,6 +60,17 @@ pub fn order_deck_for_combat_shuffle(deck: &[CardInstance]) -> Vec<CardInstance>
 
 #[must_use]
 pub fn initialize_combat_piles(deck: &[CardInstance], shuffle_rng: &mut StsRng) -> CardPiles {
+    let mut card_random_rng = None;
+    initialize_combat_piles_with_relics(deck, shuffle_rng, &mut card_random_rng, &[])
+}
+
+#[must_use]
+pub fn initialize_combat_piles_with_relics(
+    deck: &[CardInstance],
+    shuffle_rng: &mut StsRng,
+    card_random_rng: &mut Option<StsRng>,
+    relics: &[Relic],
+) -> CardPiles {
     let ordered = order_deck_for_combat_shuffle(deck);
     let mut innate = Vec::new();
     let mut pool = Vec::new();
@@ -73,9 +85,18 @@ pub fn initialize_combat_piles(deck: &[CardInstance], shuffle_rng: &mut StsRng) 
 
     shuffle_rng.collections_shuffle(&mut pool);
 
-    let draw_count = OPENING_HAND_SIZE.saturating_sub(innate.len());
+    let draw_count = opening_hand_size(relics).saturating_sub(innate.len());
     let mut hand = innate;
-    hand.extend(pool.drain(..draw_count.min(pool.len())));
+    for mut card in pool.drain(..draw_count.min(pool.len())) {
+        if relics.contains(&Relic::SneckoEye)
+            && get_card_definition(card.content_id).is_some_and(|definition| definition.cost > 0)
+        {
+            if let Some(rng) = card_random_rng.as_mut() {
+                card.temp_cost = Some(rng.random_int(3) as u8);
+            }
+        }
+        hand.push(card);
+    }
 
     CardPiles {
         hand,
@@ -83,6 +104,15 @@ pub fn initialize_combat_piles(deck: &[CardInstance], shuffle_rng: &mut StsRng) 
         discard_pile: Vec::new(),
         exhaust_pile: Vec::new(),
     }
+}
+
+fn opening_hand_size(relics: &[Relic]) -> usize {
+    OPENING_HAND_SIZE
+        + if relics.contains(&Relic::SneckoEye) {
+            SNECKO_EYE_DRAW
+        } else {
+            0
+        }
 }
 
 #[must_use]
@@ -162,5 +192,31 @@ mod tests {
             .draw_pile
             .iter()
             .any(|card| card.content_id == ANGER_ID && card.bottled));
+    }
+
+    #[test]
+    fn snecko_eye_draws_seven_and_randomizes_playable_opening_hand_costs() {
+        let deck = ironclad_starter_deck();
+        let mut shuffle_rng = StsRng::new(1_957_307_888_551 + 1);
+        let mut card_random_rng = Some(StsRng::new(1_957_307_888_551 + 1));
+
+        let piles = initialize_combat_piles_with_relics(
+            &deck,
+            &mut shuffle_rng,
+            &mut card_random_rng,
+            &[crate::Relic::SneckoEye],
+        );
+
+        assert_eq!(piles.hand.len(), 7);
+        assert_eq!(piles.draw_pile.len(), 3);
+        assert!(piles.hand.iter().any(|card| card.temp_cost.is_some()));
+        assert_eq!(
+            card_random_rng.as_ref().expect("card rng").counter() as usize,
+            piles
+                .hand
+                .iter()
+                .filter(|card| card.temp_cost.is_some())
+                .count()
+        );
     }
 }

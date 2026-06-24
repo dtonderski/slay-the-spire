@@ -17,11 +17,11 @@ use sts_core::{
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
     enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    initialize_combat_piles, leave_shop_merchant, leave_shop_room, select_grid_card,
+    initialize_combat_piles_with_relics, leave_shop_merchant, leave_shop_room, select_grid_card,
     shop_action_for_choice_index, starter_only_deck, CardId, CardInstance, CardPiles, CombatAction,
     CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice, EventScreen, MonsterId,
-    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, RelicKey, RestAction,
-    RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, Relic, RelicKey,
+    RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4135,13 +4135,23 @@ fn seed_start_run_from_combat_entry(
     let game = message.get("game_state")?;
     let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as u32;
     run.reset_card_random_rng_for_combat();
+    let deck = run.deck.clone();
+    let relics = run.relics.clone();
+    let has_snecko_eye = relics.contains(&Relic::SneckoEye);
+    let initial_card_random_rng = has_snecko_eye.then(|| run.card_random_rng());
     if let Some(combat) = run.combat.as_mut() {
         combat.shuffle_rng = Some(StsRng::new(numeric_seed + i64::from(floor)));
         if let Some(rng) = combat.shuffle_rng.as_mut() {
-            let simulated = initialize_combat_piles(&run.deck, rng);
+            let mut card_random_rng = initial_card_random_rng;
+            let simulated =
+                initialize_combat_piles_with_relics(&deck, rng, &mut card_random_rng, &relics);
             if seed_start_opening_piles_match(&simulated, message) {
                 combat.piles = simulated;
-            } else if !starter_only_deck(&run.deck) {
+                combat.card_random_rng = card_random_rng;
+                if let Some(rng) = combat.card_random_rng.as_ref() {
+                    run.card_random_rng_counter = rng.counter();
+                }
+            } else if !starter_only_deck(&deck) {
                 let mut fallback_rng = StsRng::new(numeric_seed + i64::from(floor));
                 fallback_rng.random_long();
                 combat.shuffle_rng = Some(fallback_rng);
@@ -4748,6 +4758,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         relic_counters: Default::default(),
         ascension: int(game, "ascension_level") as u8,
         shuffle_rng: None,
+        card_random_rng: None,
         potion_card_reward: None,
         hand_select: None,
         discard_select: None,
@@ -4801,6 +4812,8 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         lizard_tail_used: false,
         girya_lifts: 0,
         matryoshka_chests_opened: 0,
+        incense_burner_counter: 0,
+        tiny_chest_counter: 0,
         treasure_room: None,
     })
 }
@@ -4891,6 +4904,8 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         lizard_tail_used: false,
         girya_lifts: 0,
         matryoshka_chests_opened: 0,
+        incense_burner_counter: 0,
+        tiny_chest_counter: 0,
         treasure_room: None,
     })
 }

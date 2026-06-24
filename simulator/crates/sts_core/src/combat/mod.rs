@@ -15,7 +15,8 @@ pub use damage::{DamageInfo, DamageSource};
 pub use draw::draw_cards;
 pub use legal::{legal_combat_actions, validate_combat_action};
 pub use setup::{
-    card_has_innate, initialize_combat_piles, order_deck_for_combat_shuffle, starter_only_deck,
+    card_has_innate, initialize_combat_piles, initialize_combat_piles_with_relics,
+    order_deck_for_combat_shuffle, starter_only_deck,
 };
 pub use state::{
     CardPiles, CombatPhase, CombatState, DiscardSelectState, ExhaustSelectState, HandSelectState,
