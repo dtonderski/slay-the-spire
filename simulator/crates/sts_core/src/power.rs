@@ -103,6 +103,18 @@ pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) {
     apply_player_debuff(powers, |powers| powers.dexterity -= amount);
 }
 
+pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
+    if powers.strength < 0 {
+        powers.strength = 0;
+    }
+    if powers.dexterity < 0 {
+        powers.dexterity = 0;
+    }
+    powers.weak = 0;
+    powers.frail = 0;
+    powers.vulnerable = 0;
+}
+
 fn apply_player_debuff(powers: &mut PlayerPowers, apply: impl FnOnce(&mut PlayerPowers)) {
     if powers.artifact > 0 {
         powers.artifact -= 1;
