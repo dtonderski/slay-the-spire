@@ -606,6 +606,14 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
         return;
     }
 
+    if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
+        run.lizard_tail_used = true;
+        combat.player.hp =
+            (combat.player.max_hp * crate::relic::LIZARD_TAIL_HEAL_PERCENT / 100).max(1);
+        combat.phase = CombatPhase::WaitingForPlayer;
+        return;
+    }
+
     let Some(slot) = run
         .potions
         .iter()
@@ -829,6 +837,59 @@ mod tests {
         );
         assert_eq!(after.player_hp, combat.player.hp);
         assert_eq!(after.potions, vec![Potion::Fire]);
+    }
+
+    #[test]
+    fn lizard_tail_revives_player_from_lethal_combat_damage_once() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::LizardTail]);
+        run.combat.as_mut().expect("combat").player.hp = 1;
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(
+            combat.player.hp,
+            combat.player.max_hp * crate::relic::LIZARD_TAIL_HEAL_PERCENT / 100
+        );
+        assert_eq!(after.player_hp, combat.player.hp);
+        assert!(after.lizard_tail_used);
+        assert_eq!(after.relics, vec![Relic::LizardTail]);
+    }
+
+    #[test]
+    fn used_lizard_tail_does_not_revive_again() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::LizardTail]);
+        run.lizard_tail_used = true;
+        run.combat.as_mut().expect("combat").player.hp = 1;
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+
+        let combat = after.combat.expect("combat state remains");
+        assert_eq!(combat.phase, CombatPhase::Lost);
+        assert!(combat.player.hp <= 0);
+        assert!(after.lizard_tail_used);
+    }
+
+    #[test]
+    fn lizard_tail_revives_before_fairy_when_both_are_available() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::LizardTail]);
+        run.potions.push(Potion::Fairy);
+        run.combat.as_mut().expect("combat").player.hp = 1;
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(
+            combat.player.hp,
+            combat.player.max_hp * crate::relic::LIZARD_TAIL_HEAL_PERCENT / 100
+        );
+        assert!(after.lizard_tail_used);
+        assert_eq!(after.potions, vec![Potion::Fairy]);
     }
 
     #[test]

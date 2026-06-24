@@ -1308,6 +1308,8 @@ Completed slice:
 - implemented Charon's Ashes key promotion and all-enemy unmodified damage on card exhaust, including monster-death relic follow-ups, with focused combat tests
 - expanded modeled unplayable-card relics: Blue Candle and Medical Kit
 - implemented Blue Candle curse play/exhaust/HP-loss and Medical Kit status play/exhaust through shared card play and exhaust hooks, with focused legal/combat tests
+- expanded modeled one-shot revive relics: Lizard Tail
+- implemented Lizard Tail key promotion, run-state used flag persistence, and lethal-combat revive timing before Fairy fallback, with focused reward/combat tests
 - expanded modeled floor-entry gold relics: Maw Bank
 - implemented Maw Bank key promotion, +12 gold floor entry, and shop-spend break behavior, with map/shop/grid tests
 - expanded modeled rest-site energy relics: Ancient Tea Set

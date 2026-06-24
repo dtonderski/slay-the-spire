@@ -387,6 +387,10 @@ pub const BLUE_CANDLE_ID: ContentId = ContentId::new(389);
 pub const BLUE_CANDLE_HP_LOSS: i32 = 1;
 /// Content id for [Relic::MedicalKit].
 pub const MEDICAL_KIT_ID: ContentId = ContentId::new(390);
+/// Content id for [Relic::LizardTail].
+pub const LIZARD_TAIL_ID: ContentId = ContentId::new(391);
+/// Percent of max HP restored by [Relic::LizardTail] on lethal damage.
+pub const LIZARD_TAIL_HEAL_PERCENT: i32 = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1009,6 +1013,7 @@ pub enum Relic {
     CharonsAshes,
     BlueCandle,
     MedicalKit,
+    LizardTail,
 }
 
 impl Relic {
@@ -1106,6 +1111,7 @@ impl Relic {
             Relic::CharonsAshes => CHARONS_ASHES_ID,
             Relic::BlueCandle => BLUE_CANDLE_ID,
             Relic::MedicalKit => MEDICAL_KIT_ID,
+            Relic::LizardTail => LIZARD_TAIL_ID,
         }
     }
 
@@ -1203,6 +1209,7 @@ impl Relic {
             id if id == CHARONS_ASHES_ID => Some(Relic::CharonsAshes),
             id if id == BLUE_CANDLE_ID => Some(Relic::BlueCandle),
             id if id == MEDICAL_KIT_ID => Some(Relic::MedicalKit),
+            id if id == LIZARD_TAIL_ID => Some(Relic::LizardTail),
             _ => None,
         }
     }
@@ -1337,6 +1344,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::CharonsAshes => {}
             Relic::BlueCandle => {}
             Relic::MedicalKit => {}
+            Relic::LizardTail => {}
         }
     }
 
@@ -2421,6 +2429,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(MEDICAL_KIT_ID),
             Some(Relic::MedicalKit)
+        );
+        assert_eq!(Relic::LizardTail.content_id(), LIZARD_TAIL_ID);
+        assert_eq!(
+            Relic::from_content_id(LIZARD_TAIL_ID),
+            Some(Relic::LizardTail)
         );
     }
 
