@@ -11,10 +11,11 @@ use crate::{
         validate_combat_action, CombatPhase,
     },
     content::cards::{
-        get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID,
         DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        POWER_THROUGH_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -455,7 +456,8 @@ fn apply_play_top_draw_card(
         | POMMEL_STRIKE_PLUS_ID
         | SEARING_BLOW_ID
         | SEARING_BLOW_PLUS_ID
-        | BASH_ID => {
+        | BASH_ID
+        | RECKLESS_CHARGE_ID => {
             let target = target.expect("validated havoc attack target");
             follow_ups.push(InternalAction::DealDamage {
                 info: DamageInfo {
@@ -464,6 +466,12 @@ fn apply_play_top_draw_card(
                     amount: definition.values.damage.unwrap_or(0),
                 },
             });
+            if definition.id == RECKLESS_CHARGE_ID {
+                follow_ups.push(InternalAction::AddCardToPile {
+                    content_id: DAZED_ID,
+                    to: CardPile::DrawPile,
+                });
+            }
         }
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
@@ -813,10 +821,11 @@ mod tests {
         DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
         HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        POWER_THROUGH_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1636,6 +1645,118 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: power_through_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn reckless_charge_deals_seven_damage_spends_zero_and_adds_dazed_to_draw() {
+        let mut state = hand_only(RECKLESS_CHARGE_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(&state, reckless_charge_action(&state))
+            .expect("Reckless Charge applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 7);
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.draw_pile[0].content_id, DAZED_ID);
+    }
+
+    #[test]
+    fn reckless_charge_moves_to_discard_after_play() {
+        let state = hand_only(RECKLESS_CHARGE_ID);
+        let reckless_charge_id = hand_card_id(&state, RECKLESS_CHARGE_ID);
+
+        let next = apply_combat_action(&state, reckless_charge_action(&state))
+            .expect("Reckless Charge applies");
+
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == reckless_charge_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == reckless_charge_id));
+    }
+
+    #[test]
+    fn reckless_charge_appends_dazed_to_draw_pile_with_deterministic_id() {
+        let mut state = hand_only(RECKLESS_CHARGE_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let first_generated_id = CardId::new(state.piles.max_card_instance_id() + 1);
+
+        let next = apply_combat_action(&state, reckless_charge_action(&state))
+            .expect("Reckless Charge applies");
+
+        assert_eq!(next.piles.draw_pile.len(), 2);
+        assert_eq!(next.piles.draw_pile[0].content_id, STRIKE_R_ID);
+        assert_eq!(
+            (
+                next.piles.draw_pile[1].id,
+                next.piles.draw_pile[1].content_id
+            ),
+            (first_generated_id, DAZED_ID)
+        );
+    }
+
+    #[test]
+    fn reckless_charge_applies_strength_normally() {
+        let mut state = hand_only(RECKLESS_CHARGE_ID);
+        state.player.powers.strength = 2;
+
+        let next = apply_combat_action(&state, reckless_charge_action(&state))
+            .expect("Reckless Charge applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_reckless_charge() {
+        let mut state = hand_only(RECKLESS_CHARGE_ID);
+        state.relics.push(Relic::Akabeko);
+
+        let next = apply_combat_action(&state, reckless_charge_action(&state))
+            .expect("Reckless Charge applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 15);
+    }
+
+    #[test]
+    fn reckless_charge_event_log_records_damage_dazed_and_pile_move() {
+        let state = hand_only(RECKLESS_CHARGE_ID);
+        let reckless_charge_id = hand_card_id(&state, RECKLESS_CHARGE_ID);
+
+        let transition = apply_combat_action_with_events(&state, reckless_charge_action(&state))
+            .expect("Reckless Charge applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: reckless_charge_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(reckless_charge_id),
+                        target: MonsterId::new(1),
+                        amount: 7,
+                    },
+                },
+                InternalAction::AddCardToPile {
+                    content_id: DAZED_ID,
+                    to: CardPile::DrawPile,
+                },
+                InternalAction::MoveCard {
+                    card_id: reckless_charge_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -3886,6 +4007,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, POWER_THROUGH_ID),
             target: None,
+        }
+    }
+
+    fn reckless_charge_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, RECKLESS_CHARGE_ID),
+            target: Some(MonsterId::new(1)),
         }
     }
 

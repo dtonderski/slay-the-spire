@@ -1058,6 +1058,21 @@ pub const POWER_THROUGH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const RECKLESS_CHARGE: CardDefinition = CardDefinition {
+    id: RECKLESS_CHARGE_ID,
+    key: "RECKLESS_CHARGE",
+    name: "Reckless Charge",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -1311,7 +1326,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 70] = [
+pub const ALL_CARDS: [CardDefinition; 71] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1369,6 +1384,7 @@ pub const ALL_CARDS: [CardDefinition; 70] = [
     HEAVY_BLADE,
     PERFECTED_STRIKE,
     POWER_THROUGH,
+    RECKLESS_CHARGE,
     CLOTHESLINE,
     INTIMIDATE,
     SEVER_SOUL,
@@ -1417,6 +1433,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1622,6 +1639,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(POWER_THROUGH_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn reckless_charge_has_expected_values() {
+        assert_eq!(RECKLESS_CHARGE.cost, 0);
+        assert_eq!(RECKLESS_CHARGE.target, TargetRequirement::Enemy);
+        assert_eq!(RECKLESS_CHARGE.card_type, CardType::Attack);
+        assert_eq!(RECKLESS_CHARGE.values.damage, Some(7));
+        assert_eq!(
+            card_type_and_rarity(RECKLESS_CHARGE_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
         );
     }
 
