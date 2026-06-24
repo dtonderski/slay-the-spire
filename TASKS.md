@@ -1369,6 +1369,8 @@ Completed slice:
 - implemented Runic Cube key promotion and source-backed draw-one on each HP-loss event through the shared HP-loss relic hook, with focused relic tests
 - expanded modeled hand-empty draw relics: Unceasing Top
 - implemented Unceasing Top key promotion, content-id round trips, and draw-one timing after the played card leaves an empty hand, with focused combat tests for normal draw, retained hand cards, draw-lock prevention, and power-card removal
+- expanded modeled rest relics: Shovel
+- implemented Shovel key promotion, content-id round trips, campfire Dig legality, and relic-only reward-screen generation through the existing relic RNG/pool path with focused rest/state tests
 
 Remaining:
 
