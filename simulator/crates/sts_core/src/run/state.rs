@@ -352,6 +352,24 @@ mod tests {
             Some(Relic::PrayerWheel)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::CrackedCore),
+            Some(Relic::CrackedCore)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::FrozenCore),
+            Some(Relic::FrozenCore)
+        );
+        assert_eq!(Relic::from_key(RelicKey::PureWater), Some(Relic::PureWater));
+        assert_eq!(Relic::from_key(RelicKey::HolyWater), Some(Relic::HolyWater));
+        assert_eq!(
+            Relic::from_key(RelicKey::RingOfTheSnake),
+            Some(Relic::RingOfTheSnake)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::RingOfTheSerpent),
+            Some(Relic::RingOfTheSerpent)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1700,6 +1718,12 @@ impl RunState {
             | Relic::TheBoot
             | Relic::BirdFacedUrn
             | Relic::PrayerWheel
+            | Relic::CrackedCore
+            | Relic::FrozenCore
+            | Relic::PureWater
+            | Relic::HolyWater
+            | Relic::RingOfTheSnake
+            | Relic::RingOfTheSerpent
             | Relic::PotionBelt
             | Relic::Lantern
             | Relic::BagOfPreparation
@@ -2055,6 +2079,12 @@ impl Relic {
             Relic::BottledTornado => RelicKey::BottledTornado,
             Relic::DollysMirror => RelicKey::DollysMirror,
             Relic::PrayerWheel => RelicKey::PrayerWheel,
+            Relic::CrackedCore => RelicKey::CrackedCore,
+            Relic::FrozenCore => RelicKey::FrozenCore,
+            Relic::PureWater => RelicKey::PureWater,
+            Relic::HolyWater => RelicKey::HolyWater,
+            Relic::RingOfTheSnake => RelicKey::RingOfTheSnake,
+            Relic::RingOfTheSerpent => RelicKey::RingOfTheSerpent,
         }
     }
 
@@ -2175,6 +2205,12 @@ impl Relic {
             RelicKey::BottledTornado => Some(Relic::BottledTornado),
             RelicKey::DollysMirror => Some(Relic::DollysMirror),
             RelicKey::PrayerWheel => Some(Relic::PrayerWheel),
+            RelicKey::CrackedCore => Some(Relic::CrackedCore),
+            RelicKey::FrozenCore => Some(Relic::FrozenCore),
+            RelicKey::PureWater => Some(Relic::PureWater),
+            RelicKey::HolyWater => Some(Relic::HolyWater),
+            RelicKey::RingOfTheSnake => Some(Relic::RingOfTheSnake),
+            RelicKey::RingOfTheSerpent => Some(Relic::RingOfTheSerpent),
             _ => None,
         }
     }

@@ -447,6 +447,18 @@ pub const BOTTLED_TORNADO_ID: ContentId = ContentId::new(411);
 pub const DOLLYS_MIRROR_ID: ContentId = ContentId::new(412);
 /// Content id for [Relic::PrayerWheel].
 pub const PRAYER_WHEEL_ID: ContentId = ContentId::new(413);
+/// Content id for [Relic::CrackedCore].
+pub const CRACKED_CORE_ID: ContentId = ContentId::new(414);
+/// Content id for [Relic::FrozenCore].
+pub const FROZEN_CORE_ID: ContentId = ContentId::new(415);
+/// Content id for [Relic::PureWater].
+pub const PURE_WATER_ID: ContentId = ContentId::new(416);
+/// Content id for [Relic::HolyWater].
+pub const HOLY_WATER_ID: ContentId = ContentId::new(417);
+/// Content id for [Relic::RingOfTheSnake].
+pub const RING_OF_THE_SNAKE_ID: ContentId = ContentId::new(418);
+/// Content id for [Relic::RingOfTheSerpent].
+pub const RING_OF_THE_SERPENT_ID: ContentId = ContentId::new(419);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1104,6 +1116,12 @@ pub enum Relic {
     BottledTornado,
     DollysMirror,
     PrayerWheel,
+    CrackedCore,
+    FrozenCore,
+    PureWater,
+    HolyWater,
+    RingOfTheSnake,
+    RingOfTheSerpent,
 }
 
 impl Relic {
@@ -1224,6 +1242,12 @@ impl Relic {
             Relic::BottledTornado => BOTTLED_TORNADO_ID,
             Relic::DollysMirror => DOLLYS_MIRROR_ID,
             Relic::PrayerWheel => PRAYER_WHEEL_ID,
+            Relic::CrackedCore => CRACKED_CORE_ID,
+            Relic::FrozenCore => FROZEN_CORE_ID,
+            Relic::PureWater => PURE_WATER_ID,
+            Relic::HolyWater => HOLY_WATER_ID,
+            Relic::RingOfTheSnake => RING_OF_THE_SNAKE_ID,
+            Relic::RingOfTheSerpent => RING_OF_THE_SERPENT_ID,
         }
     }
 
@@ -1344,6 +1368,12 @@ impl Relic {
             id if id == BOTTLED_TORNADO_ID => Some(Relic::BottledTornado),
             id if id == DOLLYS_MIRROR_ID => Some(Relic::DollysMirror),
             id if id == PRAYER_WHEEL_ID => Some(Relic::PrayerWheel),
+            id if id == CRACKED_CORE_ID => Some(Relic::CrackedCore),
+            id if id == FROZEN_CORE_ID => Some(Relic::FrozenCore),
+            id if id == PURE_WATER_ID => Some(Relic::PureWater),
+            id if id == HOLY_WATER_ID => Some(Relic::HolyWater),
+            id if id == RING_OF_THE_SNAKE_ID => Some(Relic::RingOfTheSnake),
+            id if id == RING_OF_THE_SERPENT_ID => Some(Relic::RingOfTheSerpent),
             _ => None,
         }
     }
@@ -1369,6 +1399,12 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BottledTornado => {}
             Relic::DollysMirror => {}
             Relic::PrayerWheel => {}
+            Relic::CrackedCore => {}
+            Relic::FrozenCore => {}
+            Relic::PureWater => {}
+            Relic::HolyWater => {}
+            Relic::RingOfTheSnake => {}
+            Relic::RingOfTheSerpent => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -2737,6 +2773,36 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(PRAYER_WHEEL_ID),
             Some(Relic::PrayerWheel)
+        );
+        assert_eq!(Relic::CrackedCore.content_id(), CRACKED_CORE_ID);
+        assert_eq!(
+            Relic::from_content_id(CRACKED_CORE_ID),
+            Some(Relic::CrackedCore)
+        );
+        assert_eq!(Relic::FrozenCore.content_id(), FROZEN_CORE_ID);
+        assert_eq!(
+            Relic::from_content_id(FROZEN_CORE_ID),
+            Some(Relic::FrozenCore)
+        );
+        assert_eq!(Relic::PureWater.content_id(), PURE_WATER_ID);
+        assert_eq!(
+            Relic::from_content_id(PURE_WATER_ID),
+            Some(Relic::PureWater)
+        );
+        assert_eq!(Relic::HolyWater.content_id(), HOLY_WATER_ID);
+        assert_eq!(
+            Relic::from_content_id(HOLY_WATER_ID),
+            Some(Relic::HolyWater)
+        );
+        assert_eq!(Relic::RingOfTheSnake.content_id(), RING_OF_THE_SNAKE_ID);
+        assert_eq!(
+            Relic::from_content_id(RING_OF_THE_SNAKE_ID),
+            Some(Relic::RingOfTheSnake)
+        );
+        assert_eq!(Relic::RingOfTheSerpent.content_id(), RING_OF_THE_SERPENT_ID);
+        assert_eq!(
+            Relic::from_content_id(RING_OF_THE_SERPENT_ID),
+            Some(Relic::RingOfTheSerpent)
         );
     }
 
