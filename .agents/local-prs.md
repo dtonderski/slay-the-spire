@@ -11,6 +11,7 @@ Use this file to track parallel worker branches before integration. Each worker 
 | audit/relics-potions | Dewey | Read-only M32A audit of relic/potion mappings, pools, tests, and evidence | none | completed | n/a | Recommends one row per `RelicKey`/`Relic`/`Potion`; split proof strength by row. |
 | audit/run-world | Descartes | Read-only M32A audit of monsters, bosses, encounters, events, rooms, rewards, shops, rest, map, ascension, and corpus coverage | none | completed | n/a | Recommends run/world rows by surface group and explicit RNG stream/caveat columns. |
 | `codex/m32a-matrix-shell` | integrator | Add matrix vocabulary and empty schema row | `simulator/docs/content_support_matrix.md`, `.agents/local-prs.md` | ready for commit | docs only | Base artifact for future matrix workers. |
+| `codex/m32a-coverage-fixture` | integrator | Add a failing fixture for missing M32A inventory rows and close roadmap status | `simulator/crates/sts_core/tests/m32a_matrix.rs`, matrix docs, `TASKS.md`, `STATUS.md` | integrated | `cargo test -p sts_core --test m32a_matrix` | Fixture covers cards, generated pool IDs, relics, potions, monsters, encounters, events, rooms, and named run-world anchors. |
 
 ## Recommended Next Local PRs
 
