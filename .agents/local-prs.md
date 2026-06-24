@@ -16,9 +16,9 @@ Use this file to track parallel worker branches before integration. Each worker 
 
 | Branch | Scope | Write set |
 | --- | --- | --- |
-| `codex/m32a-card-inventory` | Fill card, colorless, curse, and status rows. | `simulator/docs/content_support_matrix.md` only. |
-| `codex/m32a-relic-potion-inventory` | Fill relic and potion rows. | `simulator/docs/content_support_matrix.md` only. |
-| `codex/m32a-run-world-inventory` | Fill monster, boss, encounter, event, room, reward, shop, rest, map, ascension, verifier, and corpus rows. | `simulator/docs/content_support_matrix.md` only. |
+| `codex/m32a-card-inventory` | Fill card, colorless, curse, and status rows. | `simulator/docs/m32a_cards_matrix.md` only. |
+| `codex/m32a-relic-potion-inventory` | Fill relic and potion rows. | `simulator/docs/m32a_relic_potion_matrix.md` only. |
+| `codex/m32a-run-world-inventory` | Fill monster, boss, encounter, event, room, reward, shop, rest, map, ascension, verifier, and corpus rows. | `simulator/docs/m32a_run_world_matrix.md` only. |
 
 ## Worker Contract
 
