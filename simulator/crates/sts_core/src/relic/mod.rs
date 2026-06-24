@@ -401,6 +401,12 @@ pub const POCKETWATCH_CARD_LIMIT: u32 = 3;
 pub const HAND_DRILL_ID: ContentId = ContentId::new(393);
 /// Vulnerable applied by [Relic::HandDrill] when an attack breaks monster block.
 pub const HAND_DRILL_VULNERABLE: i32 = 2;
+/// Content id for [Relic::BurningBlood].
+pub const BURNING_BLOOD_ID: ContentId = ContentId::new(394);
+/// Content id for [Relic::Circlet].
+pub const CIRCLET_ID: ContentId = ContentId::new(395);
+/// Content id for [Relic::RedCirclet].
+pub const RED_CIRCLET_ID: ContentId = ContentId::new(396);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -934,6 +940,7 @@ fn campfire_relic_count(owned: &[RelicKey]) -> usize {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Relic {
+    BurningBlood,
     BloodVial,
     Vajra,
     OddlySmoothStone,
@@ -1028,12 +1035,15 @@ pub enum Relic {
     LizardTail,
     Pocketwatch,
     HandDrill,
+    Circlet,
+    RedCirclet,
 }
 
 impl Relic {
     #[must_use]
     pub fn content_id(self) -> ContentId {
         match self {
+            Relic::BurningBlood => BURNING_BLOOD_ID,
             Relic::BloodVial => BLOOD_VIAL_ID,
             Relic::Vajra => VAJRA_ID,
             Relic::OddlySmoothStone => ODDLY_SMOOTH_STONE_ID,
@@ -1128,12 +1138,15 @@ impl Relic {
             Relic::LizardTail => LIZARD_TAIL_ID,
             Relic::Pocketwatch => POCKETWATCH_ID,
             Relic::HandDrill => HAND_DRILL_ID,
+            Relic::Circlet => CIRCLET_ID,
+            Relic::RedCirclet => RED_CIRCLET_ID,
         }
     }
 
     #[must_use]
     pub fn from_content_id(id: ContentId) -> Option<Self> {
         match id {
+            id if id == BURNING_BLOOD_ID => Some(Relic::BurningBlood),
             id if id == BLOOD_VIAL_ID => Some(Relic::BloodVial),
             id if id == VAJRA_ID => Some(Relic::Vajra),
             id if id == ODDLY_SMOOTH_STONE_ID => Some(Relic::OddlySmoothStone),
@@ -1228,6 +1241,8 @@ impl Relic {
             id if id == LIZARD_TAIL_ID => Some(Relic::LizardTail),
             id if id == POCKETWATCH_ID => Some(Relic::Pocketwatch),
             id if id == HAND_DRILL_ID => Some(Relic::HandDrill),
+            id if id == CIRCLET_ID => Some(Relic::Circlet),
+            id if id == RED_CIRCLET_ID => Some(Relic::RedCirclet),
             _ => None,
         }
     }
@@ -1236,6 +1251,7 @@ impl Relic {
 pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) {
     for relic in relics {
         match relic {
+            Relic::BurningBlood => {}
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -1365,6 +1381,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::LizardTail => {}
             Relic::Pocketwatch => {}
             Relic::HandDrill => {}
+            Relic::Circlet => {}
+            Relic::RedCirclet => {}
         }
     }
 
@@ -2473,6 +2491,18 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(HAND_DRILL_ID),
             Some(Relic::HandDrill)
+        );
+        assert_eq!(Relic::BurningBlood.content_id(), BURNING_BLOOD_ID);
+        assert_eq!(
+            Relic::from_content_id(BURNING_BLOOD_ID),
+            Some(Relic::BurningBlood)
+        );
+        assert_eq!(Relic::Circlet.content_id(), CIRCLET_ID);
+        assert_eq!(Relic::from_content_id(CIRCLET_ID), Some(Relic::Circlet));
+        assert_eq!(Relic::RedCirclet.content_id(), RED_CIRCLET_ID);
+        assert_eq!(
+            Relic::from_content_id(RED_CIRCLET_ID),
+            Some(Relic::RedCirclet)
         );
     }
 

@@ -1314,6 +1314,8 @@ Completed slice:
 - implemented Pocketwatch key promotion, persisted previous-turn card-play counting, and start-of-turn draw-three timing, with focused relic counter/draw tests
 - expanded modeled block-break attack relics: Hand Drill
 - implemented Hand Drill key promotion and attack-only block-break Vulnerable through the shared damage transition path, with focused combat tests
+- expanded modeled starter/fallback no-op relics: Burning Blood, Circlet, and Red Circlet
+- implemented key promotion and content-id round trips for Burning Blood, Circlet, and Red Circlet; Burning Blood's Ironclad victory heal remains modeled by the existing implicit Ironclad combat-victory path
 - expanded modeled floor-entry gold relics: Maw Bank
 - implemented Maw Bank key promotion, +12 gold floor entry, and shop-spend break behavior, with map/shop/grid tests
 - expanded modeled rest-site energy relics: Ancient Tea Set
