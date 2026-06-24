@@ -428,6 +428,7 @@ mod tests {
             Relic::from_key(RelicKey::PandorasBox),
             Some(Relic::PandorasBox)
         );
+        assert_eq!(Relic::from_key(RelicKey::Astrolabe), Some(Relic::Astrolabe));
     }
 
     #[test]
@@ -1887,6 +1888,9 @@ impl RunState {
             Relic::PandorasBox => {
                 super::grid::open_pandoras_box_grid(self);
             }
+            Relic::Astrolabe => {
+                super::grid::open_astrolabe_grid(self);
+            }
             Relic::VelvetChoker => {
                 self.energy_per_turn += VELVET_CHOKER_ENERGY;
             }
@@ -2365,6 +2369,7 @@ impl Relic {
             Relic::WingBoots => RelicKey::WingBoots,
             Relic::CallingBell => RelicKey::CallingBell,
             Relic::PandorasBox => RelicKey::PandorasBox,
+            Relic::Astrolabe => RelicKey::Astrolabe,
         }
     }
 
@@ -2505,6 +2510,7 @@ impl Relic {
             RelicKey::WingBoots => Some(Relic::WingBoots),
             RelicKey::CallingBell => Some(Relic::CallingBell),
             RelicKey::PandorasBox => Some(Relic::PandorasBox),
+            RelicKey::Astrolabe => Some(Relic::Astrolabe),
             _ => None,
         }
     }

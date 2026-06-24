@@ -5,8 +5,9 @@ use crate::{
             get_card_definition, upgrade_content_id, CURSE_OF_THE_BELL_ID, DEFEND_R_ID,
             STRIKE_R_ID, STRIKE_R_PLUS_ID,
         },
-        reward_pool::ironclad_truly_random_card_pool,
+        reward_pool::{ironclad_reward_content_ids, ironclad_truly_random_card_pool},
     },
+    rng::StsRng,
     RunPhase, RunState, SimError, SimResult,
 };
 
@@ -19,6 +20,7 @@ pub enum GridPurpose {
     DollysMirror,
     CallingBellCurse,
     PandorasBox,
+    Astrolabe,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -27,6 +29,8 @@ pub struct CardGridScreen {
     pub purpose: GridPurpose,
     #[serde(default)]
     pub selected: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_indices: Vec<usize>,
 }
 
 pub fn open_rest_smith_grid(run: &mut RunState) {
@@ -34,6 +38,7 @@ pub fn open_rest_smith_grid(run: &mut RunState) {
         cards: run.deck.clone(),
         purpose: GridPurpose::RestSmith,
         selected: None,
+        selected_indices: Vec::new(),
     });
 }
 
@@ -42,6 +47,7 @@ pub fn open_shop_remove_grid(run: &mut RunState) {
         cards: run.deck.clone(),
         purpose: GridPurpose::ShopRemove,
         selected: None,
+        selected_indices: Vec::new(),
     });
 }
 
@@ -54,6 +60,7 @@ pub fn open_empty_cage_grid(run: &mut RunState) {
         cards: run.deck.clone(),
         purpose: GridPurpose::EmptyCage { remaining: 2 },
         selected: None,
+        selected_indices: Vec::new(),
     });
 }
 
@@ -77,6 +84,7 @@ pub fn open_bottle_grid(run: &mut RunState, card_type: CardType) {
         cards,
         purpose: GridPurpose::Bottle { card_type },
         selected: None,
+        selected_indices: Vec::new(),
     });
 }
 
@@ -89,6 +97,7 @@ pub fn open_dollys_mirror_grid(run: &mut RunState) {
         cards: run.deck.clone(),
         purpose: GridPurpose::DollysMirror,
         selected: None,
+        selected_indices: Vec::new(),
     });
 }
 
@@ -100,6 +109,7 @@ pub fn open_calling_bell_grid(run: &mut RunState) {
         )],
         purpose: GridPurpose::CallingBellCurse,
         selected: None,
+        selected_indices: Vec::new(),
     });
 }
 
@@ -133,12 +143,33 @@ pub fn open_pandoras_box_grid(run: &mut RunState) {
         cards,
         purpose: GridPurpose::PandorasBox,
         selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_astrolabe_grid(run: &mut RunState) {
+    let cards = run.deck.clone();
+    if cards.is_empty() {
+        return;
+    }
+    if cards.len() <= ASTROLABE_TRANSFORM_COUNT {
+        transform_astrolabe_cards(run, &cards);
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::Astrolabe,
+        selected: None,
+        selected_indices: Vec::new(),
     });
 }
 
 fn is_pandoras_box_removed_starter(content_id: crate::ContentId) -> bool {
     matches!(content_id, id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID || id == DEFEND_R_ID)
 }
+
+const ASTROLABE_TRANSFORM_COUNT: usize = 3;
 
 pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     let grid = run
@@ -147,6 +178,22 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
         .ok_or(SimError::IllegalAction("no card grid is open"))?;
     if index >= grid.cards.len() {
         return Err(SimError::IllegalAction("grid index out of range"));
+    }
+
+    if grid.purpose == GridPurpose::Astrolabe {
+        let mut next = run.clone();
+        let selected_count = {
+            let grid = next.card_grid.as_mut().expect("grid present");
+            if grid.selected_indices.contains(&index) {
+                return Ok(next);
+            }
+            grid.selected_indices.push(index);
+            grid.selected_indices.len()
+        };
+        if selected_count >= ASTROLABE_TRANSFORM_COUNT {
+            confirm_astrolabe_grid(&mut next)?;
+        }
+        return Ok(next);
     }
 
     let mut next = run.clone();
@@ -187,6 +234,9 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                 next.add_deck_card(*card);
             }
             next.card_grid = None;
+        }
+        GridPurpose::Astrolabe => {
+            confirm_astrolabe_grid(&mut next)?;
         }
         GridPurpose::RestSmith => {
             let card = selected_grid_card(grid)?;
@@ -231,6 +281,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                         remaining: remaining - 1,
                     },
                     selected: None,
+                    selected_indices: Vec::new(),
                 });
             } else {
                 next.card_grid = None;
@@ -267,6 +318,65 @@ fn selected_grid_card(grid: &CardGridScreen) -> SimResult<CardInstance> {
         .get(selected)
         .copied()
         .ok_or(SimError::IllegalAction("grid index out of range"))
+}
+
+fn confirm_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
+    let grid = run
+        .card_grid
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no card grid is open"))?;
+    if grid.selected_indices.len() < ASTROLABE_TRANSFORM_COUNT {
+        return Err(SimError::IllegalAction(
+            "Astrolabe requires three selected cards",
+        ));
+    }
+    let cards = grid
+        .selected_indices
+        .iter()
+        .take(ASTROLABE_TRANSFORM_COUNT)
+        .map(|index| {
+            grid.cards
+                .get(*index)
+                .copied()
+                .ok_or(SimError::IllegalAction("grid index out of range"))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    transform_astrolabe_cards(run, &cards);
+    run.card_grid = None;
+    Ok(())
+}
+
+fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) {
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let next_card_id = run.next_card_instance_id();
+    let transformed = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| {
+            let content_id = transform_card_content_id(card.content_id, &mut rng);
+            CardInstance::new(
+                crate::ids::CardId::new(next_card_id + index as u64),
+                run.content_id_after_card_add_relics(content_id),
+            )
+        })
+        .collect::<Vec<_>>();
+    run.misc_rng_counter = rng.counter();
+
+    for card in cards {
+        run.deck.retain(|deck_card| deck_card.id != card.id);
+    }
+    for card in transformed {
+        run.add_deck_card(card);
+    }
+}
+
+fn transform_card_content_id(source: crate::ContentId, rng: &mut StsRng) -> crate::ContentId {
+    let pool = ironclad_reward_content_ids()
+        .into_iter()
+        .filter(|content_id| *content_id != source)
+        .collect::<Vec<_>>();
+    let pick = rng.random_int((pool.len() - 1) as i32) as usize;
+    upgrade_content_id(pool[pick]).unwrap_or(pool[pick])
 }
 
 #[cfg(test)]
@@ -460,5 +570,55 @@ mod tests {
             .deck
             .iter()
             .any(|card| is_pandoras_box_removed_starter(card.content_id)));
+    }
+
+    #[test]
+    fn astrolabe_selects_three_cards_then_transforms_and_upgrades_them() {
+        let mut run = RunState::map_fixture();
+        run.misc_rng_seed = 1_218_623;
+        let removed = [run.deck[0], run.deck[1], run.deck[2]];
+
+        run.gain_relic(crate::Relic::Astrolabe);
+
+        assert!(run.relics.contains(&crate::Relic::Astrolabe));
+        assert_eq!(
+            run.card_grid.as_ref().expect("astrolabe grid").purpose,
+            GridPurpose::Astrolabe
+        );
+        let after_first = select_grid_card(&run, 0).expect("select first");
+        assert!(after_first.card_grid.is_some());
+        assert_eq!(after_first.deck, run.deck);
+
+        let after_second = select_grid_card(&after_first, 1).expect("select second");
+        assert!(after_second.card_grid.is_some());
+
+        let after_third = select_grid_card(&after_second, 2).expect("select third");
+
+        assert!(after_third.card_grid.is_none());
+        for card in removed {
+            assert!(!after_third
+                .deck
+                .iter()
+                .any(|deck_card| deck_card.id == card.id));
+        }
+        assert_eq!(after_third.deck.len(), run.deck.len());
+        assert_eq!(after_third.misc_rng_counter, 3);
+    }
+
+    #[test]
+    fn astrolabe_with_three_or_fewer_cards_transforms_without_grid() {
+        let mut run = RunState::map_fixture();
+        run.deck.truncate(3);
+        let old_ids = run.deck.iter().map(|card| card.id).collect::<Vec<_>>();
+        run.misc_rng_seed = 1_218_623;
+
+        run.gain_relic(crate::Relic::Astrolabe);
+
+        assert!(run.card_grid.is_none());
+        assert_eq!(run.deck.len(), 3);
+        assert!(old_ids
+            .iter()
+            .all(|id| !run.deck.iter().any(|card| card.id == *id)));
+        assert_eq!(run.misc_rng_counter, 3);
     }
 }

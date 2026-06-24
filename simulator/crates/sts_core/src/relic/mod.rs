@@ -503,6 +503,8 @@ pub const WING_BOOTS_ID: ContentId = ContentId::new(431);
 pub const CALLING_BELL_ID: ContentId = ContentId::new(432);
 /// Content id for [Relic::PandorasBox].
 pub const PANDORAS_BOX_ID: ContentId = ContentId::new(433);
+/// Content id for [Relic::Astrolabe].
+pub const ASTROLABE_ID: ContentId = ContentId::new(434);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1182,6 +1184,7 @@ pub enum Relic {
     WingBoots,
     CallingBell,
     PandorasBox,
+    Astrolabe,
 }
 
 impl Relic {
@@ -1322,6 +1325,7 @@ impl Relic {
             Relic::WingBoots => WING_BOOTS_ID,
             Relic::CallingBell => CALLING_BELL_ID,
             Relic::PandorasBox => PANDORAS_BOX_ID,
+            Relic::Astrolabe => ASTROLABE_ID,
         }
     }
 
@@ -1462,6 +1466,7 @@ impl Relic {
             id if id == WING_BOOTS_ID => Some(Relic::WingBoots),
             id if id == CALLING_BELL_ID => Some(Relic::CallingBell),
             id if id == PANDORAS_BOX_ID => Some(Relic::PandorasBox),
+            id if id == ASTROLABE_ID => Some(Relic::Astrolabe),
             _ => None,
         }
     }
@@ -1507,6 +1512,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::WingBoots => {}
             Relic::CallingBell => {}
             Relic::PandorasBox => {}
+            Relic::Astrolabe => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
