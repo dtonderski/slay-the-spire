@@ -11,6 +11,7 @@ use crate::{
         STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, WARCRY_ID, WHIRLWIND_ID, WOUND_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
+    content::shop_pool::colorless_discovery_card_choices,
     ids::{CardId, ContentId, MonsterId},
     map::{milestone8_fixture, MapRunState, RoomKind},
     potion::{Potion, MAX_POTIONS},
@@ -433,6 +434,7 @@ mod tests {
             Relic::from_key(RelicKey::GamblingChip),
             Some(Relic::GamblingChip)
         );
+        assert_eq!(Relic::from_key(RelicKey::Toolbox), Some(Relic::Toolbox));
     }
 
     #[test]
@@ -1283,6 +1285,60 @@ mod tests {
         assert!(combat.piles.exhaust_pile.is_empty());
         assert!(!combat.piles.hand.iter().any(|card| card.combat_only));
     }
+
+    #[test]
+    fn toolbox_opens_start_of_combat_colorless_card_choice() {
+        let mut run = RunState::map_fixture();
+        run.card_random_rng_counter = 7;
+        run.gain_relic_key(RelicKey::Toolbox);
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        let choices = combat.toolbox_card_reward.as_ref().expect("Toolbox reward");
+        assert_eq!(choices.len(), 3);
+        assert_eq!(
+            combat.card_random_rng.as_ref().expect("card rng").counter(),
+            10
+        );
+    }
+
+    #[test]
+    fn toolbox_choice_adds_normal_cost_combat_only_card_to_hand() {
+        let mut run = RunState::map_fixture();
+        run.gain_relic_key(RelicKey::Toolbox);
+        let combat = run.init_combat(CombatState::initial_fixture());
+        let chosen_content =
+            combat.toolbox_card_reward.as_ref().expect("Toolbox reward")[0].content_id;
+        run.phase = RunPhase::Combat;
+        run.combat = Some(combat);
+
+        let after =
+            crate::run::apply_run_action(&run, RunAction::ChooseCombatCardReward { index: 0 })
+                .expect("choose Toolbox card");
+        let combat = after.combat.expect("combat remains active");
+        let added = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == chosen_content && card.combat_only)
+            .expect("chosen card added");
+
+        assert!(combat.toolbox_card_reward.is_none());
+        assert!(added.temp_cost.is_none());
+        assert!(added.combat_only);
+    }
+
+    #[test]
+    fn toolbox_consuming_combat_entry_persists_card_random_counter() {
+        let mut run = RunState::map_fixture();
+        run.card_random_rng_counter = 7;
+        run.gain_relic_key(RelicKey::Toolbox);
+
+        let combat = run.init_combat_consuming_relics(CombatState::initial_fixture());
+
+        assert!(combat.toolbox_card_reward.is_some());
+        assert_eq!(run.card_random_rng_counter, 10);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1573,6 +1629,22 @@ impl RunState {
             crate::combat::open_gambling_chip_select(&mut combat)
                 .expect("Gambling Chip selection opens without validation side effects");
         }
+        if self.relics.contains(&Relic::Toolbox) {
+            let mut rng = combat
+                .card_random_rng
+                .take()
+                .unwrap_or_else(|| self.card_random_rng());
+            let next_card_id = combat.piles.max_card_instance_id() + 1;
+            let choices = colorless_discovery_card_choices(&mut rng, 3)
+                .into_iter()
+                .enumerate()
+                .map(|(index, content_id)| {
+                    CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
+                })
+                .collect();
+            combat.card_random_rng = Some(rng);
+            combat.toolbox_card_reward = Some(choices);
+        }
         combat
     }
 
@@ -1584,6 +1656,11 @@ impl RunState {
         }
         if self.relics.contains(&Relic::IncenseBurner) {
             self.incense_burner_counter = combat.relic_counters.incense_burner_counter;
+        }
+        if self.relics.contains(&Relic::Toolbox) {
+            if let Some(rng) = combat.card_random_rng.as_ref() {
+                self.card_random_rng_counter = rng.counter();
+            }
         }
         combat
     }
@@ -2131,7 +2208,8 @@ impl RunState {
             | Relic::IncenseBurner
             | Relic::TinyChest
             | Relic::StrangeSpoon
-            | Relic::GamblingChip => {}
+            | Relic::GamblingChip
+            | Relic::Toolbox => {}
         }
     }
 
@@ -2451,6 +2529,7 @@ impl Relic {
             Relic::PandorasBox => RelicKey::PandorasBox,
             Relic::Astrolabe => RelicKey::Astrolabe,
             Relic::GamblingChip => RelicKey::GamblingChip,
+            Relic::Toolbox => RelicKey::Toolbox,
         }
     }
 
@@ -2593,6 +2672,7 @@ impl Relic {
             RelicKey::PandorasBox => Some(Relic::PandorasBox),
             RelicKey::Astrolabe => Some(Relic::Astrolabe),
             RelicKey::GamblingChip => Some(Relic::GamblingChip),
+            RelicKey::Toolbox => Some(Relic::Toolbox),
             _ => None,
         }
     }

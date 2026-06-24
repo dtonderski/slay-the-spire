@@ -34,9 +34,12 @@ pub struct CombatState {
     pub shuffle_rng: Option<StsRng>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_random_rng: Option<StsRng>,
-    /// In-combat card reward from potions such as Power Potion.
+    /// In-combat zero-cost card reward from potions such as Power Potion.
     #[serde(default)]
     pub potion_card_reward: Option<Vec<CardInstance>>,
+    /// In-combat normal-cost colorless reward from Toolbox.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toolbox_card_reward: Option<Vec<CardInstance>>,
     /// Awaiting player choice for Warcry and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
@@ -187,6 +190,7 @@ impl CombatState {
             shuffle_rng: None,
             card_random_rng: None,
             potion_card_reward: None,
+            toolbox_card_reward: None,
             hand_select: None,
             discard_select: None,
             exhaust_select: None,

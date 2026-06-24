@@ -507,6 +507,8 @@ pub const PANDORAS_BOX_ID: ContentId = ContentId::new(433);
 pub const ASTROLABE_ID: ContentId = ContentId::new(434);
 /// Content id for [Relic::GamblingChip].
 pub const GAMBLING_CHIP_ID: ContentId = ContentId::new(435);
+/// Content id for [Relic::Toolbox].
+pub const TOOLBOX_ID: ContentId = ContentId::new(436);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1188,6 +1190,7 @@ pub enum Relic {
     PandorasBox,
     Astrolabe,
     GamblingChip,
+    Toolbox,
 }
 
 impl Relic {
@@ -1330,6 +1333,7 @@ impl Relic {
             Relic::PandorasBox => PANDORAS_BOX_ID,
             Relic::Astrolabe => ASTROLABE_ID,
             Relic::GamblingChip => GAMBLING_CHIP_ID,
+            Relic::Toolbox => TOOLBOX_ID,
         }
     }
 
@@ -1472,6 +1476,7 @@ impl Relic {
             id if id == PANDORAS_BOX_ID => Some(Relic::PandorasBox),
             id if id == ASTROLABE_ID => Some(Relic::Astrolabe),
             id if id == GAMBLING_CHIP_ID => Some(Relic::GamblingChip),
+            id if id == TOOLBOX_ID => Some(Relic::Toolbox),
             _ => None,
         }
     }
@@ -1519,6 +1524,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PandorasBox => {}
             Relic::Astrolabe => {}
             Relic::GamblingChip => {}
+            Relic::Toolbox => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }

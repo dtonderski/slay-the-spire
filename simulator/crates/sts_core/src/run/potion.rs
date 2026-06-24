@@ -108,6 +108,7 @@ pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimRe
     let choices = combat
         .potion_card_reward
         .as_ref()
+        .or(combat.toolbox_card_reward.as_ref())
         .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
     if index >= choices.len() {
         return Err(SimError::IllegalAction(
@@ -254,14 +255,25 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     validate_combat_card_reward_choice(run, index)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
-    let choices = combat.potion_card_reward.take().expect("validated reward");
-    let choice = choices[index];
     let card_id = CardId::new(combat.piles.max_card_instance_id() + 1);
-    combat.piles.hand.push(CardInstance::combat_generated(
-        card_id,
-        choice.content_id,
-        0,
-    ));
+    if let Some(choices) = combat.potion_card_reward.take() {
+        let choice = choices[index];
+        combat.piles.hand.push(CardInstance::combat_generated(
+            card_id,
+            choice.content_id,
+            0,
+        ));
+    } else {
+        let choices = combat.toolbox_card_reward.take().expect("validated reward");
+        let choice = choices[index];
+        combat.piles.hand.push(CardInstance {
+            combat_only: true,
+            ..CardInstance::new(card_id, choice.content_id)
+        });
+        if let Some(rng) = combat.card_random_rng.as_ref() {
+            next.card_random_rng_counter = rng.counter();
+        }
+    }
     Ok(next)
 }
 
