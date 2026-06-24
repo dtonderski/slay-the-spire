@@ -330,6 +330,7 @@ mod tests {
             Relic::from_key(RelicKey::Matryoshka),
             Some(Relic::Matryoshka)
         );
+        assert_eq!(Relic::from_key(RelicKey::EmptyCage), Some(Relic::EmptyCage));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1626,6 +1627,9 @@ impl RunState {
             Relic::WarPaint => {
                 self.upgrade_random_deck_cards(CardType::Skill, 2);
             }
+            Relic::EmptyCage => {
+                super::grid::open_empty_cage_grid(self);
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1982,6 +1986,7 @@ impl Relic {
             Relic::FossilizedHelix => RelicKey::FossilizedHelix,
             Relic::BlackStar => RelicKey::BlackStar,
             Relic::Matryoshka => RelicKey::Matryoshka,
+            Relic::EmptyCage => RelicKey::EmptyCage,
         }
     }
 
@@ -2096,6 +2101,7 @@ impl Relic {
             RelicKey::FossilizedHelix => Some(Relic::FossilizedHelix),
             RelicKey::BlackStar => Some(Relic::BlackStar),
             RelicKey::Matryoshka => Some(Relic::Matryoshka),
+            RelicKey::EmptyCage => Some(Relic::EmptyCage),
             _ => None,
         }
     }

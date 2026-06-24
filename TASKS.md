@@ -1377,6 +1377,8 @@ Completed slice:
 - implemented Black Star key promotion, content-id round trips, elite reward-screen second relic queuing, and sequential relic collection through the existing reward action with focused reward tests
 - expanded modeled chest bonus-reward relics: Matryoshka
 - implemented Matryoshka key promotion, content-id round trips, persisted two-chest counter, and chest reward-screen second relic queuing with focused reward tests
+- expanded modeled pickup removal relics: Empty Cage
+- implemented Empty Cage key promotion, content-id round trips, pickup-triggered two-card removal grid, and sequential card removal confirmation with focused grid/reward tests
 
 Remaining:
 

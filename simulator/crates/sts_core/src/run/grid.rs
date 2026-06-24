@@ -6,6 +6,7 @@ use crate::{
 pub enum GridPurpose {
     RestSmith,
     ShopRemove,
+    EmptyCage { remaining: u8 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -28,6 +29,18 @@ pub fn open_shop_remove_grid(run: &mut RunState) {
     run.card_grid = Some(CardGridScreen {
         cards: run.deck.clone(),
         purpose: GridPurpose::ShopRemove,
+        selected: None,
+    });
+}
+
+pub fn open_empty_cage_grid(run: &mut RunState) {
+    if run.deck.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards: run.deck.clone(),
+        purpose: GridPurpose::EmptyCage { remaining: 2 },
         selected: None,
     });
 }
@@ -99,6 +112,20 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             }
             next.card_grid = None;
         }
+        GridPurpose::EmptyCage { remaining } => {
+            next.deck.retain(|deck_card| deck_card.id != card.id);
+            if remaining > 1 && !next.deck.is_empty() {
+                next.card_grid = Some(CardGridScreen {
+                    cards: next.deck.clone(),
+                    purpose: GridPurpose::EmptyCage {
+                        remaining: remaining - 1,
+                    },
+                    selected: None,
+                });
+            } else {
+                next.card_grid = None;
+            }
+        }
     }
 
     Ok(next)
@@ -162,5 +189,31 @@ mod tests {
         let after = confirm_grid(&selected).expect("confirm");
 
         assert!(after.maw_bank_broken);
+    }
+
+    #[test]
+    fn empty_cage_grid_removes_two_selected_cards() {
+        let mut run = RunState::map_fixture();
+        open_empty_cage_grid(&mut run);
+        let first_id = run.deck[0].id;
+        let second_id = run.deck[1].id;
+        let deck_len = run.deck.len();
+
+        let selected = select_grid_card(&run, 0).expect("select first");
+        let after_first = confirm_grid(&selected).expect("confirm first");
+
+        assert!(!after_first.deck.iter().any(|card| card.id == first_id));
+        assert_eq!(after_first.deck.len(), deck_len - 1);
+        assert_eq!(
+            after_first.card_grid.as_ref().map(|grid| grid.purpose),
+            Some(GridPurpose::EmptyCage { remaining: 1 })
+        );
+
+        let selected = select_grid_card(&after_first, 0).expect("select second");
+        let after_second = confirm_grid(&selected).expect("confirm second");
+
+        assert!(!after_second.deck.iter().any(|card| card.id == second_id));
+        assert_eq!(after_second.deck.len(), deck_len - 2);
+        assert!(after_second.card_grid.is_none());
     }
 }
