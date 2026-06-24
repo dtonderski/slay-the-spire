@@ -415,6 +415,10 @@ mod tests {
         assert_eq!(Relic::from_key(RelicKey::TinyChest), Some(Relic::TinyChest));
         assert_eq!(Relic::from_key(RelicKey::Orrery), Some(Relic::Orrery));
         assert_eq!(Relic::from_key(RelicKey::SneckoEye), Some(Relic::SneckoEye));
+        assert_eq!(
+            Relic::from_key(RelicKey::StrangeSpoon),
+            Some(Relic::StrangeSpoon)
+        );
     }
 
     #[test]
@@ -2017,7 +2021,8 @@ impl RunState {
             | Relic::MummifiedHand
             | Relic::TheCourier
             | Relic::IncenseBurner
-            | Relic::TinyChest => {}
+            | Relic::TinyChest
+            | Relic::StrangeSpoon => {}
         }
     }
 
@@ -2331,6 +2336,7 @@ impl Relic {
             Relic::TinyChest => RelicKey::TinyChest,
             Relic::Orrery => RelicKey::Orrery,
             Relic::SneckoEye => RelicKey::SneckoEye,
+            Relic::StrangeSpoon => RelicKey::StrangeSpoon,
         }
     }
 
@@ -2467,6 +2473,7 @@ impl Relic {
             RelicKey::TinyChest => Some(Relic::TinyChest),
             RelicKey::Orrery => Some(Relic::Orrery),
             RelicKey::SneckoEye => Some(Relic::SneckoEye),
+            RelicKey::StrangeSpoon => Some(Relic::StrangeSpoon),
             _ => None,
         }
     }
