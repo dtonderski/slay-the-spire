@@ -1306,6 +1306,8 @@ Completed slice:
 - implemented Sundial key promotion, combat counter serialization, and every-third-shuffle energy gain through shared shuffle hooks, with focused draw tests
 - expanded modeled exhaust-damage relics: Charon's Ashes
 - implemented Charon's Ashes key promotion and all-enemy unmodified damage on card exhaust, including monster-death relic follow-ups, with focused combat tests
+- expanded modeled unplayable-card relics: Blue Candle and Medical Kit
+- implemented Blue Candle curse play/exhaust/HP-loss and Medical Kit status play/exhaust through shared card play and exhaust hooks, with focused legal/combat tests
 - expanded modeled floor-entry gold relics: Maw Bank
 - implemented Maw Bank key promotion, +12 gold floor entry, and shop-spend break behavior, with map/shop/grid tests
 - expanded modeled rest-site energy relics: Ancient Tea Set

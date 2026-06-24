@@ -7,7 +7,7 @@ use crate::{
         WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
-    relic::{can_play_card_with_relics, Relic},
+    relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
     SimError, SimResult,
 };
 
@@ -32,7 +32,13 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         };
 
-        if definition.keywords.unplayable {
+        if definition.keywords.unplayable
+            && !can_play_unplayable_card_with_relics(
+                &state.relics,
+                definition.card_type,
+                card.content_id,
+            )
+        {
             continue;
         }
 
@@ -107,6 +113,22 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
             }
 
             let definition = card_definition_for_hand_card(state, card_id)?;
+            let card = state
+                .piles
+                .hand
+                .iter()
+                .find(|card| card.id == card_id)
+                .ok_or(SimError::UnknownCard(card_id))?;
+
+            if definition.keywords.unplayable
+                && !can_play_unplayable_card_with_relics(
+                    &state.relics,
+                    definition.card_type,
+                    card.content_id,
+                )
+            {
+                return Err(SimError::IllegalAction("card is unplayable"));
+            }
 
             if definition.id == HAVOC_ID || definition.id == HAVOC_PLUS_ID {
                 if state.piles.draw_pile.is_empty() {
@@ -296,10 +318,10 @@ mod tests {
             ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
             BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
             DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID,
-            INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID,
+            INFLAME_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID,
             SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
             SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-            WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+            WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -323,6 +345,45 @@ mod tests {
         assert!(
             legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: hand_card_id(&state, DEFEND_R_ID),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn blue_candle_makes_unplayable_curses_legal() {
+        let mut state = hand_with_card(REGRET_ID);
+        state.relics = vec![Relic::BlueCandle];
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn medical_kit_makes_unplayable_statuses_legal() {
+        let mut state = hand_with_card(WOUND_ID);
+        state.relics = vec![Relic::MedicalKit];
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn medical_kit_does_not_make_curses_legal() {
+        let mut state = hand_with_card(REGRET_ID);
+        state.relics = vec![Relic::MedicalKit];
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
                 target: None,
             })
         );

@@ -276,6 +276,14 @@ mod tests {
             Some(Relic::CharonsAshes)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::BlueCandle),
+            Some(Relic::BlueCandle)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::MedicalKit),
+            Some(Relic::MedicalKit)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1613,7 +1621,9 @@ impl RunState {
             | Relic::TheAbacus
             | Relic::GremlinHorn
             | Relic::Sundial
-            | Relic::CharonsAshes => {}
+            | Relic::CharonsAshes
+            | Relic::BlueCandle
+            | Relic::MedicalKit => {}
         }
     }
 
@@ -1859,6 +1869,8 @@ impl Relic {
             Relic::GremlinHorn => RelicKey::GremlinHorn,
             Relic::Sundial => RelicKey::Sundial,
             Relic::CharonsAshes => RelicKey::CharonsAshes,
+            Relic::BlueCandle => RelicKey::BlueCandle,
+            Relic::MedicalKit => RelicKey::MedicalKit,
         }
     }
 
@@ -1954,6 +1966,8 @@ impl Relic {
             RelicKey::GremlinHorn => Some(Relic::GremlinHorn),
             RelicKey::Sundial => Some(Relic::Sundial),
             RelicKey::CharonsAshes => Some(Relic::CharonsAshes),
+            RelicKey::BlueCandle => Some(Relic::BlueCandle),
+            RelicKey::MedicalKit => Some(Relic::MedicalKit),
             _ => None,
         }
     }

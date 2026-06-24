@@ -10,15 +10,16 @@ use crate::{
         validate_combat_action, CombatPhase,
     },
     content::cards::{
-        get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
-        BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMMOLATE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        get_card_definition, is_curse_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
+        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID,
+        DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
+        IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, METALLICIZE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -80,6 +81,9 @@ fn apply_play_card(
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
 
     let queue = match definition.id {
+        _ if definition.keywords.unplayable => {
+            unplayable_relic_queue(&state.relics, card_id, card.content_id, definition)
+        }
         STRIKE_R_ID | STRIKE_R_PLUS_ID => strike_queue(
             state,
             card_id,
@@ -256,6 +260,31 @@ fn apply_duplication_potion_to_queue(
     }
 
     queue
+}
+
+fn unplayable_relic_queue(
+    relics: &[Relic],
+    card_id: CardId,
+    content_id: ContentId,
+    definition: &'static CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    if !crate::relic::can_play_unplayable_card_with_relics(relics, definition.card_type, content_id)
+    {
+        return Err(SimError::IllegalAction("card is unplayable"));
+    }
+
+    let mut queue = VecDeque::from([InternalAction::PlayCard { card_id }]);
+    if is_curse_content_id(content_id) {
+        queue.push_back(InternalAction::LoseHp {
+            amount: crate::relic::BLUE_CANDLE_HP_LOSS,
+        });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::ExhaustPile,
+    });
+    Ok(queue)
 }
 
 fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
@@ -1155,7 +1184,9 @@ fn process_internal_queue(
         }
     }
 
-    if next.monsters.iter().all(|monster| !monster.alive) {
+    if next.player.hp <= 0 {
+        next.phase = CombatPhase::Lost;
+    } else if next.monsters.iter().all(|monster| !monster.alive) {
         next.phase = CombatPhase::Won;
         apply_burning_blood(&mut next);
     } else {
@@ -1309,6 +1340,12 @@ fn apply_internal_action(
         }
         InternalAction::GainEnergy { amount } => {
             state.player.energy += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::LoseHp { amount } => {
+            let hp_loss = crate::relic::mitigate_hp_loss(&state.relics, amount);
+            state.player.hp -= hp_loss;
+            crate::relic::apply_player_hp_loss_relics(state, hp_loss);
             Ok(Vec::new())
         }
         InternalAction::SetCannotDraw => {
@@ -1796,9 +1833,10 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
         FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WOUND_ID,
     };
 
     #[test]
@@ -2046,6 +2084,54 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.content_id == SLIMED_ID));
+    }
+
+    #[test]
+    fn blue_candle_exhausts_curse_and_loses_one_hp() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::BlueCandle];
+        state.player.hp = 50;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), REGRET_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Regret applies with Blue Candle");
+
+        assert_eq!(next.player.hp, 50 - crate::relic::BLUE_CANDLE_HP_LOSS);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn medical_kit_exhausts_status_without_hp_loss() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::MedicalKit];
+        state.player.hp = 50;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), WOUND_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Wound applies with Medical Kit");
+
+        assert_eq!(next.player.hp, 50);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
     }
 
     #[test]
