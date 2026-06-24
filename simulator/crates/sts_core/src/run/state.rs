@@ -17,7 +17,7 @@ use crate::{
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BUSTED_CROWN_ENERGY,
-        CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
+        CAULDRON_POTIONS, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
         DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP,
         MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD,
         OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
@@ -369,6 +369,7 @@ mod tests {
             Relic::from_key(RelicKey::RingOfTheSerpent),
             Some(Relic::RingOfTheSerpent)
         );
+        assert_eq!(Relic::from_key(RelicKey::Cauldron), Some(Relic::Cauldron));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -953,6 +954,59 @@ mod tests {
         assert_eq!(combat.player.max_energy, run.energy_per_turn);
         assert_eq!(combat.player.energy, run.energy_per_turn);
         assert!(!run.can_gain_potions());
+    }
+
+    #[test]
+    fn cauldron_pickup_fills_open_potion_slots() {
+        let mut run = RunState::map_fixture();
+        run.potion_rng_seed = 1_218_623;
+        run.potion_rng_counter = 0;
+        run.potions.push(Potion::Fire);
+        let counter_before = run.potion_rng_counter;
+
+        run.gain_relic(Relic::Cauldron);
+
+        assert_eq!(run.potions.len(), run.potion_capacity());
+        assert_eq!(run.potions[0], Potion::Fire);
+        assert!(run.potion_rng_counter > counter_before);
+    }
+
+    #[test]
+    fn cauldron_respects_potion_belt_capacity() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::PotionBelt);
+
+        run.gain_relic(Relic::Cauldron);
+
+        assert_eq!(run.potions.len(), CAULDRON_POTIONS);
+        assert_eq!(run.potions.len(), run.potion_capacity());
+    }
+
+    #[test]
+    fn cauldron_does_not_roll_when_slots_are_full() {
+        let mut run = RunState::map_fixture();
+        run.potions = vec![Potion::Fire, Potion::Block, Potion::Fairy];
+        run.potion_rng_counter = 7;
+
+        run.gain_relic(Relic::Cauldron);
+
+        assert_eq!(
+            run.potions,
+            vec![Potion::Fire, Potion::Block, Potion::Fairy]
+        );
+        assert_eq!(run.potion_rng_counter, 7);
+    }
+
+    #[test]
+    fn cauldron_does_not_roll_when_sozu_blocks_potions() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::Sozu);
+        run.potion_rng_counter = 7;
+
+        run.gain_relic(Relic::Cauldron);
+
+        assert!(run.potions.is_empty());
+        assert_eq!(run.potion_rng_counter, 7);
     }
 
     #[test]
@@ -1710,6 +1764,9 @@ impl RunState {
             Relic::DollysMirror => {
                 super::grid::open_dollys_mirror_grid(self);
             }
+            Relic::Cauldron => {
+                self.fill_potions_from_cauldron();
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1810,6 +1867,26 @@ impl RunState {
             | Relic::BlackStar
             | Relic::Matryoshka => {}
         }
+    }
+
+    fn fill_potions_from_cauldron(&mut self) {
+        if !self.can_gain_potions() {
+            return;
+        }
+
+        let open_slots = self.potion_capacity().saturating_sub(self.potions.len());
+        let rolls = CAULDRON_POTIONS.min(open_slots);
+        if rolls == 0 {
+            return;
+        }
+
+        let mut potion_rng =
+            StsRng::with_counter(self.potion_rng_seed as i64, self.potion_rng_counter);
+        for _ in 0..rolls {
+            self.potions
+                .push(super::reward::target_random_potion(&mut potion_rng));
+        }
+        self.potion_rng_counter = potion_rng.counter();
     }
 
     fn upgrade_random_deck_cards(&mut self, card_type: CardType, amount: usize) {
@@ -2085,6 +2162,7 @@ impl Relic {
             Relic::HolyWater => RelicKey::HolyWater,
             Relic::RingOfTheSnake => RelicKey::RingOfTheSnake,
             Relic::RingOfTheSerpent => RelicKey::RingOfTheSerpent,
+            Relic::Cauldron => RelicKey::Cauldron,
         }
     }
 
@@ -2211,6 +2289,7 @@ impl Relic {
             RelicKey::HolyWater => Some(Relic::HolyWater),
             RelicKey::RingOfTheSnake => Some(Relic::RingOfTheSnake),
             RelicKey::RingOfTheSerpent => Some(Relic::RingOfTheSerpent),
+            RelicKey::Cauldron => Some(Relic::Cauldron),
             _ => None,
         }
     }
