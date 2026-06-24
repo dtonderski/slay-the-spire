@@ -315,6 +315,7 @@ mod tests {
             Relic::from_key(RelicKey::OrangePellets),
             Some(Relic::OrangePellets)
         );
+        assert_eq!(Relic::from_key(RelicKey::Girya), Some(Relic::Girya));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -838,6 +839,17 @@ mod tests {
     }
 
     #[test]
+    fn girya_grants_strength_per_lift_at_combat_start() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::Girya];
+        run.girya_lifts = 3;
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(combat.player.powers.strength, 3);
+    }
+
+    #[test]
     fn potion_belt_increases_potion_capacity() {
         let mut run = RunState::map_fixture();
 
@@ -1026,6 +1038,8 @@ pub struct RunState {
     pub ancient_tea_set_armed: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub lizard_tail_used: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub girya_lifts: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1189,6 +1203,9 @@ impl RunState {
                 .count() as i32;
             combat.player.powers.strength += curses * DU_VU_DOLL_STRENGTH_PER_CURSE;
         }
+        if self.relics.contains(&Relic::Girya) {
+            combat.player.powers.strength += self.girya_lifts as i32;
+        }
         if self.relics.contains(&Relic::AncientTeaSet) && self.ancient_tea_set_armed {
             combat.player.energy += ANCIENT_TEA_SET_ENERGY;
         }
@@ -1288,6 +1305,7 @@ impl RunState {
             maw_bank_broken: false,
             ancient_tea_set_armed: false,
             lizard_tail_used: false,
+            girya_lifts: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1343,6 +1361,7 @@ impl RunState {
             maw_bank_broken: false,
             ancient_tea_set_armed: false,
             lizard_tail_used: false,
+            girya_lifts: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1670,7 +1689,8 @@ impl RunState {
             | Relic::RunicPyramid
             | Relic::FrozenEye
             | Relic::PeacePipe
-            | Relic::OrangePellets => {}
+            | Relic::OrangePellets
+            | Relic::Girya => {}
         }
     }
 
@@ -1929,6 +1949,7 @@ impl Relic {
             Relic::FrozenEye => RelicKey::FrozenEye,
             Relic::PeacePipe => RelicKey::PeacePipe,
             Relic::OrangePellets => RelicKey::OrangePellets,
+            Relic::Girya => RelicKey::Girya,
         }
     }
 
@@ -2037,6 +2058,7 @@ impl Relic {
             RelicKey::FrozenEye => Some(Relic::FrozenEye),
             RelicKey::PeacePipe => Some(Relic::PeacePipe),
             RelicKey::OrangePellets => Some(Relic::OrangePellets),
+            RelicKey::Girya => Some(Relic::Girya),
             _ => None,
         }
     }

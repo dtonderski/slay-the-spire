@@ -1,6 +1,6 @@
 use crate::{
     content::cards::upgrade_content_id,
-    relic::{ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, REGAL_PILLOW_HEAL},
+    relic::{ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, GIRYA_MAX_LIFTS, REGAL_PILLOW_HEAL},
     Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -26,6 +26,11 @@ pub fn can_remove_at_rest(run: &RunState) -> bool {
 }
 
 #[must_use]
+pub fn can_lift(run: &RunState) -> bool {
+    run.relics.contains(&Relic::Girya) && run.girya_lifts < GIRYA_MAX_LIFTS
+}
+
+#[must_use]
 pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     if run.phase != RunPhase::Rest {
         return Vec::new();
@@ -41,6 +46,9 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
         .any(|card| upgrade_content_id(card.content_id).is_some());
     if has_upgradeable && can_smith(run) {
         actions.push(RestAction::OpenSmith);
+    }
+    if can_lift(run) {
+        actions.push(RestAction::Lift);
     }
     for card in &run.deck {
         if can_remove_at_rest(run) {
@@ -69,6 +77,8 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
         }
         RestAction::OpenSmith if legal_rest_actions(run).contains(&action) => Ok(()),
         RestAction::OpenSmith => Err(SimError::IllegalAction("smith is not available")),
+        RestAction::Lift if can_lift(run) => Ok(()),
+        RestAction::Lift => Err(SimError::IllegalAction("lift is not available")),
         RestAction::Smith { card_id } => {
             if !can_smith(run) {
                 return Err(SimError::IllegalAction("smith is not available"));
@@ -133,6 +143,10 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         }
         RestAction::OpenSmith => {
             open_rest_smith_grid(&mut next);
+        }
+        RestAction::Lift => {
+            next.girya_lifts += 1;
+            next.phase = RunPhase::Idle;
         }
         RestAction::Smith { card_id } => {
             let upgraded_content_id = next
@@ -398,6 +412,35 @@ mod tests {
         assert_eq!(after.deck.len(), starting_len - 1);
         assert!(!after.deck.iter().any(|card| card.id == strike_id));
         assert_eq!(after.phase, RunPhase::Idle);
+    }
+
+    #[test]
+    fn girya_lift_increments_lift_count_and_leaves_rest() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.relics.push(Relic::Girya);
+
+        assert!(legal_rest_actions(&run).contains(&RestAction::Lift));
+
+        let after = apply_rest_action(&run, RestAction::Lift).expect("lift applies");
+
+        assert_eq!(after.girya_lifts, 1);
+        assert_eq!(after.phase, RunPhase::Idle);
+    }
+
+    #[test]
+    fn girya_lift_is_illegal_without_relic_or_after_three_lifts() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+
+        let missing_relic = apply_rest_action(&run, RestAction::Lift).expect_err("no girya");
+        assert_eq!(missing_relic, SimError::IllegalAction("lift is not available"));
+
+        run.relics.push(Relic::Girya);
+        run.girya_lifts = GIRYA_MAX_LIFTS;
+
+        let capped = apply_rest_action(&run, RestAction::Lift).expect_err("capped");
+        assert_eq!(capped, SimError::IllegalAction("lift is not available"));
     }
 
     #[test]

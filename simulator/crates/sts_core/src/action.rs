@@ -107,6 +107,7 @@ pub enum RestAction {
     OpenSmith,
     Smith { card_id: CardId },
     RemoveCard { card_id: CardId },
+    Lift,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

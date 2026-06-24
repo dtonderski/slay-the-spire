@@ -176,6 +176,8 @@ pub const CALIPERS_BLOCK_LOSS: i32 = 15;
 pub const DARKSTONE_PERIAPT_MAX_HP: i32 = 6;
 /// Strength granted by [Relic::DuVuDoll] per curse in the deck at combat start.
 pub const DU_VU_DOLL_STRENGTH_PER_CURSE: i32 = 1;
+/// Maximum Strength lifts stored by [Relic::Girya].
+pub const GIRYA_MAX_LIFTS: u32 = 3;
 
 /// Content id for [Relic::Vajra].
 pub const VAJRA_ID: ContentId = ContentId::new(300);
@@ -417,6 +419,8 @@ pub const FROZEN_EYE_ID: ContentId = ContentId::new(399);
 pub const PEACE_PIPE_ID: ContentId = ContentId::new(400);
 /// Content id for [Relic::OrangePellets].
 pub const ORANGE_PELLETS_ID: ContentId = ContentId::new(401);
+/// Content id for [Relic::Girya].
+pub const GIRYA_ID: ContentId = ContentId::new(402);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1062,6 +1066,7 @@ pub enum Relic {
     FrozenEye,
     PeacePipe,
     OrangePellets,
+    Girya,
 }
 
 impl Relic {
@@ -1170,6 +1175,7 @@ impl Relic {
             Relic::FrozenEye => FROZEN_EYE_ID,
             Relic::PeacePipe => PEACE_PIPE_ID,
             Relic::OrangePellets => ORANGE_PELLETS_ID,
+            Relic::Girya => GIRYA_ID,
         }
     }
 
@@ -1278,6 +1284,7 @@ impl Relic {
             id if id == FROZEN_EYE_ID => Some(Relic::FrozenEye),
             id if id == PEACE_PIPE_ID => Some(Relic::PeacePipe),
             id if id == ORANGE_PELLETS_ID => Some(Relic::OrangePellets),
+            id if id == GIRYA_ID => Some(Relic::Girya),
             _ => None,
         }
     }
@@ -1292,6 +1299,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::FrozenEye => {}
             Relic::PeacePipe => {}
             Relic::OrangePellets => {}
+            Relic::Girya => {}
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -2592,6 +2600,8 @@ mod tests {
             Relic::from_content_id(ORANGE_PELLETS_ID),
             Some(Relic::OrangePellets)
         );
+        assert_eq!(Relic::Girya.content_id(), GIRYA_ID);
+        assert_eq!(Relic::from_content_id(GIRYA_ID), Some(Relic::Girya));
     }
 
     #[test]
