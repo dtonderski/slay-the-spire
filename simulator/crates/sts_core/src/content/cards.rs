@@ -1160,6 +1160,21 @@ pub const IMMOLATE: CardDefinition = CardDefinition {
     },
 };
 
+pub const BLUDGEON: CardDefinition = CardDefinition {
+    id: BLUDGEON_ID,
+    key: "BLUDGEON",
+    name: "Bludgeon",
+    cost: 3,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(32),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const METALLICIZE: CardDefinition = CardDefinition {
     id: METALLICIZE_ID,
     key: "Metallicize",
@@ -1245,7 +1260,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 66] = [
+pub const ALL_CARDS: [CardDefinition; 67] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1309,6 +1324,7 @@ pub const ALL_CARDS: [CardDefinition; 66] = [
     SWORD_BOOMERANG,
     HEMOKINESIS,
     IMMOLATE,
+    BLUDGEON,
     METALLICIZE,
     THUNDERCLAP,
     UPPERCUT,
@@ -1366,6 +1382,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         _ => None,
     }
@@ -1524,6 +1541,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(HEAVY_BLADE_ID),
             Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn bludgeon_has_expected_values() {
+        assert_eq!(BLUDGEON.cost, 3);
+        assert_eq!(BLUDGEON.target, TargetRequirement::Enemy);
+        assert_eq!(BLUDGEON.card_type, CardType::Attack);
+        assert_eq!(BLUDGEON.values.damage, Some(32));
+        assert_eq!(
+            card_type_and_rarity(BLUDGEON_ID),
+            Some((CardType::Attack, CardRarity::Rare))
         );
     }
 
