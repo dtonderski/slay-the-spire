@@ -1389,6 +1389,8 @@ Completed slice:
 - implemented off-character starter/replacement key promotion and content-id round trips as no-op relics within the Ironclad simulator scope
 - expanded modeled random-potion pickup relics: Cauldron
 - implemented Cauldron key promotion, content-id round trips, and pickup-triggered random potion filling up to available capacity while respecting Sozu and existing filled slots
+- expanded modeled boss pickup bundle relics: Tiny House
+- implemented Tiny House key promotion, content-id round trips, max-HP/gold/heal pickup bundle, one random deck upgrade via `miscRng`, and reward-screen card reward queuing
 
 Remaining:
 

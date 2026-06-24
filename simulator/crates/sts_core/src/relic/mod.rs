@@ -20,6 +20,12 @@ pub const MANGO_MAX_HP: i32 = 14;
 pub const LEES_WAFFLE_MAX_HP: i32 = 7;
 /// Gold granted by [Relic::OldCoin] on pickup.
 pub const OLD_COIN_GOLD: i32 = 300;
+/// Max HP granted by [Relic::TinyHouse] on pickup.
+pub const TINY_HOUSE_MAX_HP: i32 = 5;
+/// HP healed by [Relic::TinyHouse] on pickup.
+pub const TINY_HOUSE_HEAL: i32 = 7;
+/// Gold granted by [Relic::TinyHouse] on pickup.
+pub const TINY_HOUSE_GOLD: i32 = 50;
 /// Extra potion slots granted by [Relic::PotionBelt] on pickup.
 pub const POTION_BELT_SLOTS: usize = 2;
 /// HP healed by [Relic::BloodVial] at combat start.
@@ -463,6 +469,8 @@ pub const RING_OF_THE_SERPENT_ID: ContentId = ContentId::new(419);
 pub const CAULDRON_ID: ContentId = ContentId::new(420);
 /// Random potion rolls granted by [Relic::Cauldron] on pickup.
 pub const CAULDRON_POTIONS: usize = 5;
+/// Content id for [Relic::TinyHouse].
+pub const TINY_HOUSE_ID: ContentId = ContentId::new(421);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1127,6 +1135,7 @@ pub enum Relic {
     RingOfTheSnake,
     RingOfTheSerpent,
     Cauldron,
+    TinyHouse,
 }
 
 impl Relic {
@@ -1254,6 +1263,7 @@ impl Relic {
             Relic::RingOfTheSnake => RING_OF_THE_SNAKE_ID,
             Relic::RingOfTheSerpent => RING_OF_THE_SERPENT_ID,
             Relic::Cauldron => CAULDRON_ID,
+            Relic::TinyHouse => TINY_HOUSE_ID,
         }
     }
 
@@ -1381,6 +1391,7 @@ impl Relic {
             id if id == RING_OF_THE_SNAKE_ID => Some(Relic::RingOfTheSnake),
             id if id == RING_OF_THE_SERPENT_ID => Some(Relic::RingOfTheSerpent),
             id if id == CAULDRON_ID => Some(Relic::Cauldron),
+            id if id == TINY_HOUSE_ID => Some(Relic::TinyHouse),
             _ => None,
         }
     }
@@ -1413,6 +1424,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::RingOfTheSnake => {}
             Relic::RingOfTheSerpent => {}
             Relic::Cauldron => {}
+            Relic::TinyHouse => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -2814,6 +2826,11 @@ mod tests {
         );
         assert_eq!(Relic::Cauldron.content_id(), CAULDRON_ID);
         assert_eq!(Relic::from_content_id(CAULDRON_ID), Some(Relic::Cauldron));
+        assert_eq!(Relic::TinyHouse.content_id(), TINY_HOUSE_ID);
+        assert_eq!(
+            Relic::from_content_id(TINY_HOUSE_ID),
+            Some(Relic::TinyHouse)
+        );
     }
 
     #[test]
