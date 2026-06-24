@@ -14,8 +14,8 @@ pub use event::{
 };
 pub use grid::{
     cancel_grid, confirm_grid, open_bottle_grid, open_calling_bell_grid, open_dollys_mirror_grid,
-    open_empty_cage_grid, open_rest_smith_grid, open_shop_remove_grid, select_grid_card,
-    CardGridScreen, GridPurpose,
+    open_empty_cage_grid, open_pandoras_box_grid, open_rest_smith_grid, open_shop_remove_grid,
+    select_grid_card, CardGridScreen, GridPurpose,
 };
 pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
 pub use potion::{apply_potion_action, validate_potion_action};

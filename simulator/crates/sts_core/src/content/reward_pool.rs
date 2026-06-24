@@ -335,6 +335,19 @@ pub fn ironclad_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> 
         .map(|entry| entry.rarity)
 }
 
+#[must_use]
+pub fn ironclad_truly_random_card_pool() -> Vec<ContentId> {
+    [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare]
+        .into_iter()
+        .flat_map(|rarity| {
+            IRONCLAD_REWARD_ENTRIES
+                .iter()
+                .filter(move |entry| entry.rarity == rarity)
+                .map(|entry| entry.content_id)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +379,25 @@ mod tests {
         assert_eq!(rarity(SEARING_BLOW_ID), CardRarity::Uncommon);
         assert_eq!(rarity(DOUBLE_TAP_ID), CardRarity::Rare);
         assert_eq!(rarity(IMMOLATE_ID), CardRarity::Rare);
+    }
+
+    #[test]
+    fn truly_random_card_pool_groups_source_pools_by_rarity() {
+        let pool = ironclad_truly_random_card_pool();
+
+        assert_eq!(pool.len(), IRONCLAD_REWARD_ENTRIES.len());
+        assert!(
+            pool.iter()
+                .take_while(|id| ironclad_reward_card_rarity(**id) == Some(CardRarity::Common))
+                .count()
+                > 0
+        );
+        let first_rare = pool
+            .iter()
+            .position(|id| ironclad_reward_card_rarity(*id) == Some(CardRarity::Rare))
+            .expect("rare card");
+        assert!(pool[..first_rare]
+            .iter()
+            .all(|id| ironclad_reward_card_rarity(*id) != Some(CardRarity::Rare)));
     }
 }

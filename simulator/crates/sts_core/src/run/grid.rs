@@ -1,6 +1,12 @@
 use crate::{
     card::{CardInstance, CardType},
-    content::cards::{get_card_definition, upgrade_content_id, CURSE_OF_THE_BELL_ID},
+    content::{
+        cards::{
+            get_card_definition, upgrade_content_id, CURSE_OF_THE_BELL_ID, DEFEND_R_ID,
+            STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        },
+        reward_pool::ironclad_truly_random_card_pool,
+    },
     RunPhase, RunState, SimError, SimResult,
 };
 
@@ -12,6 +18,7 @@ pub enum GridPurpose {
     Bottle { card_type: CardType },
     DollysMirror,
     CallingBellCurse,
+    PandorasBox,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -96,6 +103,43 @@ pub fn open_calling_bell_grid(run: &mut RunState) {
     });
 }
 
+pub fn open_pandoras_box_grid(run: &mut RunState) {
+    let starter_count = run
+        .deck
+        .iter()
+        .filter(|card| is_pandoras_box_removed_starter(card.content_id))
+        .count();
+    if starter_count == 0 {
+        return;
+    }
+
+    run.deck
+        .retain(|card| !is_pandoras_box_removed_starter(card.content_id));
+    let pool = ironclad_truly_random_card_pool();
+    let mut rng = run.card_random_rng();
+    let next_card_id = run.next_card_instance_id();
+    let cards = (0..starter_count)
+        .map(|index| {
+            let pick = rng.random_int((pool.len() - 1) as i32) as usize;
+            let content_id = run.content_id_after_card_add_relics(pool[pick]);
+            CardInstance::new(
+                crate::ids::CardId::new(next_card_id + index as u64),
+                content_id,
+            )
+        })
+        .collect();
+    run.card_random_rng_counter = rng.counter();
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::PandorasBox,
+        selected: None,
+    });
+}
+
+fn is_pandoras_box_removed_starter(content_id: crate::ContentId) -> bool {
+    matches!(content_id, id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID || id == DEFEND_R_ID)
+}
+
 pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     let grid = run
         .card_grid
@@ -137,6 +181,12 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.card_grid = None;
             next.add_deck_card(card);
             super::reward::enter_calling_bell_reward_screen(&mut next);
+        }
+        GridPurpose::PandorasBox => {
+            for card in &grid.cards {
+                next.add_deck_card(*card);
+            }
+            next.card_grid = None;
         }
         GridPurpose::RestSmith => {
             let card = selected_grid_card(grid)?;
@@ -373,5 +423,42 @@ mod tests {
         let reward = after.reward.as_ref().expect("calling bell rewards");
         assert!(reward.relic_offer.is_some() || reward.relic_key_offer.is_some());
         assert_eq!(reward.queued_relic_key_offers.len(), 2);
+    }
+
+    #[test]
+    fn pandoras_box_grid_replaces_starter_strikes_and_defends_with_random_cards() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 1_218_623;
+        let expected_removed = run
+            .deck
+            .iter()
+            .filter(|card| is_pandoras_box_removed_starter(card.content_id))
+            .count();
+
+        run.gain_relic(crate::Relic::PandorasBox);
+
+        assert_eq!(expected_removed, 9);
+        assert!(run.relics.contains(&crate::Relic::PandorasBox));
+        assert!(!run
+            .deck
+            .iter()
+            .any(|card| is_pandoras_box_removed_starter(card.content_id)));
+        let grid = run.card_grid.as_ref().expect("pandora grid");
+        assert_eq!(grid.purpose, GridPurpose::PandorasBox);
+        assert_eq!(grid.cards.len(), expected_removed);
+        assert_eq!(run.card_random_rng_counter, expected_removed as u32);
+
+        let after = confirm_grid(&run).expect("confirm pandora");
+
+        assert!(after.card_grid.is_none());
+        assert_eq!(after.deck.len(), 1 + expected_removed);
+        assert!(after
+            .deck
+            .iter()
+            .any(|card| card.content_id == crate::content::cards::BASH_ID));
+        assert!(!after
+            .deck
+            .iter()
+            .any(|card| is_pandoras_box_removed_starter(card.content_id)));
     }
 }

@@ -424,6 +424,10 @@ mod tests {
             Relic::from_key(RelicKey::CallingBell),
             Some(Relic::CallingBell)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::PandorasBox),
+            Some(Relic::PandorasBox)
+        );
     }
 
     #[test]
@@ -1880,6 +1884,9 @@ impl RunState {
             Relic::CallingBell => {
                 super::grid::open_calling_bell_grid(self);
             }
+            Relic::PandorasBox => {
+                super::grid::open_pandoras_box_grid(self);
+            }
             Relic::VelvetChoker => {
                 self.energy_per_turn += VELVET_CHOKER_ENERGY;
             }
@@ -2357,6 +2364,7 @@ impl Relic {
             Relic::StrangeSpoon => RelicKey::StrangeSpoon,
             Relic::WingBoots => RelicKey::WingBoots,
             Relic::CallingBell => RelicKey::CallingBell,
+            Relic::PandorasBox => RelicKey::PandorasBox,
         }
     }
 
@@ -2496,6 +2504,7 @@ impl Relic {
             RelicKey::StrangeSpoon => Some(Relic::StrangeSpoon),
             RelicKey::WingBoots => Some(Relic::WingBoots),
             RelicKey::CallingBell => Some(Relic::CallingBell),
+            RelicKey::PandorasBox => Some(Relic::PandorasBox),
             _ => None,
         }
     }
