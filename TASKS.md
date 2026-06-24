@@ -1375,6 +1375,8 @@ Completed slice:
 - implemented Fossilized Helix key promotion, content-id round trips, combat-start Buffer, and one-stack HP-loss prevention for monster attacks, spikes, Burn, and direct combat HP-loss actions with focused combat tests
 - expanded modeled elite bonus-reward relics: Black Star
 - implemented Black Star key promotion, content-id round trips, elite reward-screen second relic queuing, and sequential relic collection through the existing reward action with focused reward tests
+- expanded modeled chest bonus-reward relics: Matryoshka
+- implemented Matryoshka key promotion, content-id round trips, persisted two-chest counter, and chest reward-screen second relic queuing with focused reward tests
 
 Remaining:
 

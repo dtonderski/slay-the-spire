@@ -327,6 +327,10 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::BlackStar), Some(Relic::BlackStar));
         assert_eq!(
+            Relic::from_key(RelicKey::Matryoshka),
+            Some(Relic::Matryoshka)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1050,6 +1054,8 @@ pub struct RunState {
     pub lizard_tail_used: bool,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub girya_lifts: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub matryoshka_chests_opened: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1320,6 +1326,7 @@ impl RunState {
             ancient_tea_set_armed: false,
             lizard_tail_used: false,
             girya_lifts: 0,
+            matryoshka_chests_opened: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1376,6 +1383,7 @@ impl RunState {
             ancient_tea_set_armed: false,
             lizard_tail_used: false,
             girya_lifts: 0,
+            matryoshka_chests_opened: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1708,7 +1716,8 @@ impl RunState {
             | Relic::UnceasingTop
             | Relic::Shovel
             | Relic::FossilizedHelix
-            | Relic::BlackStar => {}
+            | Relic::BlackStar
+            | Relic::Matryoshka => {}
         }
     }
 
@@ -1972,6 +1981,7 @@ impl Relic {
             Relic::Shovel => RelicKey::Shovel,
             Relic::FossilizedHelix => RelicKey::FossilizedHelix,
             Relic::BlackStar => RelicKey::BlackStar,
+            Relic::Matryoshka => RelicKey::Matryoshka,
         }
     }
 
@@ -2085,6 +2095,7 @@ impl Relic {
             RelicKey::Shovel => Some(Relic::Shovel),
             RelicKey::FossilizedHelix => Some(Relic::FossilizedHelix),
             RelicKey::BlackStar => Some(Relic::BlackStar),
+            RelicKey::Matryoshka => Some(Relic::Matryoshka),
             _ => None,
         }
     }
