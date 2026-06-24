@@ -3,7 +3,8 @@ use crate::{
     content::cards::ANGER_ID,
     content::shop_pool::{
         assign_random_class_card_excluding, random_class_card_of_type_and_rarity,
-        random_colorless_from_pool, roll_card_rarity_shop, shop_card_price_rarity,
+        random_class_card_of_type_and_rarity_with_fallback, random_colorless_from_pool,
+        roll_card_rarity_shop, shop_card_is_colorless, shop_card_price_rarity, shop_card_type,
     },
     ids::CardId,
     potion::Potion,
@@ -30,6 +31,7 @@ const SHOP_RELIC_SHOP_PRICE: i32 = 150;
 const SHOP_POTION_COMMON_PRICE: i32 = 50;
 const SHOP_POTION_UNCOMMON_PRICE: i32 = 75;
 const SHOP_POTION_RARE_PRICE: i32 = 100;
+const SHOP_COLORLESS_RARE_CHANCE: f32 = 0.3;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ShopCardSlot {
@@ -187,6 +189,31 @@ fn apply_membership_discount_to_shop(shop: &mut ShopScreen) {
     shop.remove_cost = round_discount(shop.remove_cost, 1, 2);
 }
 
+fn apply_relic_discounts_to_price(mut price: i32, run: &RunState) -> i32 {
+    if has_the_courier(run) {
+        price = round_discount(price, 4, 5);
+    }
+    if has_membership_card(run) {
+        price = round_discount(price, 1, 2);
+    }
+    price
+}
+
+fn set_restocked_card_price(offer: &mut ShopCardSlot, run: &RunState, merchant_rng: &mut StsRng) {
+    let mut price =
+        card_price_for_rarity(shop_card_price_rarity(offer.card.content_id), merchant_rng);
+    if shop_card_is_colorless(offer.card.content_id) {
+        price = (price as f32 * 1.2) as i32;
+    }
+    if has_the_courier(run) {
+        price = (price as f32 * 0.8) as i32;
+    }
+    if has_membership_card(run) {
+        price = (price as f32 * 0.5) as i32;
+    }
+    offer.price = price;
+}
+
 fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relic_keys.contains(&key) || run.relics.iter().any(|relic| relic.key() == key)
 }
@@ -241,6 +268,89 @@ fn roll_shop_relic(run: &mut RunState, tier: RelicTier) -> RelicKey {
         .as_mut()
         .expect("relic pools")
         .return_random_relic_end(tier, &context)
+}
+
+fn courier_restock_relic_key(run: &mut RunState, merchant_rng: &mut StsRng) -> (RelicKey, i32) {
+    loop {
+        let tier = shop_relic_tier_roll(merchant_rng);
+        let key = roll_shop_relic(run, tier);
+        if matches!(
+            key,
+            RelicKey::OldCoin | RelicKey::SmilingMask | RelicKey::MawBank | RelicKey::TheCourier
+        ) {
+            continue;
+        }
+        let price = apply_relic_discounts_to_price(relic_price(tier, merchant_rng), run);
+        return (key, price);
+    }
+}
+
+fn restock_courier_card_slot(next: &mut RunState, slot: usize, purchased: CardInstance) {
+    let mut card_rng = StsRng::with_counter(next.reward_rng_seed as i64, next.card_rng_counter);
+    let mut merchant_rng =
+        StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
+    let content_id = if shop_card_is_colorless(purchased.content_id) {
+        let rarity = if merchant_rng.random_float() < SHOP_COLORLESS_RARE_CHANCE {
+            CardRarity::Rare
+        } else {
+            CardRarity::Uncommon
+        };
+        random_colorless_from_pool(&mut card_rng, rarity)
+    } else {
+        let card_type = shop_card_type(purchased.content_id).unwrap_or(CardType::Attack);
+        loop {
+            let rarity = roll_card_rarity_shop(&mut card_rng, next.card_rarity_factor);
+            let id = random_class_card_of_type_and_rarity_with_fallback(
+                &mut card_rng,
+                card_type,
+                rarity,
+            );
+            if !shop_card_is_colorless(id) {
+                break id;
+            }
+        }
+    };
+    next.card_rng_counter = card_rng.counter();
+
+    let card = CardInstance::new(CardId::new(next.next_card_instance_id()), content_id);
+    let mut offer = ShopCardSlot {
+        card,
+        price: 0,
+        sold: false,
+    };
+    set_restocked_card_price(&mut offer, next, &mut merchant_rng);
+    next.merchant_rng_counter = merchant_rng.counter();
+    let shop = next.shop.as_mut().expect("validated shop screen");
+    shop.cards[slot] = offer;
+}
+
+fn restock_courier_relic_slot(next: &mut RunState, slot: usize) {
+    let mut merchant_rng =
+        StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
+    let (relic_key, price) = courier_restock_relic_key(next, &mut merchant_rng);
+    next.merchant_rng_counter = merchant_rng.counter();
+    let shop = next.shop.as_mut().expect("validated shop screen");
+    shop.relics[slot] = ShopRelicSlot {
+        relic_key,
+        price,
+        sold: false,
+    };
+}
+
+fn restock_courier_potion_slot(next: &mut RunState, slot: usize) {
+    let mut potion_rng = StsRng::with_counter(next.potion_rng_seed as i64, next.potion_rng_counter);
+    let mut merchant_rng =
+        StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
+    let potion = target_random_potion(&mut potion_rng);
+    let price = apply_relic_discounts_to_price(potion_price(potion, &mut merchant_rng), next);
+    next.potion_rng_counter = potion_rng.counter();
+    next.merchant_rng_counter = merchant_rng.counter();
+    let shop = next.shop.as_mut().expect("validated shop screen");
+    shop.potions[slot] = ShopPotionSlot {
+        potion,
+        price,
+        sold: false,
+    };
 }
 
 #[must_use]
@@ -597,6 +707,9 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             next.gold -= price;
             next.break_maw_bank_on_shop_spend();
             next.add_deck_card(card);
+            if has_the_courier(&next) {
+                restock_courier_card_slot(&mut next, slot, card);
+            }
         }
         RunAction::BuyShopRelic { slot } => {
             let shop = next.shop.as_mut().expect("validated shop screen");
@@ -612,6 +725,9 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
                     apply_membership_discount_to_shop(shop);
                 }
             }
+            if key == RelicKey::TheCourier || has_the_courier(&next) {
+                restock_courier_relic_slot(&mut next, slot);
+            }
         }
         RunAction::BuyShopPotion { slot } => {
             let shop = next.shop.as_mut().expect("validated shop screen");
@@ -622,6 +738,9 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             next.gold -= price;
             next.break_maw_bank_on_shop_spend();
             next.potions.push(potion);
+            if has_the_courier(&next) {
+                restock_courier_potion_slot(&mut next, slot);
+            }
         }
         _ => unreachable!("validated shop action"),
     }
@@ -873,6 +992,67 @@ mod tests {
             .expect("buy potion");
 
         assert!(after_potion.maw_bank_broken);
+    }
+
+    #[test]
+    fn courier_restock_replaces_purchased_card_slot() {
+        let mut run = shop_run();
+        run.relics.push(Relic::TheCourier);
+        run.reward_rng_seed = 22_079_335_079;
+        let card_before = run.shop.as_ref().expect("shop").cards[0].card;
+
+        let after = apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 }).expect("buy card");
+        let restocked = after.shop.as_ref().expect("shop").cards[0].clone();
+
+        assert!(!restocked.sold);
+        assert_ne!(restocked.card.id, card_before.id);
+        assert!(after.deck.iter().any(|card| card.id == card_before.id));
+        assert!(after.card_rng_counter > run.card_rng_counter);
+        assert!(after.merchant_rng_counter > run.merchant_rng_counter);
+    }
+
+    #[test]
+    fn courier_restock_replaces_purchased_potion_slot() {
+        let mut run = shop_run();
+        run.relics.push(Relic::TheCourier);
+        run.potion_rng_seed = 22_079_335_079;
+        run.merchant_rng_seed = 22_079_335_079;
+        let potion_before = run.shop.as_ref().expect("shop").potions[0].potion;
+
+        let after =
+            apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 }).expect("buy potion");
+        let restocked = after.shop.as_ref().expect("shop").potions[0];
+
+        assert!(!restocked.sold);
+        assert_eq!(after.potions.last(), Some(&potion_before));
+        assert!(after.potion_rng_counter > run.potion_rng_counter);
+        assert!(after.merchant_rng_counter > run.merchant_rng_counter);
+    }
+
+    #[test]
+    fn buying_the_courier_restocks_its_own_relic_slot() {
+        let mut run = shop_run();
+        run.gold = 500;
+        run.merchant_rng_seed = 22_079_335_079;
+        let mut shop = run.shop.take().expect("shop");
+        shop.relics[0] = ShopRelicSlot {
+            relic_key: RelicKey::TheCourier,
+            price: 100,
+            sold: false,
+        };
+        run.shop = Some(shop);
+
+        let after =
+            apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 }).expect("buy courier");
+        let restocked = after.shop.as_ref().expect("shop").relics[0];
+
+        assert!(after.relics.contains(&Relic::TheCourier));
+        assert!(!restocked.sold);
+        assert!(!matches!(
+            restocked.relic_key,
+            RelicKey::OldCoin | RelicKey::SmilingMask | RelicKey::MawBank | RelicKey::TheCourier
+        ));
+        assert!(after.merchant_rng_counter > run.merchant_rng_counter);
     }
 
     #[test]
