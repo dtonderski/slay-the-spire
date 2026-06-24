@@ -1468,9 +1468,11 @@ Tasks:
 - implement missing deterministic potion, card, relic, event, room, reward, rest, and monster/boss behaviors that do not depend on unresolved RNG stream order or hidden target timing
   - [x] Implement base Iron Wave (`IRON_WAVE`, ContentId(100)) as a deterministic common attack: 1 energy, targeted enemy, 5 damage, 5 block, no trace-parity claim.
   - [x] Implement base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack: 2 energy, targeted enemy, 12 damage, 2 weak, no trace-parity claim.
+  - [x] Implement base Intimidate (`INTIMIDATE`, ContentId(115)) as a deterministic uncommon skill: 0 energy, 1 weak to all living enemies, exhaust, no trace-parity claim.
 - add focused unit tests for every newly completed surface
   - [x] Add Iron Wave definition, legality, transition, discard, and event-log tests.
   - [x] Add Clothesline definition, legality, transition, discard, and event-log tests.
+  - [x] Add Intimidate definition, legality, all-living-enemy, dead-enemy skip, exhaust, and event-log tests.
 - add serialization and counter round-trip tests for newly stateful surfaces
   - [x] No new stateful surface in the Iron Wave slice.
 - add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
@@ -1478,9 +1480,11 @@ Tasks:
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
   - [x] Move Iron Wave from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Clothesline from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Intimidate from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
   - [x] Iron Wave matrix caveat names the missing real-game trace parity evidence.
   - [x] Clothesline matrix caveat names the missing real-game trace parity evidence.
+  - [x] Intimidate matrix caveat names the missing real-game trace parity evidence.
 
 Acceptance tests:
 

@@ -800,10 +800,10 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID,
         FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID,
-        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
         WHIRLWIND_PLUS_ID, WOUND_ID,
     };
 
@@ -1103,6 +1103,68 @@ mod tests {
                     card_id: clothesline_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn intimidate_applies_one_weak_to_each_living_enemy_and_exhausts() {
+        let state = two_monster_hand(INTIMIDATE_ID);
+
+        let next =
+            apply_combat_action(&state, intimidate_action(&state)).expect("Intimidate applies");
+
+        assert_eq!(next.player.energy, state.player.energy);
+        assert_eq!(next.monsters[0].powers.weak, 1);
+        assert_eq!(next.monsters[1].powers.weak, 1);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, INTIMIDATE_ID);
+    }
+
+    #[test]
+    fn intimidate_skips_dead_enemies() {
+        let mut state = two_monster_hand(INTIMIDATE_ID);
+        state.monsters[1].alive = false;
+
+        let next =
+            apply_combat_action(&state, intimidate_action(&state)).expect("Intimidate applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 1);
+        assert_eq!(next.monsters[1].powers.weak, 0);
+    }
+
+    #[test]
+    fn intimidate_event_log_records_weak_applications_then_exhaust() {
+        let state = two_monster_hand(INTIMIDATE_ID);
+        let intimidate_id = hand_card_id(&state, INTIMIDATE_ID);
+
+        let transition = apply_combat_action_with_events(&state, intimidate_action(&state))
+            .expect("Intimidate applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: intimidate_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::ApplyWeak {
+                    target: MonsterId::new(1),
+                    amount: 1,
+                },
+                InternalAction::ApplyWeak {
+                    target: MonsterId::new(2),
+                    amount: 1,
+                },
+                InternalAction::MoveCard {
+                    card_id: intimidate_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: intimidate_id,
                 },
             ]
         );
@@ -3025,6 +3087,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, CLOTHESLINE_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn intimidate_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, INTIMIDATE_ID),
+            target: None,
         }
     }
 
