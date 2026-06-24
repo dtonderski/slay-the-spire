@@ -88,12 +88,12 @@ pub fn generate_map_placeholder(seed: u64, ascension: u8) -> (FixedMap, u64) {
 }
 
 #[must_use]
-pub fn generated_map_fixture(seed: u64) -> MapRunState {
-    generated_map_fixture_for_ascension(seed, 0)
+pub fn placeholder_generated_map_fixture(seed: u64) -> MapRunState {
+    placeholder_generated_map_fixture_for_ascension(seed, 0)
 }
 
 #[must_use]
-pub fn generated_map_fixture_for_ascension(seed: u64, ascension: u8) -> MapRunState {
+pub fn placeholder_generated_map_fixture_for_ascension(seed: u64, ascension: u8) -> MapRunState {
     let (map, _) = generate_map_placeholder(seed, ascension);
 
     MapRunState {
@@ -102,6 +102,23 @@ pub fn generated_map_fixture_for_ascension(seed: u64, ascension: u8) -> MapRunSt
         current_node: MapNodeId::new(0),
         map,
     }
+}
+
+/// Compatibility wrapper for [`placeholder_generated_map_fixture`].
+///
+/// Fidelity: [`crate::FidelityCategory::Placeholder`]. This uses the
+/// simulator-only placeholder map generator and is not target-game map parity.
+#[must_use]
+pub fn generated_map_fixture(seed: u64) -> MapRunState {
+    placeholder_generated_map_fixture(seed)
+}
+
+/// Compatibility wrapper for [`placeholder_generated_map_fixture_for_ascension`].
+///
+/// Fidelity: [`crate::FidelityCategory::Placeholder`].
+#[must_use]
+pub fn generated_map_fixture_for_ascension(seed: u64, ascension: u8) -> MapRunState {
+    placeholder_generated_map_fixture_for_ascension(seed, ascension)
 }
 
 #[cfg(test)]

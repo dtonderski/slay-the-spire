@@ -1919,18 +1919,12 @@ mod tests {
 
     #[test]
     fn content_id_from_game_id_maps_elite_monsters() {
-        assert_eq!(
-            content_id_from_game_monster_id("Lagavulin"),
-            LAGAVULIN_ID
-        );
+        assert_eq!(content_id_from_game_monster_id("Lagavulin"), LAGAVULIN_ID);
         assert_eq!(
             content_id_from_game_monster_id("GremlinNob"),
             GREMLIN_NOB_ID
         );
-        assert_eq!(
-            content_id_from_game_monster_id("TheGuardian"),
-            GUARDIAN_ID
-        );
+        assert_eq!(content_id_from_game_monster_id("TheGuardian"), GUARDIAN_ID);
     }
 
     #[test]

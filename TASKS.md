@@ -1073,7 +1073,7 @@ Do not implement:
 
 ## Milestone 28: Act 1 Non-Combat Room Trace Coverage
 
-Status: in progress.
+Status: complete.
 
 Goal: verify shop, rest, chest, and event room execution from captured seed-start traces.
 
@@ -1413,6 +1413,100 @@ Do not implement:
 
 - modded relics
 - non-Ironclad-only interactions unless shared relic behavior requires them
+
+## Milestone 32A: Content Inventory and Coverage Matrix
+
+Status: planned.
+
+Goal: stop discovering core Ironclad surfaces only when a captured trace happens to hit them. Build a complete Ironclad-relevant content inventory and compare it against simulator implementation, tests, and parity evidence before continuing broad-run generalization.
+
+Principle:
+
+- Wiki and public reference data are acceptable for inventory and first-pass numeric facts.
+- Target bytecode/source notes, CommunicationMod traces, and controlled experiments remain the authority for RNG, ordering, hidden counters, and timing-sensitive behavior.
+- Every unsupported surface should be visible in a matrix instead of being found accidentally during a later trace.
+
+Tasks:
+
+- inventory all Ironclad-relevant cards, colorless cards reachable by Ironclad, potions, relics, monsters, bosses, events, rooms, rewards, shops, rest actions, keys, and ascension deltas
+- create or update a support matrix with columns for content ID, category, implementation status, unit-test status, seed-start trace status, source/bytecode evidence, wiki/reference evidence, and known caveats
+- classify each surface as `implemented`, `placeholder`, `inventory_only`, `unsupported`, `waived`, or `not_in_scope`
+- identify deterministic surfaces that can be safely implemented from inventory data without waiting for a trace
+- identify parity-sensitive surfaces that require source-backed or trace-backed evidence before claims
+- add a coverage-report command or test fixture that fails when known Ironclad A0 content is missing from the matrix
+- document the difference between content completeness, unit correctness, and seed-start parity
+
+Acceptance tests:
+
+- the matrix has an entry for every known Ironclad A0 core-game surface in the declared scope
+- every existing simulator content ID maps to a matrix entry
+- every matrix entry has an explicit status and evidence level
+- unsupported and waived surfaces have named reasons
+- current nightly parity continues to pass
+
+Do not implement:
+
+- broad behavior changes during the inventory task
+- parity claims from wiki-only evidence
+- non-Ironclad character completion
+- modded content
+
+## Milestone 32B: Deterministic Content Completion Sweep
+
+Status: planned.
+
+Goal: use the Milestone 32A matrix to implement missing deterministic Ironclad A0 content proactively, instead of waiting for traces to encounter it.
+
+Tasks:
+
+- implement missing deterministic potion, card, relic, event, room, reward, rest, and monster/boss behaviors that do not depend on unresolved RNG stream order or hidden target timing
+- add focused unit tests for every newly completed surface
+- add serialization and counter round-trip tests for newly stateful surfaces
+- add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
+- update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
+- leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
+
+Acceptance tests:
+
+- every matrix entry marked deterministic-and-in-scope is either implemented with focused tests or has a documented blocker
+- no new implementation depends on observed-state restoration to pass unit tests
+- legal action generation, serialization, hashing, and observation extraction remain RNG-free
+- `cargo fmt`, `cargo clippy`, and `cargo test` pass from `simulator/`
+
+Do not implement:
+
+- RNG-sensitive behavior from wiki-only evidence
+- action-queue timing guesses for complex interactions
+- broad Act 2/3/4 seed-start parity
+- ascension expansion beyond the currently declared A0 sweep
+
+## Milestone 32C: Parity Evidence Backfill for Inventory-Completed Content
+
+Status: planned.
+
+Goal: turn locally implemented inventory-complete content into real-game-backed parity claims where possible.
+
+Tasks:
+
+- prioritize matrix entries that are implemented but lack source-backed or trace-backed evidence
+- capture targeted CommunicationMod traces or controlled experiments for unverified bosses, events, potions, relic hooks, card interactions, and monster moves
+- decode target bytecode/source behavior for RNG-sensitive systems where trace observation alone is insufficient
+- add minimized regression fixtures for every parity bug found during backfill
+- update support matrix evidence levels from `wiki/reference` or `unit_only` to `trace_backed`, `source_backed`, or `source_and_trace_backed`
+- require every newly passing trace to avoid observed-state restoration inside its declared scope
+
+Acceptance tests:
+
+- high-risk matrix entries have either trace/source evidence or an explicit non-blocking caveat
+- each newly proven surface has at least one regression test or captured trace reference
+- verifier output names remaining unverified surfaces rather than treating them as unknown
+- nightly parity includes any new passing targeted traces
+
+Do not implement:
+
+- new content that was not identified by Milestone 32A unless it is required to reproduce a parity bug
+- arbitrary win-rate claims
+- non-Ironclad or modded parity
 
 ## Milestone 33: Neow Generalization
 

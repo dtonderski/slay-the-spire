@@ -5,6 +5,7 @@ pub mod card;
 pub mod combat;
 pub mod content;
 pub mod error;
+pub mod fidelity;
 pub mod ids;
 pub mod power;
 pub mod rng;
@@ -31,14 +32,15 @@ pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::{ironclad_starter_deck, ironclad_starter_deck_for_ascension};
 pub use error::{SimError, SimResult};
+pub use fidelity::FidelityCategory;
 pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 pub use map::{
     apply_map_action, exordium_room_kinds_on_path, generate_exordium_fixed_map,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    generate_map_placeholder, generated_map_fixture, legal_map_actions, milestone8_fixture,
-    milestone8_map, reachable_nodes, validate_map_action, ExordiumFixedRoomRow,
-    ExordiumMapChoiceStep, ExordiumMapTopology, FixedMap, MapAction, MapNode, MapRunState,
-    RoomKind,
+    generate_map_placeholder, generated_map_fixture, legacy_milestone8_fixture, legal_map_actions,
+    milestone8_fixture, milestone8_map, placeholder_generated_map_fixture, reachable_nodes,
+    validate_map_action, ExordiumFixedRoomRow, ExordiumMapChoiceStep, ExordiumMapTopology,
+    FixedMap, MapAction, MapNode, MapRunState, RoomKind,
 };
 pub use potion::{
     Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,
@@ -61,18 +63,20 @@ pub use run::{
     apply_run_action, apply_shop_action, cancel_grid, card_reward_choices, confirm_grid,
     enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
     enter_elite_combat_reward_screen, enter_elite_relic_reward_screen, enter_event_screen,
-    enter_fixed_event_screen, enter_normal_combat_reward_screen, enter_reward_screen,
-    enter_shop_room, enter_shop_screen, event_screen, fixed_card_reward_choices,
-    fixed_event_screen, fixed_shop_screen, generate_shop_screen, leave_shop_merchant,
-    leave_shop_room, legal_event_actions, legal_map_actions_on_run, legal_rest_actions,
-    legal_shop_actions, open_shop_merchant, rest_heal_amount, select_grid_card,
+    enter_fixed_event_screen, enter_legacy_fixed_event_screen, enter_normal_combat_reward_screen,
+    enter_reward_screen, enter_shop_room, enter_shop_screen, event_screen,
+    fixed_card_reward_choices, fixed_event_screen, fixed_shop_screen, generate_shop_screen,
+    leave_shop_merchant, leave_shop_room, legacy_fixed_card_reward_choices,
+    legacy_fixed_event_screen, legacy_fixed_shop_screen, legal_event_actions,
+    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, open_shop_merchant,
+    placeholder_card_reward_choices, rest_heal_amount, select_grid_card,
     shop_action_for_choice_index, shop_card_rarity_roll, shop_relic_tier_roll,
-    target_card_reward_choices, target_elite_relic_tier, target_normal_combat_gold,
-    target_potion_reward_offer, target_random_potion, target_relic_tier, validate_event_action,
-    validate_potion_action, validate_rest_action, validate_shop_action, CardGridScreen,
-    CombatRewardKind, Event, EventChoice, EventScreen, GridPurpose, RewardScreen, RunAction,
-    RunPhase, RunState, ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen,
-    GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE,
+    source_backed_card_reward_choices, target_card_reward_choices, target_elite_relic_tier,
+    target_normal_combat_gold, target_potion_reward_offer, target_random_potion, target_relic_tier,
+    validate_event_action, validate_potion_action, validate_rest_action, validate_shop_action,
+    CardGridScreen, CombatRewardKind, Event, EventChoice, EventScreen, GridPurpose, RewardScreen,
+    RunAction, RunPhase, RunState, ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot,
+    ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE,
     SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
 };
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

@@ -20,6 +20,7 @@ use crate::{
         apply_hand_select_confirm, apply_potion_action,
     },
     run::shop::apply_shop_action,
+    run::state::RunRngStream,
     CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -85,8 +86,7 @@ fn target_chest_relic_tier(chest_size: ChestSize, roll: i32) -> RelicTier {
 }
 
 pub fn setup_treasure_room(run: &mut RunState) {
-    let mut treasure_rng =
-        StsRng::with_counter(run.treasure_rng_seed as i64, run.treasure_rng_counter);
+    let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
     let chest_size = target_chest_size(&mut treasure_rng);
     let roll = treasure_rng.random_int(99);
     let have_gold = roll
@@ -96,7 +96,7 @@ pub fn setup_treasure_room(run: &mut RunState) {
             ChestSize::Large => 2,
         }];
     let relic_tier = target_chest_relic_tier(chest_size, roll);
-    run.treasure_rng_counter = treasure_rng.counter();
+    run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
     run.treasure_room = Some(TreasureRoomState {
         chest_size,
         relic_tier,
@@ -106,9 +106,9 @@ pub fn setup_treasure_room(run: &mut RunState) {
 
 pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> RelicKey {
     run.ensure_ironclad_relic_pools();
-    let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
+    let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_relic_tier(&mut relic_rng, act);
-    run.relic_rng_counter = relic_rng.counter();
+    run.store_rng_counter(RunRngStream::Relic, &relic_rng);
     roll_screenless_relic_reward(run, tier)
 }
 
@@ -122,9 +122,13 @@ fn roll_screenless_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey
 const BASE_POTION_DROP_CHANCE: i32 = 40;
 const ACT_4: i32 = 4;
 
-/// Deterministic fixed pool used in early milestones before RNG wiring.
+/// Legacy fixed reward pool used in early milestones before RNG wiring.
+///
+/// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. Use only for
+/// compatibility tests and old milestone fixtures; production-like seed-start
+/// paths should use source-backed reward generation.
 #[must_use]
-pub fn fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
+pub fn legacy_fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
     [ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID]
         .iter()
         .enumerate()
@@ -132,6 +136,14 @@ pub fn fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
             CardInstance::new(CardId::new(next_card_id + index as u64), *content_id)
         })
         .collect()
+}
+
+/// Compatibility wrapper for [`legacy_fixed_card_reward_choices`].
+///
+/// Fidelity: [`crate::FidelityCategory::LegacyFixed`].
+#[must_use]
+pub fn fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
+    legacy_fixed_card_reward_choices(next_card_id)
 }
 
 fn roll_reward_rarity(rng: &mut StsRng, card_rarity_factor: i32) -> CardRarity {
@@ -177,7 +189,10 @@ fn rarity_search_order(requested: CardRarity) -> [CardRarity; 3] {
 }
 
 #[must_use]
-pub fn card_reward_choices(rng: &mut SimulatorRng, next_card_id: u64) -> Vec<CardInstance> {
+pub fn placeholder_card_reward_choices(
+    rng: &mut SimulatorRng,
+    next_card_id: u64,
+) -> Vec<CardInstance> {
     let mut pool: Vec<RewardCardEntry> = IRONCLAD_REWARD_ENTRIES.to_vec();
     let mut choices = Vec::with_capacity(REWARD_CARD_COUNT);
 
@@ -203,6 +218,29 @@ pub fn card_reward_choices(rng: &mut SimulatorRng, next_card_id: u64) -> Vec<Car
     }
 
     choices
+}
+
+/// Compatibility wrapper for [`placeholder_card_reward_choices`].
+///
+/// Fidelity: [`crate::FidelityCategory::Placeholder`]. This uses the
+/// simulator-only [`SimulatorRng`] stream and is not a target-game parity claim.
+#[must_use]
+pub fn card_reward_choices(rng: &mut SimulatorRng, next_card_id: u64) -> Vec<CardInstance> {
+    placeholder_card_reward_choices(rng, next_card_id)
+}
+
+/// Source-backed target-style Ironclad card reward generation.
+///
+/// Fidelity: [`crate::FidelityCategory::SourceBacked`]. This preserves the
+/// historical `target_*` API while giving new call sites a name that states the
+/// parity evidence level.
+#[must_use]
+pub fn source_backed_card_reward_choices(
+    rng: &mut StsRng,
+    card_rarity_factor: &mut i32,
+    next_card_id: u64,
+) -> Vec<CardInstance> {
+    target_card_reward_choices(rng, card_rarity_factor, next_card_id)
 }
 
 #[must_use]
@@ -733,15 +771,15 @@ fn split_relic_offer(key: RelicKey) -> (Option<Relic>, Option<RelicKey>) {
 }
 
 fn roll_bonus_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey>) {
-    let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
+    let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_relic_tier(&mut relic_rng, run.current_act);
-    run.relic_rng_counter = relic_rng.counter();
+    run.store_rng_counter(RunRngStream::Relic, &relic_rng);
     split_relic_offer(roll_relic_reward(run, tier))
 }
 
 pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     run.ensure_ironclad_relic_pools();
-    let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
+    let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = match kind {
         CombatRewardKind::Elite => target_elite_relic_tier(&mut relic_rng),
         CombatRewardKind::Chest | CombatRewardKind::Boss => {
@@ -749,7 +787,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         }
         CombatRewardKind::Normal => unreachable!("normal combat rewards do not offer relics"),
     };
-    run.relic_rng_counter = relic_rng.counter();
+    run.store_rng_counter(RunRngStream::Relic, &relic_rng);
 
     let key = roll_relic_reward(run, tier);
     let (relic_offer, relic_key_offer) = split_relic_offer(key);
@@ -761,8 +799,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         };
 
     if run.can_gain_potions() {
-        let mut potion_rng =
-            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
         let potion_capacity = run.potion_capacity();
         let _elite_potion_roll = target_potion_reward_offer(
             &mut potion_rng,
@@ -772,7 +809,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
             potion_capacity,
             run.relics.contains(&Relic::WhiteBeastStatue),
         );
-        run.potion_rng_counter = potion_rng.counter();
+        run.store_rng_counter(RunRngStream::Potion, &potion_rng);
     }
 
     run.phase = RunPhase::Reward;
@@ -838,16 +875,16 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
 
 /// Target-style combat entry advances `cardRng` three times before the next reward card roll.
 pub fn advance_card_rng_for_combat_entry(run: &mut RunState) {
-    let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
+    let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     for _ in 0..3 {
         let _ = card_rng.random_int(99);
     }
-    run.card_rng_counter = card_rng.counter();
+    run.store_rng_counter(RunRngStream::CardReward, &card_rng);
 }
 
 pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     let next_card_id = run.next_card_instance_id();
-    let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
+    let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let choice_count = reward_card_choice_count(run);
     let pool_kind = if run.relics.contains(&Relic::PrismaticShard) {
         RewardCardPoolKind::AnyColor
@@ -862,7 +899,7 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
         pool_kind,
     );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices);
-    run.card_rng_counter = card_rng.counter();
+    run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     for choice in &mut choices {
         choice.content_id = run.content_id_after_card_add_relics(choice.content_id);
     }
@@ -910,14 +947,12 @@ fn any_color_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
 }
 
 pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
-    let mut treasure_rng =
-        StsRng::with_counter(run.treasure_rng_seed as i64, run.treasure_rng_counter);
+    let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
     let gold_offer = target_normal_combat_gold(&mut treasure_rng);
-    run.treasure_rng_counter = treasure_rng.counter();
+    run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
 
     let potion_offer = if run.can_gain_potions() {
-        let mut potion_rng =
-            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
         let potion_capacity = run.potion_capacity();
         let potion_offer = target_potion_reward_offer(
             &mut potion_rng,
@@ -927,7 +962,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
             potion_capacity,
             run.relics.contains(&Relic::WhiteBeastStatue),
         );
-        run.potion_rng_counter = potion_rng.counter();
+        run.store_rng_counter(RunRngStream::Potion, &potion_rng);
         potion_offer
     } else {
         None
@@ -961,14 +996,13 @@ pub fn enter_reward_screen(run: &mut RunState) {
 }
 
 pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
-    let mut treasure_rng =
-        StsRng::with_counter(run.treasure_rng_seed as i64, run.treasure_rng_counter);
+    let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
     let gold_offer = target_normal_combat_gold(&mut treasure_rng);
-    run.treasure_rng_counter = treasure_rng.counter();
+    run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
 
-    let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
+    let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_elite_relic_tier(&mut relic_rng);
-    run.relic_rng_counter = relic_rng.counter();
+    run.store_rng_counter(RunRngStream::Relic, &relic_rng);
     let key = roll_relic_reward(run, tier);
     let (relic_offer, relic_key_offer) = split_relic_offer(key);
     let (pending_relic_offer, pending_relic_key_offer) = if run.relics.contains(&Relic::BlackStar) {
@@ -978,8 +1012,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     };
 
     if run.can_gain_potions() {
-        let mut potion_rng =
-            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
         let potion_capacity = run.potion_capacity();
         let _elite_potion_roll = target_potion_reward_offer(
             &mut potion_rng,
@@ -989,7 +1022,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
             potion_capacity,
             run.relics.contains(&Relic::WhiteBeastStatue),
         );
-        run.potion_rng_counter = potion_rng.counter();
+        run.store_rng_counter(RunRngStream::Potion, &potion_rng);
     }
 
     run.phase = RunPhase::Reward;
@@ -1058,7 +1091,7 @@ fn apply_cursed_key_chest_curse(run: &mut RunState) {
     let modeled_curses = [REGRET_ID, DOUBT_ID];
     let mut rng = run.card_random_rng();
     let index = rng.random_int_range(0, (modeled_curses.len() - 1) as i32) as usize;
-    run.card_random_rng_counter = rng.counter();
+    run.store_rng_counter(RunRngStream::CardRandom, &rng);
     run.gain_deck_card(modeled_curses[index]);
 }
 
@@ -1078,7 +1111,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let mut next_combat = transition.state;
     let mut next = run.clone();
     if let Some(rng) = next_combat.card_random_rng.as_ref() {
-        next.card_random_rng_counter = rng.counter();
+        next.store_rng_counter(RunRngStream::CardRandom, rng);
     }
     apply_mummified_hand_for_power_play(&mut next, &mut next_combat, combat, &transition.event_log);
     apply_dead_branch_for_exhaust_log(&mut next, &mut next_combat, &transition.event_log);
@@ -1153,7 +1186,7 @@ fn apply_mummified_hand_once(run: &mut RunState, combat: &mut crate::combat::Com
     let card = &mut combat.piles.hand[candidates[pick]];
     card.temp_cost = Some(0);
     card.temp_cost_turn_only = true;
-    run.card_random_rng_counter = rng.counter();
+    run.store_rng_counter(RunRngStream::CardRandom, &rng);
 }
 
 fn apply_dead_branch_for_exhaust_log(
@@ -1193,7 +1226,7 @@ pub(crate) fn apply_dead_branch_for_exhaust_count(
             combat.piles.discard_pile.push(card);
         }
     }
-    run.card_random_rng_counter = rng.counter();
+    run.store_rng_counter(RunRngStream::CardRandom, &rng);
 }
 
 fn dead_branch_card_pool() -> Vec<ContentId> {

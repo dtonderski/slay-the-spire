@@ -233,7 +233,7 @@ fn make_event_screen(event: Event, choices: Vec<EventChoice>, stage: u32) -> Eve
 }
 
 #[must_use]
-pub fn fixed_event_screen() -> EventScreen {
+pub fn legacy_fixed_event_screen() -> EventScreen {
     make_event_screen(
         Event::GoldenShrine,
         vec![EventChoice {
@@ -243,9 +243,25 @@ pub fn fixed_event_screen() -> EventScreen {
     )
 }
 
-pub fn enter_fixed_event_screen(run: &mut RunState) {
+/// Compatibility wrapper for [`legacy_fixed_event_screen`].
+///
+/// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. This is an early
+/// milestone Golden Shrine fixture, not general event RNG.
+#[must_use]
+pub fn fixed_event_screen() -> EventScreen {
+    legacy_fixed_event_screen()
+}
+
+pub fn enter_legacy_fixed_event_screen(run: &mut RunState) {
     run.phase = RunPhase::Event;
-    run.event = Some(fixed_event_screen());
+    run.event = Some(legacy_fixed_event_screen());
+}
+
+/// Compatibility wrapper for [`enter_legacy_fixed_event_screen`].
+///
+/// Fidelity: [`crate::FidelityCategory::LegacyFixed`].
+pub fn enter_fixed_event_screen(run: &mut RunState) {
+    enter_legacy_fixed_event_screen(run);
 }
 
 pub fn enter_event_screen(run: &mut RunState) {
@@ -262,7 +278,7 @@ pub fn enter_event_screen(run: &mut RunState) {
 #[must_use]
 pub fn event_screen(event: Event) -> EventScreen {
     match event {
-        Event::GoldenShrine => fixed_event_screen(),
+        Event::GoldenShrine => legacy_fixed_event_screen(),
         Event::Purifier => make_event_screen(
             event,
             vec![EventChoice {

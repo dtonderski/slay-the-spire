@@ -70,6 +70,18 @@ Use a small Rust workspace under `simulator/`:
 
 Keep simulator logic separate from RL features. The simulator should know nothing about tensors, policies, reward shaping, or observation normalization. RL adapters consume canonical simulator state and legal actions.
 
+## Fidelity Boundaries
+
+Hard-coded behavior must say what kind of evidence it represents. Use these labels in names, docs, reports, or design notes when adding or touching simulator shortcuts:
+
+- `source_backed`: decoded from target game code or verified against captured target-game traces.
+- `legacy_fixed`: deterministic early-milestone fixture retained for compatibility tests.
+- `placeholder`: simulator-only provisional behavior with no parity claim.
+- `captured_branch`: behavior pinned to a known captured branch rather than generalized RNG.
+- `verifier_only`: observed-state sync, trace repair, or comparison scaffolding that must not leak into normal simulation as game truth.
+
+Production-like seed-start simulation must not silently enter `legacy_fixed` or `placeholder` behavior. If a temporary path is still needed, its API name or nearby comment must identify the fidelity category and the verifier report should expose the boundary where practical. Compatibility wrappers with older names may remain, but new call sites should prefer explicit names such as `legacy_fixed_*`, `placeholder_*`, or `source_backed_*`.
+
 ## State Model
 
 Use one authoritative state tree. Avoid deriving gameplay truth from logs or observations.
