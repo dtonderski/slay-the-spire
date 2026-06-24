@@ -1,6 +1,6 @@
 use crate::{
     map::{apply_map_action, legal_map_actions, validate_map_action, MapAction, RoomKind},
-    RunPhase, RunState, SimError, SimResult,
+    Relic, RunPhase, RunState, SimError, SimResult,
 };
 
 use super::event::enter_event_screen;
@@ -54,6 +54,8 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
         enter_shop_room(&mut next);
     } else if current_room_kind(&next) == Some(RoomKind::Treasure) {
         setup_treasure_room(&mut next);
+    } else if current_room_kind(&next) == Some(RoomKind::Event) && apply_tiny_chest(&mut next) {
+        setup_treasure_room(&mut next);
     } else if current_room_kind(&next) == Some(RoomKind::Event) {
         enter_event_screen(&mut next);
     }
@@ -61,11 +63,72 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     Ok(next)
 }
 
+fn apply_tiny_chest(run: &mut RunState) -> bool {
+    if !run.relics.contains(&Relic::TinyChest) {
+        return false;
+    }
+
+    run.tiny_chest_counter += 1;
+    if run.tiny_chest_counter >= 4 {
+        run.tiny_chest_counter = 0;
+        true
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::run::shop::open_shop_merchant;
-    use crate::{ids::MapNodeId, map::RoomKind};
+    use crate::{
+        ids::MapNodeId,
+        map::{FixedMap, MapNode, RoomKind},
+    };
+
+    fn event_chain_run() -> RunState {
+        let mut run = RunState::map_fixture();
+        run.map = Some(crate::map::MapRunState {
+            act: 1,
+            floor: 0,
+            current_node: MapNodeId::new(0),
+            map: FixedMap {
+                nodes: vec![
+                    MapNode {
+                        id: MapNodeId::new(0),
+                        act: 1,
+                        room_kind: RoomKind::Combat,
+                        children: vec![MapNodeId::new(1)],
+                    },
+                    MapNode {
+                        id: MapNodeId::new(1),
+                        act: 1,
+                        room_kind: RoomKind::Event,
+                        children: vec![MapNodeId::new(2)],
+                    },
+                    MapNode {
+                        id: MapNodeId::new(2),
+                        act: 1,
+                        room_kind: RoomKind::Event,
+                        children: vec![MapNodeId::new(3)],
+                    },
+                    MapNode {
+                        id: MapNodeId::new(3),
+                        act: 1,
+                        room_kind: RoomKind::Event,
+                        children: vec![MapNodeId::new(4)],
+                    },
+                    MapNode {
+                        id: MapNodeId::new(4),
+                        act: 1,
+                        room_kind: RoomKind::Event,
+                        children: Vec::new(),
+                    },
+                ],
+            },
+        });
+        run
+    }
 
     #[test]
     fn map_actions_require_idle_phase() {
@@ -190,5 +253,52 @@ mod tests {
         assert!(run.shop.is_none());
         open_shop_merchant(&mut run);
         assert!(run.shop.is_some());
+    }
+
+    #[test]
+    fn tiny_chest_turns_fourth_event_room_into_treasure() {
+        let mut run = event_chain_run();
+        run.relics.push(Relic::TinyChest);
+
+        for node_id in [MapNodeId::new(1), MapNodeId::new(2), MapNodeId::new(3)] {
+            run = apply_map_action_on_run(&run, MapAction::ChooseNode { node_id })
+                .expect("enter event");
+            assert_eq!(run.phase, RunPhase::Event);
+            assert!(run.event.is_some());
+            run.phase = RunPhase::Idle;
+            run.event = None;
+        }
+
+        assert_eq!(run.tiny_chest_counter, 3);
+        let run = apply_map_action_on_run(
+            &run,
+            MapAction::ChooseNode {
+                node_id: MapNodeId::new(4),
+            },
+        )
+        .expect("enter fourth event");
+
+        assert_eq!(run.phase, RunPhase::Idle);
+        assert!(run.event.is_none());
+        assert!(run.treasure_room.is_some());
+        assert_eq!(run.tiny_chest_counter, 0);
+    }
+
+    #[test]
+    fn event_room_without_tiny_chest_still_opens_event() {
+        let run = event_chain_run();
+
+        let run = apply_map_action_on_run(
+            &run,
+            MapAction::ChooseNode {
+                node_id: MapNodeId::new(1),
+            },
+        )
+        .expect("enter event");
+
+        assert_eq!(run.phase, RunPhase::Event);
+        assert!(run.event.is_some());
+        assert!(run.treasure_room.is_none());
+        assert_eq!(run.tiny_chest_counter, 0);
     }
 }

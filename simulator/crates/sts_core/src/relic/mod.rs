@@ -481,6 +481,8 @@ pub const THE_COURIER_ID: ContentId = ContentId::new(424);
 pub const INCENSE_BURNER_ID: ContentId = ContentId::new(425);
 /// Content id for [Relic::CursedKey].
 pub const CURSED_KEY_ID: ContentId = ContentId::new(426);
+/// Content id for [Relic::TinyChest].
+pub const TINY_CHEST_ID: ContentId = ContentId::new(427);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1153,6 +1155,7 @@ pub enum Relic {
     TheCourier,
     IncenseBurner,
     CursedKey,
+    TinyChest,
 }
 
 impl Relic {
@@ -1286,6 +1289,7 @@ impl Relic {
             Relic::TheCourier => THE_COURIER_ID,
             Relic::IncenseBurner => INCENSE_BURNER_ID,
             Relic::CursedKey => CURSED_KEY_ID,
+            Relic::TinyChest => TINY_CHEST_ID,
         }
     }
 
@@ -1419,6 +1423,7 @@ impl Relic {
             id if id == THE_COURIER_ID => Some(Relic::TheCourier),
             id if id == INCENSE_BURNER_ID => Some(Relic::IncenseBurner),
             id if id == CURSED_KEY_ID => Some(Relic::CursedKey),
+            id if id == TINY_CHEST_ID => Some(Relic::TinyChest),
             _ => None,
         }
     }
@@ -1457,6 +1462,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::TheCourier => {}
             Relic::IncenseBurner => {}
             Relic::CursedKey => {}
+            Relic::TinyChest => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
