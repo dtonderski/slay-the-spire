@@ -139,6 +139,8 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     potion_offer: None,
                     relic_offer: None,
                     relic_key_offer: None,
+                    pending_relic_offer: None,
+                    pending_relic_key_offer: None,
                     card_reward_active: false,
                     card_reward_pending: true,
                 });
@@ -173,6 +175,8 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 } else {
                     Some(key)
                 },
+                pending_relic_offer: None,
+                pending_relic_key_offer: None,
                 card_reward_active: false,
                 card_reward_pending: false,
             });
