@@ -13,7 +13,7 @@ use crate::{
     content::cards::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID,
         DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
         SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
         WOUND_ID,
     },
@@ -473,6 +473,19 @@ fn apply_play_top_draw_card(
                 });
             }
         }
+        PUMMEL_ID => {
+            let target = target.expect("validated havoc attack target");
+            let damage = definition.values.damage.unwrap_or(0);
+            for _ in 0..4 {
+                follow_ups.push(InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(card_id),
+                        target,
+                        amount: damage,
+                    },
+                });
+            }
+        }
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
             let damage = definition.values.damage.unwrap_or(0);
@@ -821,7 +834,7 @@ mod tests {
         DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
         HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
@@ -1762,6 +1775,159 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn pummel_deals_four_hits_spends_one_and_exhausts() {
+        let state = hand_only(PUMMEL_ID);
+
+        let next = apply_combat_action(&state, pummel_action(&state)).expect("Pummel applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, PUMMEL_ID);
+    }
+
+    #[test]
+    fn pummel_event_log_records_four_damage_hits_in_order() {
+        let state = hand_only(PUMMEL_ID);
+        let pummel_id = hand_card_id(&state, PUMMEL_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, pummel_action(&state)).expect("Pummel applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: pummel_id },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(pummel_id),
+                        target: MonsterId::new(1),
+                        amount: 2,
+                    },
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(pummel_id),
+                        target: MonsterId::new(1),
+                        amount: 2,
+                    },
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(pummel_id),
+                        target: MonsterId::new(1),
+                        amount: 2,
+                    },
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(pummel_id),
+                        target: MonsterId::new(1),
+                        amount: 2,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: pummel_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id: pummel_id },
+            ]
+        );
+    }
+
+    #[test]
+    fn pummel_applies_strength_to_each_hit() {
+        let mut state = hand_only(PUMMEL_ID);
+        state.player.powers.strength = 2;
+
+        let next = apply_combat_action(&state, pummel_action(&state)).expect("Pummel applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 16);
+    }
+
+    #[test]
+    fn pummel_applies_vulnerable_to_each_hit() {
+        let mut state = hand_only(PUMMEL_ID);
+        state.monsters[0].powers.vulnerable = 1;
+
+        let next = apply_combat_action(&state, pummel_action(&state)).expect("Pummel applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+    }
+
+    #[test]
+    fn akabeko_bonus_applies_to_each_hit_of_pummel() {
+        let mut state = hand_only(PUMMEL_ID);
+        state.relics.push(Relic::Akabeko);
+
+        let next = apply_combat_action(&state, pummel_action(&state)).expect("Pummel applies");
+
+        assert_eq!(next.monsters[0].hp, 0);
+        assert_eq!(next.relic_counters.attacks_played_this_combat, 1);
+    }
+
+    #[test]
+    fn pen_nib_bonus_applies_to_each_hit_of_pummel() {
+        let mut state = hand_only(PUMMEL_ID);
+        state.relics.push(Relic::PenNib);
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let next = apply_combat_action(&state, pummel_action(&state)).expect("Pummel applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 16);
+        assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
+    }
+
+    #[test]
+    fn strange_spoon_can_move_played_pummel_to_discard() {
+        let mut state = hand_only(PUMMEL_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let next = apply_combat_action(&state, pummel_action(&state)).expect("Pummel applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile[0].content_id, PUMMEL_ID);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[0].content_id, PUMMEL_ID);
+        }
+    }
+
+    #[test]
+    fn havoc_plays_top_pummel_for_four_hits_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), PUMMEL_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Havoc applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == PUMMEL_ID));
     }
 
     #[test]
@@ -4013,6 +4179,13 @@ mod tests {
     fn reckless_charge_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, RECKLESS_CHARGE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn pummel_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, PUMMEL_ID),
             target: Some(MonsterId::new(1)),
         }
     }

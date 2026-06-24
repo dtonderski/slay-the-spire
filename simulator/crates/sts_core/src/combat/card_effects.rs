@@ -12,7 +12,7 @@ use crate::{
         DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID,
         FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID,
         INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, RECKLESS_CHARGE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
         SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
         SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
         STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
@@ -96,6 +96,11 @@ pub(super) fn play_card_queue(
         RECKLESS_CHARGE_ID => reckless_charge_queue(
             card_id,
             target.expect("validated Reckless Charge has a target"),
+            definition,
+        ),
+        PUMMEL_ID => pummel_queue(
+            card_id,
+            target.expect("validated Pummel has a target"),
             definition,
         ),
         CLOTHESLINE_ID => clothesline_queue(
@@ -622,6 +627,38 @@ fn reckless_charge_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn pummel_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let damage = definition.values.damage.unwrap_or(0);
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+
+    for _ in 0..4 {
+        queue.push_back(InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+
+    Ok(queue)
 }
 
 fn clothesline_queue(
