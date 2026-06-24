@@ -479,6 +479,8 @@ pub const MUMMIFIED_HAND_ID: ContentId = ContentId::new(423);
 pub const THE_COURIER_ID: ContentId = ContentId::new(424);
 /// Content id for [Relic::IncenseBurner].
 pub const INCENSE_BURNER_ID: ContentId = ContentId::new(425);
+/// Content id for [Relic::CursedKey].
+pub const CURSED_KEY_ID: ContentId = ContentId::new(426);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1150,6 +1152,7 @@ pub enum Relic {
     MummifiedHand,
     TheCourier,
     IncenseBurner,
+    CursedKey,
 }
 
 impl Relic {
@@ -1282,6 +1285,7 @@ impl Relic {
             Relic::MummifiedHand => MUMMIFIED_HAND_ID,
             Relic::TheCourier => THE_COURIER_ID,
             Relic::IncenseBurner => INCENSE_BURNER_ID,
+            Relic::CursedKey => CURSED_KEY_ID,
         }
     }
 
@@ -1414,6 +1418,7 @@ impl Relic {
             id if id == MUMMIFIED_HAND_ID => Some(Relic::MummifiedHand),
             id if id == THE_COURIER_ID => Some(Relic::TheCourier),
             id if id == INCENSE_BURNER_ID => Some(Relic::IncenseBurner),
+            id if id == CURSED_KEY_ID => Some(Relic::CursedKey),
             _ => None,
         }
     }
@@ -1451,6 +1456,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::MummifiedHand => {}
             Relic::TheCourier => {}
             Relic::IncenseBurner => {}
+            Relic::CursedKey => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
