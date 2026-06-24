@@ -1473,6 +1473,7 @@ Tasks:
   - [x] Implement base Heavy Blade (`HEAVY_BLADE`, ContentId(108)) as a deterministic common attack: 2 energy, targeted enemy, 14 damage with Strength applied 3 times, no trace-parity claim.
   - [x] Implement base Perfected Strike (`PERFECTED_STRIKE`, ContentId(109)) as a deterministic common attack: 2 energy, targeted enemy, 6 damage plus 2 per Strike-named card in current combat piles, no trace-parity claim.
   - [x] Implement base Power Through (`POWER_THROUGH`, ContentId(111)) as a deterministic uncommon skill: 1 energy, no target, 15 block, adds two Wounds to hand with local deterministic card IDs/order, no trace-parity claim.
+  - [x] Implement base Reckless Charge (`RECKLESS_CHARGE`, ContentId(113)) as a deterministic uncommon attack: 0 energy, targeted enemy, 7 damage, adds one Dazed to the draw pile with local deterministic card IDs/order, no trace-parity claim.
   - [x] Implement base Bludgeon (`BLUDGEON`, ContentId(139)) as a deterministic rare attack: 3 energy, targeted enemy, 32 damage, no trace-parity claim.
   - [x] Implement base Impervious (`IMPERVIOUS`, ContentId(146)) as a deterministic rare skill: 2 energy, no target, 30 block, exhausts, no trace-parity claim.
   - [x] Implement base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack: 2 energy, targeted enemy, 12 damage, 2 weak, no trace-parity claim.
@@ -1485,6 +1486,7 @@ Tasks:
   - [x] Add Heavy Blade definition, legality, transition, discard, base damage, Strength multiplier, temp-Strength multiplier, Akabeko interaction, and event-log tests.
   - [x] Add Perfected Strike definition, legality, transition, current-combat-pile Strike count, upgraded Strike count, non-Strike exclusion, Strength, Akabeko, discard, and event-log tests.
   - [x] Add Power Through definition, legality, transition, block, Dexterity/Frail interaction, Wound-to-hand deterministic ID/order, Duplication Potion, Gremlin Nob enrage, discard, and event-log tests.
+  - [x] Add Reckless Charge definition, legality, transition, zero-cost play, Dazed-to-draw-pile deterministic ID/order, Strength, Akabeko, discard, Havoc top-draw effect, and event-log tests.
   - [x] Add Bludgeon definition, legality, transition, discard, damage, Strength, Akabeko interaction, and event-log tests.
   - [x] Add Impervious definition, legality, transition, block, Dexterity/Frail interaction, exhaust-pile movement, and event-log tests.
   - [x] Add Clothesline definition, legality, transition, discard, and event-log tests.
@@ -1505,6 +1507,7 @@ Tasks:
   - [x] Heavy Blade covers multi-Strength-scaling attack damage and pile movement through the existing card queue and transition hooks.
   - [x] Perfected Strike covers combat-pile-derived attack damage, attack damage modifiers, and pile movement through the existing card queue and transition hooks.
   - [x] Power Through covers generated status-card insertion, block modifiers, duplication, skill-play hooks, and pile movement through the existing card queue and transition hooks.
+  - [x] Reckless Charge covers generated status-card insertion, attack damage modifiers, zero-cost play, Havoc top-draw effects, and pile movement through the existing card queue and transition hooks.
   - [x] Bludgeon covers high-cost targeted attack damage and pile movement through the existing card queue and transition hooks.
   - [x] Impervious covers high-block skill behavior, block modifiers, and exhaust movement through the existing card queue and transition hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
@@ -1515,6 +1518,7 @@ Tasks:
   - [x] Move Heavy Blade from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Perfected Strike from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Power Through from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Reckless Charge from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Bludgeon from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Impervious from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Clothesline from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1527,6 +1531,7 @@ Tasks:
   - [x] Heavy Blade matrix caveat names the missing real-game trace parity evidence.
   - [x] Perfected Strike matrix caveat names the missing master-deck count and real-game trace parity evidence.
   - [x] Power Through matrix caveat names the missing real-game trace parity and exact full-hand/generated-Wound evidence.
+  - [x] Reckless Charge matrix caveat names the missing real-game trace parity and exact Dazed draw-pile shuffle-order evidence.
   - [x] Bludgeon matrix caveat names the missing real-game trace parity evidence.
   - [x] Impervious matrix caveat names the missing real-game trace parity evidence.
   - [x] Clothesline matrix caveat names the missing real-game trace parity evidence.
