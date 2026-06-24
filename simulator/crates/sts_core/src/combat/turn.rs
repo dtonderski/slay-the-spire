@@ -2,7 +2,9 @@ use crate::{
     combat::hand::resolve_end_of_turn_hand,
     combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
     combat::{CombatPhase, CombatState},
-    content::monsters::{apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent},
+    content::monsters::{
+        apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent,
+    },
     rng::JavaRng,
 };
 
@@ -105,7 +107,8 @@ fn apply_turn_transition_block_loss(state: &mut CombatState) {
 fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
     let blocked = state.player.block.min(amount);
     state.player.block -= blocked;
-    let hp_damage = crate::relic::mitigate_unblocked_attack_damage(&state.relics, amount - blocked);
+    let mitigated = crate::relic::mitigate_unblocked_attack_damage(&state.relics, amount - blocked);
+    let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp -= hp_damage;
     crate::relic::apply_player_hp_loss_relics(state, hp_damage);
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
@@ -252,6 +255,19 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.player.hp, 19);
+    }
+
+    #[test]
+    fn buffer_prevents_next_monster_attack_hp_loss_after_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 4;
+        state.player.powers.buffer = 1;
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
+        assert_eq!(next.player.powers.buffer, 0);
     }
 
     #[test]

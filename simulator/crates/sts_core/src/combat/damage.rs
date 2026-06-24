@@ -106,7 +106,8 @@ pub fn reflect_spikes_to_player(player: &mut PlayerState, relics: &[Relic], spik
 
     let blocked = player.block.min(spikes);
     player.block -= blocked;
-    player.hp -= crate::relic::mitigate_hp_loss(relics, spikes - blocked);
+    let hp_loss = crate::relic::mitigate_hp_loss(relics, spikes - blocked);
+    player.hp -= crate::relic::apply_buffer_to_hp_loss(&mut player.powers, hp_loss);
 }
 
 #[cfg(test)]
@@ -418,5 +419,29 @@ mod tests {
 
         assert_eq!(player.block, 0);
         assert_eq!(player.hp, 19);
+    }
+
+    #[test]
+    fn buffer_prevents_next_spikes_hp_loss_after_block() {
+        let mut player = PlayerState {
+            hp: 20,
+            max_hp: 80,
+            block: 1,
+            energy: 3,
+            max_energy: 3,
+            powers: PlayerPowers {
+                buffer: 1,
+                ..Default::default()
+            },
+            cannot_draw: false,
+            temp_strength: 0,
+            temp_dexterity: 0,
+        };
+
+        reflect_spikes_to_player(&mut player, &[], 3);
+
+        assert_eq!(player.block, 0);
+        assert_eq!(player.hp, 20);
+        assert_eq!(player.powers.buffer, 0);
     }
 }

@@ -1371,6 +1371,8 @@ Completed slice:
 - implemented Unceasing Top key promotion, content-id round trips, and draw-one timing after the played card leaves an empty hand, with focused combat tests for normal draw, retained hand cards, draw-lock prevention, and power-card removal
 - expanded modeled rest relics: Shovel
 - implemented Shovel key promotion, content-id round trips, campfire Dig legality, and relic-only reward-screen generation through the existing relic RNG/pool path with focused rest/state tests
+- expanded modeled Buffer relics: Fossilized Helix
+- implemented Fossilized Helix key promotion, content-id round trips, combat-start Buffer, and one-stack HP-loss prevention for monster attacks, spikes, Burn, and direct combat HP-loss actions with focused combat tests
 
 Remaining:
 
