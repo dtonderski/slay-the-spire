@@ -332,6 +332,18 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::EmptyCage), Some(Relic::EmptyCage));
         assert_eq!(
+            Relic::from_key(RelicKey::BottledFlame),
+            Some(Relic::BottledFlame)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::BottledLightning),
+            Some(Relic::BottledLightning)
+        );
+        assert_eq!(
+            Relic::from_key(RelicKey::BottledTornado),
+            Some(Relic::BottledTornado)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1630,6 +1642,15 @@ impl RunState {
             Relic::EmptyCage => {
                 super::grid::open_empty_cage_grid(self);
             }
+            Relic::BottledFlame => {
+                super::grid::open_bottle_grid(self, CardType::Attack);
+            }
+            Relic::BottledLightning => {
+                super::grid::open_bottle_grid(self, CardType::Skill);
+            }
+            Relic::BottledTornado => {
+                super::grid::open_bottle_grid(self, CardType::Power);
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1987,6 +2008,9 @@ impl Relic {
             Relic::BlackStar => RelicKey::BlackStar,
             Relic::Matryoshka => RelicKey::Matryoshka,
             Relic::EmptyCage => RelicKey::EmptyCage,
+            Relic::BottledFlame => RelicKey::BottledFlame,
+            Relic::BottledLightning => RelicKey::BottledLightning,
+            Relic::BottledTornado => RelicKey::BottledTornado,
         }
     }
 
@@ -2102,6 +2126,9 @@ impl Relic {
             RelicKey::BlackStar => Some(Relic::BlackStar),
             RelicKey::Matryoshka => Some(Relic::Matryoshka),
             RelicKey::EmptyCage => Some(Relic::EmptyCage),
+            RelicKey::BottledFlame => Some(Relic::BottledFlame),
+            RelicKey::BottledLightning => Some(Relic::BottledLightning),
+            RelicKey::BottledTornado => Some(Relic::BottledTornado),
             _ => None,
         }
     }

@@ -1379,6 +1379,8 @@ Completed slice:
 - implemented Matryoshka key promotion, content-id round trips, persisted two-chest counter, and chest reward-screen second relic queuing with focused reward tests
 - expanded modeled pickup removal relics: Empty Cage
 - implemented Empty Cage key promotion, content-id round trips, pickup-triggered two-card removal grid, and sequential card removal confirmation with focused grid/reward tests
+- expanded modeled bottled-card relics: Bottled Flame, Bottled Lightning, and Bottled Tornado
+- implemented bottled-card key promotion, content-id round trips, pickup-triggered filtered card grids, persistent deck-card bottle flags, and opening-hand placement with focused grid/reward/combat-setup tests
 
 Remaining:
 

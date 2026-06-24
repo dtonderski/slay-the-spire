@@ -23,6 +23,11 @@ pub fn card_has_innate(content_id: ContentId) -> bool {
 }
 
 #[must_use]
+pub fn card_starts_in_opening_hand(card: &CardInstance) -> bool {
+    card.bottled || card_has_innate(card.content_id)
+}
+
+#[must_use]
 pub fn order_deck_for_combat_shuffle(deck: &[CardInstance]) -> Vec<CardInstance> {
     let mut starter_slots = [None; 10];
     let mut extras = Vec::new();
@@ -59,7 +64,7 @@ pub fn initialize_combat_piles(deck: &[CardInstance], shuffle_rng: &mut StsRng) 
     let mut pool = Vec::new();
 
     for card in ordered {
-        if card_has_innate(card.content_id) {
+        if card_starts_in_opening_hand(&card) {
             innate.push(card);
         } else {
             pool.push(card);
@@ -136,5 +141,26 @@ mod tests {
     fn dramatic_entrance_is_innate() {
         use crate::content::cards::DRAMATIC_ENTRANCE_ID;
         assert!(card_has_innate(DRAMATIC_ENTRANCE_ID));
+    }
+
+    #[test]
+    fn bottled_card_starts_in_opening_hand() {
+        use crate::content::cards::ANGER_ID;
+
+        let mut deck = ironclad_starter_deck();
+        deck.push(CardInstance::new(crate::ids::CardId::new(100), ANGER_ID));
+        deck.last_mut().expect("anger").bottled = true;
+
+        let mut rng = StsRng::new(1_957_307_888_551 + 1);
+        let piles = initialize_combat_piles(&deck, &mut rng);
+
+        assert!(piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == ANGER_ID && card.bottled));
+        assert!(!piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == ANGER_ID && card.bottled));
     }
 }

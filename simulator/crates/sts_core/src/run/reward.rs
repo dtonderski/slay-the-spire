@@ -805,9 +805,10 @@ fn advance_pending_relic_offer(run: &mut RunState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::card::CardType;
     use crate::content::cards::{
-        BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SENTINEL_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -1484,6 +1485,33 @@ mod tests {
             crate::run::grid::GridPurpose::EmptyCage { remaining: 2 }
         );
         assert_eq!(grid.cards, next.deck);
+    }
+
+    #[test]
+    fn take_bottled_flame_reward_opens_attack_selection_grid() {
+        let mut run = winning_combat_run();
+        run.gain_deck_card(ANGER_ID);
+        run.reward.as_mut().expect("reward").relic_offer = Some(Relic::BottledFlame);
+
+        let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take bottled flame");
+
+        assert!(next.relics.contains(&Relic::BottledFlame));
+        let grid = next.card_grid.as_ref().expect("bottle grid");
+        assert_eq!(
+            grid.purpose,
+            crate::run::grid::GridPurpose::Bottle {
+                card_type: CardType::Attack
+            }
+        );
+        assert!(grid.cards.iter().any(|card| card.content_id == ANGER_ID));
+        assert!(grid
+            .cards
+            .iter()
+            .all(
+                |card| crate::content::cards::get_card_definition(card.content_id)
+                    .map(|definition| definition.card_type == CardType::Attack)
+                    .unwrap_or(false)
+            ));
     }
 
     #[test]
