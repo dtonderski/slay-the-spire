@@ -439,6 +439,10 @@ mod tests {
             Relic::from_key(RelicKey::JuzuBracelet),
             Some(Relic::JuzuBracelet)
         );
+        assert_eq!(
+            Relic::from_key(RelicKey::PrismaticShard),
+            Some(Relic::PrismaticShard)
+        );
     }
 
     #[test]
@@ -2249,7 +2253,8 @@ impl RunState {
             | Relic::StrangeSpoon
             | Relic::GamblingChip
             | Relic::Toolbox
-            | Relic::JuzuBracelet => {}
+            | Relic::JuzuBracelet
+            | Relic::PrismaticShard => {}
         }
     }
 
@@ -2571,6 +2576,7 @@ impl Relic {
             Relic::GamblingChip => RelicKey::GamblingChip,
             Relic::Toolbox => RelicKey::Toolbox,
             Relic::JuzuBracelet => RelicKey::JuzuBracelet,
+            Relic::PrismaticShard => RelicKey::PrismaticShard,
         }
     }
 
@@ -2715,7 +2721,7 @@ impl Relic {
             RelicKey::GamblingChip => Some(Relic::GamblingChip),
             RelicKey::Toolbox => Some(Relic::Toolbox),
             RelicKey::JuzuBracelet => Some(Relic::JuzuBracelet),
-            _ => None,
+            RelicKey::PrismaticShard => Some(Relic::PrismaticShard),
         }
     }
 }
