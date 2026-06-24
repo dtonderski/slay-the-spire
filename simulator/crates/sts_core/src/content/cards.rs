@@ -1028,6 +1028,21 @@ pub const HEAVY_BLADE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const PERFECTED_STRIKE: CardDefinition = CardDefinition {
+    id: PERFECTED_STRIKE_ID,
+    key: "PERFECTED_STRIKE",
+    name: "Perfected Strike",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -1281,7 +1296,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 68] = [
+pub const ALL_CARDS: [CardDefinition; 69] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1337,6 +1352,7 @@ pub const ALL_CARDS: [CardDefinition; 68] = [
     CLASH,
     WILD_STRIKE,
     HEAVY_BLADE,
+    PERFECTED_STRIKE,
     CLOTHESLINE,
     INTIMIDATE,
     SEVER_SOUL,
@@ -1383,6 +1399,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1563,6 +1580,18 @@ mod tests {
         assert_eq!(HEAVY_BLADE.values.damage, Some(14));
         assert_eq!(
             card_type_and_rarity(HEAVY_BLADE_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn perfected_strike_has_expected_values() {
+        assert_eq!(PERFECTED_STRIKE.cost, 2);
+        assert_eq!(PERFECTED_STRIKE.target, TargetRequirement::Enemy);
+        assert_eq!(PERFECTED_STRIKE.card_type, CardType::Attack);
+        assert_eq!(PERFECTED_STRIKE.values.damage, Some(6));
+        assert_eq!(
+            card_type_and_rarity(PERFECTED_STRIKE_ID),
             Some((CardType::Attack, CardRarity::Common))
         );
     }
