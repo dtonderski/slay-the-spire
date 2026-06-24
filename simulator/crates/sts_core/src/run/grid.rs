@@ -1,6 +1,6 @@
 use crate::{
     card::{CardInstance, CardType},
-    content::cards::{get_card_definition, upgrade_content_id},
+    content::cards::{get_card_definition, upgrade_content_id, CURSE_OF_THE_BELL_ID},
     RunPhase, RunState, SimError, SimResult,
 };
 
@@ -11,6 +11,7 @@ pub enum GridPurpose {
     EmptyCage { remaining: u8 },
     Bottle { card_type: CardType },
     DollysMirror,
+    CallingBellCurse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -84,6 +85,17 @@ pub fn open_dollys_mirror_grid(run: &mut RunState) {
     });
 }
 
+pub fn open_calling_bell_grid(run: &mut RunState) {
+    run.card_grid = Some(CardGridScreen {
+        cards: vec![CardInstance::new(
+            crate::ids::CardId::new(run.next_card_instance_id()),
+            CURSE_OF_THE_BELL_ID,
+        )],
+        purpose: GridPurpose::CallingBellCurse,
+        selected: None,
+    });
+}
+
 pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     let grid = run
         .card_grid
@@ -113,14 +125,21 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         .card_grid
         .as_ref()
         .ok_or(SimError::IllegalAction("no card grid is open"))?;
-    let selected = grid
-        .selected
-        .ok_or(SimError::IllegalAction("no card selected in grid"))?;
-    let card = grid.cards[selected];
 
     let mut next = run.clone();
     match grid.purpose {
+        GridPurpose::CallingBellCurse => {
+            let card = grid
+                .cards
+                .first()
+                .copied()
+                .ok_or(SimError::InvalidState("calling bell grid is empty"))?;
+            next.card_grid = None;
+            next.add_deck_card(card);
+            super::reward::enter_calling_bell_reward_screen(&mut next);
+        }
         GridPurpose::RestSmith => {
+            let card = selected_grid_card(grid)?;
             let upgraded = upgrade_content_id(card.content_id)
                 .ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
             for deck_card in &mut next.deck {
@@ -133,6 +152,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.phase = RunPhase::Idle;
         }
         GridPurpose::ShopRemove => {
+            let card = selected_grid_card(grid)?;
             let shop = next
                 .shop
                 .as_ref()
@@ -152,6 +172,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.card_grid = None;
         }
         GridPurpose::EmptyCage { remaining } => {
+            let card = selected_grid_card(grid)?;
             next.deck.retain(|deck_card| deck_card.id != card.id);
             if remaining > 1 && !next.deck.is_empty() {
                 next.card_grid = Some(CardGridScreen {
@@ -166,6 +187,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             }
         }
         GridPurpose::Bottle { .. } => {
+            let card = selected_grid_card(grid)?;
             for deck_card in &mut next.deck {
                 if deck_card.id == card.id {
                     deck_card.bottled = true;
@@ -175,6 +197,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.card_grid = None;
         }
         GridPurpose::DollysMirror => {
+            let card = selected_grid_card(grid)?;
             let mut copy = card;
             copy.id = crate::ids::CardId::new(next.next_card_instance_id());
             copy.bottled = false;
@@ -184,6 +207,16 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
     }
 
     Ok(next)
+}
+
+fn selected_grid_card(grid: &CardGridScreen) -> SimResult<CardInstance> {
+    let selected = grid
+        .selected
+        .ok_or(SimError::IllegalAction("no card selected in grid"))?;
+    grid.cards
+        .get(selected)
+        .copied()
+        .ok_or(SimError::IllegalAction("grid index out of range"))
 }
 
 #[cfg(test)]
@@ -318,5 +351,27 @@ mod tests {
         assert_ne!(copy.id, source_id);
         assert_eq!(copy.content_id, after.deck[0].content_id);
         assert!(!copy.bottled);
+    }
+
+    #[test]
+    fn calling_bell_grid_confirms_curse_without_selection_and_opens_relic_rewards() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 1_218_623;
+        run.gain_relic(crate::Relic::CallingBell);
+
+        let grid = run.card_grid.as_ref().expect("calling bell grid");
+        assert_eq!(grid.purpose, GridPurpose::CallingBellCurse);
+        assert_eq!(grid.cards[0].content_id, CURSE_OF_THE_BELL_ID);
+
+        let after = confirm_grid(&run).expect("confirm bell curse");
+
+        assert!(after.card_grid.is_none());
+        assert!(after
+            .deck
+            .iter()
+            .any(|card| card.content_id == CURSE_OF_THE_BELL_ID));
+        let reward = after.reward.as_ref().expect("calling bell rewards");
+        assert!(reward.relic_offer.is_some() || reward.relic_key_offer.is_some());
+        assert_eq!(reward.queued_relic_key_offers.len(), 2);
     }
 }

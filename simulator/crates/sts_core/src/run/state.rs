@@ -420,6 +420,10 @@ mod tests {
             Some(Relic::StrangeSpoon)
         );
         assert_eq!(Relic::from_key(RelicKey::WingBoots), Some(Relic::WingBoots));
+        assert_eq!(
+            Relic::from_key(RelicKey::CallingBell),
+            Some(Relic::CallingBell)
+        );
     }
 
     #[test]
@@ -1067,6 +1071,7 @@ mod tests {
             relic_key_offer: None,
             pending_relic_offer: None,
             pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
             card_reward_active: false,
             card_reward_pending: false,
             pending_card_reward_count: 0,
@@ -1329,6 +1334,8 @@ pub struct RewardScreen {
     pub pending_relic_offer: Option<Relic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_relic_key_offer: Option<RelicKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued_relic_key_offers: Vec<RelicKey>,
     #[serde(default)]
     pub card_reward_active: bool,
     /// Normal combat rewards defer card RNG until the player opens the card screen.
@@ -1870,6 +1877,9 @@ impl RunState {
             Relic::WingBoots => {
                 self.wing_boots_charges = u32::from(WING_BOOTS_CHARGES);
             }
+            Relic::CallingBell => {
+                super::grid::open_calling_bell_grid(self);
+            }
             Relic::VelvetChoker => {
                 self.energy_per_turn += VELVET_CHOKER_ENERGY;
             }
@@ -2346,6 +2356,7 @@ impl Relic {
             Relic::SneckoEye => RelicKey::SneckoEye,
             Relic::StrangeSpoon => RelicKey::StrangeSpoon,
             Relic::WingBoots => RelicKey::WingBoots,
+            Relic::CallingBell => RelicKey::CallingBell,
         }
     }
 
@@ -2484,6 +2495,7 @@ impl Relic {
             RelicKey::SneckoEye => Some(Relic::SneckoEye),
             RelicKey::StrangeSpoon => Some(Relic::StrangeSpoon),
             RelicKey::WingBoots => Some(Relic::WingBoots),
+            RelicKey::CallingBell => Some(Relic::CallingBell),
             _ => None,
         }
     }
