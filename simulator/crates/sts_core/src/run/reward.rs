@@ -1515,6 +1515,19 @@ mod tests {
     }
 
     #[test]
+    fn take_dollys_mirror_reward_opens_duplicate_card_grid() {
+        let mut run = winning_combat_run();
+        run.reward.as_mut().expect("reward").relic_offer = Some(Relic::DollysMirror);
+
+        let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take mirror");
+
+        assert!(next.relics.contains(&Relic::DollysMirror));
+        let grid = next.card_grid.as_ref().expect("mirror grid");
+        assert_eq!(grid.purpose, crate::run::grid::GridPurpose::DollysMirror);
+        assert_eq!(grid.cards, next.deck);
+    }
+
+    #[test]
     fn take_relic_reward_accepts_unimplemented_relic_key_offer() {
         let mut run = winning_combat_run();
         run.reward.as_mut().expect("reward").relic_key_offer = Some(crate::RelicKey::CallingBell);

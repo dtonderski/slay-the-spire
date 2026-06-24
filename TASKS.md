@@ -1381,6 +1381,8 @@ Completed slice:
 - implemented Empty Cage key promotion, content-id round trips, pickup-triggered two-card removal grid, and sequential card removal confirmation with focused grid/reward tests
 - expanded modeled bottled-card relics: Bottled Flame, Bottled Lightning, and Bottled Tornado
 - implemented bottled-card key promotion, content-id round trips, pickup-triggered filtered card grids, persistent deck-card bottle flags, and opening-hand placement with focused grid/reward/combat-setup tests
+- expanded modeled card-copy relics: Dolly's Mirror
+- implemented Dolly's Mirror key promotion, content-id round trips, pickup-triggered deck selection grid, and selected-card duplication with a fresh card instance id and focused grid/reward tests
 
 Remaining:
 

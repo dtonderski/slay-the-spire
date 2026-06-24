@@ -443,6 +443,8 @@ pub const BOTTLED_FLAME_ID: ContentId = ContentId::new(409);
 pub const BOTTLED_LIGHTNING_ID: ContentId = ContentId::new(410);
 /// Content id for [Relic::BottledTornado].
 pub const BOTTLED_TORNADO_ID: ContentId = ContentId::new(411);
+/// Content id for [Relic::DollysMirror].
+pub const DOLLYS_MIRROR_ID: ContentId = ContentId::new(412);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1098,6 +1100,7 @@ pub enum Relic {
     BottledFlame,
     BottledLightning,
     BottledTornado,
+    DollysMirror,
 }
 
 impl Relic {
@@ -1216,6 +1219,7 @@ impl Relic {
             Relic::BottledFlame => BOTTLED_FLAME_ID,
             Relic::BottledLightning => BOTTLED_LIGHTNING_ID,
             Relic::BottledTornado => BOTTLED_TORNADO_ID,
+            Relic::DollysMirror => DOLLYS_MIRROR_ID,
         }
     }
 
@@ -1334,6 +1338,7 @@ impl Relic {
             id if id == BOTTLED_FLAME_ID => Some(Relic::BottledFlame),
             id if id == BOTTLED_LIGHTNING_ID => Some(Relic::BottledLightning),
             id if id == BOTTLED_TORNADO_ID => Some(Relic::BottledTornado),
+            id if id == DOLLYS_MIRROR_ID => Some(Relic::DollysMirror),
             _ => None,
         }
     }
@@ -1357,6 +1362,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BottledFlame => {}
             Relic::BottledLightning => {}
             Relic::BottledTornado => {}
+            Relic::DollysMirror => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -2715,6 +2721,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(BOTTLED_TORNADO_ID),
             Some(Relic::BottledTornado)
+        );
+        assert_eq!(Relic::DollysMirror.content_id(), DOLLYS_MIRROR_ID);
+        assert_eq!(
+            Relic::from_content_id(DOLLYS_MIRROR_ID),
+            Some(Relic::DollysMirror)
         );
     }
 
