@@ -166,7 +166,48 @@ fn apply_play_card(
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
 
-    process_internal_queue(state, queue)
+    let mut queued_state = state.clone();
+    apply_strange_spoon_to_played_card_move(&mut queued_state, definition, card_id, &mut queue);
+
+    process_internal_queue(&queued_state, queue)
+}
+
+fn apply_strange_spoon_to_played_card_move(
+    state: &mut CombatState,
+    definition: &CardDefinition,
+    card_id: CardId,
+    queue: &mut VecDeque<InternalAction>,
+) {
+    if definition.card_type == CardType::Power || !state.relics.contains(&Relic::StrangeSpoon) {
+        return;
+    }
+
+    let own_exhaust_index = queue.iter().rposition(|action| {
+        matches!(
+            action,
+            InternalAction::MoveCard {
+                card_id: moved,
+                from: CardPile::Hand,
+                to: CardPile::ExhaustPile,
+            } if *moved == card_id
+        )
+    });
+    let Some(index) = own_exhaust_index else {
+        return;
+    };
+
+    let Some(rng) = state.card_random_rng.as_mut() else {
+        return;
+    };
+    if !rng.random_bool() {
+        return;
+    }
+
+    queue[index] = InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    };
 }
 
 fn apply_akabeko_to_first_attack_queue(
@@ -2621,6 +2662,38 @@ mod tests {
     }
 
     #[test]
+    fn strange_spoon_roll_controls_played_card_exhaust_destination() {
+        use crate::content::cards::DRAMATIC_ENTRANCE_ID;
+
+        let mut state = two_monster_hand(DRAMATIC_ENTRANCE_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Dramatic Entrance applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile[0].content_id, DRAMATIC_ENTRANCE_ID);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[0].content_id, DRAMATIC_ENTRANCE_ID);
+        }
+    }
+
+    #[test]
     fn whirlwind_at_three_energy_hits_all_enemies_three_times() {
         let state = two_monster_hand(WHIRLWIND_ID);
         assert_eq!(state.player.energy, 3);
@@ -2831,6 +2904,41 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.id == CardId::new(30)));
+    }
+
+    #[test]
+    fn strange_spoon_does_not_roll_for_true_grit_target_exhaust() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("True Grit applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(25)));
     }
 
     #[test]

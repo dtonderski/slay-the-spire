@@ -493,6 +493,8 @@ pub const TINY_CHEST_ID: ContentId = ContentId::new(427);
 pub const ORRERY_ID: ContentId = ContentId::new(428);
 /// Content id for [Relic::SneckoEye].
 pub const SNECKO_EYE_ID: ContentId = ContentId::new(429);
+/// Content id for [Relic::StrangeSpoon].
+pub const STRANGE_SPOON_ID: ContentId = ContentId::new(430);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1168,6 +1170,7 @@ pub enum Relic {
     TinyChest,
     Orrery,
     SneckoEye,
+    StrangeSpoon,
 }
 
 impl Relic {
@@ -1304,6 +1307,7 @@ impl Relic {
             Relic::TinyChest => TINY_CHEST_ID,
             Relic::Orrery => ORRERY_ID,
             Relic::SneckoEye => SNECKO_EYE_ID,
+            Relic::StrangeSpoon => STRANGE_SPOON_ID,
         }
     }
 
@@ -1440,6 +1444,7 @@ impl Relic {
             id if id == TINY_CHEST_ID => Some(Relic::TinyChest),
             id if id == ORRERY_ID => Some(Relic::Orrery),
             id if id == SNECKO_EYE_ID => Some(Relic::SneckoEye),
+            id if id == STRANGE_SPOON_ID => Some(Relic::StrangeSpoon),
             _ => None,
         }
     }
@@ -1481,6 +1486,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::TinyChest => {}
             Relic::Orrery => {}
             Relic::SneckoEye => {}
+            Relic::StrangeSpoon => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
