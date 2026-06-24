@@ -18,6 +18,12 @@ pub enum DamageSource {
     Card(CardId),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttackDamageResult {
+    pub hp_damage: i32,
+    pub broke_block: bool,
+}
+
 pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
@@ -35,7 +41,12 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     hp_damage
 }
 
-fn deal_attack_damage_to_monster(monster: &mut MonsterState, relics: &[Relic], amount: i32) -> i32 {
+fn deal_attack_damage_to_monster(
+    monster: &mut MonsterState,
+    relics: &[Relic],
+    amount: i32,
+) -> AttackDamageResult {
+    let block_before = monster.block;
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
     let hp_damage =
@@ -50,7 +61,10 @@ fn deal_attack_damage_to_monster(monster: &mut MonsterState, relics: &[Relic], a
         monster.powers.curl_up = 0;
     }
 
-    hp_damage
+    AttackDamageResult {
+        hp_damage,
+        broke_block: block_before > 0 && blocked == block_before,
+    }
 }
 
 pub fn deal_damage_info_to_monster(
@@ -60,6 +74,16 @@ pub fn deal_damage_info_to_monster(
     temp_strength: i32,
     relics: &[Relic],
 ) -> i32 {
+    deal_damage_info_to_monster_with_result(monster, info, player, temp_strength, relics).hp_damage
+}
+
+pub fn deal_damage_info_to_monster_with_result(
+    monster: &mut MonsterState,
+    info: DamageInfo,
+    player: PlayerPowers,
+    temp_strength: i32,
+    relics: &[Relic],
+) -> AttackDamageResult {
     let with_strength = (info.amount + player.strength + temp_strength).max(0);
     let with_weak = if player.weak > 0 {
         with_strength * 3 / 4
