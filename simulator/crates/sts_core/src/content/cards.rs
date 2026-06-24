@@ -983,6 +983,21 @@ pub const BODY_SLAM: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const CLASH: CardDefinition = CardDefinition {
+    id: CLASH_ID,
+    key: "CLASH",
+    name: "Clash",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(14),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -1200,7 +1215,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 63] = [
+pub const ALL_CARDS: [CardDefinition; 64] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1253,6 +1268,7 @@ pub const ALL_CARDS: [CardDefinition; 63] = [
     SWIFT_STRIKE,
     IRON_WAVE,
     BODY_SLAM,
+    CLASH,
     CLOTHESLINE,
     INTIMIDATE,
     SEVER_SOUL,
@@ -1294,6 +1310,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1436,6 +1453,18 @@ mod tests {
         assert_eq!(BODY_SLAM.values.block, None);
         assert_eq!(
             card_type_and_rarity(BODY_SLAM_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn clash_has_expected_values() {
+        assert_eq!(CLASH.cost, 0);
+        assert_eq!(CLASH.target, TargetRequirement::Enemy);
+        assert_eq!(CLASH.card_type, CardType::Attack);
+        assert_eq!(CLASH.values.damage, Some(14));
+        assert_eq!(
+            card_type_and_rarity(CLASH_ID),
             Some((CardType::Attack, CardRarity::Common))
         );
     }

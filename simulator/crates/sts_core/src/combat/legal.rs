@@ -3,7 +3,7 @@ use crate::{
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
-        get_card_definition, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
+        get_card_definition, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
         WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
@@ -44,6 +44,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         }
 
         if !is_affordable(state, card.id, definition) {
+            continue;
+        }
+
+        if definition.id == CLASH_ID && !hand_contains_only_attacks(state) {
             continue;
         }
 
@@ -161,6 +165,12 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 return Err(SimError::IllegalAction("card is unaffordable"));
             }
 
+            if definition.id == CLASH_ID && !hand_contains_only_attacks(state) {
+                return Err(SimError::IllegalAction(
+                    "Clash requires only attacks in hand",
+                ));
+            }
+
             match (definition.target, target) {
                 (TargetRequirement::Enemy, Some(monster_id)) => {
                     if is_living_monster(state, monster_id) {
@@ -259,6 +269,13 @@ fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool 
     })
 }
 
+fn hand_contains_only_attacks(state: &CombatState) -> bool {
+    state.piles.hand.iter().all(|card| {
+        get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Attack)
+    })
+}
+
 fn push_havoc_actions(actions: &mut Vec<CombatAction>, state: &CombatState, card_id: CardId) {
     let Some(top_definition) = top_draw_card_definition(state) else {
         return;
@@ -320,7 +337,7 @@ mod tests {
     use crate::{
         content::cards::{
             ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-            BODY_SLAM_ID, BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
+            BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
             DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
             HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, POMMEL_STRIKE_ID,
             POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
@@ -652,6 +669,84 @@ mod tests {
                 },
             ),
             Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn clash_is_legal_with_target_when_hand_contains_only_attacks() {
+        let mut state = hand_with_card(CLASH_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), STRIKE_R_ID));
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn clash_rejects_missing_target() {
+        let state = hand_with_card(CLASH_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn clash_is_unplayable_with_skill_in_hand() {
+        let mut state = hand_with_card(CLASH_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), DEFEND_R_ID));
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "Clash requires only attacks in hand"
+            ))
+        );
+    }
+
+    #[test]
+    fn clash_is_unplayable_with_curse_in_hand_even_if_blue_candle_can_play_it() {
+        let mut state = hand_with_card(CLASH_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), REGRET_ID));
+        state.relics.push(Relic::BlueCandle);
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
         );
     }
 
