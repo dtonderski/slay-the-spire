@@ -1937,6 +1937,45 @@ mod tests {
     }
 
     #[test]
+    fn take_orrery_reward_queues_five_card_rewards() {
+        let mut run = winning_combat_run();
+        let reward = run.reward.as_mut().expect("reward");
+        reward.relic_offer = Some(Relic::Orrery);
+        reward.set_pending_card_rewards(0);
+
+        let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take orrery");
+
+        assert!(next.relics.contains(&Relic::Orrery));
+        assert_eq!(
+            next.reward
+                .as_ref()
+                .expect("reward")
+                .pending_card_reward_count(),
+            crate::relic::ORRERY_CARD_REWARDS
+        );
+
+        let opened = apply_run_action(&next, RunAction::OpenCardReward).expect("open cards");
+        let reward = opened.reward.as_ref().expect("reward");
+        assert_eq!(reward.choices.len(), REWARD_CARD_COUNT);
+        assert_eq!(
+            reward.pending_card_reward_count(),
+            crate::relic::ORRERY_CARD_REWARDS
+        );
+
+        let chosen = reward.choices[0].id;
+        let taken = apply_run_action(&opened, RunAction::TakeCardReward { card_id: chosen })
+            .expect("take first orrery card");
+        assert_eq!(
+            taken
+                .reward
+                .as_ref()
+                .expect("reward")
+                .pending_card_reward_count(),
+            crate::relic::ORRERY_CARD_REWARDS - 1
+        );
+    }
+
+    #[test]
     fn take_relic_reward_accepts_unimplemented_relic_key_offer() {
         let mut run = winning_combat_run();
         run.reward.as_mut().expect("reward").relic_key_offer = Some(crate::RelicKey::CallingBell);

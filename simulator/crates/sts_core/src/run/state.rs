@@ -20,11 +20,11 @@ use crate::{
         CAULDRON_POTIONS, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
         DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP,
         MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD,
-        OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
-        PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
-        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, TINY_HOUSE_GOLD,
-        TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
+        OMAMORI_CHARGES, ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP,
+        PHILOSOPHERS_STONE_ENERGY, PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS,
+        PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
+        SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP,
+        TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
     },
     rng::JavaRng,
     rng::StsRng,
@@ -412,6 +412,7 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::CursedKey), Some(Relic::CursedKey));
         assert_eq!(Relic::from_key(RelicKey::TinyChest), Some(Relic::TinyChest));
+        assert_eq!(Relic::from_key(RelicKey::Orrery), Some(Relic::Orrery));
     }
 
     #[test]
@@ -1879,6 +1880,13 @@ impl RunState {
                     reward.set_pending_card_rewards(reward.pending_card_reward_count() + 1);
                 }
             }
+            Relic::Orrery => {
+                if let Some(reward) = self.reward.as_mut() {
+                    reward.set_pending_card_rewards(
+                        reward.pending_card_reward_count() + ORRERY_CARD_REWARDS,
+                    );
+                }
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -2294,6 +2302,7 @@ impl Relic {
             Relic::IncenseBurner => RelicKey::IncenseBurner,
             Relic::CursedKey => RelicKey::CursedKey,
             Relic::TinyChest => RelicKey::TinyChest,
+            Relic::Orrery => RelicKey::Orrery,
         }
     }
 
@@ -2428,6 +2437,7 @@ impl Relic {
             RelicKey::IncenseBurner => Some(Relic::IncenseBurner),
             RelicKey::CursedKey => Some(Relic::CursedKey),
             RelicKey::TinyChest => Some(Relic::TinyChest),
+            RelicKey::Orrery => Some(Relic::Orrery),
             _ => None,
         }
     }

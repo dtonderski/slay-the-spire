@@ -26,6 +26,8 @@ pub const TINY_HOUSE_MAX_HP: i32 = 5;
 pub const TINY_HOUSE_HEAL: i32 = 7;
 /// Gold granted by [Relic::TinyHouse] on pickup.
 pub const TINY_HOUSE_GOLD: i32 = 50;
+/// Card reward screens granted by [Relic::Orrery] on pickup.
+pub const ORRERY_CARD_REWARDS: u8 = 5;
 /// Extra potion slots granted by [Relic::PotionBelt] on pickup.
 pub const POTION_BELT_SLOTS: usize = 2;
 /// HP healed by [Relic::BloodVial] at combat start.
@@ -483,6 +485,8 @@ pub const INCENSE_BURNER_ID: ContentId = ContentId::new(425);
 pub const CURSED_KEY_ID: ContentId = ContentId::new(426);
 /// Content id for [Relic::TinyChest].
 pub const TINY_CHEST_ID: ContentId = ContentId::new(427);
+/// Content id for [Relic::Orrery].
+pub const ORRERY_ID: ContentId = ContentId::new(428);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1156,6 +1160,7 @@ pub enum Relic {
     IncenseBurner,
     CursedKey,
     TinyChest,
+    Orrery,
 }
 
 impl Relic {
@@ -1290,6 +1295,7 @@ impl Relic {
             Relic::IncenseBurner => INCENSE_BURNER_ID,
             Relic::CursedKey => CURSED_KEY_ID,
             Relic::TinyChest => TINY_CHEST_ID,
+            Relic::Orrery => ORRERY_ID,
         }
     }
 
@@ -1424,6 +1430,7 @@ impl Relic {
             id if id == INCENSE_BURNER_ID => Some(Relic::IncenseBurner),
             id if id == CURSED_KEY_ID => Some(Relic::CursedKey),
             id if id == TINY_CHEST_ID => Some(Relic::TinyChest),
+            id if id == ORRERY_ID => Some(Relic::Orrery),
             _ => None,
         }
     }
@@ -1463,6 +1470,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::IncenseBurner => {}
             Relic::CursedKey => {}
             Relic::TinyChest => {}
+            Relic::Orrery => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
