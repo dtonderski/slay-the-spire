@@ -266,6 +266,19 @@ pub fn random_class_card_of_type_and_rarity(
 }
 
 #[must_use]
+pub fn random_class_card_of_type_and_rarity_with_fallback(
+    rng: &mut StsRng,
+    card_type: CardType,
+    rarity: CardRarity,
+) -> ContentId {
+    let mut effective_rarity = rarity;
+    if card_type == CardType::Power && rarity == CardRarity::Common {
+        effective_rarity = CardRarity::Uncommon;
+    }
+    random_class_card_of_type_and_rarity(rng, card_type, effective_rarity)
+}
+
+#[must_use]
 pub fn random_colorless_from_pool(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
     let pool = match rarity {
         CardRarity::Uncommon => COLORLESS_UNCOMMON,
@@ -274,6 +287,34 @@ pub fn random_colorless_from_pool(rng: &mut StsRng, rarity: CardRarity) -> Conte
     };
     let idx = rng.random_int((pool.len() - 1) as i32) as usize;
     shop_card_content_id(pool[idx])
+}
+
+#[must_use]
+pub fn shop_card_is_colorless(content_id: ContentId) -> bool {
+    COLORLESS_UNCOMMON
+        .iter()
+        .chain(COLORLESS_RARE.iter())
+        .any(|name| shop_card_content_id(name) == content_id)
+}
+
+#[must_use]
+pub fn shop_card_type(content_id: ContentId) -> Option<CardType> {
+    for card_type in [CardType::Attack, CardType::Skill, CardType::Power] {
+        for rarity in [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare] {
+            if ironclad_pool(card_type, rarity)
+                .iter()
+                .any(|name| shop_card_content_id(name) == content_id)
+            {
+                return Some(card_type);
+            }
+        }
+    }
+    if shop_card_is_colorless(content_id) {
+        crate::content::cards::get_card_definition(content_id)
+            .map(|definition| definition.card_type)
+    } else {
+        None
+    }
 }
 
 /// Target shop pricing uses each card's library rarity, not the rolled shop slot rarity.
