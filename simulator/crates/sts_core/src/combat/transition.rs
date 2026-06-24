@@ -797,14 +797,14 @@ fn move_card(
 mod tests {
     use super::*;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
-        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID,
-        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WOUND_ID,
+        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BODY_SLAM_ID,
+        BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
+        DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
     };
 
     #[test]
@@ -1043,6 +1043,91 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn body_slam_deals_current_block_damage_without_consuming_block() {
+        let mut state = hand_only(BODY_SLAM_ID);
+        state.player.block = 11;
+
+        let next =
+            apply_combat_action(&state, body_slam_action(&state)).expect("Body Slam applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 11);
+        assert_eq!(next.player.block, state.player.block);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+    }
+
+    #[test]
+    fn body_slam_at_zero_block_deals_zero_damage() {
+        let mut state = hand_only(BODY_SLAM_ID);
+        state.player.block = 0;
+
+        let next =
+            apply_combat_action(&state, body_slam_action(&state)).expect("Body Slam applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp);
+        assert_eq!(next.player.block, 0);
+    }
+
+    #[test]
+    fn body_slam_moves_to_discard_after_play() {
+        let state = hand_only(BODY_SLAM_ID);
+        let body_slam_id = hand_card_id(&state, BODY_SLAM_ID);
+
+        let next =
+            apply_combat_action(&state, body_slam_action(&state)).expect("Body Slam applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == body_slam_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == body_slam_id));
+    }
+
+    #[test]
+    fn body_slam_event_log_records_current_block_damage() {
+        let mut state = hand_only(BODY_SLAM_ID);
+        state.player.block = 9;
+        let body_slam_id = hand_card_id(&state, BODY_SLAM_ID);
+
+        let transition = apply_combat_action_with_events(&state, body_slam_action(&state))
+            .expect("Body Slam applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: body_slam_id
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(body_slam_id),
+                        target: MonsterId::new(1),
+                        amount: 9,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: body_slam_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_body_slam() {
+        let mut state = hand_only(BODY_SLAM_ID);
+        state.player.block = 4;
+        state.relics.push(Relic::Akabeko);
+
+        let next =
+            apply_combat_action(&state, body_slam_action(&state)).expect("Body Slam applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
     }
 
     #[test]
@@ -3079,6 +3164,13 @@ mod tests {
     fn iron_wave_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, IRON_WAVE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn body_slam_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BODY_SLAM_ID),
             target: Some(MonsterId::new(1)),
         }
     }

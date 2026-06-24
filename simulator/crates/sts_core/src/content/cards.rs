@@ -968,6 +968,21 @@ pub const IRON_WAVE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const BODY_SLAM: CardDefinition = CardDefinition {
+    id: BODY_SLAM_ID,
+    key: "BODY_SLAM",
+    name: "Body Slam",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -1185,7 +1200,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 62] = [
+pub const ALL_CARDS: [CardDefinition; 63] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1237,6 +1252,7 @@ pub const ALL_CARDS: [CardDefinition; 62] = [
     DRAMATIC_ENTRANCE,
     SWIFT_STRIKE,
     IRON_WAVE,
+    BODY_SLAM,
     CLOTHESLINE,
     INTIMIDATE,
     SEVER_SOUL,
@@ -1277,6 +1293,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1406,6 +1423,19 @@ mod tests {
         assert_eq!(IRON_WAVE.values.block, Some(5));
         assert_eq!(
             card_type_and_rarity(IRON_WAVE_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn body_slam_has_expected_values() {
+        assert_eq!(BODY_SLAM.cost, 1);
+        assert_eq!(BODY_SLAM.target, TargetRequirement::Enemy);
+        assert_eq!(BODY_SLAM.card_type, CardType::Attack);
+        assert_eq!(BODY_SLAM.values.damage, None);
+        assert_eq!(BODY_SLAM.values.block, None);
+        assert_eq!(
+            card_type_and_rarity(BODY_SLAM_ID),
             Some((CardType::Attack, CardRarity::Common))
         );
     }
