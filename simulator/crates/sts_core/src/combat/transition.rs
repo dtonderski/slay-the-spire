@@ -800,12 +800,12 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLUDGEON_ID,
         BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
-        HAVOC_ID, HEAVY_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID,
+        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1459,6 +1459,85 @@ mod tests {
                     card_id: bludgeon_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn impervious_gains_thirty_block_spends_two_and_exhausts() {
+        let state = hand_only(IMPERVIOUS_ID);
+
+        let next =
+            apply_combat_action(&state, impervious_action(&state)).expect("Impervious applies");
+
+        assert_eq!(next.player.block, state.player.block + 30);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, IMPERVIOUS_ID);
+    }
+
+    #[test]
+    fn impervious_with_dexterity_gains_extra_block() {
+        let mut state = hand_only(IMPERVIOUS_ID);
+        state.player.powers.dexterity = 2;
+
+        let next =
+            apply_combat_action(&state, impervious_action(&state)).expect("Impervious applies");
+
+        assert_eq!(next.player.block, state.player.block + 32);
+    }
+
+    #[test]
+    fn impervious_with_frail_gains_reduced_block() {
+        let mut state = hand_only(IMPERVIOUS_ID);
+        state.player.powers.frail = 1;
+
+        let next =
+            apply_combat_action(&state, impervious_action(&state)).expect("Impervious applies");
+
+        assert_eq!(next.player.block, state.player.block + 22);
+    }
+
+    #[test]
+    fn impervious_moves_to_exhaust_after_play() {
+        let state = hand_only(IMPERVIOUS_ID);
+        let impervious_id = hand_card_id(&state, IMPERVIOUS_ID);
+
+        let next =
+            apply_combat_action(&state, impervious_action(&state)).expect("Impervious applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == impervious_id));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == impervious_id));
+    }
+
+    #[test]
+    fn impervious_event_log_records_generic_exhaust_skill_queue() {
+        let state = hand_only(IMPERVIOUS_ID);
+        let impervious_id = hand_card_id(&state, IMPERVIOUS_ID);
+
+        let transition = apply_combat_action_with_events(&state, impervious_action(&state))
+            .expect("Impervious applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: impervious_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::GainBlock { amount: 30 },
+                InternalAction::MoveCard {
+                    card_id: impervious_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: impervious_id,
                 },
             ]
         );
@@ -3534,6 +3613,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BLUDGEON_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn impervious_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, IMPERVIOUS_ID),
+            target: None,
         }
     }
 
