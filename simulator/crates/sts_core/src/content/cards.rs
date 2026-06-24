@@ -968,6 +968,21 @@ pub const IRON_WAVE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const CLOTHESLINE: CardDefinition = CardDefinition {
+    id: CLOTHESLINE_ID,
+    key: "CLOTHESLINE",
+    name: "Clothesline",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(12),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SEVER_SOUL: CardDefinition = CardDefinition {
     id: SEVER_SOUL_ID,
     key: "Sever Soul",
@@ -1149,7 +1164,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 60] = [
+pub const ALL_CARDS: [CardDefinition; 61] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1201,6 +1216,7 @@ pub const ALL_CARDS: [CardDefinition; 60] = [
     DRAMATIC_ENTRANCE,
     SWIFT_STRIKE,
     IRON_WAVE,
+    CLOTHESLINE,
     SEVER_SOUL,
     SENTINEL,
     BLOODLETTING,
@@ -1239,6 +1255,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1366,6 +1383,18 @@ mod tests {
         assert_eq!(IRON_WAVE.values.block, Some(5));
         assert_eq!(
             card_type_and_rarity(IRON_WAVE_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn clothesline_has_expected_values() {
+        assert_eq!(CLOTHESLINE.cost, 2);
+        assert_eq!(CLOTHESLINE.target, TargetRequirement::Enemy);
+        assert_eq!(CLOTHESLINE.card_type, CardType::Attack);
+        assert_eq!(CLOTHESLINE.values.damage, Some(12));
+        assert_eq!(
+            card_type_and_rarity(CLOTHESLINE_ID),
             Some((CardType::Attack, CardRarity::Common))
         );
     }
