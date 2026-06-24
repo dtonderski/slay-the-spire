@@ -6,6 +6,7 @@ use crate::{
         REGRET_ID, SHRUG_IT_OFF_ID,
     },
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
+    content::shop_pool::shop_card_content_id,
     ids::{CardId, ContentId},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{
@@ -220,11 +221,36 @@ pub fn target_card_reward_choices_with_count(
     next_card_id: u64,
     choice_count: usize,
 ) -> Vec<CardInstance> {
+    target_card_reward_choices_with_count_and_pool(
+        rng,
+        card_rarity_factor,
+        next_card_id,
+        choice_count,
+        RewardCardPoolKind::Ironclad,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RewardCardPoolKind {
+    Ironclad,
+    AnyColor,
+}
+
+fn target_card_reward_choices_with_count_and_pool(
+    rng: &mut StsRng,
+    card_rarity_factor: &mut i32,
+    next_card_id: u64,
+    choice_count: usize,
+    pool_kind: RewardCardPoolKind,
+) -> Vec<CardInstance> {
     let mut choices = Vec::with_capacity(choice_count);
 
     for index in 0..choice_count {
         let requested = roll_reward_rarity(rng, *card_rarity_factor);
-        let rarity = resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES);
+        let rarity = match pool_kind {
+            RewardCardPoolKind::Ironclad => resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES),
+            RewardCardPoolKind::AnyColor => requested,
+        };
         match requested {
             CardRarity::Common => *card_rarity_factor = (*card_rarity_factor - 1).max(-40),
             CardRarity::Rare => *card_rarity_factor = 5,
@@ -233,14 +259,19 @@ pub fn target_card_reward_choices_with_count(
 
         let mut content_id;
         loop {
-            let candidate_indices: Vec<usize> = IRONCLAD_REWARD_ENTRIES
-                .iter()
-                .enumerate()
-                .filter(|(_, entry)| entry.rarity == rarity)
-                .map(|(index, _)| index)
-                .collect();
-            let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
-            content_id = IRONCLAD_REWARD_ENTRIES[candidate_indices[pick]].content_id;
+            content_id = match pool_kind {
+                RewardCardPoolKind::Ironclad => {
+                    let candidate_indices: Vec<usize> = IRONCLAD_REWARD_ENTRIES
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, entry)| entry.rarity == rarity)
+                        .map(|(index, _)| index)
+                        .collect();
+                    let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
+                    IRONCLAD_REWARD_ENTRIES[candidate_indices[pick]].content_id
+                }
+                RewardCardPoolKind::AnyColor => any_color_reward_content_id(rng, rarity),
+            };
             if !choices
                 .iter()
                 .any(|choice: &CardInstance| choice.content_id == content_id)
@@ -256,6 +287,346 @@ pub fn target_card_reward_choices_with_count(
     }
 
     choices
+}
+
+const ANY_COLOR_COMMON_CARDS: &[&str] = &[
+    "ACROBATICS",
+    "ANGER",
+    "ARMAMENTS",
+    "BACKFLIP",
+    "BALL_LIGHTNING",
+    "BANE",
+    "BARRAGE",
+    "BEAM_CELL",
+    "BLADE_DANCE",
+    "BODY_SLAM",
+    "BOWLING_BASH",
+    "CLASH",
+    "TRANQUILITY",
+    "CLEAVE",
+    "CLOAK_AND_DAGGER",
+    "CLOTHESLINE",
+    "COLD_SNAP",
+    "COMPILE_DRIVER",
+    "CONSECRATE",
+    "CHARGE_BATTERY",
+    "COOLHEADED",
+    "CRESCENDO",
+    "CRUSH_JOINTS",
+    "CUT_THROUGH_FATE",
+    "DAGGER_SPRAY",
+    "DAGGER_THROW",
+    "DEADLY_POISON",
+    "DEFLECT",
+    "DODGE_AND_ROLL",
+    "EMPTY_BODY",
+    "EMPTY_FIST",
+    "EVALUATE",
+    "FLEX",
+    "FLURRY_OF_BLOWS",
+    "FLYING_KNEE",
+    "FLYING_SLEEVES",
+    "FOLLOW_UP",
+    "CLAW",
+    "GO_FOR_THE_EYES",
+    "HALT",
+    "HAVOC",
+    "HEADBUTT",
+    "HEAVY_BLADE",
+    "HOLOGRAM",
+    "IRON_WAVE",
+    "JUST_LUCKY",
+    "LEAP",
+    "OUTMANEUVER",
+    "PRESSURE_POINTS",
+    "PERFECTED_STRIKE",
+    "PIERCING_WAIL",
+    "POISONED_STAB",
+    "POMMEL_STRIKE",
+    "PREPARED",
+    "PROSTRATE",
+    "PROTECT",
+    "QUICK_SLASH",
+    "REBOUND",
+    "RECURSION",
+    "SASH_WHIP",
+    "SHRUG_IT_OFF",
+    "SLICE",
+    "STACK",
+    "STEAM_BARRIER",
+    "STREAMLINE",
+    "SUCKER_PUNCH",
+    "SWEEPING_BEAM",
+    "SWORD_BOOMERANG",
+    "THIRD_EYE",
+    "THUNDERCLAP",
+    "TRUE_GRIT",
+    "TURBO",
+    "TWIN_STRIKE",
+    "SNEAKY_STRIKE",
+    "WARCRY",
+    "WILD_STRIKE",
+];
+
+const ANY_COLOR_UNCOMMON_CARDS: &[&str] = &[
+    "ACCURACY",
+    "RUSHDOWN",
+    "AGGREGATE",
+    "ALL_OUT_ATTACK",
+    "AUTO_SHIELDS",
+    "BACKSTAB",
+    "BANDAGE_UP",
+    "BATTLE_TRANCE",
+    "BATTLE_HYMN",
+    "BLIND",
+    "BLIZZARD",
+    "BLOOD_FOR_BLOOD",
+    "BLOODLETTING",
+    "BLUR",
+    "BOOT_SEQUENCE",
+    "BOUNCING_FLASK",
+    "BURNING_PACT",
+    "CALCULATED_GAMBLE",
+    "CALTROPS",
+    "CAPACITOR",
+    "CARNAGE",
+    "CARVE_REALITY",
+    "CATALYST",
+    "CHAOS",
+    "CHILL",
+    "CHOKE",
+    "COLLECT",
+    "COMBUST",
+    "CONCENTRATE",
+    "CONCLUDE",
+    "CONSUME",
+    "CRIPPLING_CLOUD",
+    "DARK_EMBRACE",
+    "DARK_SHACKLES",
+    "DARKNESS",
+    "DASH",
+    "DECEIVE_REALITY",
+    "DEEP_BREATH",
+    "DEFRAGMENT",
+    "DISARM",
+    "DISCOVERY",
+    "DISTRACTION",
+    "DOOM_AND_GLOOM",
+    "DOUBLE_ENERGY",
+    "DRAMATIC_ENTRANCE",
+    "DROPKICK",
+    "DUAL_WIELD",
+    "EMPTY_MIND",
+    "ENDLESS_AGONY",
+    "ENLIGHTENMENT",
+    "ENTRENCH",
+    "ESCAPE_PLAN",
+    "EVISCERATE",
+    "EVOLVE",
+    "EXPERTISE",
+    "FTL",
+    "FASTING",
+    "FEAR_NO_EVIL",
+    "FEEL_NO_PAIN",
+    "FINESSE",
+    "FINISHER",
+    "FIRE_BREATHING",
+    "FLAME_BARRIER",
+    "FLASH_OF_STEEL",
+    "FLECHETTES",
+    "FOOTWORK",
+    "FORCE_FIELD",
+    "FOREIGN_INFLUENCE",
+    "FORETHOUGHT",
+    "FUSION",
+    "GENETIC_ALGORITHM",
+    "GHOSTLY_ARMOR",
+    "GLACIER",
+    "GOOD_INSTINCTS",
+    "HEATSINKS",
+    "HEEL_HOOK",
+    "HELLO_WORLD",
+    "HEMOKINESIS",
+    "IMPATIENCE",
+    "INDIGNATION",
+    "INFERNAL_BLADE",
+    "INFINITE_BLADES",
+    "INFLAME",
+    "INNER_PEACE",
+    "INTIMIDATE",
+    "JACK_OF_ALL_TRADES",
+    "LEG_SWEEP",
+    "LIKE_WATER",
+    "BULLSEYE",
+    "LOOP",
+    "MADNESS",
+    "MASTERFUL_STAB",
+    "MEDITATE",
+    "MELTER",
+    "MENTAL_FORTRESS",
+    "METALLICIZE",
+    "MIND_BLAST",
+    "NIRVANA",
+    "NOXIOUS_FUMES",
+    "PANACEA",
+    "PANIC_BUTTON",
+    "PERSEVERANCE",
+    "POWER_THROUGH",
+    "PRAY",
+    "PREDATOR",
+    "PUMMEL",
+    "PURITY",
+    "RAGE",
+    "RAMPAGE",
+    "REACH_HEAVEN",
+    "RECKLESS_CHARGE",
+    "RECYCLE",
+    "REFLEX",
+    "REINFORCED_BODY",
+    "REPROGRAM",
+    "RIDDLE_WITH_HOLES",
+    "RIP_AND_TEAR",
+    "RUPTURE",
+    "SANCTITY",
+    "SANDS_OF_TIME",
+    "SCRAPE",
+    "SEARING_BLOW",
+    "SECOND_WIND",
+    "SEEING_RED",
+    "SELF_REPAIR",
+    "SENTINEL",
+    "SETUP",
+    "SEVER_SOUL",
+    "SHOCKWAVE",
+    "SIGNATURE_MOVE",
+    "SKEWER",
+    "SKIM",
+    "SPOT_WEAKNESS",
+    "STATIC_DISCHARGE",
+    "OVERCLOCK",
+    "STORM",
+    "STUDY",
+    "SUNDER",
+    "SWIFT_STRIKE",
+    "SWIVEL",
+    "TACTICIAN",
+    "TALK_TO_THE_HAND",
+    "TANTRUM",
+    "TEMPEST",
+    "TERROR",
+    "TRIP",
+    "EQUILIBRIUM",
+    "UPPERCUT",
+    "SIMMERING_FURY",
+    "WALLOP",
+    "WAVE_OF_THE_HAND",
+    "WEAVE",
+    "WELL_LAID_PLANS",
+    "WHEEL_KICK",
+    "WHIRLWIND",
+    "WHITE_NOISE",
+    "WINDMILL_STRIKE",
+    "FORESIGHT",
+    "WORSHIP",
+    "WREATH_OF_FLAME",
+];
+
+const ANY_COLOR_RARE_CARDS: &[&str] = &[
+    "A_THOUSAND_CUTS",
+    "ADRENALINE",
+    "AFTER_IMAGE",
+    "ALL_FOR_ONE",
+    "ALPHA",
+    "AMPLIFY",
+    "APOTHEOSIS",
+    "BARRICADE",
+    "BERSERK",
+    "BIASED_COGNITION",
+    "BLASPHEMY",
+    "BLUDGEON",
+    "BRILLIANCE",
+    "BRUTALITY",
+    "BUFFER",
+    "BULLET_TIME",
+    "BURST",
+    "CHRYSALIS",
+    "CONJURE_BLADE",
+    "CORE_SURGE",
+    "CORPSE_EXPLOSION",
+    "CORRUPTION",
+    "CREATIVE_AI",
+    "DEMON_FORM",
+    "DEUS_EX_MACHINA",
+    "DEVA_FORM",
+    "DEVOTION",
+    "DIE_DIE_DIE",
+    "DOPPELGANGER",
+    "DOUBLE_TAP",
+    "ECHO_FORM",
+    "ELECTRODYNAMICS",
+    "ENVENOM",
+    "ESTABLISHMENT",
+    "EXHUME",
+    "FEED",
+    "FIEND_FIRE",
+    "FISSION",
+    "GLASS_KNIFE",
+    "GRAND_FINALE",
+    "HAND_OF_GREED",
+    "HYPERBEAM",
+    "IMMOLATE",
+    "IMPERVIOUS",
+    "JUDGMENT",
+    "JUGGERNAUT",
+    "LESSON_LEARNED",
+    "LIMIT_BREAK",
+    "MACHINE_LEARNING",
+    "MAGNETISM",
+    "MALAISE",
+    "MASTER_OF_STRATEGY",
+    "MASTER_REALITY",
+    "MAYHEM",
+    "METAMORPHOSIS",
+    "METEOR_STRIKE",
+    "MULTI_CAST",
+    "NIGHTMARE",
+    "OFFERING",
+    "OMNISCIENCE",
+    "PANACHE",
+    "PHANTASMAL_KILLER",
+    "RAGNAROK",
+    "RAINBOW",
+    "REAPER",
+    "REBOOT",
+    "SADISTIC_NATURE",
+    "SCRAWL",
+    "SECRET_TECHNIQUE",
+    "SECRET_WEAPON",
+    "SEEK",
+    "SPIRIT_SHIELD",
+    "STORM_OF_STEEL",
+    "THE_BOMB",
+    "THINKING_AHEAD",
+    "THUNDER_STRIKE",
+    "TOOLS_OF_THE_TRADE",
+    "TRANSMUTATION",
+    "UNLOAD",
+    "VAULT",
+    "ALCHEMIZE",
+    "VIOLENCE",
+    "WISH",
+    "WRAITH_FORM",
+];
+
+fn any_color_reward_content_id(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
+    let pool = match rarity {
+        CardRarity::Common => ANY_COLOR_COMMON_CARDS,
+        CardRarity::Uncommon => ANY_COLOR_UNCOMMON_CARDS,
+        CardRarity::Rare => ANY_COLOR_RARE_CARDS,
+    };
+    rng.random_long();
+    let pick = rng.random_int((pool.len() - 1) as i32) as usize;
+    shop_card_content_id(pool[pick])
 }
 
 fn reward_card_choice_count(run: &RunState) -> usize {
@@ -478,11 +849,17 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     let next_card_id = run.next_card_instance_id();
     let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
     let choice_count = reward_card_choice_count(run);
-    let mut choices = target_card_reward_choices_with_count(
+    let pool_kind = if run.relics.contains(&Relic::PrismaticShard) {
+        RewardCardPoolKind::AnyColor
+    } else {
+        RewardCardPoolKind::Ironclad
+    };
+    let mut choices = target_card_reward_choices_with_count_and_pool(
         &mut card_rng,
         &mut run.card_rarity_factor,
         next_card_id,
         choice_count,
+        pool_kind,
     );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices);
     run.card_rng_counter = card_rng.counter();
@@ -494,7 +871,7 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
 
 fn consume_reward_card_upgrade_rolls(rng: &mut StsRng, choices: &mut [CardInstance]) {
     for choice in choices {
-        if ironclad_reward_card_rarity(choice.content_id) == Some(CardRarity::Rare) {
+        if reward_card_rarity(choice.content_id) == Some(CardRarity::Rare) {
             continue;
         }
 
@@ -504,6 +881,31 @@ fn consume_reward_card_upgrade_rolls(rng: &mut StsRng, choices: &mut [CardInstan
                 choice.content_id = upgraded;
             }
         }
+    }
+}
+
+fn reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
+    ironclad_reward_card_rarity(content_id).or_else(|| any_color_reward_card_rarity(content_id))
+}
+
+fn any_color_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
+    if ANY_COLOR_COMMON_CARDS
+        .iter()
+        .any(|name| shop_card_content_id(name) == content_id)
+    {
+        Some(CardRarity::Common)
+    } else if ANY_COLOR_UNCOMMON_CARDS
+        .iter()
+        .any(|name| shop_card_content_id(name) == content_id)
+    {
+        Some(CardRarity::Uncommon)
+    } else if ANY_COLOR_RARE_CARDS
+        .iter()
+        .any(|name| shop_card_content_id(name) == content_id)
+    {
+        Some(CardRarity::Rare)
+    } else {
+        None
     }
 }
 
@@ -1484,6 +1886,59 @@ mod tests {
         );
         assert_eq!(rng.counter(), 6);
         assert_eq!(card_rarity_factor, 2);
+    }
+
+    #[test]
+    fn prismatic_any_color_pick_consumes_long_before_index_roll() {
+        let mut rng = StsRng::new(123);
+        let mut expected_rng = StsRng::new(123);
+        let _ = expected_rng.random_long();
+        let expected_idx =
+            expected_rng.random_int((ANY_COLOR_COMMON_CARDS.len() - 1) as i32) as usize;
+        let expected = shop_card_content_id(ANY_COLOR_COMMON_CARDS[expected_idx]);
+
+        let picked = any_color_reward_content_id(&mut rng, CardRarity::Common);
+
+        assert_eq!(picked, expected);
+        assert_eq!(rng.counter(), expected_rng.counter());
+        assert_eq!(rng.counter(), 2);
+    }
+
+    #[test]
+    fn prismatic_shard_uses_any_color_reward_pool() {
+        let mut run = winning_combat_run();
+        run.relics.push(Relic::PrismaticShard);
+        run.reward_rng_seed = 22_079_335_079;
+        run.card_rng_counter = 0;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+
+        let mut expected_rng = StsRng::with_counter(run.reward_rng_seed as i64, 0);
+        let mut expected_rarity_factor = 5;
+        let mut expected = target_card_reward_choices_with_count_and_pool(
+            &mut expected_rng,
+            &mut expected_rarity_factor,
+            run.next_card_instance_id(),
+            REWARD_CARD_COUNT,
+            RewardCardPoolKind::AnyColor,
+        );
+        consume_reward_card_upgrade_rolls(&mut expected_rng, &mut expected);
+
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
+
+        let reward = run.reward.expect("reward");
+        let content_ids: Vec<_> = reward
+            .choices
+            .iter()
+            .map(|choice| choice.content_id)
+            .collect();
+        let expected_ids: Vec<_> = expected.iter().map(|choice| choice.content_id).collect();
+        assert_eq!(content_ids, expected_ids);
+        assert_eq!(run.card_rng_counter, expected_rng.counter());
+        assert_eq!(run.card_rarity_factor, expected_rarity_factor);
+        assert!(content_ids
+            .iter()
+            .any(|id| ironclad_reward_card_rarity(*id).is_none()));
     }
 
     #[test]
