@@ -13,8 +13,8 @@ use crate::{
     content::cards::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -498,6 +498,17 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::GainBlock { amount: 8 });
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
+        POWER_THROUGH_ID => {
+            follow_ups.push(InternalAction::GainBlock { amount: 15 });
+            follow_ups.push(InternalAction::AddCardToPile {
+                content_id: WOUND_ID,
+                to: CardPile::Hand,
+            });
+            follow_ups.push(InternalAction::AddCardToPile {
+                content_id: WOUND_ID,
+                to: CardPile::Hand,
+            });
+        }
         _ if definition.values.block.is_some() => {
             follow_ups.push(InternalAction::GainBlock {
                 amount: definition.values.block.unwrap_or(0),
@@ -802,10 +813,10 @@ mod tests {
         DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
         HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        POWER_THROUGH_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1503,6 +1514,128 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: perfected_strike_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn power_through_gains_fifteen_block_spends_one_and_moves_to_discard() {
+        let state = hand_only(POWER_THROUGH_ID);
+        let power_through_id = hand_card_id(&state, POWER_THROUGH_ID);
+
+        let next = apply_combat_action(&state, power_through_action(&state))
+            .expect("Power Through applies");
+
+        assert_eq!(next.player.block, state.player.block + 15);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == power_through_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == power_through_id));
+    }
+
+    #[test]
+    fn power_through_with_dexterity_gains_extra_block() {
+        let mut state = hand_only(POWER_THROUGH_ID);
+        state.player.powers.dexterity = 2;
+
+        let next = apply_combat_action(&state, power_through_action(&state))
+            .expect("Power Through applies");
+
+        assert_eq!(next.player.block, state.player.block + 17);
+    }
+
+    #[test]
+    fn power_through_with_frail_gains_reduced_block() {
+        let mut state = hand_only(POWER_THROUGH_ID);
+        state.player.powers.frail = 1;
+
+        let next = apply_combat_action(&state, power_through_action(&state))
+            .expect("Power Through applies");
+
+        assert_eq!(next.player.block, state.player.block + 11);
+    }
+
+    #[test]
+    fn power_through_adds_two_wounds_to_hand_with_deterministic_ids() {
+        let state = hand_only(POWER_THROUGH_ID);
+        let first_generated_id = CardId::new(state.piles.max_card_instance_id() + 1);
+
+        let next = apply_combat_action(&state, power_through_action(&state))
+            .expect("Power Through applies");
+
+        let wounds = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.content_id == WOUND_ID)
+            .map(|card| (card.id, card.content_id))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            wounds,
+            vec![
+                (first_generated_id, WOUND_ID),
+                (CardId::new(first_generated_id.get() + 1), WOUND_ID),
+            ]
+        );
+    }
+
+    #[test]
+    fn duplication_potion_duplicates_power_through_block_and_wounds() {
+        let mut state = hand_only(POWER_THROUGH_ID);
+        state.duplication_potion_pending = true;
+
+        let next = apply_combat_action(&state, power_through_action(&state))
+            .expect("Power Through applies");
+
+        assert_eq!(next.player.block, state.player.block + 30);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count(),
+            4
+        );
+        assert!(!next.duplication_potion_pending);
+    }
+
+    #[test]
+    fn power_through_event_log_records_block_wounds_and_pile_move() {
+        let state = hand_only(POWER_THROUGH_ID);
+        let power_through_id = hand_card_id(&state, POWER_THROUGH_ID);
+
+        let transition = apply_combat_action_with_events(&state, power_through_action(&state))
+            .expect("Power Through applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: power_through_id
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::GainBlock { amount: 15 },
+                InternalAction::AddCardToPile {
+                    content_id: WOUND_ID,
+                    to: CardPile::Hand,
+                },
+                InternalAction::AddCardToPile {
+                    content_id: WOUND_ID,
+                    to: CardPile::Hand,
+                },
+                InternalAction::MoveCard {
+                    card_id: power_through_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -3306,6 +3439,17 @@ mod tests {
     }
 
     #[test]
+    fn gremlin_nob_enrage_applies_to_power_through() {
+        let mut state = CombatState::gremlin_nob_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), POWER_THROUGH_ID)];
+
+        let next = apply_combat_action(&state, power_through_action(&state))
+            .expect("Power Through applies");
+
+        assert_eq!(next.monsters[0].powers.anger, 2);
+    }
+
+    #[test]
     fn gremlin_nob_enrage_does_not_trigger_on_strike() {
         let state = CombatState::gremlin_nob_fixture();
 
@@ -3735,6 +3879,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, PERFECTED_STRIKE_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn power_through_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, POWER_THROUGH_ID),
+            target: None,
         }
     }
 

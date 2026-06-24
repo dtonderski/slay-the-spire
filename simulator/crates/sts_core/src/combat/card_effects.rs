@@ -12,11 +12,12 @@ use crate::{
         DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID,
         FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID,
         INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
+        WOUND_ID,
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{
@@ -91,6 +92,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Perfected Strike has a target"),
             definition,
         ),
+        POWER_THROUGH_ID => power_through_queue(card_id, definition),
         CLOTHESLINE_ID => clothesline_queue(
             card_id,
             target.expect("validated Clothesline has a target"),
@@ -551,6 +553,34 @@ fn wild_strike_queue(
         InternalAction::AddCardToPile {
             content_id: WOUND_ID,
             to: CardPile::DrawPile,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn power_through_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: definition.values.block.unwrap_or(0),
+        },
+        InternalAction::AddCardToPile {
+            content_id: WOUND_ID,
+            to: CardPile::Hand,
+        },
+        InternalAction::AddCardToPile {
+            content_id: WOUND_ID,
+            to: CardPile::Hand,
         },
         InternalAction::MoveCard {
             card_id,
