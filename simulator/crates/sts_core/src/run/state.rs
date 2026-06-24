@@ -288,6 +288,10 @@ mod tests {
             Some(Relic::LizardTail)
         );
         assert_eq!(
+            Relic::from_key(RelicKey::Pocketwatch),
+            Some(Relic::Pocketwatch)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1632,7 +1636,8 @@ impl RunState {
             | Relic::CharonsAshes
             | Relic::BlueCandle
             | Relic::MedicalKit
-            | Relic::LizardTail => {}
+            | Relic::LizardTail
+            | Relic::Pocketwatch => {}
         }
     }
 
@@ -1881,6 +1886,7 @@ impl Relic {
             Relic::BlueCandle => RelicKey::BlueCandle,
             Relic::MedicalKit => RelicKey::MedicalKit,
             Relic::LizardTail => RelicKey::LizardTail,
+            Relic::Pocketwatch => RelicKey::Pocketwatch,
         }
     }
 
@@ -1979,6 +1985,7 @@ impl Relic {
             RelicKey::BlueCandle => Some(Relic::BlueCandle),
             RelicKey::MedicalKit => Some(Relic::MedicalKit),
             RelicKey::LizardTail => Some(Relic::LizardTail),
+            RelicKey::Pocketwatch => Some(Relic::Pocketwatch),
             _ => None,
         }
     }
