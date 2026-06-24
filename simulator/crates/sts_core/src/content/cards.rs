@@ -1175,6 +1175,27 @@ pub const BLUDGEON: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const IMPERVIOUS: CardDefinition = CardDefinition {
+    id: IMPERVIOUS_ID,
+    key: "IMPERVIOUS",
+    name: "Impervious",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(30),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const METALLICIZE: CardDefinition = CardDefinition {
     id: METALLICIZE_ID,
     key: "Metallicize",
@@ -1260,7 +1281,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 67] = [
+pub const ALL_CARDS: [CardDefinition; 68] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1325,6 +1346,7 @@ pub const ALL_CARDS: [CardDefinition; 67] = [
     HEMOKINESIS,
     IMMOLATE,
     BLUDGEON,
+    IMPERVIOUS,
     METALLICIZE,
     THUNDERCLAP,
     UPPERCUT,
@@ -1383,6 +1405,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         _ => None,
     }
@@ -1553,6 +1576,19 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(BLUDGEON_ID),
             Some((CardType::Attack, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn impervious_has_expected_values() {
+        assert_eq!(IMPERVIOUS.cost, 2);
+        assert_eq!(IMPERVIOUS.target, TargetRequirement::None);
+        assert_eq!(IMPERVIOUS.card_type, CardType::Skill);
+        assert_eq!(IMPERVIOUS.values.block, Some(30));
+        assert!(IMPERVIOUS.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(IMPERVIOUS_ID),
+            Some((CardType::Skill, CardRarity::Rare))
         );
     }
 
