@@ -1312,6 +1312,8 @@ Completed slice:
 - implemented Lizard Tail key promotion, run-state used flag persistence, and lethal-combat revive timing before Fairy fallback, with focused reward/combat tests
 - expanded modeled previous-turn card-count relics: Pocketwatch
 - implemented Pocketwatch key promotion, persisted previous-turn card-play counting, and start-of-turn draw-three timing, with focused relic counter/draw tests
+- expanded modeled block-break attack relics: Hand Drill
+- implemented Hand Drill key promotion and attack-only block-break Vulnerable through the shared damage transition path, with focused combat tests
 - expanded modeled floor-entry gold relics: Maw Bank
 - implemented Maw Bank key promotion, +12 gold floor entry, and shop-spend break behavior, with map/shop/grid tests
 - expanded modeled rest-site energy relics: Ancient Tea Set

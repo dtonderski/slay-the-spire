@@ -4,7 +4,7 @@ use crate::{
     combat::{
         apply_burning_blood,
         damage::{
-            deal_damage_info_to_monster, deal_unmodified_damage_to_monster,
+            deal_damage_info_to_monster_with_result, deal_unmodified_damage_to_monster,
             reflect_spikes_to_player, DamageInfo, DamageSource,
         },
         validate_combat_action, CombatPhase,
@@ -1234,15 +1234,22 @@ fn apply_internal_action(
             let (spikes, still_alive) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
-                let hp_damage = deal_damage_info_to_monster(
+                let damage = deal_damage_info_to_monster_with_result(
                     monster,
                     info,
                     player_powers,
                     temp_strength,
                     &relics,
                 );
-                wake_lagavulin_on_damage(monster, hp_damage);
-                guardian_on_hp_damage(monster, hp_damage);
+                if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
+                    crate::relic::apply_monster_vulnerable_with_relics(
+                        &mut monster.powers,
+                        &relics,
+                        crate::relic::HAND_DRILL_VULNERABLE,
+                    );
+                }
+                wake_lagavulin_on_damage(monster, damage.hp_damage);
+                guardian_on_hp_damage(monster, damage.hp_damage);
                 (spikes, monster.alive)
             };
             check_slime_boss_split(state, info.target);
@@ -1269,7 +1276,7 @@ fn apply_internal_action(
             for (target, spikes) in targets {
                 let still_alive = {
                     let monster = living_monster_mut(state, target)?;
-                    let hp_damage = deal_damage_info_to_monster(
+                    let damage = deal_damage_info_to_monster_with_result(
                         monster,
                         DamageInfo {
                             source: DamageSource::Card(source),
@@ -1280,8 +1287,15 @@ fn apply_internal_action(
                         temp_strength,
                         &relics,
                     );
-                    wake_lagavulin_on_damage(monster, hp_damage);
-                    guardian_on_hp_damage(monster, hp_damage);
+                    if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
+                        crate::relic::apply_monster_vulnerable_with_relics(
+                            &mut monster.powers,
+                            &relics,
+                            crate::relic::HAND_DRILL_VULNERABLE,
+                        );
+                    }
+                    wake_lagavulin_on_damage(monster, damage.hp_damage);
+                    guardian_on_hp_damage(monster, damage.hp_damage);
                     monster.alive
                 };
                 check_slime_boss_split(state, target);
@@ -2292,6 +2306,44 @@ mod tests {
         assert_eq!(next.relic_counters.centennial_puzzle_triggers, 1);
         assert_eq!(next.piles.hand.len(), 5);
         assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn hand_drill_applies_vulnerable_when_attack_breaks_block() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::HandDrill);
+        state.monsters[0].block = 5;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(
+            next.monsters[0].powers.vulnerable,
+            crate::relic::HAND_DRILL_VULNERABLE
+        );
+        assert_eq!(next.monsters[0].block, 0);
+    }
+
+    #[test]
+    fn hand_drill_does_not_apply_without_relic() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].block = 5;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 0);
+        assert_eq!(next.monsters[0].block, 0);
+    }
+
+    #[test]
+    fn hand_drill_does_not_apply_when_attack_does_not_break_block() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::HandDrill);
+        state.monsters[0].block = 10;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 0);
+        assert_eq!(next.monsters[0].block, 4);
     }
 
     #[test]

@@ -397,6 +397,10 @@ pub const POCKETWATCH_ID: ContentId = ContentId::new(392);
 pub const POCKETWATCH_DRAW: usize = 3;
 /// Maximum previous-turn card plays that trigger [Relic::Pocketwatch].
 pub const POCKETWATCH_CARD_LIMIT: u32 = 3;
+/// Content id for [Relic::HandDrill].
+pub const HAND_DRILL_ID: ContentId = ContentId::new(393);
+/// Vulnerable applied by [Relic::HandDrill] when an attack breaks monster block.
+pub const HAND_DRILL_VULNERABLE: i32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1023,6 +1027,7 @@ pub enum Relic {
     MedicalKit,
     LizardTail,
     Pocketwatch,
+    HandDrill,
 }
 
 impl Relic {
@@ -1122,6 +1127,7 @@ impl Relic {
             Relic::MedicalKit => MEDICAL_KIT_ID,
             Relic::LizardTail => LIZARD_TAIL_ID,
             Relic::Pocketwatch => POCKETWATCH_ID,
+            Relic::HandDrill => HAND_DRILL_ID,
         }
     }
 
@@ -1221,6 +1227,7 @@ impl Relic {
             id if id == MEDICAL_KIT_ID => Some(Relic::MedicalKit),
             id if id == LIZARD_TAIL_ID => Some(Relic::LizardTail),
             id if id == POCKETWATCH_ID => Some(Relic::Pocketwatch),
+            id if id == HAND_DRILL_ID => Some(Relic::HandDrill),
             _ => None,
         }
     }
@@ -1357,6 +1364,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::MedicalKit => {}
             Relic::LizardTail => {}
             Relic::Pocketwatch => {}
+            Relic::HandDrill => {}
         }
     }
 
@@ -2460,6 +2468,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(POCKETWATCH_ID),
             Some(Relic::Pocketwatch)
+        );
+        assert_eq!(Relic::HandDrill.content_id(), HAND_DRILL_ID);
+        assert_eq!(
+            Relic::from_content_id(HAND_DRILL_ID),
+            Some(Relic::HandDrill)
         );
     }
 
