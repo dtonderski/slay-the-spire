@@ -391,6 +391,12 @@ pub const MEDICAL_KIT_ID: ContentId = ContentId::new(390);
 pub const LIZARD_TAIL_ID: ContentId = ContentId::new(391);
 /// Percent of max HP restored by [Relic::LizardTail] on lethal damage.
 pub const LIZARD_TAIL_HEAL_PERCENT: i32 = 50;
+/// Content id for [Relic::Pocketwatch].
+pub const POCKETWATCH_ID: ContentId = ContentId::new(392);
+/// Cards drawn by [Relic::Pocketwatch] after a turn with three or fewer cards played.
+pub const POCKETWATCH_DRAW: usize = 3;
+/// Maximum previous-turn card plays that trigger [Relic::Pocketwatch].
+pub const POCKETWATCH_CARD_LIMIT: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -412,6 +418,8 @@ pub struct RelicCounters {
     pub cards_played_this_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub attacks_played_this_turn: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub cards_played_last_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub attacks_played_this_combat: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -1014,6 +1022,7 @@ pub enum Relic {
     BlueCandle,
     MedicalKit,
     LizardTail,
+    Pocketwatch,
 }
 
 impl Relic {
@@ -1112,6 +1121,7 @@ impl Relic {
             Relic::BlueCandle => BLUE_CANDLE_ID,
             Relic::MedicalKit => MEDICAL_KIT_ID,
             Relic::LizardTail => LIZARD_TAIL_ID,
+            Relic::Pocketwatch => POCKETWATCH_ID,
         }
     }
 
@@ -1210,6 +1220,7 @@ impl Relic {
             id if id == BLUE_CANDLE_ID => Some(Relic::BlueCandle),
             id if id == MEDICAL_KIT_ID => Some(Relic::MedicalKit),
             id if id == LIZARD_TAIL_ID => Some(Relic::LizardTail),
+            id if id == POCKETWATCH_ID => Some(Relic::Pocketwatch),
             _ => None,
         }
     }
@@ -1345,6 +1356,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BlueCandle => {}
             Relic::MedicalKit => {}
             Relic::LizardTail => {}
+            Relic::Pocketwatch => {}
         }
     }
 
@@ -1436,6 +1448,7 @@ pub fn preserves_energy_between_turns(relics: &[Relic]) -> bool {
 
 pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.attacks_played_last_turn = state.relic_counters.attacks_played_this_turn;
+    state.relic_counters.cards_played_last_turn = state.relic_counters.cards_played_this_turn;
     state.relic_counters.ornamental_fan_attacks_this_turn = 0;
     state.relic_counters.shuriken_attacks_this_turn = 0;
     state.relic_counters.kunai_attacks_this_turn = 0;
@@ -1466,6 +1479,13 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
         state.player.energy += ART_OF_WAR_ENERGY;
     }
 
+    if state.relics.contains(&Relic::Pocketwatch)
+        && state.relic_counters.player_turns_started > 1
+        && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT
+    {
+        crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW);
+    }
+
     match state.relic_counters.player_turns_started {
         HORN_CLEAT_TURN if state.relics.contains(&Relic::HornCleat) => {
             state.player.block += HORN_CLEAT_BLOCK;
@@ -1494,6 +1514,7 @@ fn has_start_of_turn_relic(state: &CombatState) -> bool {
             relic,
             Relic::HappyFlower
                 | Relic::ArtOfWar
+                | Relic::Pocketwatch
                 | Relic::HornCleat
                 | Relic::CaptainsWheel
                 | Relic::MercuryHourglass
@@ -2435,6 +2456,11 @@ mod tests {
             Relic::from_content_id(LIZARD_TAIL_ID),
             Some(Relic::LizardTail)
         );
+        assert_eq!(Relic::Pocketwatch.content_id(), POCKETWATCH_ID);
+        assert_eq!(
+            Relic::from_content_id(POCKETWATCH_ID),
+            Some(Relic::Pocketwatch)
+        );
     }
 
     #[test]
@@ -2773,6 +2799,7 @@ mod tests {
         assert_eq!(combat.relic_counters.kunai_attacks_this_turn, 0);
         assert_eq!(combat.relic_counters.letter_opener_skills_this_turn, 0);
         assert_eq!(combat.relic_counters.cards_played_this_turn, 0);
+        assert_eq!(combat.relic_counters.cards_played_last_turn, 6);
         assert_eq!(combat.relic_counters.attacks_played_this_turn, 0);
         assert_eq!(combat.relic_counters.attacks_played_last_turn, 4);
         assert_eq!(combat.relic_counters.nunchaku_attacks_played, 9);
@@ -2918,6 +2945,7 @@ mod tests {
             letter_opener_skills_this_turn: 1,
             cards_played_this_turn: 5,
             attacks_played_this_turn: 3,
+            cards_played_last_turn: 2,
             attacks_played_this_combat: 4,
             centennial_puzzle_triggers: 1,
             attacks_played_last_turn: 1,
@@ -2930,6 +2958,55 @@ mod tests {
         let restored: RelicCounters = serde_json::from_str(&json).expect("counters deserialize");
 
         assert_eq!(restored, counters);
+    }
+
+    #[test]
+    fn pocketwatch_draws_three_after_turn_with_three_or_fewer_cards_played() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Pocketwatch];
+        combat.relic_counters.player_turns_started = 1;
+        combat.relic_counters.cards_played_last_turn = POCKETWATCH_CARD_LIMIT;
+        while combat.piles.draw_pile.len() < POCKETWATCH_DRAW {
+            let card = combat.piles.hand.pop().expect("hand card");
+            combat.piles.draw_pile.push(card);
+        }
+        let hand_before = combat.piles.hand.len();
+        let draw_before = combat.piles.draw_pile.len();
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.relic_counters.player_turns_started, 2);
+        assert_eq!(combat.piles.hand.len(), hand_before + POCKETWATCH_DRAW);
+        assert_eq!(combat.piles.draw_pile.len(), draw_before - POCKETWATCH_DRAW);
+    }
+
+    #[test]
+    fn pocketwatch_does_not_draw_after_turn_with_four_cards_played() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Pocketwatch];
+        combat.relic_counters.player_turns_started = 1;
+        combat.relic_counters.cards_played_last_turn = POCKETWATCH_CARD_LIMIT + 1;
+        let hand_before = combat.piles.hand.len();
+        let draw_before = combat.piles.draw_pile.len();
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.relic_counters.player_turns_started, 2);
+        assert_eq!(combat.piles.hand.len(), hand_before);
+        assert_eq!(combat.piles.draw_pile.len(), draw_before);
+    }
+
+    #[test]
+    fn pocketwatch_does_not_draw_on_first_player_turn() {
+        let mut combat = CombatState::initial_fixture();
+        combat.relics = vec![Relic::Pocketwatch];
+        combat.relic_counters.cards_played_last_turn = 0;
+        let hand_before = combat.piles.hand.len();
+
+        apply_start_of_player_turn_relics(&mut combat);
+
+        assert_eq!(combat.relic_counters.player_turns_started, 1);
+        assert_eq!(combat.piles.hand.len(), hand_before);
     }
 
     #[test]
