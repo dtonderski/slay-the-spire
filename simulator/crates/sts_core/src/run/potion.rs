@@ -23,7 +23,7 @@ use crate::{
         SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     rng::{RngStream, SimulatorRng, StsRng},
-    run::reward::target_random_potion,
+    run::reward::{apply_dead_branch_for_exhaust_count, target_random_potion},
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -197,8 +197,16 @@ pub fn apply_hand_select_choice(run: &RunState, index: usize) -> SimResult<RunSt
 pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
     validate_hand_select_confirm(run)?;
     let mut next = run.clone();
-    let combat = next.combat.as_mut().expect("validated combat");
-    confirm_hand_select(combat)?;
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    confirm_hand_select(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+    next.combat = Some(combat);
     Ok(next)
 }
 
@@ -229,8 +237,16 @@ pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<Ru
 pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
     validate_exhaust_select_confirm(run)?;
     let mut next = run.clone();
-    let combat = next.combat.as_mut().expect("validated combat");
-    confirm_exhaust_select(combat)?;
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    confirm_exhaust_select(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+    next.combat = Some(combat);
     Ok(next)
 }
 

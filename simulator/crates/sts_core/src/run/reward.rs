@@ -1,9 +1,11 @@
 use crate::{
     card::{CardInstance, CardRarity},
-    combat::{apply_combat_action, CombatPhase},
-    content::cards::{upgrade_content_id, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
+    combat::{apply_combat_action_with_events, CombatPhase},
+    content::cards::{
+        upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID, SHRUG_IT_OFF_ID,
+    },
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
-    ids::CardId,
+    ids::{CardId, ContentId},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{
         Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, QUESTION_CARD_REWARD_BONUS,
@@ -36,6 +38,7 @@ const MEDIUM_CHEST_CHANCE: i32 = 33;
 const CHEST_GOLD_CHANCES: [i32; 3] = [50, 35, 50];
 const CHEST_RELIC_COMMON_CHANCES: [i32; 3] = [75, 35, 0];
 const CHEST_RELIC_UNCOMMON_CHANCES: [i32; 3] = [25, 50, 75];
+const MAX_HAND_SIZE: usize = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ChestSize {
@@ -627,8 +630,10 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         .as_ref()
         .ok_or(SimError::InvalidState("combat state is missing"))?;
 
-    let mut next_combat = apply_combat_action(combat, action)?;
+    let transition = apply_combat_action_with_events(combat, action)?;
+    let mut next_combat = transition.state;
     let mut next = run.clone();
+    apply_dead_branch_for_exhaust_log(&mut next, &mut next_combat, &transition.event_log);
     apply_fairy_if_lethal(&mut next, &mut next_combat);
     next.combat = Some(next_combat.clone());
     next.player_hp = next_combat.player.hp;
@@ -639,6 +644,59 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+fn apply_dead_branch_for_exhaust_log(
+    run: &mut RunState,
+    combat: &mut crate::combat::CombatState,
+    event_log: &[crate::InternalAction],
+) {
+    let exhaust_count = event_log
+        .iter()
+        .filter(|action| matches!(action, crate::InternalAction::CardExhausted { .. }))
+        .count();
+    apply_dead_branch_for_exhaust_count(run, combat, exhaust_count);
+}
+
+pub(crate) fn apply_dead_branch_for_exhaust_count(
+    run: &mut RunState,
+    combat: &mut crate::combat::CombatState,
+    exhaust_count: usize,
+) {
+    if exhaust_count == 0
+        || !run.relics.contains(&Relic::DeadBranch)
+        || !combat.monsters.iter().any(|monster| monster.alive)
+    {
+        return;
+    }
+
+    let pool = dead_branch_card_pool();
+    let mut rng = run.card_random_rng();
+    for _ in 0..exhaust_count {
+        let index = rng.random_int((pool.len() - 1) as i32) as usize;
+        let next_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+        let mut card = CardInstance::new(next_id, pool[index]);
+        card.combat_only = true;
+        if combat.piles.hand.len() < MAX_HAND_SIZE {
+            combat.piles.hand.push(card);
+        } else {
+            combat.piles.discard_pile.push(card);
+        }
+    }
+    run.card_random_rng_counter = rng.counter();
+}
+
+fn dead_branch_card_pool() -> Vec<ContentId> {
+    [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare]
+        .into_iter()
+        .flat_map(|rarity| {
+            IRONCLAD_REWARD_ENTRIES
+                .iter()
+                .filter(move |entry| entry.rarity == rarity)
+                .map(|entry| entry.content_id)
+        })
+        .filter(|content_id| *content_id != FEED_ID && *content_id != REAPER_ID)
+        .collect()
 }
 
 fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatState) {
@@ -816,8 +874,9 @@ mod tests {
     use super::*;
     use crate::card::CardType;
     use crate::content::cards::{
-        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, HAVOC_ID, SENTINEL_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, FEED_ID, HAVOC_ID,
+        REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -1015,6 +1074,102 @@ mod tests {
             unique.len()
         });
         assert!(content_ids.iter().all(|id| pool.contains(id)));
+    }
+
+    #[test]
+    fn dead_branch_pool_excludes_healing_cards() {
+        let pool = dead_branch_card_pool();
+
+        assert_eq!(pool.len(), IRONCLAD_REWARD_ENTRIES.len() - 2);
+        assert!(!pool.contains(&FEED_ID));
+        assert!(!pool.contains(&REAPER_ID));
+    }
+
+    #[test]
+    fn dead_branch_adds_random_card_to_hand_on_exhaust() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        run.reward_rng_seed = 1234;
+        run.current_floor = 2;
+        let mut expected_rng = run.card_random_rng();
+        let pool = dead_branch_card_pool();
+        let expected = pool[expected_rng.random_int((pool.len() - 1) as i32) as usize];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(25), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+        combat.piles.draw_pile.clear();
+        combat.piles.discard_pile.clear();
+        combat.piles.exhaust_pile.clear();
+
+        let after = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("True Grit applies");
+        let combat = after.combat.expect("combat remains active");
+
+        assert_eq!(after.card_random_rng_counter, expected_rng.counter());
+        let generated = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.combat_only)
+            .expect("Dead Branch generated a temporary card");
+        assert_eq!(generated.content_id, expected);
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn exhaust_without_dead_branch_does_not_roll_card_random_rng() {
+        let mut run = RunState::combat_fixture();
+        run.reward_rng_seed = 1234;
+        run.current_floor = 2;
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(25), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+        combat.piles.draw_pile.clear();
+        combat.piles.discard_pile.clear();
+        combat.piles.exhaust_pile.clear();
+
+        let after = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("True Grit applies");
+        let combat = after.combat.expect("combat remains active");
+
+        assert_eq!(after.card_random_rng_counter, 0);
+        assert!(!combat.piles.hand.iter().any(|card| card.combat_only));
+    }
+
+    #[test]
+    fn dead_branch_overflows_to_discard_when_hand_is_full() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        let mut combat = run.combat.take().expect("combat fixture");
+        combat.piles.hand = (0..10)
+            .map(|index| CardInstance::new(CardId::new(100 + index), STRIKE_R_ID))
+            .collect();
+        combat.piles.discard_pile.clear();
+
+        apply_dead_branch_for_exhaust_count(&mut run, &mut combat, 1);
+
+        assert_eq!(combat.piles.hand.len(), 10);
+        assert_eq!(combat.piles.discard_pile.len(), 1);
+        assert!(combat.piles.discard_pile[0].combat_only);
+        assert_eq!(run.card_random_rng_counter, 1);
     }
 
     #[test]

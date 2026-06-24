@@ -1926,7 +1926,8 @@ impl RunState {
             | Relic::Shovel
             | Relic::FossilizedHelix
             | Relic::BlackStar
-            | Relic::Matryoshka => {}
+            | Relic::Matryoshka
+            | Relic::DeadBranch => {}
         }
     }
 
@@ -2232,6 +2233,7 @@ impl Relic {
             Relic::RingOfTheSerpent => RelicKey::RingOfTheSerpent,
             Relic::Cauldron => RelicKey::Cauldron,
             Relic::TinyHouse => RelicKey::TinyHouse,
+            Relic::DeadBranch => RelicKey::DeadBranch,
         }
     }
 
@@ -2360,6 +2362,7 @@ impl Relic {
             RelicKey::RingOfTheSerpent => Some(Relic::RingOfTheSerpent),
             RelicKey::Cauldron => Some(Relic::Cauldron),
             RelicKey::TinyHouse => Some(Relic::TinyHouse),
+            RelicKey::DeadBranch => Some(Relic::DeadBranch),
             _ => None,
         }
     }
