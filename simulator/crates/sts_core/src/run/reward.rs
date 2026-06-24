@@ -357,7 +357,7 @@ fn split_relic_offer(key: RelicKey) -> (Option<Relic>, Option<RelicKey>) {
     (relic_offer, relic_key_offer)
 }
 
-fn roll_black_star_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey>) {
+fn roll_bonus_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey>) {
     let mut relic_rng = StsRng::with_counter(run.relic_rng_seed as i64, run.relic_rng_counter);
     let tier = target_relic_tier(&mut relic_rng, run.current_act);
     run.relic_rng_counter = relic_rng.counter();
@@ -380,7 +380,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     let (relic_offer, relic_key_offer) = split_relic_offer(key);
     let (pending_relic_offer, pending_relic_key_offer) =
         if kind == CombatRewardKind::Elite && run.relics.contains(&Relic::BlackStar) {
-            roll_black_star_relic_offer(run)
+            roll_bonus_relic_offer(run)
         } else {
             (None, None)
         };
@@ -531,7 +531,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let key = roll_relic_reward(run, tier);
     let (relic_offer, relic_key_offer) = split_relic_offer(key);
     let (pending_relic_offer, pending_relic_key_offer) = if run.relics.contains(&Relic::BlackStar) {
-        roll_black_star_relic_offer(run)
+        roll_bonus_relic_offer(run)
     } else {
         (None, None)
     };
@@ -581,6 +581,13 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         .relic_tier;
     let key = roll_relic_reward(run, tier);
     let (relic_offer, relic_key_offer) = split_relic_offer(key);
+    let (pending_relic_offer, pending_relic_key_offer) =
+        if run.relics.contains(&Relic::Matryoshka) && run.matryoshka_chests_opened < 2 {
+            run.matryoshka_chests_opened += 1;
+            roll_bonus_relic_offer(run)
+        } else {
+            (None, None)
+        };
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -590,8 +597,8 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         potion_offer: None,
         relic_offer,
         relic_key_offer,
-        pending_relic_offer: None,
-        pending_relic_key_offer: None,
+        pending_relic_offer,
+        pending_relic_key_offer,
         card_reward_active: false,
         card_reward_pending: false,
     });
@@ -1801,6 +1808,56 @@ mod tests {
         let reward = after_second.reward.as_ref().expect("reward");
         assert_eq!(offered_relic_key(reward), None);
         assert_eq!(pending_relic_key(reward), None);
+    }
+
+    #[test]
+    fn matryoshka_chest_reward_queues_second_relic_offer() {
+        let mut run = RunState::map_fixture();
+        run.relic_rng_seed = 22_079_335_079;
+        run.current_floor = 12;
+        run.relics.push(Relic::Matryoshka);
+        run.treasure_room = Some(TreasureRoomState {
+            chest_size: ChestSize::Medium,
+            relic_tier: RelicTier::Common,
+            have_gold: false,
+        });
+
+        enter_chest_relic_reward_screen(&mut run);
+
+        let reward = run.reward.as_ref().expect("chest reward");
+        let first_key = offered_relic_key(reward).expect("first relic offer");
+        let second_key = pending_relic_key(reward).expect("matryoshka relic offer");
+        assert_ne!(first_key, second_key);
+        assert_eq!(run.matryoshka_chests_opened, 1);
+
+        let after_first =
+            apply_run_action(&run, RunAction::TakeRelicReward).expect("take first relic");
+        assert!(run_has_relic_key(&after_first, first_key));
+        assert_eq!(
+            offered_relic_key(after_first.reward.as_ref().expect("reward")),
+            Some(second_key)
+        );
+    }
+
+    #[test]
+    fn matryoshka_chest_reward_stops_after_two_chests() {
+        let mut run = RunState::map_fixture();
+        run.relic_rng_seed = 22_079_335_079;
+        run.current_floor = 12;
+        run.relics.push(Relic::Matryoshka);
+        run.matryoshka_chests_opened = 2;
+        run.treasure_room = Some(TreasureRoomState {
+            chest_size: ChestSize::Medium,
+            relic_tier: RelicTier::Common,
+            have_gold: false,
+        });
+
+        enter_chest_relic_reward_screen(&mut run);
+
+        let reward = run.reward.as_ref().expect("chest reward");
+        assert!(offered_relic_key(reward).is_some());
+        assert_eq!(pending_relic_key(reward), None);
+        assert_eq!(run.matryoshka_chests_opened, 2);
     }
 
     #[test]

@@ -433,6 +433,8 @@ pub const FOSSILIZED_HELIX_ID: ContentId = ContentId::new(405);
 pub const FOSSILIZED_HELIX_BUFFER: i32 = 1;
 /// Content id for [Relic::BlackStar].
 pub const BLACK_STAR_ID: ContentId = ContentId::new(406);
+/// Content id for [Relic::Matryoshka].
+pub const MATRYOSHKA_ID: ContentId = ContentId::new(407);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1083,6 +1085,7 @@ pub enum Relic {
     Shovel,
     FossilizedHelix,
     BlackStar,
+    Matryoshka,
 }
 
 impl Relic {
@@ -1196,6 +1199,7 @@ impl Relic {
             Relic::Shovel => SHOVEL_ID,
             Relic::FossilizedHelix => FOSSILIZED_HELIX_ID,
             Relic::BlackStar => BLACK_STAR_ID,
+            Relic::Matryoshka => MATRYOSHKA_ID,
         }
     }
 
@@ -1309,6 +1313,7 @@ impl Relic {
             id if id == SHOVEL_ID => Some(Relic::Shovel),
             id if id == FOSSILIZED_HELIX_ID => Some(Relic::FossilizedHelix),
             id if id == BLACK_STAR_ID => Some(Relic::BlackStar),
+            id if id == MATRYOSHKA_ID => Some(Relic::Matryoshka),
             _ => None,
         }
     }
@@ -1327,6 +1332,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::UnceasingTop => {}
             Relic::Shovel => {}
             Relic::BlackStar => {}
+            Relic::Matryoshka => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -2660,6 +2666,11 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(BLACK_STAR_ID),
             Some(Relic::BlackStar)
+        );
+        assert_eq!(Relic::Matryoshka.content_id(), MATRYOSHKA_ID);
+        assert_eq!(
+            Relic::from_content_id(MATRYOSHKA_ID),
+            Some(Relic::Matryoshka)
         );
     }
 
