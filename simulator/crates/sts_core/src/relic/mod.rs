@@ -377,6 +377,10 @@ pub const GREMLIN_HORN_ENERGY: i32 = 1;
 pub const GREMLIN_HORN_DRAW: usize = 1;
 /// Content id for [Relic::Sundial].
 pub const SUNDIAL_ID: ContentId = ContentId::new(387);
+/// Content id for [Relic::CharonsAshes].
+pub const CHARONS_ASHES_ID: ContentId = ContentId::new(388);
+/// Damage dealt to all enemies by [Relic::CharonsAshes] when a card is exhausted.
+pub const CHARONS_ASHES_DAMAGE: i32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -996,6 +1000,7 @@ pub enum Relic {
     TheAbacus,
     GremlinHorn,
     Sundial,
+    CharonsAshes,
 }
 
 impl Relic {
@@ -1090,6 +1095,7 @@ impl Relic {
             Relic::TheAbacus => THE_ABACUS_ID,
             Relic::GremlinHorn => GREMLIN_HORN_ID,
             Relic::Sundial => SUNDIAL_ID,
+            Relic::CharonsAshes => CHARONS_ASHES_ID,
         }
     }
 
@@ -1184,6 +1190,7 @@ impl Relic {
             id if id == THE_ABACUS_ID => Some(Relic::TheAbacus),
             id if id == GREMLIN_HORN_ID => Some(Relic::GremlinHorn),
             id if id == SUNDIAL_ID => Some(Relic::Sundial),
+            id if id == CHARONS_ASHES_ID => Some(Relic::CharonsAshes),
             _ => None,
         }
     }
@@ -1315,6 +1322,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::TheAbacus => {}
             Relic::GremlinHorn => {}
             Relic::Sundial => {}
+            Relic::CharonsAshes => {}
         }
     }
 
@@ -2370,6 +2378,11 @@ mod tests {
         );
         assert_eq!(Relic::Sundial.content_id(), SUNDIAL_ID);
         assert_eq!(Relic::from_content_id(SUNDIAL_ID), Some(Relic::Sundial));
+        assert_eq!(Relic::CharonsAshes.content_id(), CHARONS_ASHES_ID);
+        assert_eq!(
+            Relic::from_content_id(CHARONS_ASHES_ID),
+            Some(Relic::CharonsAshes)
+        );
     }
 
     #[test]

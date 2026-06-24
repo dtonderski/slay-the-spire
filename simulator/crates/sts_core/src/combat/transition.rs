@@ -3,7 +3,10 @@ use crate::{
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{
         apply_burning_blood,
-        damage::{deal_damage_info_to_monster, reflect_spikes_to_player, DamageInfo, DamageSource},
+        damage::{
+            deal_damage_info_to_monster, deal_unmodified_damage_to_monster,
+            reflect_spikes_to_player, DamageInfo, DamageSource,
+        },
         validate_combat_action, CombatPhase,
     },
     content::cards::{
@@ -1372,6 +1375,29 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState) {
     if state.player.powers.dark_embrace > 0 {
         player_draw_cards(state, state.player.powers.dark_embrace as usize);
     }
+    if state.relics.contains(&Relic::CharonsAshes) {
+        let targets = state
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive)
+            .map(|monster| monster.id)
+            .collect::<Vec<_>>();
+        for target in targets {
+            let still_alive = {
+                let monster = living_monster_mut(state, target)
+                    .expect("target was collected from living monsters");
+                let hp_damage =
+                    deal_unmodified_damage_to_monster(monster, crate::relic::CHARONS_ASHES_DAMAGE);
+                wake_lagavulin_on_damage(monster, hp_damage);
+                guardian_on_hp_damage(monster, hp_damage);
+                monster.alive
+            };
+            check_slime_boss_split(state, target);
+            if !still_alive {
+                crate::relic::apply_monster_death_relics(state);
+            }
+        }
+    }
 }
 
 pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
@@ -2650,6 +2676,41 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.id == CardId::new(25)));
+    }
+
+    #[test]
+    fn charons_ashes_deals_three_to_all_enemies_when_card_exhausts() {
+        let mut state = two_monster_hand(TRUE_GRIT_ID);
+        state.relics = vec![Relic::CharonsAshes];
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(10), DEFEND_R_ID));
+        let first_hp = state.monsters[0].hp;
+        let second_hp = state.monsters[1].hp;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("True Grit applies");
+
+        assert_eq!(
+            next.monsters[0].hp,
+            first_hp - crate::relic::CHARONS_ASHES_DAMAGE
+        );
+        assert_eq!(
+            next.monsters[1].hp,
+            second_hp - crate::relic::CHARONS_ASHES_DAMAGE
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(10)));
     }
 
     #[test]

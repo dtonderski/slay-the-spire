@@ -272,6 +272,10 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::Sundial), Some(Relic::Sundial));
         assert_eq!(
+            Relic::from_key(RelicKey::CharonsAshes),
+            Some(Relic::CharonsAshes)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1608,7 +1612,8 @@ impl RunState {
             | Relic::RunicCube
             | Relic::TheAbacus
             | Relic::GremlinHorn
-            | Relic::Sundial => {}
+            | Relic::Sundial
+            | Relic::CharonsAshes => {}
         }
     }
 
@@ -1853,6 +1858,7 @@ impl Relic {
             Relic::TheAbacus => RelicKey::TheAbacus,
             Relic::GremlinHorn => RelicKey::GremlinHorn,
             Relic::Sundial => RelicKey::Sundial,
+            Relic::CharonsAshes => RelicKey::CharonsAshes,
         }
     }
 
@@ -1947,6 +1953,7 @@ impl Relic {
             RelicKey::TheAbacus => Some(Relic::TheAbacus),
             RelicKey::GremlinHorn => Some(Relic::GremlinHorn),
             RelicKey::Sundial => Some(Relic::Sundial),
+            RelicKey::CharonsAshes => Some(Relic::CharonsAshes),
             _ => None,
         }
     }
