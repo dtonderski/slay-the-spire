@@ -37,6 +37,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 
 pub fn start_player_turn(state: &mut CombatState) {
     crate::relic::reset_turn_relic_counters(state);
+    reset_turn_only_temp_costs(state);
     if !crate::relic::preserves_energy_between_turns(&state.relics) {
         state.player.energy = state.player.max_energy;
     }
@@ -50,6 +51,22 @@ pub fn start_player_turn(state: &mut CombatState) {
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
+}
+
+fn reset_turn_only_temp_costs(state: &mut CombatState) {
+    for pile in [
+        &mut state.piles.hand,
+        &mut state.piles.draw_pile,
+        &mut state.piles.discard_pile,
+        &mut state.piles.exhaust_pile,
+    ] {
+        for card in pile {
+            if card.temp_cost_turn_only {
+                card.temp_cost = None;
+                card.temp_cost_turn_only = false;
+            }
+        }
+    }
 }
 
 fn run_monster_turn(state: &mut CombatState) {
