@@ -317,6 +317,10 @@ mod tests {
         );
         assert_eq!(Relic::from_key(RelicKey::Girya), Some(Relic::Girya));
         assert_eq!(
+            Relic::from_key(RelicKey::UnceasingTop),
+            Some(Relic::UnceasingTop)
+        );
+        assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
         );
@@ -1690,7 +1694,8 @@ impl RunState {
             | Relic::FrozenEye
             | Relic::PeacePipe
             | Relic::OrangePellets
-            | Relic::Girya => {}
+            | Relic::Girya
+            | Relic::UnceasingTop => {}
         }
     }
 
@@ -1950,6 +1955,7 @@ impl Relic {
             Relic::PeacePipe => RelicKey::PeacePipe,
             Relic::OrangePellets => RelicKey::OrangePellets,
             Relic::Girya => RelicKey::Girya,
+            Relic::UnceasingTop => RelicKey::UnceasingTop,
         }
     }
 
@@ -2059,6 +2065,7 @@ impl Relic {
             RelicKey::PeacePipe => Some(Relic::PeacePipe),
             RelicKey::OrangePellets => Some(Relic::OrangePellets),
             RelicKey::Girya => Some(Relic::Girya),
+            RelicKey::UnceasingTop => Some(Relic::UnceasingTop),
             _ => None,
         }
     }

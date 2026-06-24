@@ -1334,14 +1334,20 @@ fn apply_internal_action(
         }
         InternalAction::MoveCard { card_id, from, to } => {
             move_card(state, card_id, from, to)?;
-            if to == CardPile::ExhaustPile {
-                Ok(vec![InternalAction::CardExhausted { card_id }])
-            } else {
-                Ok(Vec::new())
+            let mut follow_ups = Vec::new();
+            if from == CardPile::Hand && state.piles.hand.is_empty() {
+                apply_unceasing_top_after_hand_emptied(state);
             }
+            if to == CardPile::ExhaustPile {
+                follow_ups.push(InternalAction::CardExhausted { card_id });
+            }
+            Ok(follow_ups)
         }
         InternalAction::RemoveCard { card_id, from } => {
             remove_card_from_pile(state, card_id, from)?;
+            if from == CardPile::Hand && state.piles.hand.is_empty() {
+                apply_unceasing_top_after_hand_emptied(state);
+            }
             Ok(Vec::new())
         }
         InternalAction::AddCardToPile { content_id, to } => {
@@ -1461,6 +1467,12 @@ pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
     } else {
         let mut rng = SimulatorRng::new(0);
         crate::combat::draw::draw_cards(state, count, &mut rng);
+    }
+}
+
+fn apply_unceasing_top_after_hand_emptied(state: &mut CombatState) {
+    if state.relics.contains(&Relic::UnceasingTop) {
+        player_draw_cards(state, crate::relic::UNCEASING_TOP_DRAW);
     }
 }
 
@@ -1846,11 +1858,11 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
-        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WOUND_ID,
+        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, METALLICIZE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
     };
 
     #[test]
@@ -3709,6 +3721,98 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![ANGER_ID]
         );
+    }
+
+    #[test]
+    fn unceasing_top_draws_when_played_card_empties_hand() {
+        let mut state = hand_only(STRIKE_R_ID);
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DEFEND_R_ID);
+        assert!(next.piles.draw_pile.is_empty());
+        assert_eq!(next.piles.discard_pile[0].content_id, STRIKE_R_ID);
+    }
+
+    #[test]
+    fn unceasing_top_does_not_draw_when_other_cards_remain_in_hand() {
+        let mut state = hand_only(STRIKE_R_ID);
+        state.relics = vec![Relic::UnceasingTop];
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), DEFEND_R_ID));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), BASH_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DEFEND_R_ID);
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.draw_pile[0].content_id, BASH_ID);
+    }
+
+    #[test]
+    fn unceasing_top_respects_cannot_draw() {
+        let mut state = hand_only(STRIKE_R_ID);
+        state.relics = vec![Relic::UnceasingTop];
+        state.player.cannot_draw = true;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike applies");
+
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.draw_pile[0].content_id, DEFEND_R_ID);
+    }
+
+    #[test]
+    fn unceasing_top_draws_after_power_card_is_removed_from_hand() {
+        let mut state = hand_only(METALLICIZE_ID);
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Metallicize applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .all(|card| card.content_id != METALLICIZE_ID));
     }
 
     fn hand_only(content_id: crate::ContentId) -> CombatState {

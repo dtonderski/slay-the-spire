@@ -1367,6 +1367,8 @@ Completed slice:
 - implemented Clockwork Souvenir key promotion and source-backed start-of-combat Artifact gain, with focused relic tests
 - expanded modeled HP-loss draw relics: Runic Cube
 - implemented Runic Cube key promotion and source-backed draw-one on each HP-loss event through the shared HP-loss relic hook, with focused relic tests
+- expanded modeled hand-empty draw relics: Unceasing Top
+- implemented Unceasing Top key promotion, content-id round trips, and draw-one timing after the played card leaves an empty hand, with focused combat tests for normal draw, retained hand cards, draw-lock prevention, and power-card removal
 
 Remaining:
 

@@ -421,6 +421,10 @@ pub const PEACE_PIPE_ID: ContentId = ContentId::new(400);
 pub const ORANGE_PELLETS_ID: ContentId = ContentId::new(401);
 /// Content id for [Relic::Girya].
 pub const GIRYA_ID: ContentId = ContentId::new(402);
+/// Content id for [Relic::UnceasingTop].
+pub const UNCEASING_TOP_ID: ContentId = ContentId::new(403);
+/// Cards drawn by [Relic::UnceasingTop] when the player's hand becomes empty.
+pub const UNCEASING_TOP_DRAW: usize = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1067,6 +1071,7 @@ pub enum Relic {
     PeacePipe,
     OrangePellets,
     Girya,
+    UnceasingTop,
 }
 
 impl Relic {
@@ -1176,6 +1181,7 @@ impl Relic {
             Relic::PeacePipe => PEACE_PIPE_ID,
             Relic::OrangePellets => ORANGE_PELLETS_ID,
             Relic::Girya => GIRYA_ID,
+            Relic::UnceasingTop => UNCEASING_TOP_ID,
         }
     }
 
@@ -1285,6 +1291,7 @@ impl Relic {
             id if id == PEACE_PIPE_ID => Some(Relic::PeacePipe),
             id if id == ORANGE_PELLETS_ID => Some(Relic::OrangePellets),
             id if id == GIRYA_ID => Some(Relic::Girya),
+            id if id == UNCEASING_TOP_ID => Some(Relic::UnceasingTop),
             _ => None,
         }
     }
@@ -1300,6 +1307,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PeacePipe => {}
             Relic::OrangePellets => {}
             Relic::Girya => {}
+            Relic::UnceasingTop => {}
             Relic::BloodVial => {
                 heal_player_in_combat_with_relics(
                     &mut combat.player.hp,
@@ -2594,7 +2602,10 @@ mod tests {
             Some(Relic::FrozenEye)
         );
         assert_eq!(Relic::PeacePipe.content_id(), PEACE_PIPE_ID);
-        assert_eq!(Relic::from_content_id(PEACE_PIPE_ID), Some(Relic::PeacePipe));
+        assert_eq!(
+            Relic::from_content_id(PEACE_PIPE_ID),
+            Some(Relic::PeacePipe)
+        );
         assert_eq!(Relic::OrangePellets.content_id(), ORANGE_PELLETS_ID);
         assert_eq!(
             Relic::from_content_id(ORANGE_PELLETS_ID),
@@ -2602,6 +2613,11 @@ mod tests {
         );
         assert_eq!(Relic::Girya.content_id(), GIRYA_ID);
         assert_eq!(Relic::from_content_id(GIRYA_ID), Some(Relic::Girya));
+        assert_eq!(Relic::UnceasingTop.content_id(), UNCEASING_TOP_ID);
+        assert_eq!(
+            Relic::from_content_id(UNCEASING_TOP_ID),
+            Some(Relic::UnceasingTop)
+        );
     }
 
     #[test]
