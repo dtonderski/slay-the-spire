@@ -320,12 +320,12 @@ mod tests {
     use crate::{
         content::cards::{
             ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-            BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
-            DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID,
-            INFLAME_PLUS_ID, IRON_WAVE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID,
-            SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
-            SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-            WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
+            BURNING_PACT_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID,
+            DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
+            INFLAME_ID, INFLAME_PLUS_ID, IRON_WAVE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+            REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SHRUG_IT_OFF_ID,
+            SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+            TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -591,6 +591,34 @@ mod tests {
     #[test]
     fn iron_wave_rejects_missing_target() {
         let state = hand_with_card(IRON_WAVE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn clothesline_is_legal_with_target() {
+        let state = hand_with_card(CLOTHESLINE_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn clothesline_rejects_missing_target() {
+        let state = hand_with_card(CLOTHESLINE_ID);
 
         assert_eq!(
             validate_combat_action(

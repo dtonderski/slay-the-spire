@@ -132,7 +132,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 Milestone 32A is complete. The inventory is split across `simulator/docs/content_support_matrix.md`, `simulator/docs/m32a_cards_matrix.md`, `simulator/docs/m32a_relic_potion_matrix.md`, and `simulator/docs/m32a_run_world_matrix.md`; `simulator/crates/sts_core/tests/m32a_matrix.rs` now fails when known Ironclad A0 content or named run-world surfaces are missing from the matrices.
 
-Current milestone: Milestone 32B, deterministic content completion sweep. The first local slice implements base Iron Wave (`IRON_WAVE`, ContentId(100)) as a deterministic common attack with focused definition, legality, transition, discard, and event-log coverage. The M32A card matrix now marks Iron Wave `implemented` with an explicit caveat that no played-card real-game trace parity is claimed yet.
+Current milestone: Milestone 32B, deterministic content completion sweep. The latest local slice implements base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack with focused definition, legality, transition, discard, and event-log coverage. The M32A card matrix now marks Clothesline `implemented` with an explicit caveat that no played-card real-game trace parity is claimed yet. The prior slice implemented base Iron Wave (`IRON_WAVE`, ContentId(100)) under the same local-test-only evidence boundary.
 
 Next task: continue M32B by selecting the next low-risk deterministic `inventory_only` or `placeholder` matrix row, favoring surfaces with no unresolved RNG stream order or hidden timing dependency.
 

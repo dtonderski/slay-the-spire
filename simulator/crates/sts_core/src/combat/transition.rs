@@ -798,12 +798,13 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BURNING_PACT_ID,
-        CLEAVE_ID, CLEAVE_PLUS_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID,
-        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID, IRON_WAVE_ID, METALLICIZE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID,
+        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID,
+        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WOUND_ID,
     };
 
     #[test]
@@ -1037,6 +1038,69 @@ mod tests {
                 InternalAction::GainBlock { amount: 5 },
                 InternalAction::MoveCard {
                     card_id: iron_wave_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn clothesline_deals_twelve_damage_and_applies_two_weak() {
+        let state = hand_only(CLOTHESLINE_ID);
+
+        let next =
+            apply_combat_action(&state, clothesline_action(&state)).expect("Clothesline applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(next.monsters[0].powers.weak, 2);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+    }
+
+    #[test]
+    fn clothesline_moves_to_discard_after_play() {
+        let state = hand_only(CLOTHESLINE_ID);
+        let clothesline_id = hand_card_id(&state, CLOTHESLINE_ID);
+
+        let next =
+            apply_combat_action(&state, clothesline_action(&state)).expect("Clothesline applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == clothesline_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == clothesline_id));
+    }
+
+    #[test]
+    fn clothesline_event_log_records_damage_then_weak() {
+        let state = hand_only(CLOTHESLINE_ID);
+        let clothesline_id = hand_card_id(&state, CLOTHESLINE_ID);
+
+        let transition = apply_combat_action_with_events(&state, clothesline_action(&state))
+            .expect("Clothesline applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: clothesline_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(clothesline_id),
+                        target: MonsterId::new(1),
+                        amount: 12,
+                    },
+                },
+                InternalAction::ApplyWeak {
+                    target: MonsterId::new(1),
+                    amount: 2,
+                },
+                InternalAction::MoveCard {
+                    card_id: clothesline_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -2953,6 +3017,13 @@ mod tests {
     fn iron_wave_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, IRON_WAVE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn clothesline_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, CLOTHESLINE_ID),
             target: Some(MonsterId::new(1)),
         }
     }
