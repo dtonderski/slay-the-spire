@@ -1469,32 +1469,38 @@ Tasks:
   - [x] Implement base Iron Wave (`IRON_WAVE`, ContentId(100)) as a deterministic common attack: 1 energy, targeted enemy, 5 damage, 5 block, no trace-parity claim.
   - [x] Implement base Body Slam (`BODY_SLAM`, ContentId(101)) as a deterministic common attack: 1 energy, targeted enemy, damage equal to current player block, no trace-parity claim.
   - [x] Implement base Clash (`CLASH`, ContentId(102)) as a deterministic common attack: 0 energy, targeted enemy, 14 damage, playable only when the hand contains attacks only, no trace-parity claim.
+  - [x] Implement base Heavy Blade (`HEAVY_BLADE`, ContentId(108)) as a deterministic common attack: 2 energy, targeted enemy, 14 damage with Strength applied 3 times, no trace-parity claim.
   - [x] Implement base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack: 2 energy, targeted enemy, 12 damage, 2 weak, no trace-parity claim.
   - [x] Implement base Intimidate (`INTIMIDATE`, ContentId(115)) as a deterministic uncommon skill: 0 energy, 1 weak to all living enemies, exhaust, no trace-parity claim.
 - add focused unit tests for every newly completed surface
   - [x] Add Iron Wave definition, legality, transition, discard, and event-log tests.
   - [x] Add Body Slam definition, legality, transition, discard, current-block damage, zero-block, Akabeko interaction, and event-log tests.
   - [x] Add Clash definition, legality/playability predicate, transition, discard, damage, Akabeko interaction, and event-log tests.
+  - [x] Add Heavy Blade definition, legality, transition, discard, base damage, Strength multiplier, temp-Strength multiplier, Akabeko interaction, and event-log tests.
   - [x] Add Clothesline definition, legality, transition, discard, and event-log tests.
   - [x] Add Intimidate definition, legality, all-living-enemy, dead-enemy skip, exhaust, and event-log tests.
 - add serialization and counter round-trip tests for newly stateful surfaces
   - [x] No new stateful surface in the Iron Wave slice.
   - [x] No new stateful surface in the Body Slam slice.
   - [x] No new stateful surface in the Clash slice.
+  - [x] No new stateful surface in the Heavy Blade slice.
 - add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
   - [x] Iron Wave covers damage/block/pile movement through the existing card queue and transition hooks.
   - [x] Body Slam covers current-block-derived damage, attack damage modifiers, and pile movement through the existing card queue and transition hooks.
   - [x] Clash covers card-type-sensitive legal action generation plus damage/pile movement through the existing card queue and transition hooks.
+  - [x] Heavy Blade covers multi-Strength-scaling attack damage and pile movement through the existing card queue and transition hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
   - [x] Move Iron Wave from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Body Slam from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Clash from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Heavy Blade from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Clothesline from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Intimidate from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
   - [x] Iron Wave matrix caveat names the missing real-game trace parity evidence.
   - [x] Body Slam matrix caveat names the missing real-game trace parity evidence.
   - [x] Clash matrix caveat names the missing real-game trace parity evidence.
+  - [x] Heavy Blade matrix caveat names the missing real-game trace parity evidence.
   - [x] Clothesline matrix caveat names the missing real-game trace parity evidence.
   - [x] Intimidate matrix caveat names the missing real-game trace parity evidence.
 

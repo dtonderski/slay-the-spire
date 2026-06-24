@@ -998,6 +998,21 @@ pub const CLASH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const HEAVY_BLADE: CardDefinition = CardDefinition {
+    id: HEAVY_BLADE_ID,
+    key: "HEAVY_BLADE",
+    name: "Heavy Blade",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(14),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -1215,7 +1230,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 64] = [
+pub const ALL_CARDS: [CardDefinition; 65] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1269,6 +1284,7 @@ pub const ALL_CARDS: [CardDefinition; 64] = [
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
+    HEAVY_BLADE,
     CLOTHESLINE,
     INTIMIDATE,
     SEVER_SOUL,
@@ -1311,6 +1327,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1465,6 +1482,18 @@ mod tests {
         assert_eq!(CLASH.values.damage, Some(14));
         assert_eq!(
             card_type_and_rarity(CLASH_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn heavy_blade_has_expected_values() {
+        assert_eq!(HEAVY_BLADE.cost, 2);
+        assert_eq!(HEAVY_BLADE.target, TargetRequirement::Enemy);
+        assert_eq!(HEAVY_BLADE.card_type, CardType::Attack);
+        assert_eq!(HEAVY_BLADE.values.damage, Some(14));
+        assert_eq!(
+            card_type_and_rarity(HEAVY_BLADE_ID),
             Some((CardType::Attack, CardRarity::Common))
         );
     }

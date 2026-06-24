@@ -799,12 +799,12 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BODY_SLAM_ID,
         BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
+        DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
+        HEAVY_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WOUND_ID,
     };
 
     #[test]
@@ -1192,6 +1192,99 @@ mod tests {
         let next = apply_combat_action(&state, clash_action(&state)).expect("Clash applies");
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 22);
+    }
+
+    #[test]
+    fn heavy_blade_deals_fourteen_damage_and_spends_two_energy() {
+        let state = hand_only(HEAVY_BLADE_ID);
+
+        let next =
+            apply_combat_action(&state, heavy_blade_action(&state)).expect("Heavy Blade applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 14);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+    }
+
+    #[test]
+    fn heavy_blade_applies_strength_three_times() {
+        let mut state = hand_only(HEAVY_BLADE_ID);
+        state.player.powers.strength = 2;
+
+        let next =
+            apply_combat_action(&state, heavy_blade_action(&state)).expect("Heavy Blade applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 20);
+    }
+
+    #[test]
+    fn heavy_blade_applies_temp_strength_three_times() {
+        let mut state = hand_only(HEAVY_BLADE_ID);
+        state.player.temp_strength = 3;
+
+        let next =
+            apply_combat_action(&state, heavy_blade_action(&state)).expect("Heavy Blade applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 23);
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_heavy_blade_after_extra_strength() {
+        let mut state = hand_only(HEAVY_BLADE_ID);
+        state.player.powers.strength = 2;
+        state.relics.push(Relic::Akabeko);
+
+        let next =
+            apply_combat_action(&state, heavy_blade_action(&state)).expect("Heavy Blade applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 28);
+    }
+
+    #[test]
+    fn heavy_blade_moves_to_discard_after_play() {
+        let state = hand_only(HEAVY_BLADE_ID);
+        let heavy_blade_id = hand_card_id(&state, HEAVY_BLADE_ID);
+
+        let next =
+            apply_combat_action(&state, heavy_blade_action(&state)).expect("Heavy Blade applies");
+
+        assert!(!next.piles.hand.iter().any(|card| card.id == heavy_blade_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == heavy_blade_id));
+    }
+
+    #[test]
+    fn heavy_blade_event_log_records_extra_strength_queue_amount() {
+        let mut state = hand_only(HEAVY_BLADE_ID);
+        state.player.powers.strength = 2;
+        let heavy_blade_id = hand_card_id(&state, HEAVY_BLADE_ID);
+
+        let transition = apply_combat_action_with_events(&state, heavy_blade_action(&state))
+            .expect("Heavy Blade applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: heavy_blade_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(heavy_blade_id),
+                        target: MonsterId::new(1),
+                        amount: 18,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: heavy_blade_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -3242,6 +3335,13 @@ mod tests {
     fn clash_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, CLASH_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn heavy_blade_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, HEAVY_BLADE_ID),
             target: Some(MonsterId::new(1)),
         }
     }
