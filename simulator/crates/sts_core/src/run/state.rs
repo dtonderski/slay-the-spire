@@ -82,6 +82,10 @@ mod tests {
 
     #[test]
     fn relic_keys_map_for_implemented_relics() {
+        assert_eq!(
+            Relic::from_key(RelicKey::BurningBlood),
+            Some(Relic::BurningBlood)
+        );
         assert_eq!(Relic::from_key(Relic::Vajra.key()), Some(Relic::Vajra));
         assert_eq!(Relic::from_key(RelicKey::BloodVial), Some(Relic::BloodVial));
         assert_eq!(Relic::from_key(RelicKey::Pear), Some(Relic::Pear));
@@ -292,6 +296,11 @@ mod tests {
             Some(Relic::Pocketwatch)
         );
         assert_eq!(Relic::from_key(RelicKey::HandDrill), Some(Relic::HandDrill));
+        assert_eq!(Relic::from_key(RelicKey::Circlet), Some(Relic::Circlet));
+        assert_eq!(
+            Relic::from_key(RelicKey::RedCirclet),
+            Some(Relic::RedCirclet)
+        );
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1639,7 +1648,10 @@ impl RunState {
             | Relic::MedicalKit
             | Relic::LizardTail
             | Relic::Pocketwatch
-            | Relic::HandDrill => {}
+            | Relic::HandDrill
+            | Relic::BurningBlood
+            | Relic::Circlet
+            | Relic::RedCirclet => {}
         }
     }
 
@@ -1796,6 +1808,7 @@ impl Relic {
     #[must_use]
     pub fn key(self) -> RelicKey {
         match self {
+            Relic::BurningBlood => RelicKey::BurningBlood,
             Relic::BloodVial => RelicKey::BloodVial,
             Relic::Vajra => RelicKey::Vajra,
             Relic::OddlySmoothStone => RelicKey::OddlySmoothStone,
@@ -1890,12 +1903,15 @@ impl Relic {
             Relic::LizardTail => RelicKey::LizardTail,
             Relic::Pocketwatch => RelicKey::Pocketwatch,
             Relic::HandDrill => RelicKey::HandDrill,
+            Relic::Circlet => RelicKey::Circlet,
+            Relic::RedCirclet => RelicKey::RedCirclet,
         }
     }
 
     #[must_use]
     pub fn from_key(key: RelicKey) -> Option<Self> {
         match key {
+            RelicKey::BurningBlood => Some(Relic::BurningBlood),
             RelicKey::BloodVial => Some(Relic::BloodVial),
             RelicKey::Vajra => Some(Relic::Vajra),
             RelicKey::OddlySmoothStone => Some(Relic::OddlySmoothStone),
@@ -1990,6 +2006,8 @@ impl Relic {
             RelicKey::LizardTail => Some(Relic::LizardTail),
             RelicKey::Pocketwatch => Some(Relic::Pocketwatch),
             RelicKey::HandDrill => Some(Relic::HandDrill),
+            RelicKey::Circlet => Some(Relic::Circlet),
+            RelicKey::RedCirclet => Some(Relic::RedCirclet),
             _ => None,
         }
     }
