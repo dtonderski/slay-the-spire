@@ -11,12 +11,12 @@ use crate::{
         CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID,
         DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID, FLEX_ID,
         FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{
@@ -83,6 +83,12 @@ pub(super) fn play_card_queue(
             state,
             card_id,
             target.expect("validated Heavy Blade has a target"),
+            definition,
+        ),
+        PERFECTED_STRIKE_ID => perfected_strike_queue(
+            state,
+            card_id,
+            target.expect("validated Perfected Strike has a target"),
             definition,
         ),
         CLOTHESLINE_ID => clothesline_queue(
@@ -475,6 +481,54 @@ fn heavy_blade_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn perfected_strike_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let strike_count = combat_strike_named_card_count(state) as i32;
+    let base_damage = definition.values.damage.unwrap_or(0) + (2 * strike_count);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: strike_damage_with_relics(&state.relics, base_damage),
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn combat_strike_named_card_count(state: &CombatState) -> usize {
+    state
+        .piles
+        .hand
+        .iter()
+        .chain(state.piles.draw_pile.iter())
+        .chain(state.piles.discard_pile.iter())
+        .chain(state.piles.exhaust_pile.iter())
+        .filter(|card| {
+            get_card_definition(card.content_id)
+                .map(|definition| {
+                    definition.key.contains("STRIKE")
+                        || definition.key.contains("Strike")
+                        || definition.name.contains("Strike")
+                })
+                .unwrap_or(false)
+        })
+        .count()
 }
 
 fn wild_strike_queue(

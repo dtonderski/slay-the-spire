@@ -801,11 +801,11 @@ mod tests {
         BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
         HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, REGRET_ID,
-        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1381,6 +1381,128 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: heavy_blade_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn perfected_strike_counts_current_combat_pile_strike_named_cards() {
+        let mut state = hand_only(PERFECTED_STRIKE_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), STRIKE_R_ID));
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(40), STRIKE_R_ID)];
+        state.piles.exhaust_pile = vec![CardInstance::new(CardId::new(50), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, perfected_strike_action(&state))
+            .expect("Perfected Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 18);
+    }
+
+    #[test]
+    fn perfected_strike_counts_upgraded_strike_names() {
+        let mut state = hand_only(PERFECTED_STRIKE_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_PLUS_ID)];
+
+        let next = apply_combat_action(&state, perfected_strike_action(&state))
+            .expect("Perfected Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 10);
+    }
+
+    #[test]
+    fn perfected_strike_ignores_non_strike_named_cards() {
+        let mut state = hand_only(PERFECTED_STRIKE_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), BASH_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(40), SHRUG_IT_OFF_ID)];
+
+        let next = apply_combat_action(&state, perfected_strike_action(&state))
+            .expect("Perfected Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+    }
+
+    #[test]
+    fn perfected_strike_applies_strength_normally() {
+        let mut state = hand_only(PERFECTED_STRIKE_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        state.player.powers.strength = 2;
+
+        let next = apply_combat_action(&state, perfected_strike_action(&state))
+            .expect("Perfected Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_perfected_strike() {
+        let mut state = hand_only(PERFECTED_STRIKE_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        state.relics.push(crate::Relic::Akabeko);
+
+        let next = apply_combat_action(&state, perfected_strike_action(&state))
+            .expect("Perfected Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 18);
+    }
+
+    #[test]
+    fn perfected_strike_moves_to_discard_after_play() {
+        let state = hand_only(PERFECTED_STRIKE_ID);
+        let perfected_strike_id = hand_card_id(&state, PERFECTED_STRIKE_ID);
+
+        let next = apply_combat_action(&state, perfected_strike_action(&state))
+            .expect("Perfected Strike applies");
+
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == perfected_strike_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == perfected_strike_id));
+    }
+
+    #[test]
+    fn perfected_strike_event_log_records_combat_pile_count_damage() {
+        let mut state = hand_only(PERFECTED_STRIKE_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let perfected_strike_id = hand_card_id(&state, PERFECTED_STRIKE_ID);
+
+        let transition = apply_combat_action_with_events(&state, perfected_strike_action(&state))
+            .expect("Perfected Strike applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: perfected_strike_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(perfected_strike_id),
+                        target: MonsterId::new(1),
+                        amount: 10,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: perfected_strike_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -3605,6 +3727,13 @@ mod tests {
     fn heavy_blade_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, HEAVY_BLADE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn perfected_strike_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, PERFECTED_STRIKE_ID),
             target: Some(MonsterId::new(1)),
         }
     }

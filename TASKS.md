@@ -1471,6 +1471,7 @@ Tasks:
   - [x] Implement base Clash (`CLASH`, ContentId(102)) as a deterministic common attack: 0 energy, targeted enemy, 14 damage, playable only when the hand contains attacks only, no trace-parity claim.
   - [x] Implement base Wild Strike (`WILD_STRIKE`, ContentId(107)) as a deterministic common attack: 1 energy, targeted enemy, 12 damage, adds a Wound to the draw pile with local deterministic pile order, no trace-parity claim.
   - [x] Implement base Heavy Blade (`HEAVY_BLADE`, ContentId(108)) as a deterministic common attack: 2 energy, targeted enemy, 14 damage with Strength applied 3 times, no trace-parity claim.
+  - [x] Implement base Perfected Strike (`PERFECTED_STRIKE`, ContentId(109)) as a deterministic common attack: 2 energy, targeted enemy, 6 damage plus 2 per Strike-named card in current combat piles, no trace-parity claim.
   - [x] Implement base Bludgeon (`BLUDGEON`, ContentId(139)) as a deterministic rare attack: 3 energy, targeted enemy, 32 damage, no trace-parity claim.
   - [x] Implement base Impervious (`IMPERVIOUS`, ContentId(146)) as a deterministic rare skill: 2 energy, no target, 30 block, exhausts, no trace-parity claim.
   - [x] Implement base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack: 2 energy, targeted enemy, 12 damage, 2 weak, no trace-parity claim.
@@ -1481,6 +1482,7 @@ Tasks:
   - [x] Add Clash definition, legality/playability predicate, transition, discard, damage, Akabeko interaction, and event-log tests.
   - [x] Add Wild Strike definition, legality, transition, discard, damage, Wound-to-draw-pile, local pile-order, Strength, Akabeko interaction, and event-log tests.
   - [x] Add Heavy Blade definition, legality, transition, discard, base damage, Strength multiplier, temp-Strength multiplier, Akabeko interaction, and event-log tests.
+  - [x] Add Perfected Strike definition, legality, transition, current-combat-pile Strike count, upgraded Strike count, non-Strike exclusion, Strength, Akabeko, discard, and event-log tests.
   - [x] Add Bludgeon definition, legality, transition, discard, damage, Strength, Akabeko interaction, and event-log tests.
   - [x] Add Impervious definition, legality, transition, block, Dexterity/Frail interaction, exhaust-pile movement, and event-log tests.
   - [x] Add Clothesline definition, legality, transition, discard, and event-log tests.
@@ -1499,6 +1501,7 @@ Tasks:
   - [x] Clash covers card-type-sensitive legal action generation plus damage/pile movement through the existing card queue and transition hooks.
   - [x] Wild Strike covers generated status-card insertion, attack damage modifiers, and pile movement through the existing card queue and transition hooks.
   - [x] Heavy Blade covers multi-Strength-scaling attack damage and pile movement through the existing card queue and transition hooks.
+  - [x] Perfected Strike covers combat-pile-derived attack damage, attack damage modifiers, and pile movement through the existing card queue and transition hooks.
   - [x] Bludgeon covers high-cost targeted attack damage and pile movement through the existing card queue and transition hooks.
   - [x] Impervious covers high-block skill behavior, block modifiers, and exhaust movement through the existing card queue and transition hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
@@ -1507,6 +1510,7 @@ Tasks:
   - [x] Move Clash from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Wild Strike from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Heavy Blade from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Perfected Strike from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Bludgeon from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Impervious from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Clothesline from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1517,6 +1521,7 @@ Tasks:
   - [x] Clash matrix caveat names the missing real-game trace parity evidence.
   - [x] Wild Strike matrix caveat names the missing real-game trace parity and exact Wound draw-pile shuffle-order evidence.
   - [x] Heavy Blade matrix caveat names the missing real-game trace parity evidence.
+  - [x] Perfected Strike matrix caveat names the missing master-deck count and real-game trace parity evidence.
   - [x] Bludgeon matrix caveat names the missing real-game trace parity evidence.
   - [x] Impervious matrix caveat names the missing real-game trace parity evidence.
   - [x] Clothesline matrix caveat names the missing real-game trace parity evidence.
