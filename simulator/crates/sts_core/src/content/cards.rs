@@ -1073,6 +1073,27 @@ pub const RECKLESS_CHARGE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const PUMMEL: CardDefinition = CardDefinition {
+    id: PUMMEL_ID,
+    key: "PUMMEL",
+    name: "Pummel",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(2),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -1326,7 +1347,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 71] = [
+pub const ALL_CARDS: [CardDefinition; 72] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1385,6 +1406,7 @@ pub const ALL_CARDS: [CardDefinition; 71] = [
     PERFECTED_STRIKE,
     POWER_THROUGH,
     RECKLESS_CHARGE,
+    PUMMEL,
     CLOTHESLINE,
     INTIMIDATE,
     SEVER_SOUL,
@@ -1434,6 +1456,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1650,6 +1673,19 @@ mod tests {
         assert_eq!(RECKLESS_CHARGE.values.damage, Some(7));
         assert_eq!(
             card_type_and_rarity(RECKLESS_CHARGE_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn pummel_has_expected_values() {
+        assert_eq!(PUMMEL.cost, 1);
+        assert_eq!(PUMMEL.target, TargetRequirement::Enemy);
+        assert_eq!(PUMMEL.card_type, CardType::Attack);
+        assert_eq!(PUMMEL.values.damage, Some(2));
+        assert!(PUMMEL.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(PUMMEL_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
     }
