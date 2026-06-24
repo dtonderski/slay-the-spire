@@ -129,38 +129,62 @@ fn potion_price(potion: Potion, merchant_rng: &mut StsRng) -> i32 {
 #[must_use]
 pub fn shop_remove_cost_for_run(run: &RunState) -> i32 {
     if owns_relic_key(run, RelicKey::SmilingMask) {
-        return if has_membership_card(run) { 25 } else { 50 };
+        return 50;
     }
 
-    let base = SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE * run.shop_remove_count as i32;
-    if has_membership_card(run) {
-        base / 2
-    } else {
-        base
+    let mut cost = shop_base_remove_cost(run);
+    if has_the_courier(run) {
+        cost = round_discount(cost, 4, 5);
     }
+    if has_membership_card(run) {
+        cost = round_discount(cost, 1, 2);
+    }
+
+    cost
+}
+
+fn shop_base_remove_cost(run: &RunState) -> i32 {
+    SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE * run.shop_remove_count as i32
 }
 
 fn has_membership_card(run: &RunState) -> bool {
     owns_relic_key(run, RelicKey::MembershipCard)
 }
 
-fn apply_membership_discount_to_shop(shop: &mut ShopScreen) {
+fn has_the_courier(run: &RunState) -> bool {
+    owns_relic_key(run, RelicKey::TheCourier)
+}
+
+fn round_discount(price: i32, numerator: i32, denominator: i32) -> i32 {
+    (price * numerator + denominator / 2) / denominator
+}
+
+fn apply_discount_to_shop(shop: &mut ShopScreen, numerator: i32, denominator: i32) {
     for offer in &mut shop.cards {
         if !offer.sold {
-            offer.price = (offer.price + 1) / 2;
+            offer.price = round_discount(offer.price, numerator, denominator);
         }
     }
     for offer in &mut shop.relics {
         if !offer.sold {
-            offer.price = (offer.price + 1) / 2;
+            offer.price = round_discount(offer.price, numerator, denominator);
         }
     }
     for offer in &mut shop.potions {
         if !offer.sold {
-            offer.price = (offer.price + 1) / 2;
+            offer.price = round_discount(offer.price, numerator, denominator);
         }
     }
-    shop.remove_cost = (shop.remove_cost + 1) / 2;
+}
+
+fn apply_courier_discount_to_shop(shop: &mut ShopScreen) {
+    apply_discount_to_shop(shop, 4, 5);
+    shop.remove_cost = round_discount(shop.remove_cost, 4, 5);
+}
+
+fn apply_membership_discount_to_shop(shop: &mut ShopScreen) {
+    apply_discount_to_shop(shop, 1, 2);
+    shop.remove_cost = round_discount(shop.remove_cost, 1, 2);
 }
 
 fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
@@ -326,11 +350,17 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
         cards,
         relics,
         potions,
-        remove_cost: shop_remove_cost_for_run(run),
+        remove_cost: shop_base_remove_cost(run),
         sale_slot: Some(sale_slot),
     };
+    if has_the_courier(run) {
+        apply_courier_discount_to_shop(&mut shop);
+    }
     if has_membership_card(run) {
         apply_membership_discount_to_shop(&mut shop);
+    }
+    if owns_relic_key(run, RelicKey::SmilingMask) {
+        shop.remove_cost = 50;
     }
     shop
 }
@@ -740,7 +770,50 @@ mod tests {
         let base = SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE;
         run.shop_remove_count = 1;
 
-        assert_eq!(shop_remove_cost_for_run(&run), base / 2);
+        assert_eq!(shop_remove_cost_for_run(&run), round_discount(base, 1, 2));
+    }
+
+    #[test]
+    fn courier_discounts_shop_prices_and_purge_cost() {
+        let mut shop = fixed_shop_screen(1);
+
+        apply_courier_discount_to_shop(&mut shop);
+
+        assert_eq!(shop.cards[0].price, round_discount(SHOP_ANGER_PRICE, 4, 5));
+        assert_eq!(shop.relics[0].price, round_discount(SHOP_VAJRA_PRICE, 4, 5));
+        assert_eq!(
+            shop.potions[0].price,
+            round_discount(SHOP_FIRE_POTION_PRICE, 4, 5)
+        );
+        assert_eq!(
+            shop.remove_cost,
+            round_discount(SHOP_BASE_REMOVE_PRICE, 4, 5)
+        );
+    }
+
+    #[test]
+    fn courier_and_membership_card_stack_in_shop_setup_order() {
+        let mut shop = fixed_shop_screen(1);
+
+        apply_courier_discount_to_shop(&mut shop);
+        apply_membership_discount_to_shop(&mut shop);
+
+        let after_courier = round_discount(SHOP_VAJRA_PRICE, 4, 5);
+        assert_eq!(shop.relics[0].price, round_discount(after_courier, 1, 2));
+        assert_eq!(
+            shop.remove_cost,
+            round_discount(round_discount(SHOP_BASE_REMOVE_PRICE, 4, 5), 1, 2)
+        );
+    }
+
+    #[test]
+    fn courier_discounts_shop_remove_cost_for_run() {
+        let mut run = shop_run();
+        run.relics.push(Relic::TheCourier);
+        run.shop_remove_count = 1;
+        let base = SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE;
+
+        assert_eq!(shop_remove_cost_for_run(&run), round_discount(base, 4, 5));
     }
 
     #[test]
@@ -759,7 +832,7 @@ mod tests {
         run.relics.push(Relic::MembershipCard);
         run.shop_remove_count = 3;
 
-        assert_eq!(shop_remove_cost_for_run(&run), 25);
+        assert_eq!(shop_remove_cost_for_run(&run), 50);
     }
 
     #[test]
