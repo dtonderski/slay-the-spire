@@ -14,6 +14,7 @@ pub const BURN_ID: ContentId = ContentId::new(6);
 pub const SLIMED_ID: ContentId = ContentId::new(7);
 pub const REGRET_ID: ContentId = ContentId::new(62);
 pub const DOUBT_ID: ContentId = ContentId::new(63);
+pub const CURSE_OF_THE_BELL_ID: ContentId = ContentId::new(64);
 pub const ASCENDERS_BANE_ID: ContentId = ContentId::new(61);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
 pub const RETAIN_DEFEND_ID: ContentId = ContentId::new(9);
@@ -280,6 +281,27 @@ pub const DOUBT: CardDefinition = CardDefinition {
     id: DOUBT_ID,
     key: "Doubt",
     name: "Doubt",
+    cost: 0,
+    card_type: CardType::Status,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: true,
+    },
+};
+
+pub const CURSE_OF_THE_BELL: CardDefinition = CardDefinition {
+    id: CURSE_OF_THE_BELL_ID,
+    key: "CurseOfTheBell",
+    name: "Curse of the Bell",
     cost: 0,
     card_type: CardType::Status,
     target: TargetRequirement::None,
@@ -1111,7 +1133,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 58] = [
+pub const ALL_CARDS: [CardDefinition; 59] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1122,6 +1144,7 @@ pub const ALL_CARDS: [CardDefinition; 58] = [
     SLIMED,
     REGRET,
     DOUBT,
+    CURSE_OF_THE_BELL,
     ASCENDERS_BANE,
     ETHEREAL_STRIKE,
     RETAIN_DEFEND,
@@ -1179,7 +1202,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
 
 #[must_use]
 pub fn is_curse_content_id(id: ContentId) -> bool {
-    matches!(id, id if id == REGRET_ID || id == DOUBT_ID || id == ASCENDERS_BANE_ID)
+    matches!(id, id if id == REGRET_ID || id == DOUBT_ID || id == CURSE_OF_THE_BELL_ID || id == ASCENDERS_BANE_ID)
 }
 
 /// Maps a base card content id to its upgraded (+) version, if one exists.
@@ -1238,6 +1261,7 @@ mod tests {
     fn modeled_curse_ids_are_classified_explicitly() {
         assert!(is_curse_content_id(REGRET_ID));
         assert!(is_curse_content_id(DOUBT_ID));
+        assert!(is_curse_content_id(CURSE_OF_THE_BELL_ID));
         assert!(is_curse_content_id(ASCENDERS_BANE_ID));
         assert!(!is_curse_content_id(WOUND_ID));
     }

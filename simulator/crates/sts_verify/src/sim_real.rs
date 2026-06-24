@@ -4829,6 +4829,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         relic_key_offer: None,
         pending_relic_offer: None,
         pending_relic_key_offer: None,
+        queued_relic_key_offers: Vec::new(),
         card_reward_active: game
             .get("screen_type")
             .and_then(Value::as_str)

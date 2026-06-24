@@ -414,6 +414,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         relic_key_offer,
         pending_relic_offer,
         pending_relic_key_offer,
+        queued_relic_key_offers: Vec::new(),
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -434,6 +435,30 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
         relic_key_offer,
         pending_relic_offer: None,
         pending_relic_key_offer: None,
+        queued_relic_key_offers: Vec::new(),
+        card_reward_active: false,
+        card_reward_pending: false,
+        pending_card_reward_count: 0,
+    });
+}
+
+pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
+    let common = roll_screenless_relic_reward(run, RelicTier::Common);
+    let uncommon = roll_screenless_relic_reward(run, RelicTier::Uncommon);
+    let rare = roll_screenless_relic_reward(run, RelicTier::Rare);
+    let (relic_offer, relic_key_offer) = split_relic_offer(common);
+
+    run.phase = RunPhase::Reward;
+    run.combat = None;
+    run.reward = Some(RewardScreen {
+        choices: Vec::new(),
+        gold_offer: 0,
+        potion_offer: None,
+        relic_offer,
+        relic_key_offer,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
+        queued_relic_key_offers: vec![uncommon, rare],
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -522,6 +547,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         relic_key_offer: None,
         pending_relic_offer: None,
         pending_relic_key_offer: None,
+        queued_relic_key_offers: Vec::new(),
         card_reward_active: false,
         card_reward_pending: true,
         pending_card_reward_count,
@@ -574,6 +600,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         relic_key_offer,
         pending_relic_offer,
         pending_relic_key_offer,
+        queued_relic_key_offers: Vec::new(),
         card_reward_active: false,
         card_reward_pending: true,
         pending_card_reward_count: 1,
@@ -614,6 +641,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         relic_key_offer,
         pending_relic_offer,
         pending_relic_key_offer,
+        queued_relic_key_offers: Vec::new(),
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -940,12 +968,30 @@ fn advance_pending_relic_offer(run: &mut RunState) {
         return;
     };
 
-    reward.relic_offer = reward.pending_relic_offer.take();
+    if reward.pending_relic_offer.is_some() || reward.pending_relic_key_offer.is_some() {
+        reward.relic_offer = reward.pending_relic_offer.take();
+        reward.relic_key_offer = if reward.relic_offer.is_some() {
+            reward.pending_relic_key_offer = None;
+            None
+        } else {
+            reward.pending_relic_key_offer.take()
+        };
+        return;
+    }
+
+    let Some(next_key) = reward.queued_relic_key_offers.first().copied() else {
+        reward.relic_offer = None;
+        reward.relic_key_offer = None;
+        return;
+    };
+    reward.queued_relic_key_offers.remove(0);
+    let (relic_offer, relic_key_offer) = split_relic_offer(next_key);
+    reward.relic_offer = relic_offer;
     reward.relic_key_offer = if reward.relic_offer.is_some() {
         reward.pending_relic_key_offer = None;
         None
     } else {
-        reward.pending_relic_key_offer.take()
+        relic_key_offer
     };
 }
 
@@ -954,9 +1000,9 @@ mod tests {
     use super::*;
     use crate::card::CardType;
     use crate::content::cards::{
-        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, FEED_ID, HAVOC_ID,
-        INFLAME_ID, REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, CURSE_OF_THE_BELL_ID,
+        DEFEND_R_ID, FEED_ID, HAVOC_ID, INFLAME_ID, REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -2009,14 +2055,66 @@ mod tests {
     }
 
     #[test]
-    fn take_relic_reward_accepts_unimplemented_relic_key_offer() {
+    fn take_calling_bell_reward_opens_curse_grid_then_three_relic_rewards() {
         let mut run = winning_combat_run();
         run.reward.as_mut().expect("reward").relic_key_offer = Some(crate::RelicKey::CallingBell);
 
-        let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic key");
+        let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take calling bell");
 
-        assert_eq!(next.relic_keys, vec![crate::RelicKey::CallingBell]);
-        assert!(next.relics.is_empty());
+        assert!(next.relics.contains(&Relic::CallingBell));
+        assert_eq!(
+            next.card_grid.as_ref().expect("curse grid").purpose,
+            crate::run::grid::GridPurpose::CallingBellCurse
+        );
+
+        let after_curse =
+            crate::run::grid::confirm_grid(&next).expect("confirm calling bell curse");
+        assert!(after_curse
+            .deck
+            .iter()
+            .any(|card| card.content_id == CURSE_OF_THE_BELL_ID));
+
+        let first_key =
+            offered_relic_key(after_curse.reward.as_ref().expect("first reward")).expect("first");
+        let second_key = after_curse
+            .reward
+            .as_ref()
+            .expect("first reward")
+            .queued_relic_key_offers
+            .first()
+            .copied()
+            .expect("second");
+        let third_key = after_curse
+            .reward
+            .as_ref()
+            .expect("first reward")
+            .queued_relic_key_offers
+            .get(1)
+            .copied()
+            .expect("third");
+
+        let after_first =
+            apply_run_action(&after_curse, RunAction::TakeRelicReward).expect("take common");
+        assert!(run_has_relic_key(&after_first, first_key));
+        assert_eq!(
+            offered_relic_key(after_first.reward.as_ref().expect("second reward")),
+            Some(second_key)
+        );
+
+        let after_second =
+            apply_run_action(&after_first, RunAction::TakeRelicReward).expect("take uncommon");
+        assert!(run_has_relic_key(&after_second, second_key));
+        assert_eq!(
+            offered_relic_key(after_second.reward.as_ref().expect("third reward")),
+            Some(third_key)
+        );
+
+        let after_third =
+            apply_run_action(&after_second, RunAction::TakeRelicReward).expect("take rare");
+        assert!(run_has_relic_key(&after_third, third_key));
+        let reward = after_third.reward.as_ref().expect("reward remains");
+        assert_eq!(offered_relic_key(reward), None);
+        assert!(reward.queued_relic_key_offers.is_empty());
     }
 
     #[test]
