@@ -2,8 +2,8 @@ use crate::{
     card::{CardInstance, CardRarity},
     combat::{apply_combat_action_with_events, CombatPhase},
     content::cards::{
-        get_card_definition, upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID,
-        SHRUG_IT_OFF_ID,
+        get_card_definition, upgrade_content_id, ANGER_ID, CLEAVE_ID, DOUBT_ID, FEED_ID, REAPER_ID,
+        REGRET_ID, SHRUG_IT_OFF_ID,
     },
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::{CardId, ContentId},
@@ -588,6 +588,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     if run.treasure_room.is_none() {
         setup_treasure_room(run);
     }
+    apply_cursed_key_chest_curse(run);
     let tier = run
         .treasure_room
         .as_ref()
@@ -617,6 +618,18 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         card_reward_pending: false,
         pending_card_reward_count: 0,
     });
+}
+
+fn apply_cursed_key_chest_curse(run: &mut RunState) {
+    if !run.relics.contains(&Relic::CursedKey) {
+        return;
+    }
+
+    let modeled_curses = [REGRET_ID, DOUBT_ID];
+    let mut rng = run.card_random_rng();
+    let index = rng.random_int_range(0, (modeled_curses.len() - 1) as i32) as usize;
+    run.card_random_rng_counter = rng.counter();
+    run.gain_deck_card(modeled_curses[index]);
 }
 
 pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimResult<RunState> {
@@ -2311,6 +2324,49 @@ mod tests {
         assert!(offered_relic_key(reward).is_some());
         assert_eq!(pending_relic_key(reward), None);
         assert_eq!(run.matryoshka_chests_opened, 2);
+    }
+
+    #[test]
+    fn cursed_key_adds_random_modeled_curse_when_chest_opens() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::CursedKey);
+        run.reward_rng_seed = 1_218_623;
+        run.current_floor = 12;
+        run.treasure_room = Some(TreasureRoomState {
+            chest_size: ChestSize::Medium,
+            relic_tier: RelicTier::Common,
+            have_gold: false,
+        });
+        let deck_len = run.deck.len();
+
+        enter_chest_relic_reward_screen(&mut run);
+
+        assert_eq!(run.deck.len(), deck_len + 1);
+        let curse = run.deck.last().expect("cursed key curse").content_id;
+        assert!([REGRET_ID, DOUBT_ID].contains(&curse));
+        assert_eq!(run.card_random_rng_counter, 1);
+        assert!(run.reward.is_some());
+    }
+
+    #[test]
+    fn omamori_prevents_cursed_key_curse_but_rng_is_consumed() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::CursedKey);
+        run.relics.push(Relic::Omamori);
+        run.reward_rng_seed = 1_218_623;
+        run.current_floor = 12;
+        run.treasure_room = Some(TreasureRoomState {
+            chest_size: ChestSize::Medium,
+            relic_tier: RelicTier::Common,
+            have_gold: false,
+        });
+        let deck_len = run.deck.len();
+
+        enter_chest_relic_reward_screen(&mut run);
+
+        assert_eq!(run.deck.len(), deck_len);
+        assert_eq!(run.omamori_charges_used, 1);
+        assert_eq!(run.card_random_rng_counter, 1);
     }
 
     #[test]

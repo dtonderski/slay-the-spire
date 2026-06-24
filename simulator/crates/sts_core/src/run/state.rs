@@ -410,6 +410,7 @@ mod tests {
             Relic::from_key(RelicKey::IncenseBurner),
             Some(Relic::IncenseBurner)
         );
+        assert_eq!(Relic::from_key(RelicKey::CursedKey), Some(Relic::CursedKey));
     }
 
     #[test]
@@ -961,6 +962,18 @@ mod tests {
             run.energy_per_turn,
             BASE_PLAYER_ENERGY + FUSION_HAMMER_ENERGY
         );
+        assert_eq!(combat.player.max_energy, run.energy_per_turn);
+        assert_eq!(combat.player.energy, run.energy_per_turn);
+    }
+
+    #[test]
+    fn cursed_key_pickup_adds_energy_for_combat() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::CursedKey);
+        let combat = run.init_combat(CombatState::initial_fixture());
+
+        assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY + 1);
         assert_eq!(combat.player.max_energy, run.energy_per_turn);
         assert_eq!(combat.player.energy, run.energy_per_turn);
     }
@@ -1818,6 +1831,9 @@ impl RunState {
             Relic::PhilosophersStone => {
                 self.energy_per_turn += PHILOSOPHERS_STONE_ENERGY;
             }
+            Relic::CursedKey => {
+                self.energy_per_turn += 1;
+            }
             Relic::Ectoplasm => {
                 self.energy_per_turn += ECTOPLASM_ENERGY;
             }
@@ -2270,6 +2286,7 @@ impl Relic {
             Relic::MummifiedHand => RelicKey::MummifiedHand,
             Relic::TheCourier => RelicKey::TheCourier,
             Relic::IncenseBurner => RelicKey::IncenseBurner,
+            Relic::CursedKey => RelicKey::CursedKey,
         }
     }
 
@@ -2402,6 +2419,7 @@ impl Relic {
             RelicKey::MummifiedHand => Some(Relic::MummifiedHand),
             RelicKey::TheCourier => Some(Relic::TheCourier),
             RelicKey::IncenseBurner => Some(Relic::IncenseBurner),
+            RelicKey::CursedKey => Some(Relic::CursedKey),
             _ => None,
         }
     }
