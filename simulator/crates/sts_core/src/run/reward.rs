@@ -1471,6 +1471,22 @@ mod tests {
     }
 
     #[test]
+    fn take_empty_cage_reward_opens_two_card_removal_grid() {
+        let mut run = winning_combat_run();
+        run.reward.as_mut().expect("reward").relic_offer = Some(Relic::EmptyCage);
+
+        let next = apply_run_action(&run, RunAction::TakeRelicReward).expect("take empty cage");
+
+        assert!(next.relics.contains(&Relic::EmptyCage));
+        let grid = next.card_grid.as_ref().expect("empty cage grid");
+        assert_eq!(
+            grid.purpose,
+            crate::run::grid::GridPurpose::EmptyCage { remaining: 2 }
+        );
+        assert_eq!(grid.cards, next.deck);
+    }
+
+    #[test]
     fn take_relic_reward_accepts_unimplemented_relic_key_offer() {
         let mut run = winning_combat_run();
         run.reward.as_mut().expect("reward").relic_key_offer = Some(crate::RelicKey::CallingBell);
