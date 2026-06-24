@@ -1227,7 +1227,7 @@ Do not implement:
 
 ## Milestone 32: Relic Completion Pass
 
-Status: in progress.
+Status: complete.
 
 Goal: implement all Ironclad-available relic hooks needed for full-run simulation.
 
@@ -1395,12 +1395,13 @@ Completed slice:
 - implemented Dead Branch key promotion, content-id round trips, `cardRandomRng` random card generation from the non-healing Ironclad combat pool, hand-full overflow to discard, and focused run-level exhaust tests
 - expanded modeled power-play cost relics: Mummified Hand
 - implemented Mummified Hand key promotion, content-id round trips, `cardRandomRng` positive-cost hand-card discounting after Power play, and turn-only temp-cost reset coverage
+- expanded final modeled relic families: The Courier, Incense Burner, Cursed Key, Tiny Chest, Snecko Eye, Strange Spoon, Wing Boots, Calling Bell, Pandora's Box, Astrolabe, Gambling Chip, Toolbox, Juzu Bracelet, and Prismatic Shard
+- implemented source-backed shop restock/discount hooks, persistent turn counters, chest/event/map replacement hooks, exhaust-retention RNG, same-floor map jumps, boss pickup bundle/transform grids, start-of-combat choice grids, `?` room Juzu handling, and Prismatic Shard any-color combat rewards
+- updated seed-start verifier relic synchronization so observed modeled relics promote into active modeled relic state instead of legacy key-only placeholders
 
 Remaining:
 
-- continue relic family implementation across start-combat, turn, card-play, damage, reward, shop, rest, event, and boss hooks
-- replace key-only placeholder semantics for each Ironclad-available relic where target behavior is implemented
-- add relic-heavy seed-start trace verification when captured traces exercise these effects
+- none for the Milestone 32 Ironclad A0 relic completion scope; broader cross-run/generalization coverage continues in later milestones
 
 Acceptance tests:
 
