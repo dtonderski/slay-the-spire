@@ -23,7 +23,8 @@ use crate::{
         OMAMORI_CHARGES, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
-        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, VELVET_CHOKER_ENERGY,
+        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, TINY_HOUSE_GOLD,
+        TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
     },
     rng::JavaRng,
     rng::StsRng,
@@ -370,6 +371,7 @@ mod tests {
             Some(Relic::RingOfTheSerpent)
         );
         assert_eq!(Relic::from_key(RelicKey::Cauldron), Some(Relic::Cauldron));
+        assert_eq!(Relic::from_key(RelicKey::TinyHouse), Some(Relic::TinyHouse));
         assert_eq!(
             Relic::from_key(RelicKey::DarkstonePeriapt),
             Some(Relic::DarkstonePeriapt)
@@ -1007,6 +1009,55 @@ mod tests {
 
         assert!(run.potions.is_empty());
         assert_eq!(run.potion_rng_counter, 7);
+    }
+
+    #[test]
+    fn tiny_house_pickup_applies_bundle_and_pending_card_reward() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 60;
+        run.gold = 10;
+        run.misc_rng_seed = 1_218_623;
+        run.reward = Some(RewardScreen {
+            choices: Vec::new(),
+            gold_offer: 0,
+            potion_offer: None,
+            relic_offer: Some(Relic::TinyHouse),
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            card_reward_active: false,
+            card_reward_pending: false,
+            pending_card_reward_count: 0,
+        });
+
+        run.gain_relic(Relic::TinyHouse);
+
+        assert_eq!(run.player_max_hp, IRONCLAD_A0_BASE_HP + TINY_HOUSE_MAX_HP);
+        assert_eq!(run.player_hp, 60 + TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL);
+        assert_eq!(run.gold, 10 + TINY_HOUSE_GOLD);
+        assert!(run
+            .deck
+            .iter()
+            .any(|card| card.content_id == crate::content::cards::STRIKE_R_PLUS_ID));
+        assert_eq!(
+            run.reward
+                .as_ref()
+                .expect("reward")
+                .pending_card_reward_count(),
+            1
+        );
+        assert_eq!(run.misc_rng_counter, 1);
+    }
+
+    #[test]
+    fn tiny_house_heal_caps_at_new_max_hp() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = run.player_max_hp;
+
+        run.gain_relic(Relic::TinyHouse);
+
+        assert_eq!(run.player_max_hp, IRONCLAD_A0_BASE_HP + TINY_HOUSE_MAX_HP);
+        assert_eq!(run.player_hp, run.player_max_hp);
     }
 
     #[test]
@@ -1767,6 +1818,16 @@ impl RunState {
             Relic::Cauldron => {
                 self.fill_potions_from_cauldron();
             }
+            Relic::TinyHouse => {
+                self.player_max_hp += TINY_HOUSE_MAX_HP;
+                self.player_hp =
+                    (self.player_hp + TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL).min(self.player_max_hp);
+                self.gain_gold(TINY_HOUSE_GOLD);
+                self.upgrade_random_deck_cards_matching(1, |_| true);
+                if let Some(reward) = self.reward.as_mut() {
+                    reward.set_pending_card_rewards(reward.pending_card_reward_count() + 1);
+                }
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
             | Relic::MoltenEgg
@@ -1890,19 +1951,26 @@ impl RunState {
     }
 
     fn upgrade_random_deck_cards(&mut self, card_type: CardType, amount: usize) {
+        self.upgrade_random_deck_cards_matching(amount, |card| {
+            card_type_and_rarity(card.content_id).is_some_and(|(candidate_type, _)| {
+                candidate_type == card_type
+                    && crate::content::cards::upgrade_content_id(card.content_id).is_some()
+            })
+        });
+    }
+
+    fn upgrade_random_deck_cards_matching(
+        &mut self,
+        amount: usize,
+        matches_card: impl Fn(&CardInstance) -> bool,
+    ) {
         let mut upgradeable: Vec<_> = self
             .deck
             .iter()
             .enumerate()
             .filter_map(|(index, card)| {
-                let definition = get_card_definition(card.content_id)?;
-                if definition.card_type == card_type
-                    && upgrade_content_id(card.content_id).is_some()
-                {
-                    Some(index)
-                } else {
-                    None
-                }
+                (matches_card(card) && upgrade_content_id(card.content_id).is_some())
+                    .then_some(index)
             })
             .collect();
 
@@ -2163,6 +2231,7 @@ impl Relic {
             Relic::RingOfTheSnake => RelicKey::RingOfTheSnake,
             Relic::RingOfTheSerpent => RelicKey::RingOfTheSerpent,
             Relic::Cauldron => RelicKey::Cauldron,
+            Relic::TinyHouse => RelicKey::TinyHouse,
         }
     }
 
@@ -2290,6 +2359,7 @@ impl Relic {
             RelicKey::RingOfTheSnake => Some(Relic::RingOfTheSnake),
             RelicKey::RingOfTheSerpent => Some(Relic::RingOfTheSerpent),
             RelicKey::Cauldron => Some(Relic::Cauldron),
+            RelicKey::TinyHouse => Some(Relic::TinyHouse),
             _ => None,
         }
     }
