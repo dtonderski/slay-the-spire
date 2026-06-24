@@ -4760,6 +4760,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         shuffle_rng: None,
         card_random_rng: None,
         potion_card_reward: None,
+        toolbox_card_reward: None,
         hand_select: None,
         discard_select: None,
         exhaust_select: None,

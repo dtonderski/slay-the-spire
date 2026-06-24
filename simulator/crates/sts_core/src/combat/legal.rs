@@ -17,6 +17,7 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         || state.discard_select.is_some()
         || state.exhaust_select.is_some()
         || state.potion_card_reward.is_some()
+        || state.toolbox_card_reward.is_some()
     {
         return Vec::new();
     }
@@ -102,6 +103,9 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
         return Err(SimError::IllegalAction("exhaust select is open"));
     }
     if state.potion_card_reward.is_some() {
+        return Err(SimError::IllegalAction("combat card reward is open"));
+    }
+    if state.toolbox_card_reward.is_some() {
         return Err(SimError::IllegalAction("combat card reward is open"));
     }
 
