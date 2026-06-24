@@ -56,3 +56,13 @@ This matrix tracks content completeness, unit coverage, and parity evidence sepa
 | Category | Content ID / Key | Name | Surface Details | Status | Unit Tests | Seed-Start Trace | Evidence | Caveats | Source Files |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | meta | n/a | Matrix schema | status/evidence vocabulary and row contract | implemented | no | no | unit_only | Schema only; content rows will be filled by follow-up M32A inventory workers. | `simulator/docs/content_support_matrix.md` |
+
+## Domain Files
+
+The full inventory is split into domain files so parallel workers can own disjoint write sets.
+
+| Domain | File | Owner scope |
+| --- | --- | --- |
+| Cards | `simulator/docs/m32a_cards_matrix.md` | Cards, colorless cards, curses, statuses, card pools, upgrade mappings, legal/effect coverage. |
+| Relics and potions | `simulator/docs/m32a_relic_potion_matrix.md` | Relics, relic keys, relic pools, potions, potion pools, acquisition/use surfaces, relic-potion interactions. |
+| Run/world | `simulator/docs/m32a_run_world_matrix.md` | Monsters, bosses, encounters, rooms, events, rewards, shops, rest, map, ascensions, verifier traces, corpus boundaries. |
