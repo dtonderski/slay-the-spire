@@ -17,6 +17,8 @@ pub struct PlayerPowers {
     pub dark_embrace: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub buffer: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub intangible: i32,
 }
 
 fn is_zero_i32(value: &i32) -> bool {

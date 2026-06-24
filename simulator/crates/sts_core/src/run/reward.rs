@@ -640,6 +640,9 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     next.combat = Some(next_combat.clone());
     next.player_hp = next_combat.player.hp;
     next.player_max_hp = next_combat.player.max_hp;
+    if next.relics.contains(&Relic::IncenseBurner) {
+        next.incense_burner_counter = next_combat.relic_counters.incense_burner_counter;
+    }
 
     if next_combat.phase == CombatPhase::Won {
         enter_reward_screen(&mut next);
