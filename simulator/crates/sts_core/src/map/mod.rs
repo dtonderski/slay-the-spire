@@ -6,6 +6,7 @@ use crate::{
     ids::MapNodeId,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RoomKind {
@@ -62,6 +63,43 @@ pub fn reachable_nodes(state: &MapRunState) -> Vec<MapNodeId> {
         .children_of(state.current_node)
         .map(|children| children.to_vec())
         .unwrap_or_default()
+}
+
+pub fn wing_boots_reachable_nodes(state: &MapRunState) -> Vec<MapNodeId> {
+    let depths = node_depths_from_root(&state.map);
+    let Some(current_depth) = depths.get(&state.current_node).copied() else {
+        return Vec::new();
+    };
+    let target_depth = current_depth + 1;
+    state
+        .map
+        .nodes
+        .iter()
+        .filter(|node| depths.get(&node.id).copied() == Some(target_depth))
+        .map(|node| node.id)
+        .collect()
+}
+
+fn node_depths_from_root(map: &FixedMap) -> BTreeMap<MapNodeId, u32> {
+    let mut depths = BTreeMap::new();
+    let Some(root) = map.nodes.first().map(|node| node.id) else {
+        return depths;
+    };
+    let mut queue = VecDeque::from([(root, 0_u32)]);
+
+    while let Some((node_id, depth)) = queue.pop_front() {
+        if depths.contains_key(&node_id) {
+            continue;
+        }
+        depths.insert(node_id, depth);
+        if let Some(node) = map.node(node_id) {
+            for child in &node.children {
+                queue.push_back((*child, depth + 1));
+            }
+        }
+    }
+
+    depths
 }
 
 pub fn legal_map_actions(state: &MapRunState) -> Vec<MapAction> {

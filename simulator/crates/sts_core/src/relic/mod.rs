@@ -32,6 +32,8 @@ pub const ORRERY_CARD_REWARDS: u8 = 5;
 pub const SNECKO_EYE_DRAW: usize = 2;
 /// Energy granted by [Relic::SneckoEye] on pickup.
 pub const SNECKO_EYE_ENERGY: i32 = 1;
+/// Map jumps granted by [Relic::WingBoots] on pickup.
+pub const WING_BOOTS_CHARGES: u8 = 3;
 /// Extra potion slots granted by [Relic::PotionBelt] on pickup.
 pub const POTION_BELT_SLOTS: usize = 2;
 /// HP healed by [Relic::BloodVial] at combat start.
@@ -495,6 +497,8 @@ pub const ORRERY_ID: ContentId = ContentId::new(428);
 pub const SNECKO_EYE_ID: ContentId = ContentId::new(429);
 /// Content id for [Relic::StrangeSpoon].
 pub const STRANGE_SPOON_ID: ContentId = ContentId::new(430);
+/// Content id for [Relic::WingBoots].
+pub const WING_BOOTS_ID: ContentId = ContentId::new(431);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1171,6 +1175,7 @@ pub enum Relic {
     Orrery,
     SneckoEye,
     StrangeSpoon,
+    WingBoots,
 }
 
 impl Relic {
@@ -1308,6 +1313,7 @@ impl Relic {
             Relic::Orrery => ORRERY_ID,
             Relic::SneckoEye => SNECKO_EYE_ID,
             Relic::StrangeSpoon => STRANGE_SPOON_ID,
+            Relic::WingBoots => WING_BOOTS_ID,
         }
     }
 
@@ -1445,6 +1451,7 @@ impl Relic {
             id if id == ORRERY_ID => Some(Relic::Orrery),
             id if id == SNECKO_EYE_ID => Some(Relic::SneckoEye),
             id if id == STRANGE_SPOON_ID => Some(Relic::StrangeSpoon),
+            id if id == WING_BOOTS_ID => Some(Relic::WingBoots),
             _ => None,
         }
     }
@@ -1487,6 +1494,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Orrery => {}
             Relic::SneckoEye => {}
             Relic::StrangeSpoon => {}
+            Relic::WingBoots => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }

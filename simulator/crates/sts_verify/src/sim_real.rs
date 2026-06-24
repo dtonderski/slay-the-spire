@@ -4814,6 +4814,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         matryoshka_chests_opened: 0,
         incense_burner_counter: 0,
         tiny_chest_counter: 0,
+        wing_boots_charges: 0,
         treasure_room: None,
     })
 }
@@ -4906,6 +4907,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         matryoshka_chests_opened: 0,
         incense_burner_counter: 0,
         tiny_chest_counter: 0,
+        wing_boots_charges: 0,
         treasure_room: None,
     })
 }

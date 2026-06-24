@@ -25,7 +25,7 @@ use crate::{
         PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
         SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SNECKO_EYE_ENERGY, SOZU_ENERGY,
         STRAWBERRY_MAX_HP, TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP,
-        VELVET_CHOKER_ENERGY,
+        VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
     },
     rng::JavaRng,
     rng::StsRng,
@@ -419,6 +419,7 @@ mod tests {
             Relic::from_key(RelicKey::StrangeSpoon),
             Some(Relic::StrangeSpoon)
         );
+        assert_eq!(Relic::from_key(RelicKey::WingBoots), Some(Relic::WingBoots));
     }
 
     #[test]
@@ -1264,6 +1265,8 @@ pub struct RunState {
     pub incense_burner_counter: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub tiny_chest_counter: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub wing_boots_charges: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1576,6 +1579,7 @@ impl RunState {
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
             tiny_chest_counter: 0,
+            wing_boots_charges: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1635,6 +1639,7 @@ impl RunState {
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
             tiny_chest_counter: 0,
+            wing_boots_charges: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -1861,6 +1866,9 @@ impl RunState {
             }
             Relic::SneckoEye => {
                 self.energy_per_turn += SNECKO_EYE_ENERGY;
+            }
+            Relic::WingBoots => {
+                self.wing_boots_charges = u32::from(WING_BOOTS_CHARGES);
             }
             Relic::VelvetChoker => {
                 self.energy_per_turn += VELVET_CHOKER_ENERGY;
@@ -2337,6 +2345,7 @@ impl Relic {
             Relic::Orrery => RelicKey::Orrery,
             Relic::SneckoEye => RelicKey::SneckoEye,
             Relic::StrangeSpoon => RelicKey::StrangeSpoon,
+            Relic::WingBoots => RelicKey::WingBoots,
         }
     }
 
@@ -2474,6 +2483,7 @@ impl Relic {
             RelicKey::Orrery => Some(Relic::Orrery),
             RelicKey::SneckoEye => Some(Relic::SneckoEye),
             RelicKey::StrangeSpoon => Some(Relic::StrangeSpoon),
+            RelicKey::WingBoots => Some(Relic::WingBoots),
             _ => None,
         }
     }
