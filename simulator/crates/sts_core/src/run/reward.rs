@@ -2,7 +2,8 @@ use crate::{
     card::{CardInstance, CardRarity},
     combat::{apply_combat_action_with_events, CombatPhase},
     content::cards::{
-        upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID, SHRUG_IT_OFF_ID,
+        get_card_definition, upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID,
+        SHRUG_IT_OFF_ID,
     },
     content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
     ids::{CardId, ContentId},
@@ -633,6 +634,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let transition = apply_combat_action_with_events(combat, action)?;
     let mut next_combat = transition.state;
     let mut next = run.clone();
+    apply_mummified_hand_for_power_play(&mut next, &mut next_combat, combat, &transition.event_log);
     apply_dead_branch_for_exhaust_log(&mut next, &mut next_combat, &transition.event_log);
     apply_fairy_if_lethal(&mut next, &mut next_combat);
     next.combat = Some(next_combat.clone());
@@ -644,6 +646,62 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+fn apply_mummified_hand_for_power_play(
+    run: &mut RunState,
+    combat: &mut crate::combat::CombatState,
+    before: &crate::combat::CombatState,
+    event_log: &[crate::InternalAction],
+) {
+    if !run.relics.contains(&Relic::MummifiedHand) {
+        return;
+    }
+
+    let power_plays = event_log.iter().filter(|action| {
+        let crate::InternalAction::PlayCard { card_id } = action else {
+            return false;
+        };
+        before
+            .piles
+            .hand
+            .iter()
+            .chain(before.piles.draw_pile.iter())
+            .chain(before.piles.discard_pile.iter())
+            .chain(before.piles.exhaust_pile.iter())
+            .find(|card| card.id == *card_id)
+            .and_then(|card| get_card_definition(card.content_id))
+            .is_some_and(|definition| definition.card_type == crate::CardType::Power)
+    });
+
+    for _ in power_plays {
+        apply_mummified_hand_once(run, combat);
+    }
+}
+
+fn apply_mummified_hand_once(run: &mut RunState, combat: &mut crate::combat::CombatState) {
+    let candidates = combat
+        .piles
+        .hand
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| {
+            let definition = get_card_definition(card.content_id)?;
+            let cost_for_turn = card.temp_cost.unwrap_or(definition.cost);
+            (definition.cost > 0 && cost_for_turn > 0).then_some(index)
+        })
+        .collect::<Vec<_>>();
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    let mut rng = run.card_random_rng();
+    let pick = rng.random_int_range(0, (candidates.len() - 1) as i32) as usize;
+    let card = &mut combat.piles.hand[candidates[pick]];
+    card.temp_cost = Some(0);
+    card.temp_cost_turn_only = true;
+    run.card_random_rng_counter = rng.counter();
 }
 
 fn apply_dead_branch_for_exhaust_log(
@@ -875,8 +933,8 @@ mod tests {
     use crate::card::CardType;
     use crate::content::cards::{
         ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, FEED_ID, HAVOC_ID,
-        REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID,
+        INFLAME_ID, REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -1170,6 +1228,116 @@ mod tests {
         assert_eq!(combat.piles.discard_pile.len(), 1);
         assert!(combat.piles.discard_pile[0].combat_only);
         assert_eq!(run.card_random_rng_counter, 1);
+    }
+
+    #[test]
+    fn mummified_hand_sets_random_positive_cost_hand_card_to_zero_for_turn() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::MummifiedHand]);
+        run.reward_rng_seed = 99;
+        run.current_floor = 3;
+        let mut expected_rng = run.card_random_rng();
+        let pick = expected_rng.random_int_range(0, 1) as usize;
+        let expected_card_id = [CardId::new(20), CardId::new(21)][pick];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(25), INFLAME_ID),
+            CardInstance::new(CardId::new(20), BASH_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+        ];
+        combat.piles.draw_pile.clear();
+
+        let after = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Inflame applies");
+        let combat = after.combat.expect("combat remains active");
+
+        assert_eq!(after.card_random_rng_counter, expected_rng.counter());
+        let discounted = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == expected_card_id)
+            .expect("discounted card remains in hand");
+        assert_eq!(discounted.temp_cost, Some(0));
+        assert!(discounted.temp_cost_turn_only);
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .filter(|card| card.temp_cost == Some(0))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn mummified_hand_does_not_roll_when_no_positive_cost_cards_are_available() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::MummifiedHand]);
+        run.reward_rng_seed = 99;
+        run.current_floor = 3;
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(25), INFLAME_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+        ];
+        combat.piles.draw_pile.clear();
+
+        let after = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Inflame applies");
+
+        assert_eq!(after.card_random_rng_counter, 0);
+        assert!(!after
+            .combat
+            .expect("combat remains")
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.temp_cost_turn_only));
+    }
+
+    #[test]
+    fn mummified_hand_turn_only_cost_resets_next_turn() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::MummifiedHand]);
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(25), INFLAME_ID),
+            CardInstance::new(CardId::new(20), BASH_ID),
+        ];
+        combat.piles.draw_pile.clear();
+
+        let after_power = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Inflame applies");
+        let after_turn =
+            apply_combat_action_on_run(&after_power, CombatAction::EndTurn).expect("turn ends");
+        let combat = after_turn.combat.expect("combat remains");
+
+        assert!(!combat
+            .piles
+            .hand
+            .iter()
+            .chain(combat.piles.draw_pile.iter())
+            .chain(combat.piles.discard_pile.iter())
+            .chain(combat.piles.exhaust_pile.iter())
+            .any(|card| card.temp_cost_turn_only || card.temp_cost == Some(0)));
     }
 
     #[test]

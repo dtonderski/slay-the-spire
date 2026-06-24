@@ -1393,6 +1393,8 @@ Completed slice:
 - implemented Tiny House key promotion, content-id round trips, max-HP/gold/heal pickup bundle, one random deck upgrade via `miscRng`, and reward-screen card reward queuing
 - expanded modeled random-card-on-exhaust relics: Dead Branch
 - implemented Dead Branch key promotion, content-id round trips, `cardRandomRng` random card generation from the non-healing Ironclad combat pool, hand-full overflow to discard, and focused run-level exhaust tests
+- expanded modeled power-play cost relics: Mummified Hand
+- implemented Mummified Hand key promotion, content-id round trips, `cardRandomRng` positive-cost hand-card discounting after Power play, and turn-only temp-cost reset coverage
 
 Remaining:
 

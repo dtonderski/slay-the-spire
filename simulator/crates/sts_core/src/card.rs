@@ -69,6 +69,9 @@ pub struct CardInstance {
     /// Combat-only generated cards (for example Power Potion) may override printed cost.
     #[serde(default)]
     pub temp_cost: Option<u8>,
+    /// Temporary cost only lasts until the next player turn.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub temp_cost_turn_only: bool,
     /// Cards created only for the current combat vanish after play.
     #[serde(default)]
     pub combat_only: bool,
@@ -82,6 +85,7 @@ impl CardInstance {
             content_id,
             bottled: false,
             temp_cost: None,
+            temp_cost_turn_only: false,
             combat_only: false,
         }
     }
@@ -93,6 +97,7 @@ impl CardInstance {
             content_id,
             bottled: false,
             temp_cost: Some(temp_cost),
+            temp_cost_turn_only: false,
             combat_only: true,
         }
     }

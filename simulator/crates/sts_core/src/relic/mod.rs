@@ -473,6 +473,8 @@ pub const CAULDRON_POTIONS: usize = 5;
 pub const TINY_HOUSE_ID: ContentId = ContentId::new(421);
 /// Content id for [Relic::DeadBranch].
 pub const DEAD_BRANCH_ID: ContentId = ContentId::new(422);
+/// Content id for [Relic::MummifiedHand].
+pub const MUMMIFIED_HAND_ID: ContentId = ContentId::new(423);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1139,6 +1141,7 @@ pub enum Relic {
     Cauldron,
     TinyHouse,
     DeadBranch,
+    MummifiedHand,
 }
 
 impl Relic {
@@ -1268,6 +1271,7 @@ impl Relic {
             Relic::Cauldron => CAULDRON_ID,
             Relic::TinyHouse => TINY_HOUSE_ID,
             Relic::DeadBranch => DEAD_BRANCH_ID,
+            Relic::MummifiedHand => MUMMIFIED_HAND_ID,
         }
     }
 
@@ -1397,6 +1401,7 @@ impl Relic {
             id if id == CAULDRON_ID => Some(Relic::Cauldron),
             id if id == TINY_HOUSE_ID => Some(Relic::TinyHouse),
             id if id == DEAD_BRANCH_ID => Some(Relic::DeadBranch),
+            id if id == MUMMIFIED_HAND_ID => Some(Relic::MummifiedHand),
             _ => None,
         }
     }
@@ -1431,6 +1436,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Cauldron => {}
             Relic::TinyHouse => {}
             Relic::DeadBranch => {}
+            Relic::MummifiedHand => {}
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
