@@ -18,14 +18,14 @@ use crate::{
         FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMMOLATE_ID, IMPATIENCE_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID,
-        METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        METALLICIZE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -186,6 +186,12 @@ pub(super) fn play_card_queue(
         POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID | FLASH_OF_STEEL_ID => pommel_strike_queue(
             card_id,
             target.expect("validated draw attack has a target"),
+            definition,
+        ),
+        MIND_BLAST_ID => mind_blast_queue(
+            state,
+            card_id,
+            target.expect("validated Mind Blast has a target"),
             definition,
         ),
         BATTLE_TRANCE_ID | BATTLE_TRANCE_PLUS_ID => battle_trance_queue(card_id, definition),
@@ -2598,6 +2604,40 @@ fn pommel_strike_queue(
             to: CardPile::DiscardPile,
         },
     ]))
+}
+
+fn mind_blast_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: current_combat_pile_card_count(state),
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+pub(super) fn current_combat_pile_card_count(state: &CombatState) -> i32 {
+    let count = state.piles.hand.len()
+        + state.piles.draw_pile.len()
+        + state.piles.discard_pile.len()
+        + state.piles.exhaust_pile.len();
+    i32::try_from(count).expect("combat pile count fits in i32")
 }
 
 fn battle_trance_draw_count(definition: &CardDefinition) -> usize {

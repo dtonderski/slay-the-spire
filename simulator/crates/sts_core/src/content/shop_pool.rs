@@ -9,12 +9,12 @@ use crate::content::cards::{
     FLASH_OF_STEEL_ID, FLEX_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID,
     HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
     INFERNAL_BLADE_ID, INFLAME_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID,
-    JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID,
-    PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
-    REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
-    SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SWIFT_STRIKE_ID,
-    SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
-    WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+    JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, METALLICIZE_ID, MIND_BLAST_ID, OFFERING_ID,
+    PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID,
+    RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+    SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+    SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+    UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
 };
 use crate::content::reward_pool::ironclad_reward_card_rarity;
 use crate::rng::StsRng;
@@ -260,6 +260,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "IMPATIENCE" => IMPATIENCE_ID,
         "JACK_OF_ALL_TRADES" => JACK_OF_ALL_TRADES_ID,
         "MADNESS" => MADNESS_ID,
+        "MIND_BLAST" => MIND_BLAST_ID,
         other => ContentId::new(600 + stable_pool_name_id(other)),
     }
 }
@@ -478,7 +479,7 @@ mod tests {
     use crate::content::cards::{
         BANDAGE_UP_ID, BLIND_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DISCOVERY_ID, ENLIGHTENMENT_ID,
         FLASH_OF_STEEL_ID, FORETHOUGHT_ID, GOOD_INSTINCTS_ID, IMPATIENCE_ID, JACK_OF_ALL_TRADES_ID,
-        PANACEA_ID, SWIFT_STRIKE_ID, TRIP_ID,
+        MIND_BLAST_ID, PANACEA_ID, SWIFT_STRIKE_ID, TRIP_ID,
     };
 
     #[test]
@@ -621,5 +622,13 @@ mod tests {
         assert!(shop_card_is_colorless(MADNESS_ID));
         assert_eq!(shop_card_type(MADNESS_ID), Some(CardType::Skill));
         assert_eq!(shop_card_price_rarity(MADNESS_ID), CardRarity::Uncommon);
+    }
+
+    #[test]
+    fn mind_blast_pool_key_maps_to_concrete_colorless_attack() {
+        assert_eq!(shop_card_content_id("MIND_BLAST"), MIND_BLAST_ID);
+        assert!(shop_card_is_colorless(MIND_BLAST_ID));
+        assert_eq!(shop_card_type(MIND_BLAST_ID), Some(CardType::Attack));
+        assert_eq!(shop_card_price_rarity(MIND_BLAST_ID), CardRarity::Uncommon);
     }
 }

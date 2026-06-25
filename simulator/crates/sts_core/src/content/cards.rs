@@ -65,6 +65,7 @@ pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
 pub const FORETHOUGHT_ID: ContentId = ContentId::new(59_534_622_361_962_517);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
+pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
@@ -1297,6 +1298,27 @@ pub const FLASH_OF_STEEL: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const MIND_BLAST: CardDefinition = CardDefinition {
+    id: MIND_BLAST_ID,
+    key: "Mind Blast",
+    name: "Mind Blast",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: true,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const DARK_SHACKLES: CardDefinition = CardDefinition {
     id: DARK_SHACKLES_ID,
     key: "DARK_SHACKLES",
@@ -2144,7 +2166,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 117] = [
+pub const ALL_CARDS: [CardDefinition; 118] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2215,6 +2237,7 @@ pub const ALL_CARDS: [CardDefinition; 117] = [
     DEEP_BREATH,
     DISCOVERY,
     FLASH_OF_STEEL,
+    MIND_BLAST,
     DARK_SHACKLES,
     FORETHOUGHT,
     GOOD_INSTINCTS,
@@ -2364,6 +2387,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == MIND_BLAST_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == DARK_SHACKLES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FORETHOUGHT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2596,6 +2620,20 @@ mod tests {
         assert_eq!(FLASH_OF_STEEL.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(FLASH_OF_STEEL_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn mind_blast_has_expected_values_keywords_and_rarity() {
+        assert_eq!(MIND_BLAST.id, MIND_BLAST_ID);
+        assert_eq!(MIND_BLAST.cost, 2);
+        assert_eq!(MIND_BLAST.target, TargetRequirement::Enemy);
+        assert_eq!(MIND_BLAST.card_type, CardType::Attack);
+        assert_eq!(MIND_BLAST.values.damage, None);
+        assert!(MIND_BLAST.keywords.innate);
+        assert_eq!(
+            card_type_and_rarity(MIND_BLAST_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
     }
