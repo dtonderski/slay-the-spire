@@ -22,11 +22,18 @@ const HAND_SIZE: usize = 5;
 /// 5. The next player turn refills energy and draws from the draw pile without shuffle.
 pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
+    let started_with_living_monster = state.monsters.iter().any(|monster| monster.alive);
 
     resolve_end_of_turn_hand(&mut next);
     apply_end_of_player_turn_powers(&mut next);
+    if finish_combat_if_over(&mut next, started_with_living_monster) {
+        return next;
+    }
     resolve_end_of_turn_doubt(&mut next);
     crate::relic::apply_end_of_player_turn_relics(&mut next);
+    if finish_combat_if_over(&mut next, started_with_living_monster) {
+        return next;
+    }
     discard_end_of_turn_hand(&mut next);
     next.phase = CombatPhase::MonsterTurn;
     run_monster_turn(&mut next);
@@ -77,6 +84,21 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) {
         }
         crate::combat::transition::player_draw_cards(state, 1);
     }
+}
+
+fn finish_combat_if_over(state: &mut CombatState, started_with_living_monster: bool) -> bool {
+    if state.player.hp <= 0 {
+        state.phase = CombatPhase::Lost;
+        return true;
+    }
+
+    if started_with_living_monster && state.monsters.iter().all(|monster| !monster.alive) {
+        state.phase = CombatPhase::Won;
+        crate::combat::apply_burning_blood(state);
+        return true;
+    }
+
+    false
 }
 
 fn reset_turn_only_temp_costs(state: &mut CombatState) {

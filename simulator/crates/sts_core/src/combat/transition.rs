@@ -295,6 +295,10 @@ fn apply_internal_action(
             state.player.powers.brutality += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainCombust { amount } => {
+            state.player.powers.combust += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainMetallicize { amount } => {
             state.player.powers.metallicize += amount;
             Ok(Vec::new())
@@ -1033,17 +1037,18 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
         BERSERK_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
-        CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
-        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID,
-        HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
+        DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
+        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -5119,6 +5124,214 @@ mod tests {
     }
 
     #[test]
+    fn combust_grants_power_spends_one_and_is_removed_from_hand() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 1;
+
+        let next = apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.combust, 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn combust_rejects_target() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 1;
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn combust_uses_effective_card_cost() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].temp_cost = Some(2);
+
+        let next = apply_combat_action(&state, combust_action(&state))
+            .expect("Combust applies with temp cost");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.combust, 1);
+    }
+
+    #[test]
+    fn combust_round_trips_through_combat_state_json() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 1;
+
+        let next = apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.combust, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn combust_event_log_records_power_gain_and_removal() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 1;
+
+        let transition = apply_combat_action_with_events(&state, combust_action(&state))
+            .expect("Combust applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainCombust { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn combust_loses_hp_and_damages_all_living_enemies_at_end_of_turn() {
+        let mut state = two_monster_hand(COMBUST_ID);
+        state.player.energy = 1;
+        state.player.hp = 40;
+        state.monsters[0].hp = 20;
+        state.monsters[1].hp = 20;
+        state.monsters[1].block = 2;
+        for monster in &mut state.monsters {
+            monster.intent = crate::MonsterIntent::Block { block: 0 };
+        }
+        state.piles.draw_pile.clear();
+
+        let after_combust =
+            apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+        let next_turn = crate::combat::end_player_turn(&after_combust);
+
+        assert_eq!(next_turn.player.hp, 39);
+        assert_eq!(next_turn.player.powers.combust, 1);
+        assert_eq!(next_turn.monsters[0].hp, 15);
+        assert_eq!(next_turn.monsters[1].hp, 17);
+        assert_eq!(next_turn.monsters[1].block, 0);
+    }
+
+    #[test]
+    fn combust_stacks_end_turn_hp_loss_and_damage() {
+        let mut state = two_monster_hand(COMBUST_ID);
+        state.player.energy = 1;
+        state.player.hp = 40;
+        state.player.powers.combust = 1;
+        state.monsters[0].hp = 30;
+        state.monsters[1].hp = 30;
+        for monster in &mut state.monsters {
+            monster.intent = crate::MonsterIntent::Block { block: 0 };
+        }
+        state.piles.draw_pile.clear();
+
+        let after_combust =
+            apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+        let next_turn = crate::combat::end_player_turn(&after_combust);
+
+        assert_eq!(next_turn.player.hp, 38);
+        assert_eq!(next_turn.player.powers.combust, 2);
+        assert_eq!(next_turn.monsters[0].hp, 20);
+        assert_eq!(next_turn.monsters[1].hp, 20);
+    }
+
+    #[test]
+    fn combust_hp_loss_uses_mitigation_but_damage_still_applies() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 1;
+        state.player.hp = 40;
+        state.relics = vec![Relic::TungstenRod];
+        state.monsters[0].hp = 20;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let after_combust =
+            apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+        let next_turn = crate::combat::end_player_turn(&after_combust);
+
+        assert_eq!(next_turn.player.hp, 40);
+        assert_eq!(next_turn.monsters[0].hp, 15);
+    }
+
+    #[test]
+    fn combust_lethal_end_turn_damage_wins_before_monster_turn() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 1;
+        state.player.hp = 40;
+        state.monsters[0].hp = 5;
+        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 99 };
+        state.piles.draw_pile.clear();
+
+        let after_combust =
+            apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+        let after_end = crate::combat::end_player_turn(&after_combust);
+
+        assert_eq!(after_end.phase, CombatPhase::Won);
+        assert_eq!(after_end.player.hp, 45);
+        assert!(!after_end.monsters[0].alive);
+    }
+
+    #[test]
+    fn combust_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.player.energy = 1;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next = apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.combust, 1);
+    }
+
+    #[test]
+    fn combust_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(COMBUST_ID);
+        state.player.energy = 1;
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, combust_action(&state)).expect("Combust applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.combust, 1);
+    }
+
+    #[test]
     fn berserk_grants_power_applies_vulnerable_and_is_removed_from_hand() {
         let mut state = hand_only(BERSERK_ID);
         state.player.energy = 0;
@@ -7677,6 +7890,13 @@ mod tests {
     fn berserk_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BERSERK_ID),
+            target: None,
+        }
+    }
+
+    fn combust_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, COMBUST_ID),
             target: None,
         }
     }
