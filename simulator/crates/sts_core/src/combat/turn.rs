@@ -49,6 +49,7 @@ pub fn start_player_turn(state: &mut CombatState) {
     state.player.cannot_draw = false;
     state.player.temp_strength = 0;
     state.player.temp_thorns = 0;
+    state.player.temp_rage_block = 0;
     if state.player.temp_dexterity > 0 {
         state.player.powers.dexterity -= state.player.temp_dexterity;
         state.player.temp_dexterity = 0;

@@ -394,6 +394,7 @@ mod tests {
             temp_strength: 0,
             temp_dexterity: 0,
             temp_thorns: 0,
+            temp_rage_block: 0,
         };
 
         reflect_spikes_to_player(&mut player, &[], 3);
@@ -415,6 +416,7 @@ mod tests {
             temp_strength: 0,
             temp_dexterity: 0,
             temp_thorns: 0,
+            temp_rage_block: 0,
         };
 
         reflect_spikes_to_player(&mut player, &[crate::Relic::TungstenRod], 3);
@@ -439,6 +441,7 @@ mod tests {
             temp_strength: 0,
             temp_dexterity: 0,
             temp_thorns: 0,
+            temp_rage_block: 0,
         };
 
         reflect_spikes_to_player(&mut player, &[], 3);

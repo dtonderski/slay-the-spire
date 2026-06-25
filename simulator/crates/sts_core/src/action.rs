@@ -74,6 +74,9 @@ pub enum InternalAction {
         amount: i32,
     },
     SetCannotDraw,
+    GainRage {
+        amount: i32,
+    },
     GainFeelNoPain {
         amount: i32,
     },

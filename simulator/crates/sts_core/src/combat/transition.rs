@@ -120,6 +120,7 @@ fn apply_internal_action(
             let definition = get_card_definition(card.content_id)
                 .ok_or(SimError::UnknownContent(card.content_id))?;
             apply_enrage_on_card_type(state, definition.card_type);
+            apply_rage_on_card_type(state, definition.card_type);
             Ok(crate::relic::apply_on_card_play_relics(
                 state,
                 definition.card_type,
@@ -260,6 +261,10 @@ fn apply_internal_action(
         }
         InternalAction::SetCannotDraw => {
             state.player.cannot_draw = true;
+            Ok(Vec::new())
+        }
+        InternalAction::GainRage { amount } => {
+            state.player.temp_rage_block += amount;
             Ok(Vec::new())
         }
         InternalAction::GainFeelNoPain { amount } => {
@@ -495,6 +500,12 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
     }
 }
 
+fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) {
+    if card_type == CardType::Attack && state.player.temp_rage_block > 0 {
+        state.player.block += calculate_block(state.player.temp_rage_block, state.player.powers);
+    }
+}
+
 fn apply_play_top_draw_card(
     state: &mut CombatState,
     target: Option<MonsterId>,
@@ -514,6 +525,7 @@ fn apply_play_top_draw_card(
 
     card_effects::validate_havoc_target(definition, target)?;
     apply_enrage_on_card_type(state, definition.card_type);
+    apply_rage_on_card_type(state, definition.card_type);
 
     let mut follow_ups = Vec::new();
 
@@ -997,7 +1009,7 @@ mod tests {
         FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
         HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, REAPER_ID, RECKLESS_CHARGE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
         REGRET_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
         SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
@@ -6546,6 +6558,139 @@ mod tests {
     }
 
     #[test]
+    fn rage_gains_turn_scoped_attack_block_and_discards() {
+        let state = hand_only(RAGE_ID);
+
+        let next = apply_combat_action(&state, rage_action(&state)).expect("Rage applies");
+
+        assert_eq!(next.player.energy, 3);
+        assert_eq!(next.player.temp_rage_block, 3);
+        assert_eq!(next.piles.discard_pile[0].content_id, RAGE_ID);
+    }
+
+    #[test]
+    fn rage_rejects_target() {
+        let state = hand_only(RAGE_ID);
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn attack_after_rage_gains_block_before_damage_resolution() {
+        let mut state = hand_only(RAGE_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), STRIKE_R_ID));
+
+        let after_rage = apply_combat_action(&state, rage_action(&state)).expect("Rage applies");
+        let after_strike =
+            apply_combat_action(&after_rage, strike_action(&after_rage)).expect("Strike applies");
+
+        assert_eq!(after_strike.player.block, 3);
+        assert_eq!(after_strike.monsters[0].hp, state.monsters[0].hp - 6);
+    }
+
+    #[test]
+    fn rage_stacks_for_later_attacks() {
+        let mut state = hand_only(RAGE_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), RAGE_ID),
+            CardInstance::new(CardId::new(21), RAGE_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+        ];
+
+        let after_first = apply_combat_action(&state, rage_action(&state)).expect("Rage applies");
+        let after_second =
+            apply_combat_action(&after_first, rage_action(&after_first)).expect("Rage applies");
+        let after_strike = apply_combat_action(&after_second, strike_action(&after_second))
+            .expect("Strike applies");
+
+        assert_eq!(after_strike.player.temp_rage_block, 6);
+        assert_eq!(after_strike.player.block, 6);
+    }
+
+    #[test]
+    fn rage_does_not_trigger_on_later_skill() {
+        let mut state = hand_only(RAGE_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), DEFEND_R_ID));
+
+        let after_rage = apply_combat_action(&state, rage_action(&state)).expect("Rage applies");
+        let after_defend =
+            apply_combat_action(&after_rage, defend_action(&after_rage)).expect("Defend applies");
+
+        assert_eq!(after_defend.player.block, 5);
+    }
+
+    #[test]
+    fn rage_expires_on_next_player_turn() {
+        let mut state = hand_only(RAGE_ID);
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+
+        let after_rage = apply_combat_action(&state, rage_action(&state)).expect("Rage applies");
+        let next_turn = apply_combat_action(&after_rage, CombatAction::EndTurn).expect("turn ends");
+
+        assert_eq!(next_turn.player.temp_rage_block, 0);
+    }
+
+    #[test]
+    fn rage_applies_to_attack_played_from_top_draw() {
+        let mut state = hand_only(HAVOC_ID);
+        state.player.temp_rage_block = 3;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Havoc applies");
+
+        assert_eq!(next.player.block, 3);
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 6);
+    }
+
+    #[test]
+    fn rage_event_log_records_gain_before_discard() {
+        let state = hand_only(RAGE_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, rage_action(&state)).expect("Rage applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20)
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::GainRage { amount: 3 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn unceasing_top_draws_when_played_card_empties_hand() {
         let mut state = hand_only(STRIKE_R_ID);
         state.relics = vec![Relic::UnceasingTop];
@@ -6843,6 +6988,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DISARM_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn rage_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, RAGE_ID),
+            target: None,
         }
     }
 
