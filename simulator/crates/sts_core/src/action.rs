@@ -114,6 +114,9 @@ pub enum InternalAction {
     GainRupture {
         amount: i32,
     },
+    GainJuggernaut {
+        amount: i32,
+    },
     GainBrutality {
         amount: i32,
     },
@@ -127,6 +130,10 @@ pub enum InternalAction {
         amount: i32,
     },
     GainCorruption {
+        amount: i32,
+    },
+    DealUnmodifiedDamage {
+        target: crate::MonsterId,
         amount: i32,
     },
     GainMetallicize {

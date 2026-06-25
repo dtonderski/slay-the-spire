@@ -8,8 +8,39 @@ use crate::relic::{heal_player_in_combat_with_relics, Relic};
 use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId};
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
-    apply_player_end_of_turn_powers_with_relics(&mut state.player, &state.relics);
+    apply_player_end_of_turn_powers_for_combat_state(state);
     apply_end_of_turn_combust(state);
+}
+
+fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
+    if state.player.powers.ritual > 0 {
+        state.player.powers.strength += state.player.powers.ritual;
+    }
+    if state.player.powers.metallicize > 0 {
+        let gained = state.player.powers.metallicize;
+        state.player.block += gained;
+        crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, gained);
+    }
+    if state.player.powers.plated_armor > 0 {
+        let gained = state.player.powers.plated_armor;
+        state.player.block += gained;
+        crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, gained);
+    }
+    if state.player.powers.regen > 0 {
+        heal_player_in_combat_with_relics(
+            &mut state.player.hp,
+            state.player.max_hp,
+            state.player.powers.regen,
+            &state.relics,
+        );
+        state.player.powers.regen -= 1;
+    }
+    if state.player.powers.weak > 0 {
+        state.player.powers.weak -= 1;
+    }
+    if state.player.powers.frail > 0 {
+        state.player.powers.frail -= 1;
+    }
 }
 
 pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {

@@ -233,7 +233,7 @@ fn apply_internal_action(
         InternalAction::GainBlock { amount } => {
             let gained = calculate_block(amount, state.player.powers);
             state.player.block += gained;
-            Ok(Vec::new())
+            Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
         }
         InternalAction::GainTemporaryThorns { amount } => {
             state.player.temp_thorns += amount;
@@ -345,6 +345,10 @@ fn apply_internal_action(
             state.player.powers.rupture += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainJuggernaut { amount } => {
+            state.player.powers.juggernaut += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainBrutality { amount } => {
             state.player.powers.brutality += amount;
             Ok(Vec::new())
@@ -363,6 +367,10 @@ fn apply_internal_action(
         }
         InternalAction::GainCorruption { amount } => {
             state.player.powers.corruption += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::DealUnmodifiedDamage { target, amount } => {
+            deal_unmodified_damage_to_living_monster(state, target, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainMetallicize { amount } => {
@@ -495,12 +503,69 @@ fn deal_attack_damage_to_all_living(
     Ok(total_hp_damage)
 }
 
+fn deal_unmodified_damage_to_living_monster(
+    state: &mut CombatState,
+    target: MonsterId,
+    amount: i32,
+) -> SimResult<()> {
+    let still_alive = {
+        let monster = living_monster_mut(state, target)?;
+        let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
+        wake_lagavulin_on_damage(monster, hp_damage);
+        guardian_on_hp_damage(monster, hp_damage);
+        monster.alive
+    };
+    check_slime_boss_split(state, target);
+    if !still_alive {
+        crate::relic::apply_monster_death_relics(state);
+    }
+    Ok(())
+}
+
+fn juggernaut_follow_up_for_positive_block_gain(
+    state: &CombatState,
+    gained: i32,
+) -> Vec<InternalAction> {
+    if gained <= 0 || state.player.powers.juggernaut <= 0 {
+        return Vec::new();
+    }
+    first_living_monster_id(state)
+        .map(|target| {
+            vec![InternalAction::DealUnmodifiedDamage {
+                target,
+                amount: state.player.powers.juggernaut,
+            }]
+        })
+        .unwrap_or_default()
+}
+
+pub(crate) fn apply_juggernaut_after_direct_block_gain(state: &mut CombatState, gained: i32) {
+    if let Some(InternalAction::DealUnmodifiedDamage { target, amount }) =
+        juggernaut_follow_up_for_positive_block_gain(state, gained)
+            .into_iter()
+            .next()
+    {
+        let _ = deal_unmodified_damage_to_living_monster(state, target, amount);
+    }
+}
+
+fn first_living_monster_id(state: &CombatState) -> Option<MonsterId> {
+    state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .min_by_key(|monster| monster.id.get())
+        .map(|monster| monster.id)
+}
+
 pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) {
     if exhausted_card_content_id(state, card_id) == Some(SENTINEL_ID) {
         state.player.energy += 2;
     }
     if state.player.powers.feel_no_pain > 0 {
-        state.player.block += 3 * state.player.powers.feel_no_pain;
+        let gained = 3 * state.player.powers.feel_no_pain;
+        state.player.block += gained;
+        apply_juggernaut_after_direct_block_gain(state, gained);
     }
     if state.player.powers.dark_embrace > 0 {
         player_draw_cards(state, state.player.powers.dark_embrace as usize);
@@ -600,7 +665,9 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
 
 fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) {
     if card_type == CardType::Attack && state.player.temp_rage_block > 0 {
-        state.player.block += calculate_block(state.player.temp_rage_block, state.player.powers);
+        let gained = calculate_block(state.player.temp_rage_block, state.player.powers);
+        state.player.block += gained;
+        apply_juggernaut_after_direct_block_gain(state, gained);
     }
 }
 
@@ -1129,8 +1196,8 @@ mod tests {
         DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
         FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
         GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
-        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
         RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
         SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
@@ -6446,6 +6513,157 @@ mod tests {
     }
 
     #[test]
+    fn juggernaut_grants_power_spends_two_and_is_removed_from_hand() {
+        let mut state = hand_only(JUGGERNAUT_ID);
+        state.player.energy = 2;
+
+        let next =
+            apply_combat_action(&state, juggernaut_action(&state)).expect("Juggernaut applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.juggernaut, 5);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn juggernaut_deals_damage_after_block_gain_and_stacks() {
+        let mut state = hand_only(JUGGERNAUT_ID);
+        state.player.energy = 2;
+        state.player.powers.juggernaut = 5;
+
+        let after_power =
+            apply_combat_action(&state, juggernaut_action(&state)).expect("Juggernaut applies");
+        let mut block_state = after_power.clone();
+        block_state.piles.hand = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+        block_state.player.energy = 1;
+        let monster_hp = block_state.monsters[0].hp;
+
+        let transition = apply_combat_action_with_events(
+            &block_state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(30),
+                target: None,
+            },
+        )
+        .expect("Defend applies");
+
+        assert_eq!(after_power.player.powers.juggernaut, 10);
+        assert_eq!(transition.state.player.block, 5);
+        assert_eq!(transition.state.monsters[0].hp, monster_hp - 10);
+        assert!(transition
+            .event_log
+            .contains(&InternalAction::DealUnmodifiedDamage {
+                target: MonsterId::new(1),
+                amount: 10,
+            }));
+    }
+
+    #[test]
+    fn juggernaut_does_not_trigger_when_block_gain_is_zero() {
+        let mut state = hand_only(DEFEND_R_ID);
+        state.player.powers.juggernaut = 5;
+        state.player.powers.frail = 1;
+        state.player.powers.dexterity = -5;
+        let monster_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Defend applies");
+
+        assert_eq!(next.player.block, 0);
+        assert_eq!(next.monsters[0].hp, monster_hp);
+    }
+
+    #[test]
+    fn juggernaut_triggers_from_end_turn_metallicize_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.juggernaut = 5;
+        state.player.powers.metallicize = 4;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+        let monster_hp = state.monsters[0].hp;
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.monsters[0].hp, monster_hp - 5);
+    }
+
+    #[test]
+    fn juggernaut_event_log_records_power_gain_and_removal() {
+        let mut state = hand_only(JUGGERNAUT_ID);
+        state.player.energy = 2;
+
+        let transition = apply_combat_action_with_events(&state, juggernaut_action(&state))
+            .expect("Juggernaut applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainJuggernaut { amount: 5 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn juggernaut_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(JUGGERNAUT_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.player.energy = 2;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next =
+            apply_combat_action(&state, juggernaut_action(&state)).expect("Juggernaut applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.juggernaut, 5);
+    }
+
+    #[test]
+    fn juggernaut_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(JUGGERNAUT_ID);
+        state.player.energy = 2;
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next =
+            apply_combat_action(&state, juggernaut_action(&state)).expect("Juggernaut applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.juggernaut, 5);
+    }
+
+    #[test]
     fn brutality_grants_power_and_is_removed_from_hand() {
         let mut state = hand_only(BRUTALITY_ID);
         state.player.energy = 0;
@@ -9219,6 +9437,13 @@ mod tests {
     fn berserk_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BERSERK_ID),
+            target: None,
+        }
+    }
+
+    fn juggernaut_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, JUGGERNAUT_ID),
             target: None,
         }
     }
