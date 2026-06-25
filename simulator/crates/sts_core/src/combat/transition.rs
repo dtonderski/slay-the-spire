@@ -829,16 +829,16 @@ fn move_card(
 mod tests {
     use super::*;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLUDGEON_ID,
-        BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
-        DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
-        GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
+        BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID,
+        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
+        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -3580,6 +3580,123 @@ mod tests {
         .expect("Seeing Red+ applies");
 
         assert_eq!(next.player.energy, 3);
+    }
+
+    #[test]
+    fn bloodletting_loses_three_hp_and_gains_two_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 0;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), BLOODLETTING_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Bloodletting applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 3);
+        assert_eq!(next.player.energy, 2);
+    }
+
+    #[test]
+    fn bloodletting_moves_to_discard_without_exhausting() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), BLOODLETTING_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Bloodletting applies");
+
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn bloodletting_event_log_records_hp_loss_before_energy_gain() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), BLOODLETTING_ID)];
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Bloodletting applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::LoseHp { amount: 3 },
+                InternalAction::GainEnergy { amount: 2 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn bloodletting_hp_loss_is_reduced_by_tungsten_rod() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::TungstenRod];
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), BLOODLETTING_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Bloodletting applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 2);
+        assert_eq!(next.player.energy, state.player.energy + 2);
+    }
+
+    #[test]
+    fn bloodletting_hp_loss_consumes_buffer_without_losing_hp() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.buffer = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), BLOODLETTING_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Bloodletting applies");
+
+        assert_eq!(next.player.hp, state.player.hp);
+        assert_eq!(next.player.powers.buffer, 0);
+        assert_eq!(next.player.energy, state.player.energy + 2);
     }
 
     #[test]

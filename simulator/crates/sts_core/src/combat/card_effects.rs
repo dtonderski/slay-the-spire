@@ -7,17 +7,17 @@ use crate::{
     },
     content::cards::{
         get_card_definition, is_curse_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
-        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID,
-        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID,
-        DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, FEEL_NO_PAIN_ID,
-        FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID, IMMOLATE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
-        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID, BODY_SLAM_ID, BURNING_PACT_ID,
+        CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DAZED_ID,
+        DEFEND_R_ID, DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
+        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID,
+        IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{
@@ -129,6 +129,7 @@ pub(super) fn play_card_queue(
         ),
         BATTLE_TRANCE_ID | BATTLE_TRANCE_PLUS_ID => battle_trance_queue(card_id, definition),
         SEEING_RED_ID | SEEING_RED_PLUS_ID => seeing_red_queue(card_id, definition),
+        BLOODLETTING_ID => bloodletting_queue(card_id, definition),
         INTIMIDATE_ID => intimidate_queue(state, card_id, definition),
         INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
@@ -460,6 +461,25 @@ fn body_slam_queue(
                 amount: state.player.block,
             },
         },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn bloodletting_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::LoseHp { amount: 3 },
+        InternalAction::GainEnergy { amount: 2 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
