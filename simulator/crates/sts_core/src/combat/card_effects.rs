@@ -11,8 +11,8 @@ use crate::{
         BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
         BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
         FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
         FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
         HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFERNAL_BLADE_ID, INFLAME_ID,
@@ -151,6 +151,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Twin Strike has a target"),
             definition,
         ),
+        DEEP_BREATH_ID => deep_breath_queue(card_id, definition),
         FINESSE_ID => finesse_queue(card_id, definition),
         SHRUG_IT_OFF_ID => shrug_it_off_queue(card_id),
         TRUE_GRIT_ID => true_grit_queue(state, card_id),
@@ -2165,6 +2166,24 @@ fn finesse_queue(
         },
         InternalAction::GainBlock {
             amount: definition.values.block.unwrap_or(0),
+        },
+        InternalAction::DrawCards { count: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn deep_breath_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
         },
         InternalAction::DrawCards { count: 1 },
         InternalAction::MoveCard {

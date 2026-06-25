@@ -12,11 +12,11 @@ use crate::{
     },
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
-        BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, OFFERING_ID, PANACEA_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID,
+        DRAMATIC_ENTRANCE_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, OFFERING_ID, PANACEA_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -843,6 +843,9 @@ fn apply_play_top_draw_card(
                 });
             }
         }
+        DEEP_BREATH_ID => {
+            follow_ups.push(InternalAction::DrawCards { count: 1 });
+        }
         OFFERING_ID => {
             follow_ups.push(InternalAction::LoseHp {
                 amount: 6,
@@ -1327,19 +1330,19 @@ mod tests {
         BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
-        DARK_SHACKLES_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
-        GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID,
+        FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID,
+        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -4602,6 +4605,86 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn deep_breath_shuffles_discard_draws_one_at_zero_cost_and_discards() {
+        let mut state = hand_only(DEEP_BREATH_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let deep_breath_id = hand_card_id(&state, DEEP_BREATH_ID);
+
+        let next =
+            apply_combat_action(&state, deep_breath_action(&state)).expect("Deep Breath applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == deep_breath_id));
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn deep_breath_event_log_records_draw_then_discard() {
+        let mut state = hand_only(DEEP_BREATH_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+        let deep_breath_id = hand_card_id(&state, DEEP_BREATH_ID);
+
+        let transition = apply_combat_action_with_events(&state, deep_breath_action(&state))
+            .expect("Deep Breath applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: deep_breath_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DrawCards { count: 1 },
+                InternalAction::MoveCard {
+                    card_id: deep_breath_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn havoc_top_draw_deep_breath_draws_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(32), DEEP_BREATH_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(31), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Deep Breath");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id != DEEP_BREATH_ID));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DEEP_BREATH_ID));
     }
 
     #[test]
@@ -10322,6 +10405,13 @@ mod tests {
     fn blind_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BLIND_ID),
+            target: None,
+        }
+    }
+
+    fn deep_breath_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DEEP_BREATH_ID),
             target: None,
         }
     }

@@ -366,8 +366,8 @@ mod tests {
             BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID,
             BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
             CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
-            CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEFEND_R_ID, DEMON_FORM_ID,
-            DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
+            CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID,
+            DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
             FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
             FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID,
             HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
@@ -684,6 +684,37 @@ mod tests {
     #[test]
     fn finesse_rejects_target() {
         let state = hand_with_card(FINESSE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn deep_breath_is_legal_without_target_at_zero_energy() {
+        let mut state = hand_with_card(DEEP_BREATH_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn deep_breath_rejects_target() {
+        let state = hand_with_card(DEEP_BREATH_ID);
 
         assert_eq!(
             validate_combat_action(
