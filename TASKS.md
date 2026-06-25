@@ -1496,6 +1496,7 @@ Tasks:
   - [x] Implement base Intimidate (`INTIMIDATE`, ContentId(115)) as a deterministic uncommon skill: 0 energy, 1 weak to all living enemies, exhaust, no trace-parity claim.
   - [x] Implement base Rage (`RAGE`, ContentId(125)) as a deterministic uncommon skill: 0 energy, no target, this-turn attack plays gain 3 block via turn-scoped local state, no trace-parity claim.
   - [x] Implement base Rampage (`RAMPAGE`, ContentId(121)) as a deterministic uncommon attack: 1 energy, targeted enemy, 8 damage, increases only the played card instance's future Rampage damage by 5 for the current combat, no trace-parity claim.
+  - [x] Implement base Combust (`COMBUST`, ContentId(123)) as a deterministic uncommon power: 1 energy, no target, grants serialized end-turn HP-loss/all-enemy damage power state, removes the played power card through the existing power-card path, no trace-parity claim.
   - [x] Implement base Barricade (`BARRICADE`, ContentId(143)) as a deterministic rare power: 3 energy, no target, grants player block-retention power state, removes the played power card through the existing power-card path, and preserves block at turn-transition cleanup, no trace-parity claim.
   - [x] Implement base Berserk (`BERSERK`, ContentId(145)) as a deterministic rare power: 0 energy, no target, applies 2 player Vulnerable, grants serialized start-turn energy power state, and removes the played power card through the existing power-card path, no trace-parity claim.
   - [x] Implement base Brutality (`BRUTALITY`, ContentId(148)) as a deterministic rare power: 0 energy, no target, grants serialized start-turn HP-loss/draw power state, removes the played power card through the existing power-card path, no trace-parity claim.
@@ -1532,6 +1533,7 @@ Tasks:
   - [x] Add Intimidate definition, legality, all-living-enemy, dead-enemy skip, exhaust, and event-log tests.
   - [x] Add Rage definition, legality/target rejection, transition, turn-scoped stacking, attack-only trigger, Havoc/top-draw attack trigger, turn expiry, serialization, and event-log tests.
   - [x] Add Rampage definition/rarity, legality/missing-target/energy, transition, effective-cost spending, per-card-instance growth, serialization, Strength/Vulnerable, Akabeko/Pen Nib, and event-log tests.
+  - [x] Add Combust definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, end-turn HP loss/all-enemy damage, stacking, lethal reward transition, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Barricade definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, turn-transition block retention, Calipers precedence, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Berserk definition/rarity, legality/target rejection, transition, self-Vulnerable, Artifact, effective-cost spending, power removal, serialized power state, start-turn energy, Ice Cream, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Brutality definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, start-turn HP loss/draw, stacking, Bird-Faced Urn, Unceasing Top, and event-log tests.
@@ -1563,6 +1565,7 @@ Tasks:
   - [x] Headbutt uses explicit-purpose discard-select state; Liquid Memories retains its separate discard-select purpose.
   - [x] Rage uses turn-scoped player combat state and includes player-state serialization coverage.
   - [x] Rampage adds serialized card-instance state for combat-local damage growth.
+  - [x] Combust adds serialized player power state for end-turn HP loss and all-enemy damage.
   - [x] Barricade adds serialized player power state for block retention.
   - [x] Berserk adds serialized player power state for start-turn energy gain.
   - [x] Brutality adds serialized player power state for start-turn HP loss and draw.
@@ -1595,6 +1598,7 @@ Tasks:
   - [x] Headbutt covers targeted attack damage, explicit discard-select purpose serialization, selected discard-to-draw-pile movement, lethal-selection skip, and played-card discard movement through existing card queue and selection hooks.
   - [x] Rage covers turn-scoped state serialization, Skill play hooks, later Attack play hooks, Havoc top-draw attacks, block modifiers through the local block calculation path, discard movement, and turn reset.
   - [x] Rampage covers per-card-instance growth, effective-cost spending, attack damage modifiers, damage relic queue modifiers, and discard movement through existing card queue and transition hooks.
+  - [x] Combust covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and end-turn HP-loss/all-enemy damage through existing card queue, HP-loss, damage, and turn hooks.
   - [x] Barricade covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, turn-transition block retention, and Calipers precedence through existing card queue and turn cleanup hooks.
   - [x] Berserk covers self-debuff Artifact handling, effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn energy with Ice Cream through existing card queue and turn hooks.
   - [x] Brutality covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn HP-loss/draw stacks through existing card queue, HP-loss, draw, and turn hooks.
@@ -1629,6 +1633,7 @@ Tasks:
   - [x] Move Intimidate from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Rage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Rampage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Combust from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Barricade from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Berserk from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Brutality from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1665,6 +1670,7 @@ Tasks:
   - [x] Intimidate matrix caveat names the missing real-game trace parity evidence.
   - [x] Rage matrix caveat names the missing real-game trace parity, source-backed exact trigger ordering/modifier evidence, and upgraded behavior.
   - [x] Rampage matrix caveat names the missing played-card real-game trace parity, source-backed exact card-UUID/copy semantics, and upgraded behavior.
+  - [x] Combust matrix caveat names the missing played-card real-game trace parity, source-backed exact end-turn timing/source evidence, stacking semantics, and upgraded behavior.
   - [x] Barricade matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
   - [x] Berserk matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
   - [x] Brutality matrix caveat names the missing played-card real-game trace parity, source-backed exact start-turn timing/source evidence, and upgraded behavior.

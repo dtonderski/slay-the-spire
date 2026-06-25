@@ -236,6 +236,11 @@ pub const DAZED: CardDefinition = CardDefinition {
 /// Burn status deals this much HP loss per copy in hand at end of turn.
 pub const BURN_END_TURN_DAMAGE: i32 = 2;
 
+/// Combust loses this much player HP per stack at end of turn.
+pub const COMBUST_HP_LOSS: i32 = 1;
+/// Combust deals this much damage to all living enemies per stack at end of turn.
+pub const COMBUST_DAMAGE: i32 = 5;
+
 pub const BURN: CardDefinition = CardDefinition {
     id: BURN_ID,
     key: "Burn",
@@ -542,6 +547,21 @@ pub const DARK_EMBRACE: CardDefinition = CardDefinition {
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const COMBUST: CardDefinition = CardDefinition {
+    id: COMBUST_ID,
+    key: "COMBUST",
+    name: "Combust",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(COMBUST_DAMAGE),
         block: None,
         vulnerable: None,
     },
@@ -1686,7 +1706,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 91] = [
+pub const ALL_CARDS: [CardDefinition; 92] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1712,6 +1732,7 @@ pub const ALL_CARDS: [CardDefinition; 91] = [
     BURNING_PACT,
     FEEL_NO_PAIN,
     DARK_EMBRACE,
+    COMBUST,
     DEMON_FORM,
     BARRICADE,
     BERSERK,
@@ -1837,6 +1858,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BURNING_PACT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
@@ -2416,6 +2438,19 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(BERSERK_ID),
             Some((CardType::Power, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn combust_has_expected_values_and_rarity() {
+        assert_eq!(COMBUST.id, COMBUST_ID);
+        assert_eq!(COMBUST.cost, 1);
+        assert_eq!(COMBUST.target, TargetRequirement::None);
+        assert_eq!(COMBUST.card_type, CardType::Power);
+        assert_eq!(COMBUST.values.damage, Some(COMBUST_DAMAGE));
+        assert_eq!(
+            card_type_and_rarity(COMBUST_ID),
+            Some((CardType::Power, CardRarity::Uncommon))
         );
     }
 

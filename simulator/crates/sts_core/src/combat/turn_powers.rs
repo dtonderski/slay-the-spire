@@ -1,9 +1,15 @@
 use crate::combat::{CombatState, MonsterState, PlayerState};
+use crate::content::cards::{COMBUST_DAMAGE, COMBUST_HP_LOSS};
+use crate::content::monsters::{
+    check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage,
+};
 use crate::power::attack_damage_with_vulnerable;
 use crate::relic::{heal_player_in_combat_with_relics, Relic};
+use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId};
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
     apply_player_end_of_turn_powers_with_relics(&mut state.player, &state.relics);
+    apply_end_of_turn_combust(state);
 }
 
 pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
@@ -34,6 +40,51 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
     }
     if player.powers.frail > 0 {
         player.powers.frail -= 1;
+    }
+}
+
+fn apply_end_of_turn_combust(state: &mut CombatState) {
+    for _ in 0..state.player.powers.combust.max(0) {
+        let hp_loss = lose_player_hp(state, COMBUST_HP_LOSS);
+        crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+        deal_combust_damage_to_living_monsters(state);
+        if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
+            return;
+        }
+    }
+}
+
+fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
+    let mitigated = crate::relic::mitigate_hp_loss(&state.relics, amount);
+    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
+    state.player.hp -= hp_loss;
+    hp_loss
+}
+
+fn deal_combust_damage_to_living_monsters(state: &mut CombatState) {
+    let targets = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| monster.id)
+        .collect::<Vec<MonsterId>>();
+
+    for target in targets {
+        let killed = {
+            let monster = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == target && monster.alive)
+                .expect("target was collected from living monsters");
+            let hp_damage = deal_unmodified_damage_to_monster(monster, COMBUST_DAMAGE);
+            wake_lagavulin_on_damage(monster, hp_damage);
+            guardian_on_hp_damage(monster, hp_damage);
+            !monster.alive
+        };
+        check_slime_boss_split(state, target);
+        if killed {
+            crate::relic::apply_monster_death_relics(state);
+        }
     }
 }
 

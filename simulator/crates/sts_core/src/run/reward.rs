@@ -1435,9 +1435,9 @@ mod tests {
     use super::*;
     use crate::card::CardType;
     use crate::content::cards::{
-        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, CURSE_OF_THE_BELL_ID,
-        DEFEND_R_ID, FEED_ID, HAVOC_ID, INFLAME_ID, REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID,
+        CURSE_OF_THE_BELL_ID, DEFEND_R_ID, FEED_ID, HAVOC_ID, INFLAME_ID, REAPER_ID, SENTINEL_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -1517,6 +1517,58 @@ mod tests {
         assert_eq!(combat.phase, CombatPhase::Lost);
         assert!(combat.player.hp <= 0);
         assert_eq!(after.player_hp, combat.player.hp);
+    }
+
+    #[test]
+    fn combust_end_turn_victory_enters_reward_screen() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![CardInstance::new(CardId::new(20), COMBUST_ID)];
+        combat.player.energy = 1;
+        combat.player.hp = 40;
+        combat.monsters[0].hp = 5;
+        combat.monsters[0].intent = crate::MonsterIntent::Attack { damage: 99 };
+
+        let after_power = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Combust applies");
+        let after =
+            apply_combat_action_on_run(&after_power, CombatAction::EndTurn).expect("turn ends");
+
+        assert_eq!(after.phase, RunPhase::Reward);
+        assert_eq!(after.player_hp, 45);
+        assert!(after.reward.is_some());
+    }
+
+    #[test]
+    fn combust_self_hp_loss_can_enter_lost_phase() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![CardInstance::new(CardId::new(20), COMBUST_ID)];
+        combat.player.energy = 1;
+        combat.player.hp = 1;
+        combat.monsters[0].hp = 20;
+        combat.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+
+        let after_power = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Combust applies");
+        let after =
+            apply_combat_action_on_run(&after_power, CombatAction::EndTurn).expect("turn ends");
+
+        let combat = after.combat.expect("combat state remains");
+        assert_eq!(combat.phase, CombatPhase::Lost);
+        assert_eq!(after.player_hp, 0);
     }
 
     #[test]
