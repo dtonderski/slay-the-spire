@@ -1587,6 +1587,17 @@ mod tests {
     }
 
     #[test]
+    fn wound_is_unplayable_non_ethereal_status_with_no_target() {
+        assert_eq!(WOUND.id, WOUND_ID);
+        assert_eq!(WOUND.card_type, CardType::Status);
+        assert_eq!(WOUND.target, TargetRequirement::None);
+        assert!(WOUND.keywords.unplayable);
+        assert!(!WOUND.keywords.ethereal);
+        assert!(!WOUND.keywords.retain);
+        assert!(!WOUND.keywords.exhaust);
+    }
+
+    #[test]
     fn modeled_curse_ids_are_classified_explicitly() {
         assert!(is_curse_content_id(REGRET_ID));
         assert!(is_curse_content_id(DOUBT_ID));
