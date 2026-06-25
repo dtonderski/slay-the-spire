@@ -1517,6 +1517,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BURNING_PACT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -1892,6 +1893,17 @@ mod tests {
         assert_eq!(DARK_EMBRACE.cost, 1);
         assert_eq!(DARK_EMBRACE.target, TargetRequirement::None);
         assert_eq!(DARK_EMBRACE.card_type, CardType::Power);
+    }
+
+    #[test]
+    fn demon_form_has_expected_values_and_rarity() {
+        assert_eq!(DEMON_FORM.cost, 3);
+        assert_eq!(DEMON_FORM.target, TargetRequirement::None);
+        assert_eq!(DEMON_FORM.card_type, CardType::Power);
+        assert_eq!(
+            card_type_and_rarity(DEMON_FORM_ID),
+            Some((CardType::Power, CardRarity::Rare))
+        );
     }
 
     #[test]

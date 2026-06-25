@@ -844,7 +844,7 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DUAL_WIELD_ID,
         FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID,
         HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
@@ -3911,6 +3911,152 @@ mod tests {
     }
 
     #[test]
+    fn demon_form_grants_ritual_spends_three_and_is_removed_from_hand() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DEMON_FORM_ID)];
+
+        let next =
+            apply_combat_action(&state, demon_form_action(&state)).expect("Demon Form applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.ritual, 2);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn demon_form_uses_effective_card_cost() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 2;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DEMON_FORM_ID)];
+        state.piles.hand[0].temp_cost = Some(1);
+
+        let next = apply_combat_action(&state, demon_form_action(&state))
+            .expect("Demon Form applies with temp cost");
+
+        assert_eq!(next.player.energy, 1);
+        assert_eq!(next.player.powers.ritual, 2);
+    }
+
+    #[test]
+    fn demon_form_event_log_records_power_gain_and_removal() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DEMON_FORM_ID)];
+
+        let transition = apply_combat_action_with_events(&state, demon_form_action(&state))
+            .expect("Demon Form applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainRitual { amount: 2 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn demon_form_ritual_grants_strength_at_end_of_player_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DEMON_FORM_ID)];
+        state.piles.draw_pile.clear();
+
+        let after_demon =
+            apply_combat_action(&state, demon_form_action(&state)).expect("Demon Form applies");
+        let next_turn = crate::combat::end_player_turn(&after_demon);
+
+        assert_eq!(next_turn.player.powers.ritual, 2);
+        assert_eq!(next_turn.player.powers.strength, 2);
+    }
+
+    #[test]
+    fn demon_form_ritual_strength_stacks_across_turns() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DEMON_FORM_ID)];
+        state.piles.draw_pile.clear();
+
+        let after_demon =
+            apply_combat_action(&state, demon_form_action(&state)).expect("Demon Form applies");
+        let next_turn = crate::combat::end_player_turn(&after_demon);
+        let following_turn = crate::combat::end_player_turn(&next_turn);
+
+        assert_eq!(following_turn.player.powers.ritual, 2);
+        assert_eq!(following_turn.player.powers.strength, 4);
+    }
+
+    #[test]
+    fn demon_form_ritual_round_trips_through_combat_state_json() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DEMON_FORM_ID)];
+
+        let next =
+            apply_combat_action(&state, demon_form_action(&state)).expect("Demon Form applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.ritual, 2);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn demon_form_triggers_bird_faced_urn_power_heal() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.player.energy = 3;
+        state.relics = vec![Relic::BirdFacedUrn];
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DEMON_FORM_ID)];
+
+        let next =
+            apply_combat_action(&state, demon_form_action(&state)).expect("Demon Form applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.ritual, 2);
+    }
+
+    #[test]
+    fn demon_form_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(DEMON_FORM_ID);
+        state.player.energy = 3;
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next =
+            apply_combat_action(&state, demon_form_action(&state)).expect("Demon Form applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.ritual, 2);
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -4944,6 +5090,13 @@ mod tests {
     fn impervious_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, IMPERVIOUS_ID),
+            target: None,
+        }
+    }
+
+    fn demon_form_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DEMON_FORM_ID),
             target: None,
         }
     }

@@ -1377,10 +1377,9 @@ fn demon_form_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainRitual { amount: 2 },
-        InternalAction::MoveCard {
+        InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
-            to: CardPile::DiscardPile,
         },
     ]))
 }
