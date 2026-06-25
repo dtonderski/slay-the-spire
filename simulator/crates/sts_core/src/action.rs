@@ -35,6 +35,7 @@ pub enum InternalAction {
     GainBlock {
         amount: i32,
     },
+    DoublePlayerBlock,
     ApplyVulnerable {
         target: MonsterId,
         amount: i32,

@@ -222,6 +222,10 @@ fn apply_internal_action(
             state.player.block += gained;
             Ok(Vec::new())
         }
+        InternalAction::DoublePlayerBlock => {
+            state.player.block *= 2;
+            Ok(Vec::new())
+        }
         InternalAction::ApplyVulnerable { target, amount } => {
             let relics = state.relics.clone();
             if let Some(monster) = living_monster_mut_opt(state, target) {
@@ -845,9 +849,9 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DUAL_WIELD_ID,
-        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        ENTRENCH_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
@@ -1677,6 +1681,98 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn entrench_doubles_nonzero_block_spends_two_and_moves_to_discard() {
+        let mut state = hand_only(ENTRENCH_ID);
+        state.player.block = 7;
+        let entrench_id = hand_card_id(&state, ENTRENCH_ID);
+
+        let next = apply_combat_action(&state, entrench_action(&state)).expect("Entrench applies");
+
+        assert_eq!(next.player.block, 14);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(!next.piles.hand.iter().any(|card| card.id == entrench_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == entrench_id));
+    }
+
+    #[test]
+    fn entrench_with_zero_block_stays_zero() {
+        let state = hand_only(ENTRENCH_ID);
+
+        let next = apply_combat_action(&state, entrench_action(&state)).expect("Entrench applies");
+
+        assert_eq!(next.player.block, 0);
+    }
+
+    #[test]
+    fn entrench_ignores_dexterity_and_frail_when_doubling() {
+        let mut state = hand_only(ENTRENCH_ID);
+        state.player.block = 8;
+        state.player.powers.dexterity = 3;
+        state.player.powers.frail = 1;
+
+        let next = apply_combat_action(&state, entrench_action(&state)).expect("Entrench applies");
+
+        assert_eq!(next.player.block, 16);
+    }
+
+    #[test]
+    fn entrench_uses_effective_temp_cost() {
+        let mut state = hand_only(ENTRENCH_ID);
+        state.player.block = 4;
+        state.piles.hand[0].temp_cost = Some(1);
+
+        let next = apply_combat_action(&state, entrench_action(&state)).expect("Entrench applies");
+
+        assert_eq!(next.player.block, 8);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+    }
+
+    #[test]
+    fn entrench_event_log_records_dynamic_block_double_and_pile_move() {
+        let mut state = hand_only(ENTRENCH_ID);
+        state.player.block = 6;
+        let entrench_id = hand_card_id(&state, ENTRENCH_ID);
+
+        let transition = apply_combat_action_with_events(&state, entrench_action(&state))
+            .expect("Entrench applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: entrench_id
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: entrench_id
+                },
+                InternalAction::DoublePlayerBlock,
+                InternalAction::MoveCard {
+                    card_id: entrench_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn duplication_potion_duplicates_entrench_block_doubling_sequentially() {
+        let mut state = hand_only(ENTRENCH_ID);
+        state.player.block = 7;
+        state.duplication_potion_pending = true;
+
+        let next = apply_combat_action(&state, entrench_action(&state)).expect("Entrench applies");
+
+        assert_eq!(next.player.block, 28);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(!next.duplication_potion_pending);
     }
 
     #[test]
@@ -5041,6 +5137,13 @@ mod tests {
     fn power_through_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, POWER_THROUGH_ID),
+            target: None,
+        }
+    }
+
+    fn entrench_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, ENTRENCH_ID),
             target: None,
         }
     }
