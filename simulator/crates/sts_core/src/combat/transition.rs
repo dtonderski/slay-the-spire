@@ -280,6 +280,13 @@ fn apply_internal_action(
             }
             Ok(Vec::new())
         }
+        InternalAction::ReduceMonsterStrengthThisTurn { target, amount } => {
+            if let Some(monster) = living_monster_mut_opt(state, target) {
+                monster.powers.strength -= amount;
+                monster.temp_strength_down += amount;
+            }
+            Ok(Vec::new())
+        }
         InternalAction::MoveCard { card_id, from, to } => {
             move_card(state, card_id, from, to)?;
             let mut follow_ups = Vec::new();
@@ -1319,10 +1326,10 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
-        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
-        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
+        DARK_SHACKLES_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID,
+        DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
         GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID,
@@ -1335,6 +1342,7 @@ mod tests {
         WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
+    use crate::MonsterIntent;
 
     #[test]
     fn strike_decreases_monster_hp_by_six() {
@@ -4208,6 +4216,79 @@ mod tests {
                     to: CardPile::ExhaustPile,
                 },
                 InternalAction::CardExhausted { card_id: disarm_id },
+            ]
+        );
+    }
+
+    #[test]
+    fn dark_shackles_reduces_target_strength_for_current_turn_and_exhausts() {
+        let mut state = two_monster_hand(DARK_SHACKLES_ID);
+        state.player.energy = 0;
+        state.monsters[0].powers.strength = 4;
+        state.monsters[1].powers.strength = 2;
+
+        let next = apply_combat_action(&state, dark_shackles_action(&state))
+            .expect("Dark Shackles applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.monsters[0].powers.strength, -5);
+        assert_eq!(next.monsters[0].temp_strength_down, 9);
+        assert_eq!(next.monsters[1].powers.strength, 2);
+        assert_eq!(next.monsters[1].temp_strength_down, 0);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DARK_SHACKLES_ID);
+    }
+
+    #[test]
+    fn dark_shackles_reduces_monster_attack_then_restores_strength_after_turn() {
+        let mut state = hand_only(DARK_SHACKLES_ID);
+        state.player.hp = 30;
+        state.player.energy = 0;
+        state.monsters[0].powers.strength = 5;
+        state.monsters[0].intent = MonsterIntent::Attack { damage: 6 };
+        state.piles.draw_pile.clear();
+
+        let after_play = apply_combat_action(&state, dark_shackles_action(&state))
+            .expect("Dark Shackles applies");
+        assert_eq!(
+            crate::combat::turn_powers::monster_attack_damage(&after_play.monsters[0], 6),
+            2
+        );
+
+        let next_turn = apply_combat_action(&after_play, CombatAction::EndTurn).expect("turn ends");
+
+        assert_eq!(next_turn.player.hp, 28);
+        assert_eq!(next_turn.monsters[0].powers.strength, 5);
+        assert_eq!(next_turn.monsters[0].temp_strength_down, 0);
+    }
+
+    #[test]
+    fn dark_shackles_event_log_records_temporary_strength_reduction_then_exhaust() {
+        let state = hand_only(DARK_SHACKLES_ID);
+        let dark_shackles_id = hand_card_id(&state, DARK_SHACKLES_ID);
+
+        let transition = apply_combat_action_with_events(&state, dark_shackles_action(&state))
+            .expect("Dark Shackles applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: dark_shackles_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::ReduceMonsterStrengthThisTurn {
+                    target: MonsterId::new(1),
+                    amount: 9,
+                },
+                InternalAction::MoveCard {
+                    card_id: dark_shackles_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: dark_shackles_id
+                },
             ]
         );
     }
@@ -10255,6 +10336,13 @@ mod tests {
     fn swift_strike_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SWIFT_STRIKE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn dark_shackles_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DARK_SHACKLES_ID),
             target: Some(MonsterId::new(1)),
         }
     }

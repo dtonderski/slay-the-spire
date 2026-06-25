@@ -5271,6 +5271,7 @@ fn monsters_from_observed(value: Option<&Value>, _player: &Value) -> Vec<Monster
                 block: int(monster, "block"),
                 alive: int(monster, "current_hp") > 0,
                 powers,
+                temp_strength_down: 0,
                 content_id,
                 moves_executed: replay.moves_executed,
                 sleep_turns_remaining: replay.sleep_turns_remaining,

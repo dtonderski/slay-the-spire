@@ -132,6 +132,8 @@ pub struct MonsterState {
     pub block: i32,
     pub alive: bool,
     pub powers: MonsterPowers,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub temp_strength_down: i32,
     pub content_id: ContentId,
     #[serde(default)]
     pub moves_executed: u32,
