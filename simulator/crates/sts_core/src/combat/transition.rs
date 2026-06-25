@@ -1011,9 +1011,15 @@ fn confirm_warcry_select(
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
     state.piles.draw_pile.push(card);
-    let warcry = remove_card_from_pile(state, source_card_id, CardPile::Hand)?;
-    state.piles.exhaust_pile.push(warcry);
-    apply_on_exhaust_effects(state, source_card_id);
+    let source = remove_card_from_pile(state, source_card_id, CardPile::Hand)?;
+    let definition = get_card_definition(source.content_id)
+        .ok_or(SimError::UnknownContent(source.content_id))?;
+    if definition.keywords.exhaust {
+        state.piles.exhaust_pile.push(source);
+        apply_on_exhaust_effects(state, source_card_id);
+    } else {
+        state.piles.discard_pile.push(source);
+    }
     Ok(())
 }
 
@@ -1407,6 +1413,7 @@ mod tests {
         jack_of_all_trades_colorless_pool,
     };
     use super::*;
+    use crate::card::{CardRarity, TargetRequirement};
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
@@ -1425,9 +1432,9 @@ mod tests {
         RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
         SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, THINKING_AHEAD_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -10113,6 +10120,88 @@ mod tests {
             Some(HandSelectPurpose::WarcryPutOnDraw)
         );
         assert_eq!(hand_select_ui_to_hand_index(&after_play, 0), Ok(1));
+    }
+
+    #[test]
+    fn thinking_ahead_draws_two_puts_selected_card_on_draw_pile_and_exhausts_from_metadata() {
+        let mut state = hand_only(THINKING_AHEAD_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), THINKING_AHEAD_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+        ];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Thinking Ahead opens hand select");
+
+        assert!(after_play.hand_select.is_some());
+        choose_hand_select(&mut after_play, 0).expect("choose Defend");
+        confirm_hand_select(&mut after_play).expect("confirm Thinking Ahead select");
+
+        assert_eq!(after_play.piles.draw_pile.len(), 1);
+        assert_eq!(
+            after_play.piles.draw_pile.last().unwrap().content_id,
+            DEFEND_R_ID
+        );
+        assert_eq!(after_play.piles.hand.len(), 2);
+        assert_eq!(after_play.piles.exhaust_pile.len(), 1);
+        assert_eq!(
+            after_play.piles.exhaust_pile[0].content_id,
+            THINKING_AHEAD_ID
+        );
+        assert!(after_play.piles.discard_pile.is_empty());
+        assert!(after_play.hand_select.is_none());
+    }
+
+    #[test]
+    fn thinking_ahead_is_zero_cost_colorless_skill_with_no_target() {
+        let definition = get_card_definition(THINKING_AHEAD_ID).expect("Thinking Ahead definition");
+
+        assert_eq!(definition.cost, 0);
+        assert_eq!(definition.card_type, CardType::Skill);
+        assert_eq!(definition.target, TargetRequirement::None);
+        assert!(definition.keywords.exhaust);
+        assert_eq!(
+            crate::content::cards::card_type_and_rarity(THINKING_AHEAD_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+        assert!(crate::content::shop_pool::shop_card_is_colorless(
+            THINKING_AHEAD_ID
+        ));
+    }
+
+    #[test]
+    fn put_on_draw_hand_select_discards_source_when_metadata_does_not_exhaust() {
+        let mut state = hand_only(WARCRY_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FINESSE_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        state.hand_select = Some(crate::combat::HandSelectState {
+            purpose: HandSelectPurpose::WarcryPutOnDraw,
+            source_card_id: CardId::new(20),
+            selected_hand_index: Some(1),
+        });
+
+        confirm_hand_select(&mut state).expect("confirm hand select");
+
+        assert_eq!(
+            state.piles.draw_pile.last().unwrap().content_id,
+            DEFEND_R_ID
+        );
+        assert!(state.piles.exhaust_pile.is_empty());
+        assert_eq!(state.piles.discard_pile.len(), 1);
+        assert_eq!(state.piles.discard_pile[0].content_id, FINESSE_ID);
     }
 
     #[test]
