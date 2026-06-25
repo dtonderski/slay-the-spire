@@ -11,10 +11,10 @@ use crate::{
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, DARK_EMBRACE_ID, DAZED_ID,
         DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID, FEEL_NO_PAIN_ID,
+        FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
+        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
         RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
@@ -131,6 +131,11 @@ pub(super) fn play_card_queue(
             state,
             card_id,
             target.expect("validated Fiend Fire has a target"),
+            definition,
+        ),
+        FEED_ID => feed_queue(
+            card_id,
+            target.expect("validated Feed has a target"),
             definition,
         ),
         REAPER_ID => reaper_queue(card_id, definition),
@@ -318,6 +323,17 @@ fn apply_akabeko_to_first_attack_queue(
             {
                 *amount += AKABEKO_DAMAGE;
             }
+            InternalAction::DealFeedDamage {
+                info:
+                    DamageInfo {
+                        source: DamageSource::Card(source),
+                        amount,
+                        ..
+                    },
+                ..
+            } if *source == card_id => {
+                *amount += AKABEKO_DAMAGE;
+            }
             _ => {}
         }
     }
@@ -354,6 +370,17 @@ fn apply_pen_nib_to_tenth_attack_queue(
             InternalAction::DealDamageAllAndHealUnblocked { source, amount }
                 if *source == card_id =>
             {
+                *amount *= 2;
+            }
+            InternalAction::DealFeedDamage {
+                info:
+                    DamageInfo {
+                        source: DamageSource::Card(source),
+                        amount,
+                        ..
+                    },
+                ..
+            } if *source == card_id => {
                 *amount *= 2;
             }
             _ => {}
@@ -731,6 +758,32 @@ fn blood_for_blood_queue(
                 target,
                 amount: definition.values.damage.unwrap_or(0),
             },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn feed_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealFeedDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+            max_hp_gain: 3,
         },
         InternalAction::MoveCard {
             card_id,
