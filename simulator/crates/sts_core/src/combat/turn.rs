@@ -124,6 +124,10 @@ fn run_monster_turn(state: &mut CombatState) {
 }
 
 fn apply_turn_transition_block_loss(state: &mut CombatState) {
+    if state.player.powers.barricade > 0 {
+        return;
+    }
+
     if state.relics.contains(&crate::Relic::Calipers) {
         state.player.block = (state.player.block - crate::relic::CALIPERS_BLOCK_LOSS).max(0);
     } else {
@@ -440,6 +444,33 @@ mod tests {
 
         assert_eq!(next.player.hp, 20);
         assert_eq!(next.player.block, 0);
+    }
+
+    #[test]
+    fn barricade_preserves_block_after_monster_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 30;
+        state.player.powers.barricade = 1;
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
+        assert_eq!(next.player.block, 24);
+    }
+
+    #[test]
+    fn barricade_takes_precedence_over_calipers_block_loss() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 30;
+        state.player.powers.barricade = 1;
+        state.relics = vec![crate::Relic::Calipers];
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
+        assert_eq!(next.player.block, 24);
     }
 
     #[test]

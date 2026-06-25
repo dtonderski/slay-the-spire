@@ -563,6 +563,21 @@ pub const DEMON_FORM: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const BARRICADE: CardDefinition = CardDefinition {
+    id: BARRICADE_ID,
+    key: "BARRICADE",
+    name: "Barricade",
+    cost: 3,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const LIMIT_BREAK: CardDefinition = CardDefinition {
     id: LIMIT_BREAK_ID,
     key: "Limit Break",
@@ -1626,7 +1641,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 87] = [
+pub const ALL_CARDS: [CardDefinition; 88] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1653,6 +1668,7 @@ pub const ALL_CARDS: [CardDefinition; 87] = [
     FEEL_NO_PAIN,
     DARK_EMBRACE,
     DEMON_FORM,
+    BARRICADE,
     LIMIT_BREAK,
     OFFERING,
     ARMAMENTS,
@@ -1773,6 +1789,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == OFFERING_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
@@ -2310,6 +2327,18 @@ mod tests {
         assert_eq!(DEMON_FORM.card_type, CardType::Power);
         assert_eq!(
             card_type_and_rarity(DEMON_FORM_ID),
+            Some((CardType::Power, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn barricade_has_expected_values_and_rarity() {
+        assert_eq!(BARRICADE.id, BARRICADE_ID);
+        assert_eq!(BARRICADE.cost, 3);
+        assert_eq!(BARRICADE.target, TargetRequirement::None);
+        assert_eq!(BARRICADE.card_type, CardType::Power);
+        assert_eq!(
+            card_type_and_rarity(BARRICADE_ID),
             Some((CardType::Power, CardRarity::Rare))
         );
     }

@@ -83,6 +83,9 @@ pub enum InternalAction {
     GainDarkEmbrace {
         amount: i32,
     },
+    GainBarricade {
+        amount: i32,
+    },
     GainMetallicize {
         amount: i32,
     },

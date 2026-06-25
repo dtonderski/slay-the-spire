@@ -336,7 +336,7 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            ANGER_ID, ANGER_PLUS_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID,
+            ANGER_ID, ANGER_PLUS_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
             BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID,
             CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID,
             DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
@@ -2370,6 +2370,51 @@ mod tests {
     #[test]
     fn demon_form_is_illegal_below_three_energy() {
         let mut state = hand_with_card(DEMON_FORM_ID);
+        state.player.energy = 2;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn barricade_is_legal_without_target_at_three_energy() {
+        let mut state = hand_with_card(BARRICADE_ID);
+        state.player.energy = 3;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn barricade_rejects_target() {
+        let mut state = hand_with_card(BARRICADE_ID);
+        state.player.energy = 3;
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn barricade_is_illegal_below_three_energy() {
+        let mut state = hand_with_card(BARRICADE_ID);
         state.player.energy = 2;
 
         assert!(

@@ -275,6 +275,10 @@ fn apply_internal_action(
             state.player.powers.dark_embrace += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainBarricade { amount } => {
+            state.player.powers.barricade += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainMetallicize { amount } => {
             state.player.powers.metallicize += amount;
             Ok(Vec::new())
@@ -1002,19 +1006,19 @@ mod tests {
     use super::*;
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
-        BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID,
-        FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
-        REGRET_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
+        BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID,
+        DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, REAPER_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -4796,6 +4800,151 @@ mod tests {
     }
 
     #[test]
+    fn barricade_grants_power_spends_three_and_is_removed_from_hand() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.energy = 3;
+
+        let next =
+            apply_combat_action(&state, barricade_action(&state)).expect("Barricade applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.barricade, 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn barricade_rejects_target() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.energy = 3;
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn barricade_uses_effective_card_cost() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].temp_cost = Some(1);
+
+        let next = apply_combat_action(&state, barricade_action(&state))
+            .expect("Barricade applies with temp cost");
+
+        assert_eq!(next.player.energy, 1);
+        assert_eq!(next.player.powers.barricade, 1);
+    }
+
+    #[test]
+    fn barricade_retains_block_across_turn_transition() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.energy = 3;
+        state.player.block = 18;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let after_barricade =
+            apply_combat_action(&state, barricade_action(&state)).expect("Barricade applies");
+        let next_turn = crate::combat::end_player_turn(&after_barricade);
+
+        assert_eq!(next_turn.player.powers.barricade, 1);
+        assert_eq!(next_turn.player.block, 18);
+    }
+
+    #[test]
+    fn barricade_round_trips_through_combat_state_json() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.energy = 3;
+
+        let next =
+            apply_combat_action(&state, barricade_action(&state)).expect("Barricade applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.barricade, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn barricade_event_log_records_power_gain_and_removal() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.energy = 3;
+
+        let transition = apply_combat_action_with_events(&state, barricade_action(&state))
+            .expect("Barricade applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainBarricade { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn barricade_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.player.energy = 3;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next =
+            apply_combat_action(&state, barricade_action(&state)).expect("Barricade applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.barricade, 1);
+    }
+
+    #[test]
+    fn barricade_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(BARRICADE_ID);
+        state.player.energy = 3;
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next =
+            apply_combat_action(&state, barricade_action(&state)).expect("Barricade applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.barricade, 1);
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -6945,6 +7094,13 @@ mod tests {
     fn demon_form_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DEMON_FORM_ID),
+            target: None,
+        }
+    }
+
+    fn barricade_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BARRICADE_ID),
             target: None,
         }
     }
