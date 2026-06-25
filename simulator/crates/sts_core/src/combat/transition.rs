@@ -830,15 +830,15 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
-        BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-        CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID,
-        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
-        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID,
+        FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID,
+        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -2108,6 +2108,141 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: bludgeon_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn carnage_deals_twenty_spends_two_and_moves_to_discard() {
+        let state = hand_only(CARNAGE_ID);
+        let carnage_id = hand_card_id(&state, CARNAGE_ID);
+
+        let next = apply_combat_action(&state, carnage_action(&state)).expect("Carnage applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 20);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(!next.piles.hand.iter().any(|card| card.id == carnage_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == carnage_id));
+    }
+
+    #[test]
+    fn carnage_applies_strength_normally() {
+        let mut state = hand_only(CARNAGE_ID);
+        state.player.powers.strength = 2;
+
+        let next = apply_combat_action(&state, carnage_action(&state)).expect("Carnage applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 22);
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_carnage() {
+        let mut state = hand_only(CARNAGE_ID);
+        state.relics.push(Relic::Akabeko);
+
+        let next = apply_combat_action(&state, carnage_action(&state)).expect("Carnage applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 28);
+    }
+
+    #[test]
+    fn pen_nib_doubles_carnage_damage() {
+        let mut state = hand_only(CARNAGE_ID);
+        state.relics.push(Relic::PenNib);
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let next = apply_combat_action(&state, carnage_action(&state)).expect("Carnage applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 40);
+        assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
+    }
+
+    #[test]
+    fn played_carnage_moves_to_discard_not_exhaust() {
+        let state = hand_only(CARNAGE_ID);
+        let carnage_id = hand_card_id(&state, CARNAGE_ID);
+
+        let next = apply_combat_action(&state, carnage_action(&state)).expect("Carnage applies");
+
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == carnage_id));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == carnage_id));
+    }
+
+    #[test]
+    fn unplayed_carnage_exhausts_at_end_of_turn() {
+        let mut state = hand_only(CARNAGE_ID);
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(&state, CombatAction::EndTurn).expect("end turn applies");
+
+        assert!(next.piles.hand.is_empty());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == CARNAGE_ID));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == CARNAGE_ID));
+    }
+
+    #[test]
+    fn runic_pyramid_still_exhausts_unplayed_carnage() {
+        let mut state = hand_only(CARNAGE_ID);
+        state.relics.push(Relic::RunicPyramid);
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(&state, CombatAction::EndTurn).expect("end turn applies");
+
+        assert!(next.piles.hand.is_empty());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == CARNAGE_ID));
+    }
+
+    #[test]
+    fn carnage_event_log_records_generic_attack_queue() {
+        let state = hand_only(CARNAGE_ID);
+        let carnage_id = hand_card_id(&state, CARNAGE_ID);
+
+        let transition = apply_combat_action_with_events(&state, carnage_action(&state))
+            .expect("Carnage applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: carnage_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(carnage_id),
+                        target: MonsterId::new(1),
+                        amount: 20,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: carnage_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -4426,6 +4561,13 @@ mod tests {
     fn bludgeon_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BLUDGEON_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn carnage_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, CARNAGE_ID),
             target: Some(MonsterId::new(1)),
         }
     }
