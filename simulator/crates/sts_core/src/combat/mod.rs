@@ -3,6 +3,7 @@ mod card_effects;
 pub mod damage;
 pub mod draw;
 pub mod hand;
+pub mod hp_loss;
 pub mod legal;
 pub mod piles;
 pub mod setup;

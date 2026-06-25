@@ -1476,6 +1476,7 @@ Tasks:
   - [x] Implement base Reckless Charge (`RECKLESS_CHARGE`, ContentId(113)) as a deterministic uncommon attack: 0 energy, targeted enemy, 7 damage, adds one Dazed to the draw pile with local deterministic card IDs/order, no trace-parity claim.
   - [x] Implement base Pummel (`PUMMEL`, ContentId(118)) as a deterministic uncommon attack: 1 energy, targeted enemy, 2 damage 4 times, exhausts, no trace-parity claim.
   - [x] Implement base Hemokinesis (`HEMOKINESIS`, ContentId(114)) as a deterministic uncommon attack: 1 energy, targeted enemy, lose 2 HP, 15 damage, no trace-parity claim.
+  - [x] Implement base Blood for Blood (`BLOOD_FOR_BLOOD`, ContentId(116)) as a deterministic uncommon attack: 4 energy reduced by 1 per positive player HP-loss event this combat, targeted enemy, 18 damage, no trace-parity claim.
   - [x] Implement base Sentinel (`SENTINEL`, ContentId(127)) as a deterministic uncommon skill: 1 energy, no target, 5 block, gain 2 energy when exhausted, no trace-parity claim.
   - [x] Implement base Doubt (`Doubt`, ContentId(63)) as a deterministic curse/status: unplayable, end-turn 1 Weak per copy in hand after the normal player Weak tick, no trace-parity claim.
   - [x] Implement base Wound (`Wound`, ContentId(4)) as a deterministic inert status: unplayable, non-ethereal, normal end-turn discard or Runic Pyramid retention, Medical Kit status play/exhaust path through existing hooks, no trace-parity claim.
@@ -1514,6 +1515,7 @@ Tasks:
   - [x] Add Reckless Charge definition, legality, transition, zero-cost play, Dazed-to-draw-pile deterministic ID/order, Strength, Akabeko, discard, Havoc top-draw effect, and event-log tests.
   - [x] Add Pummel definition, legality, transition, four-hit damage, exhaust movement, Strength, Vulnerable, Akabeko, Pen Nib, Strange Spoon, Havoc top-draw effect, and event-log tests.
   - [x] Add Hemokinesis definition, legality, transition, HP loss, damage, discard movement, Strength, Akabeko, Pen Nib, Tungsten Rod, Buffer, Duplication Potion, and event-log tests.
+  - [x] Add Blood for Blood definition, legality, target rejection, unreduced affordability, HP-loss-triggered cost reduction, dynamic effective-cost spending, Buffer prevention, serialization, damage/discard, and event-log tests.
   - [x] Add Sentinel definition, legality, normal-play block/discard, Dexterity/Frail, no normal-play exhaust energy, exhaust-trigger energy, non-Sentinel exhaust control, Feel No Pain interaction, exhaust-select, and event-log tests.
   - [x] Add Doubt definition/classification/unplayable, end-turn Weak, existing Weak lifecycle, Artifact, Ginger, multiple-copy, discard, and Runic Pyramid tests.
   - [x] Add Wound definition/unplayable/non-ethereal, no-play-action, serialization, end-turn discard, Runic Pyramid retention, Medical Kit, and existing generation-path tests.
@@ -1568,6 +1570,7 @@ Tasks:
   - [x] Rage uses turn-scoped player combat state and includes player-state serialization coverage.
   - [x] Rampage adds serialized card-instance state for combat-local damage growth.
   - [x] Combust adds serialized player power state for end-turn HP loss and all-enemy damage.
+  - [x] Blood for Blood adds serialized card-instance state for combat-local cost reduction.
   - [x] Barricade adds serialized player power state for block retention.
   - [x] Berserk adds serialized player power state for start-turn energy gain.
   - [x] Brutality adds serialized player power state for start-turn HP loss and draw.
@@ -1583,6 +1586,7 @@ Tasks:
   - [x] Reckless Charge covers generated status-card insertion, attack damage modifiers, zero-cost play, Havoc top-draw effects, and pile movement through the existing card queue and transition hooks.
   - [x] Pummel covers multi-hit attack damage, attack damage modifiers, exhaust movement, Strange Spoon exhaust retention, Havoc top-draw effects, and pile movement through the existing card queue and transition hooks.
   - [x] Hemokinesis covers HP-loss mitigation/prevention, generic attack damage modifiers, local Duplication Potion behavior, and pile movement through existing card queue and transition hooks.
+  - [x] Blood for Blood covers HP-loss hooks across combat piles, dynamic effective-cost spending, generic attack damage modifiers, and pile movement through existing card queue and transition hooks.
   - [x] Sentinel covers generic skill block, block modifiers, normal discard movement, and card-aware exhaust hooks through existing card queue and transition hooks.
   - [x] Doubt covers end-turn hand curse behavior, player Weak lifecycle, Artifact/Ginger prevention, multiple-copy stacking, discard movement, and Runic Pyramid retention through existing hand/turn hooks.
   - [x] Wound covers inert unplayable status behavior, normal discard, Runic Pyramid retention, Medical Kit status play/exhaust, and existing Wild Strike/Power Through/Mark of Pain generation hooks.
@@ -1617,6 +1621,7 @@ Tasks:
   - [x] Move Reckless Charge from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Pummel from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Hemokinesis from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Blood for Blood from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Sentinel from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Doubt from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Wound from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1656,6 +1661,7 @@ Tasks:
   - [x] Reckless Charge matrix caveat names the missing real-game trace parity and exact Dazed draw-pile shuffle-order evidence.
   - [x] Pummel matrix caveat names the missing real-game trace parity evidence.
   - [x] Hemokinesis matrix caveat names the missing played-card real-game trace parity, decoded action-order evidence, and Duplication Potion source timing evidence.
+  - [x] Blood for Blood matrix caveat names the missing played-card real-game trace parity, source-backed exact HP-loss trigger semantics/action-order evidence, and upgraded behavior.
   - [x] Sentinel matrix caveat names the missing played-card real-game trace parity, source-backed exhaust-order evidence, and upgraded Sentinel behavior.
   - [x] Doubt matrix caveat names the missing real-game trace parity and source-backed ordering/duplicate-trigger evidence.
   - [x] Wound matrix caveat names the missing real-game trace parity and source-backed exact Wound timing evidence.
