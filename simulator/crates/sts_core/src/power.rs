@@ -20,6 +20,8 @@ pub struct PlayerPowers {
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub berserk: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub rupture: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub brutality: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub combust: i32,

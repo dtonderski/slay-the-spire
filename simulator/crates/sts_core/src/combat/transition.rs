@@ -1,6 +1,6 @@
 use super::card_effects;
 use crate::{
-    action::{CardPile, CombatAction, InternalAction},
+    action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::CardType,
     combat::{
         apply_burning_blood,
@@ -259,12 +259,13 @@ fn apply_internal_action(
             state.player.energy += amount;
             Ok(Vec::new())
         }
-        InternalAction::LoseHp { amount } => {
+        InternalAction::LoseHp { amount, source } => {
             let mitigated = crate::relic::mitigate_hp_loss(&state.relics, amount);
             let hp_loss =
                 crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
             state.player.hp -= hp_loss;
             crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+            apply_rupture_after_hp_loss(state, source, hp_loss);
             Ok(Vec::new())
         }
         InternalAction::SetCannotDraw => {
@@ -293,6 +294,10 @@ fn apply_internal_action(
         }
         InternalAction::GainBerserk { amount } => {
             state.player.powers.berserk += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainRupture { amount } => {
+            state.player.powers.rupture += amount;
             Ok(Vec::new())
         }
         InternalAction::GainBrutality { amount } => {
@@ -371,6 +376,14 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
     }
+}
+
+fn apply_rupture_after_hp_loss(state: &mut CombatState, source: HpLossSource, actual_hp_loss: i32) {
+    if actual_hp_loss <= 0 || !matches!(source, HpLossSource::Card(_)) {
+        return;
+    }
+
+    state.player.powers.strength += state.player.powers.rupture;
 }
 
 fn deal_attack_damage_to_all_living(
@@ -634,7 +647,10 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
         OFFERING_ID => {
-            follow_ups.push(InternalAction::LoseHp { amount: 6 });
+            follow_ups.push(InternalAction::LoseHp {
+                amount: 6,
+                source: HpLossSource::Card(card_id),
+            });
             follow_ups.push(InternalAction::GainEnergy { amount: 2 });
             follow_ups.push(InternalAction::DrawCards { count: 3 });
         }
@@ -1052,8 +1068,8 @@ mod tests {
         IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
         METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         WILD_STRIKE_ID, WOUND_ID,
@@ -2923,7 +2939,10 @@ mod tests {
                     card_id: hemokinesis_id
                 },
                 InternalAction::SpendEnergy { amount: 1 },
-                InternalAction::LoseHp { amount: 2 },
+                InternalAction::LoseHp {
+                    amount: 2,
+                    source: HpLossSource::Card(hemokinesis_id),
+                },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(hemokinesis_id),
@@ -5523,6 +5542,165 @@ mod tests {
     }
 
     #[test]
+    fn rupture_grants_power_spends_energy_and_is_removed_from_hand() {
+        let state = hand_only(RUPTURE_ID);
+
+        let next = apply_combat_action(&state, rupture_action(&state)).expect("Rupture applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.powers.rupture, 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn rupture_uses_effective_card_cost() {
+        let mut state = hand_only(RUPTURE_ID);
+        state.player.energy = 0;
+        state.piles.hand[0].temp_cost = Some(0);
+
+        let next = apply_combat_action(&state, rupture_action(&state)).expect("Rupture applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.rupture, 1);
+    }
+
+    #[test]
+    fn rupture_round_trips_through_combat_state_json() {
+        let state = hand_only(RUPTURE_ID);
+
+        let next = apply_combat_action(&state, rupture_action(&state)).expect("Rupture applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.rupture, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn rupture_event_log_records_power_gain_and_removal() {
+        let state = hand_only(RUPTURE_ID);
+
+        let transition = apply_combat_action_with_events(&state, rupture_action(&state))
+            .expect("Rupture applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainRupture { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn rupture_card_hp_loss_gains_strength_before_later_damage() {
+        let mut state = hand_only(RUPTURE_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), HEMOKINESIS_ID));
+
+        let after_rupture =
+            apply_combat_action(&state, rupture_action(&state)).expect("Rupture applies");
+        let after_hemo = apply_combat_action(&after_rupture, hemokinesis_action(&after_rupture))
+            .expect("Hemokinesis applies");
+
+        assert_eq!(after_hemo.player.hp, after_rupture.player.hp - 2);
+        assert_eq!(after_hemo.player.powers.strength, 1);
+        assert_eq!(after_hemo.monsters[0].hp, after_rupture.monsters[0].hp - 16);
+    }
+
+    #[test]
+    fn rupture_stacks_for_card_hp_loss() {
+        let mut state = hand_only(BLOODLETTING_ID);
+        state.player.powers.rupture = 2;
+
+        let next =
+            apply_combat_action(&state, bloodletting_action(&state)).expect("Bloodletting applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 3);
+        assert_eq!(next.player.powers.strength, 2);
+        assert_eq!(next.player.powers.rupture, 2);
+    }
+
+    #[test]
+    fn rupture_does_not_trigger_when_buffer_prevents_card_hp_loss() {
+        let mut state = hand_only(OFFERING_ID);
+        state.player.powers.rupture = 1;
+        state.player.powers.buffer = 1;
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp);
+        assert_eq!(next.player.powers.buffer, 0);
+        assert_eq!(next.player.powers.strength, 0);
+    }
+
+    #[test]
+    fn rupture_does_not_trigger_on_blue_candle_hp_loss() {
+        let mut state = hand_only(REGRET_ID);
+        state.relics = vec![Relic::BlueCandle];
+        state.player.powers.rupture = 1;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Regret applies with Blue Candle");
+
+        assert_eq!(
+            next.player.hp,
+            state.player.hp - crate::relic::BLUE_CANDLE_HP_LOSS
+        );
+        assert_eq!(next.player.powers.strength, 0);
+    }
+
+    #[test]
+    fn rupture_triggers_on_havoc_played_offering_hp_loss() {
+        let mut state = hand_only(HAVOC_ID);
+        state.player.powers.rupture = 1;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(33), OFFERING_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Havoc applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 6);
+        assert_eq!(next.player.powers.strength, 1);
+    }
+
+    #[test]
     fn brutality_grants_power_and_is_removed_from_hand() {
         let mut state = hand_only(BRUTALITY_ID);
         state.player.energy = 0;
@@ -6164,7 +6342,10 @@ mod tests {
                     card_id: CardId::new(20),
                 },
                 InternalAction::SpendEnergy { amount: 0 },
-                InternalAction::LoseHp { amount: 3 },
+                InternalAction::LoseHp {
+                    amount: 3,
+                    source: HpLossSource::Card(CardId::new(20)),
+                },
                 InternalAction::GainEnergy { amount: 2 },
                 InternalAction::MoveCard {
                     card_id: CardId::new(20),
@@ -6523,7 +6704,10 @@ mod tests {
                     card_id: offering_id
                 },
                 InternalAction::SpendEnergy { amount: 0 },
-                InternalAction::LoseHp { amount: 6 },
+                InternalAction::LoseHp {
+                    amount: 6,
+                    source: HpLossSource::Card(offering_id),
+                },
                 InternalAction::GainEnergy { amount: 2 },
                 InternalAction::DrawCards { count: 3 },
                 InternalAction::MoveCard {
@@ -8110,6 +8294,13 @@ mod tests {
         }
     }
 
+    fn rupture_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, RUPTURE_ID),
+            target: None,
+        }
+    }
+
     fn brutality_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BRUTALITY_ID),
@@ -8134,6 +8325,13 @@ mod tests {
     fn offering_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, OFFERING_ID),
+            target: None,
+        }
+    }
+
+    fn bloodletting_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BLOODLETTING_ID),
             target: None,
         }
     }

@@ -613,6 +613,21 @@ pub const BERSERK: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const RUPTURE: CardDefinition = CardDefinition {
+    id: RUPTURE_ID,
+    key: "RUPTURE",
+    name: "Rupture",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BRUTALITY: CardDefinition = CardDefinition {
     id: BRUTALITY_ID,
     key: "BRUTALITY",
@@ -1721,7 +1736,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 93] = [
+pub const ALL_CARDS: [CardDefinition; 94] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1751,6 +1766,7 @@ pub const ALL_CARDS: [CardDefinition; 93] = [
     DEMON_FORM,
     BARRICADE,
     BERSERK,
+    RUPTURE,
     BRUTALITY,
     DOUBLE_TAP,
     LIMIT_BREAK,
@@ -1878,6 +1894,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DOUBLE_TAP_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -2467,6 +2484,18 @@ mod tests {
         assert_eq!(COMBUST.values.damage, Some(COMBUST_DAMAGE));
         assert_eq!(
             card_type_and_rarity(COMBUST_ID),
+            Some((CardType::Power, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn rupture_has_expected_values_and_rarity() {
+        assert_eq!(RUPTURE.id, RUPTURE_ID);
+        assert_eq!(RUPTURE.cost, 1);
+        assert_eq!(RUPTURE.target, TargetRequirement::None);
+        assert_eq!(RUPTURE.card_type, CardType::Power);
+        assert_eq!(
+            card_type_and_rarity(RUPTURE_ID),
             Some((CardType::Power, CardRarity::Uncommon))
         );
     }
