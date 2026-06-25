@@ -2199,6 +2199,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == REAPER_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == EXHUME_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2392,6 +2393,20 @@ mod tests {
         assert_eq!(FLASH_OF_STEEL.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(FLASH_OF_STEEL_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn swift_strike_has_expected_values_and_rarity() {
+        assert_eq!(SWIFT_STRIKE.id, SWIFT_STRIKE_ID);
+        assert_eq!(SWIFT_STRIKE.cost, 0);
+        assert_eq!(SWIFT_STRIKE.target, TargetRequirement::Enemy);
+        assert_eq!(SWIFT_STRIKE.card_type, CardType::Attack);
+        assert_eq!(SWIFT_STRIKE.values.damage, Some(7));
+        assert_eq!(SWIFT_STRIKE.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(SWIFT_STRIKE_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
     }

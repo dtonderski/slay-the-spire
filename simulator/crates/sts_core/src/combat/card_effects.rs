@@ -21,9 +21,9 @@ use crate::{
         RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::ironclad_combat_attack_discovery_pool,
     ids::{CardId, ContentId, MonsterId},
@@ -78,9 +78,9 @@ pub(super) fn play_card_queue(
             target.expect("validated Body Slam has a target"),
             definition,
         ),
-        CLASH_ID => generic_attack_queue(
+        CLASH_ID | SWIFT_STRIKE_ID => generic_attack_queue(
             card_id,
-            target.expect("validated Clash has a target"),
+            target.expect("validated generic attack has a target"),
             definition,
         ),
         WILD_STRIKE_ID => wild_strike_queue(
