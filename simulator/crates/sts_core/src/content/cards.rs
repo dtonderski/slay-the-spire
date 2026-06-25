@@ -60,6 +60,7 @@ pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
 pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
+pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1266,6 +1267,27 @@ pub const FINESSE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const PANACEA: CardDefinition = CardDefinition {
+    id: PANACEA_ID,
+    key: "PANACEA",
+    name: "Panacea",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const IRON_WAVE: CardDefinition = CardDefinition {
     id: IRON_WAVE_ID,
     key: "IRON_WAVE",
@@ -1954,7 +1976,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 107] = [
+pub const ALL_CARDS: [CardDefinition; 108] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2024,6 +2046,7 @@ pub const ALL_CARDS: [CardDefinition; 107] = [
     FLASH_OF_STEEL,
     GOOD_INSTINCTS,
     FINESSE,
+    PANACEA,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2162,6 +2185,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         _ => None,
     }
 }
@@ -2364,6 +2388,19 @@ mod tests {
         assert_eq!(FINESSE.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(FINESSE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn panacea_has_expected_values_keywords_and_rarity() {
+        assert_eq!(PANACEA.id, PANACEA_ID);
+        assert_eq!(PANACEA.cost, 0);
+        assert_eq!(PANACEA.target, TargetRequirement::None);
+        assert_eq!(PANACEA.card_type, CardType::Skill);
+        assert!(PANACEA.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(PANACEA_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }

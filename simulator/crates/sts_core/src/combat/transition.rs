@@ -13,7 +13,7 @@ use crate::{
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, OFFERING_ID, POMMEL_STRIKE_ID,
+        EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, OFFERING_ID, PANACEA_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
         TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
@@ -405,6 +405,10 @@ fn apply_internal_action(
         }
         InternalAction::GainRitual { amount } => {
             state.player.powers.ritual += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainArtifact { amount } => {
+            state.player.powers.artifact += amount;
             Ok(Vec::new())
         }
         InternalAction::CardExhausted { card_id } => {
@@ -839,6 +843,9 @@ fn apply_play_top_draw_card(
             });
             follow_ups.push(InternalAction::GainEnergy { amount: 2 });
             follow_ups.push(InternalAction::DrawCards { count: 3 });
+        }
+        PANACEA_ID => {
+            follow_ups.push(InternalAction::GainArtifact { amount: 1 });
         }
         POWER_THROUGH_ID => {
             follow_ups.push(InternalAction::GainBlock { amount: 15 });
@@ -1318,13 +1325,13 @@ mod tests {
         FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
         GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -4311,6 +4318,83 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn panacea_grants_artifact_at_zero_cost_and_exhausts() {
+        let mut state = hand_only(PANACEA_ID);
+        state.player.energy = 0;
+        let panacea_id = hand_card_id(&state, PANACEA_ID);
+
+        let next = apply_combat_action(&state, panacea_action(&state)).expect("Panacea applies");
+
+        assert_eq!(next.player.powers.artifact, 1);
+        assert_eq!(next.player.energy, 0);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == panacea_id));
+    }
+
+    #[test]
+    fn panacea_artifact_stacks_with_existing_artifact() {
+        let mut state = hand_only(PANACEA_ID);
+        state.player.powers.artifact = 2;
+
+        let next = apply_combat_action(&state, panacea_action(&state)).expect("Panacea applies");
+
+        assert_eq!(next.player.powers.artifact, 3);
+    }
+
+    #[test]
+    fn panacea_event_log_records_artifact_before_exhaust() {
+        let state = hand_only(PANACEA_ID);
+        let panacea_id = hand_card_id(&state, PANACEA_ID);
+
+        let transition = apply_combat_action_with_events(&state, panacea_action(&state))
+            .expect("Panacea applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: panacea_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::GainArtifact { amount: 1 },
+                InternalAction::MoveCard {
+                    card_id: panacea_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: panacea_id
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn havoc_top_draw_panacea_grants_artifact_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), PANACEA_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Panacea");
+
+        assert_eq!(next.player.powers.artifact, 1);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == PANACEA_ID));
     }
 
     #[test]
@@ -9983,6 +10067,13 @@ mod tests {
     fn bandage_up_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BANDAGE_UP_ID),
+            target: None,
+        }
+    }
+
+    fn panacea_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, PANACEA_ID),
             target: None,
         }
     }
