@@ -658,6 +658,21 @@ pub const RUPTURE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const JUGGERNAUT: CardDefinition = CardDefinition {
+    id: JUGGERNAUT_ID,
+    key: "JUGGERNAUT",
+    name: "Juggernaut",
+    cost: 2,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(5),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BRUTALITY: CardDefinition = CardDefinition {
     id: BRUTALITY_ID,
     key: "BRUTALITY",
@@ -1817,7 +1832,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 99] = [
+pub const ALL_CARDS: [CardDefinition; 100] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1850,6 +1865,7 @@ pub const ALL_CARDS: [CardDefinition; 99] = [
     BARRICADE,
     BERSERK,
     RUPTURE,
+    JUGGERNAUT,
     BRUTALITY,
     DOUBLE_TAP,
     FIRE_BREATHING,
@@ -1980,11 +1996,11 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == CORRUPTION_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == JUGGERNAUT_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DOUBLE_TAP_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FIRE_BREATHING_ID => Some((CardType::Power, CardRarity::Uncommon)),
@@ -2627,6 +2643,19 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(RUPTURE_ID),
             Some((CardType::Power, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn juggernaut_has_expected_values_and_rarity() {
+        assert_eq!(JUGGERNAUT.id, JUGGERNAUT_ID);
+        assert_eq!(JUGGERNAUT.cost, 2);
+        assert_eq!(JUGGERNAUT.target, TargetRequirement::None);
+        assert_eq!(JUGGERNAUT.card_type, CardType::Power);
+        assert_eq!(JUGGERNAUT.values.damage, Some(5));
+        assert_eq!(
+            card_type_and_rarity(JUGGERNAUT_ID),
+            Some((CardType::Power, CardRarity::Rare))
         );
     }
 
