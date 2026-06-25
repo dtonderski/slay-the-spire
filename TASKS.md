@@ -1481,6 +1481,7 @@ Tasks:
   - [x] Implement base Wound (`Wound`, ContentId(4)) as a deterministic inert status: unplayable, non-ethereal, normal end-turn discard or Runic Pyramid retention, Medical Kit status play/exhaust path through existing hooks, no trace-parity claim.
   - [x] Implement base Regret (`Regret`, ContentId(62)) as a deterministic curse/status: unplayable, non-ethereal, loses HP equal to current hand size once per Regret copy at end turn, normal discard or Runic Pyramid retention, Blue Candle curse play/exhaust path through existing hooks, no trace-parity claim.
   - [x] Implement base Dazed (`Dazed`, ContentId(5)) as a deterministic status: unplayable, ethereal, exhausts at end-turn before discard/Runic Pyramid retention, no trace-parity claim.
+  - [x] Implement base Demon Form (`Demon Form`, ContentId(138)) as a deterministic rare power: 3 energy, no target, removed from hand on play, grants player Ritual 2, gains Strength through the existing local end-of-player-turn ritual lifecycle, no trace-parity claim.
   - [x] Implement base Bloodletting (`BLOODLETTING`, ContentId(130)) as a deterministic uncommon skill: 0 energy, no target, lose 3 HP, gain 2 energy, no trace-parity claim.
   - [x] Implement base Carnage (`CARNAGE`, ContentId(131)) as a deterministic uncommon attack: 2 energy, targeted enemy, 20 damage, ethereal, no trace-parity claim.
   - [x] Implement base Ghostly Armor (`GHOSTLY_ARMOR`, ContentId(134)) as a deterministic uncommon skill: 1 energy, no target, 10 block, ethereal, no trace-parity claim.
@@ -1504,6 +1505,7 @@ Tasks:
   - [x] Add Wound definition/unplayable/non-ethereal, no-play-action, serialization, end-turn discard, Runic Pyramid retention, Medical Kit, and existing generation-path tests.
   - [x] Add Regret definition/classification/unplayable/non-ethereal, no-play-action, serialization, end-turn hand-size HP loss, multiple-copy, mitigation, discard, Runic Pyramid, Blue Candle, and event acquisition tests.
   - [x] Add Dazed definition/unplayable/ethereal, end-turn exhaust, Runic Pyramid exhaust, and Wound non-ethereal control tests.
+  - [x] Add Demon Form definition/rarity, legality, transition, effective-cost, event-log, Ritual gain, repeated end-turn Strength lifecycle, serialization, Bird-Faced Urn, and Unceasing Top tests.
   - [x] Add Bloodletting definition, legality, transition, HP loss, energy gain, discard movement, event-log order, Tungsten Rod, and Buffer tests.
   - [x] Add Carnage definition, legality, transition, discard movement, Strength, Akabeko, Pen Nib, played discard, unplayed ethereal cleanup, Runic Pyramid, and event-log tests.
   - [x] Add Ghostly Armor definition, legality, transition, block, Dexterity/Frail interaction, played discard movement, unplayed ethereal end-turn behavior, and event-log tests.
@@ -1524,6 +1526,7 @@ Tasks:
   - [x] No new stateful surface in the Wound slice.
   - [x] No new stateful surface in the Regret slice.
   - [x] No new stateful surface in the Dazed slice.
+  - [x] Demon Form uses existing player Ritual power state; serialization coverage was added for the promoted behavior.
   - [x] No new stateful surface in the Bloodletting slice.
   - [x] No new stateful surface in the Carnage slice.
   - [x] No new stateful surface in the Ghostly Armor slice.
@@ -1545,6 +1548,7 @@ Tasks:
   - [x] Wound covers inert unplayable status behavior, normal discard, Runic Pyramid retention, Medical Kit status play/exhaust, and existing Wild Strike/Power Through/Mark of Pain generation hooks.
   - [x] Regret covers end-turn HP loss, HP-loss mitigation/hooks, multiple-copy triggering, normal discard, Runic Pyramid retention, Blue Candle curse play/exhaust, and existing Big Fish acquisition hooks.
   - [x] Dazed covers unplayed ethereal status cleanup, exhaust movement, Runic Pyramid interaction, and Wound non-ethereal contrast through existing hand cleanup hooks.
+  - [x] Demon Form covers power-card removal, effective cost, power-play relic hooks, hand-empty draw hooks, Ritual power persistence, and repeated end-turn Strength gain through existing card queue and turn-power hooks.
   - [x] Bloodletting covers HP-loss mitigation/prevention, energy gain, skill-play hooks, and pile movement through the existing card queue and transition hooks.
   - [x] Carnage covers generic attack damage modifiers, played discard movement, and unplayed ethereal cleanup through existing card queue and hand cleanup hooks.
   - [x] Ghostly Armor covers generic skill block, block modifiers, played discard movement, and unplayed ethereal end-turn exhaust behavior through existing card queue and hand cleanup hooks.
@@ -1566,6 +1570,7 @@ Tasks:
   - [x] Move Wound from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Regret from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Dazed from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Demon Form from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Bloodletting from `unsupported` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Carnage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Ghostly Armor from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1589,6 +1594,7 @@ Tasks:
   - [x] Wound matrix caveat names the missing real-game trace parity and source-backed exact Wound timing evidence.
   - [x] Regret matrix caveat names the missing standalone real-game trace parity and source-backed exact end-turn timing evidence.
   - [x] Dazed matrix caveat names the missing real-game trace parity and source-backed exact ethereal timing evidence.
+  - [x] Demon Form matrix caveat names the missing played-card real-game trace parity and source-backed exact power lifecycle/timing evidence.
   - [x] Bloodletting matrix caveat names the missing played-card real-game trace parity and source-backed action-order evidence.
   - [x] Carnage matrix caveat names the missing played-card real-game trace parity and exact ethereal timing evidence.
   - [x] Ghostly Armor matrix caveat names the missing real-game trace parity and exact ethereal timing evidence.
