@@ -227,7 +227,7 @@ pub const DAZED: CardDefinition = CardDefinition {
     keywords: CardKeywords {
         innate: false,
         unplayable: true,
-        ethereal: false,
+        ethereal: true,
         exhaust: false,
         retain: false,
     },

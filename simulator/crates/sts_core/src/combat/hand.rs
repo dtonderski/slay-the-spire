@@ -158,6 +158,16 @@ mod tests {
     }
 
     #[test]
+    fn dazed_is_unplayable_ethereal_status_with_no_target() {
+        let definition = get_card_definition(DAZED_ID).expect("Dazed is defined");
+
+        assert_eq!(definition.card_type, crate::card::CardType::Status);
+        assert_eq!(definition.target, crate::card::TargetRequirement::None);
+        assert!(definition.keywords.unplayable);
+        assert!(definition.keywords.ethereal);
+    }
+
+    #[test]
     fn burn_in_hand_deals_damage_at_end_of_turn() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 20;
@@ -366,6 +376,48 @@ mod tests {
     }
 
     #[test]
+    fn unplayed_dazed_exhausts_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DAZED_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert!(next.piles.hand.is_empty());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID));
+    }
+
+    #[test]
+    fn wound_does_not_exhaust_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), WOUND_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert!(next.piles.hand.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == WOUND_ID));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == WOUND_ID));
+    }
+
+    #[test]
     fn retain_card_stays_in_hand_across_end_turn() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![CardInstance::new(CardId::new(20), RETAIN_DEFEND_ID)];
@@ -413,6 +465,27 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.content_id == ETHEREAL_STRIKE_ID));
+    }
+
+    #[test]
+    fn runic_pyramid_still_exhausts_unplayed_dazed() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::RunicPyramid];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DAZED_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].id, CardId::new(21));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID));
     }
 
     #[test]
