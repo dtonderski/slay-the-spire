@@ -1598,6 +1598,18 @@ mod tests {
     }
 
     #[test]
+    fn regret_is_unplayable_non_ethereal_status_curse_with_no_target() {
+        assert_eq!(REGRET.id, REGRET_ID);
+        assert_eq!(REGRET.card_type, CardType::Status);
+        assert_eq!(REGRET.target, TargetRequirement::None);
+        assert!(REGRET.keywords.unplayable);
+        assert!(!REGRET.keywords.ethereal);
+        assert!(!REGRET.keywords.retain);
+        assert!(!REGRET.keywords.exhaust);
+        assert!(is_curse_content_id(REGRET_ID));
+    }
+
+    #[test]
     fn modeled_curse_ids_are_classified_explicitly() {
         assert!(is_curse_content_id(REGRET_ID));
         assert!(is_curse_content_id(DOUBT_ID));
