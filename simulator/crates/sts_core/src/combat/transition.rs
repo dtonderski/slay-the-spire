@@ -998,10 +998,10 @@ mod tests {
         IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
         METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -6197,6 +6197,170 @@ mod tests {
     }
 
     #[test]
+    fn second_wind_exhausts_non_attack_cards_gains_block_and_discards_source() {
+        let mut state = hand_only(SECOND_WIND_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SECOND_WIND_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+            CardInstance::new(CardId::new(23), BATTLE_TRANCE_ID),
+        ];
+
+        let next =
+            apply_combat_action(&state, second_wind_action(&state)).expect("Second Wind applies");
+
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.player.block, 10);
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, BATTLE_TRANCE_ID]
+        );
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![ANGER_ID]
+        );
+        assert_eq!(next.piles.discard_pile[0].content_id, SECOND_WIND_ID);
+    }
+
+    #[test]
+    fn second_wind_with_no_other_non_attacks_discards_source_without_block() {
+        let mut state = hand_only(SECOND_WIND_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SECOND_WIND_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+        ];
+
+        let next =
+            apply_combat_action(&state, second_wind_action(&state)).expect("Second Wind applies");
+
+        assert_eq!(next.player.block, 0);
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            Vec::<crate::ContentId>::new()
+        );
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID, ANGER_ID]
+        );
+    }
+
+    #[test]
+    fn second_wind_exhausting_sentinel_uses_existing_exhaust_hooks() {
+        let mut state = hand_only(SECOND_WIND_ID);
+        state.player.energy = 1;
+        state.player.powers.feel_no_pain = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SECOND_WIND_ID),
+            CardInstance::new(CardId::new(21), SENTINEL_ID),
+        ];
+
+        let next =
+            apply_combat_action(&state, second_wind_action(&state)).expect("Second Wind applies");
+
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.player.block, 8);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(21)));
+    }
+
+    #[test]
+    fn second_wind_dark_embrace_draw_does_not_add_new_exhaust_targets() {
+        let mut state = hand_only(SECOND_WIND_ID);
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SECOND_WIND_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), BATTLE_TRANCE_ID)];
+
+        let next =
+            apply_combat_action(&state, second_wind_action(&state)).expect("Second Wind applies");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![BATTLE_TRANCE_ID]
+        );
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID]
+        );
+    }
+
+    #[test]
+    fn second_wind_event_log_records_exhausts_then_aggregate_block_before_source_discard() {
+        let mut state = hand_only(SECOND_WIND_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SECOND_WIND_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+            CardInstance::new(CardId::new(23), BATTLE_TRANCE_ID),
+        ];
+
+        let transition = apply_combat_action_with_events(&state, second_wind_action(&state))
+            .expect("Second Wind applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20)
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(21),
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(23),
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::GainBlock { amount: 10 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: CardId::new(21)
+                },
+                InternalAction::CardExhausted {
+                    card_id: CardId::new(23)
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn unceasing_top_draws_when_played_card_empties_hand() {
         let mut state = hand_only(STRIKE_R_ID);
         state.relics = vec![Relic::UnceasingTop];
@@ -6500,6 +6664,13 @@ mod tests {
     fn reaper_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, REAPER_ID),
+            target: None,
+        }
+    }
+
+    fn second_wind_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, SECOND_WIND_ID),
             target: None,
         }
     }

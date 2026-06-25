@@ -1494,6 +1494,7 @@ Tasks:
   - [x] Implement base Headbutt (`HEADBUTT`, ContentId(106)) as a deterministic common attack: 1 energy, targeted enemy, 9 damage, optionally puts one selected discard-pile card on top of draw pile through explicit-purpose discard-select state, no trace-parity claim.
   - [x] Implement base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack: 2 energy, targeted enemy, 12 damage, 2 weak, no trace-parity claim.
   - [x] Implement base Intimidate (`INTIMIDATE`, ContentId(115)) as a deterministic uncommon skill: 0 energy, 1 weak to all living enemies, exhaust, no trace-parity claim.
+  - [x] Implement base Second Wind (`SECOND_WIND`, ContentId(128)) as a deterministic uncommon skill: 1 energy, no target, exhaust all non-Attack hand cards except the source, gain 5 block per exhausted non-source card, move source to discard, no trace-parity claim.
 - add focused unit tests for every newly completed surface
   - [x] Add Iron Wave definition, legality, transition, discard, and event-log tests.
   - [x] Add Body Slam definition, legality, transition, discard, current-block damage, zero-block, Akabeko interaction, and event-log tests.
@@ -1523,6 +1524,7 @@ Tasks:
   - [x] Add Headbutt definition, legality, target rejection, unaffordable, empty-discard, lethal-selection skip, discard-select purpose serialization, selected discard-card-to-draw-top, Liquid Memories regression, and discard movement tests.
   - [x] Add Clothesline definition, legality, transition, discard, and event-log tests.
   - [x] Add Intimidate definition, legality, all-living-enemy, dead-enemy skip, exhaust, and event-log tests.
+  - [x] Add Second Wind definition, legality, no-target rejection, unaffordable, non-Attack exhaust filtering, aggregate block, source discard, Sentinel/Feel No Pain/Dark Embrace hook interaction, and event-log tests.
 - add serialization and counter round-trip tests for newly stateful surfaces
   - [x] No new stateful surface in the Iron Wave slice.
   - [x] No new stateful surface in the Body Slam slice.
@@ -1603,6 +1605,7 @@ Tasks:
   - [x] Move Headbutt from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Clothesline from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Intimidate from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Second Wind from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
   - [x] Iron Wave matrix caveat names the missing real-game trace parity evidence.
   - [x] Body Slam matrix caveat names the missing real-game trace parity evidence.

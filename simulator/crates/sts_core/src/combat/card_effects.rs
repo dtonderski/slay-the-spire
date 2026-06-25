@@ -15,7 +15,7 @@ use crate::{
         HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
+        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
         THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
@@ -181,6 +181,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Searing Blow has a target"),
             definition,
         ),
+        SECOND_WIND_ID => second_wind_queue(state, card_id, definition),
         SEVER_SOUL_ID => sever_soul_queue(
             state,
             card_id,
@@ -1115,6 +1116,51 @@ fn sever_soul_queue(
         },
     ]);
     Ok(queue)
+}
+
+fn second_wind_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let exhaust_targets = non_attack_hand_cards_except(state, card_id);
+    let block = definition.values.block.unwrap_or(0) * exhaust_targets.len() as i32;
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+    for exhaust_target in exhaust_targets {
+        queue.push_back(InternalAction::MoveCard {
+            card_id: exhaust_target,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        });
+    }
+    if block > 0 {
+        queue.push_back(InternalAction::GainBlock { amount: block });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
+}
+
+fn non_attack_hand_cards_except(state: &CombatState, exclude_id: CardId) -> Vec<CardId> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != exclude_id)
+        .filter(|card| {
+            get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.card_type != CardType::Attack)
+        })
+        .map(|card| card.id)
+        .collect()
 }
 
 fn slimed_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
