@@ -71,6 +71,7 @@ pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
 pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
+pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1427,6 +1428,27 @@ pub const MADNESS: CardDefinition = CardDefinition {
     },
 };
 
+pub const MASTER_OF_STRATEGY: CardDefinition = CardDefinition {
+    id: MASTER_OF_STRATEGY_ID,
+    key: "MASTER_OF_STRATEGY",
+    name: "Master of Strategy",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const JACK_OF_ALL_TRADES: CardDefinition = CardDefinition {
     id: JACK_OF_ALL_TRADES_ID,
     key: "JACK_OF_ALL_TRADES",
@@ -2166,7 +2188,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 118] = [
+pub const ALL_CARDS: [CardDefinition; 119] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2247,6 +2269,7 @@ pub const ALL_CARDS: [CardDefinition; 118] = [
     IMPATIENCE,
     JACK_OF_ALL_TRADES,
     MADNESS,
+    MASTER_OF_STRATEGY,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2397,6 +2420,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
         _ => None,
     }
 }
@@ -2767,6 +2791,19 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(MADNESS_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn master_of_strategy_has_expected_values_keywords_and_rarity() {
+        assert_eq!(MASTER_OF_STRATEGY.id, MASTER_OF_STRATEGY_ID);
+        assert_eq!(MASTER_OF_STRATEGY.cost, 0);
+        assert_eq!(MASTER_OF_STRATEGY.target, TargetRequirement::None);
+        assert_eq!(MASTER_OF_STRATEGY.card_type, CardType::Skill);
+        assert!(MASTER_OF_STRATEGY.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(MASTER_OF_STRATEGY_ID),
+            Some((CardType::Skill, CardRarity::Rare))
         );
     }
 

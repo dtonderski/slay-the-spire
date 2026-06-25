@@ -410,9 +410,9 @@ mod tests {
             GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
             HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
             INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID,
-            MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-            POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID, REAPER_ID,
-            RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+            MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID,
+            POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID,
+            REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
             SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
             SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
             TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
@@ -799,6 +799,37 @@ mod tests {
                 card_id: CardId::new(20),
                 target: None,
             })
+        );
+    }
+
+    #[test]
+    fn master_of_strategy_is_legal_without_target_at_zero_energy() {
+        let mut state = hand_with_card(MASTER_OF_STRATEGY_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn master_of_strategy_rejects_target() {
+        let state = hand_with_card(MASTER_OF_STRATEGY_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
         );
     }
 

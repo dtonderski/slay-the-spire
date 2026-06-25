@@ -14,10 +14,10 @@ use crate::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID,
         DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
-        IMPATIENCE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -835,6 +835,9 @@ fn apply_play_top_draw_card(
                 },
             });
         }
+        MASTER_OF_STRATEGY_ID => {
+            follow_ups.push(InternalAction::DrawCards { count: 3 });
+        }
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
             let damage = definition.values.damage.unwrap_or(0);
@@ -1409,12 +1412,12 @@ mod tests {
         GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        MADNESS_ID, METALLICIZE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         WILD_STRIKE_ID, WOUND_ID,
     };
@@ -5291,6 +5294,86 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn master_of_strategy_draws_three_and_exhausts_at_zero_cost() {
+        let mut state = hand_only(MASTER_OF_STRATEGY_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+        let master_of_strategy_id = hand_card_id(&state, MASTER_OF_STRATEGY_ID);
+
+        let next = apply_combat_action(&state, master_of_strategy_action(&state))
+            .expect("Master of Strategy applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.piles.hand.len(), 3);
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == master_of_strategy_id));
+        assert!(next.piles.discard_pile.is_empty());
+    }
+
+    #[test]
+    fn master_of_strategy_event_log_records_draw_then_exhaust() {
+        let mut state = hand_only(MASTER_OF_STRATEGY_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+        let master_of_strategy_id = hand_card_id(&state, MASTER_OF_STRATEGY_ID);
+
+        let transition = apply_combat_action_with_events(&state, master_of_strategy_action(&state))
+            .expect("Master of Strategy applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: master_of_strategy_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DrawCards { count: 3 },
+                InternalAction::MoveCard {
+                    card_id: master_of_strategy_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: master_of_strategy_id
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn havoc_top_draw_master_of_strategy_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), MASTER_OF_STRATEGY_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Master of Strategy");
+
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == MASTER_OF_STRATEGY_ID));
     }
 
     #[test]
@@ -11228,6 +11311,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, MIND_BLAST_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn master_of_strategy_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, MASTER_OF_STRATEGY_ID),
+            target: None,
         }
     }
 
