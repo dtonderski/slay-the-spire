@@ -14,10 +14,10 @@ use crate::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID,
         DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
-        IMPATIENCE_ID, OFFERING_ID, PANACEA_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        IMPATIENCE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -780,6 +780,7 @@ fn apply_play_top_draw_card(
     apply_rage_on_card_type(state, definition.card_type);
 
     let mut follow_ups = Vec::new();
+    let current_pile_count_with_top_card = card_effects::current_combat_pile_card_count(state) + 1;
 
     match definition.id {
         STRIKE_R_ID
@@ -823,6 +824,16 @@ fn apply_play_top_draw_card(
                     },
                 });
             }
+        }
+        MIND_BLAST_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: current_pile_count_with_top_card,
+                },
+            });
         }
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
@@ -1398,13 +1409,14 @@ mod tests {
         GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        MADNESS_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        MADNESS_ID, METALLICIZE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -5279,6 +5291,87 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn mind_blast_deals_damage_equal_to_current_combat_pile_count_and_discards() {
+        let mut state = hand_only(MIND_BLAST_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(32), BASH_ID)];
+        state.piles.exhaust_pile = vec![CardInstance::new(CardId::new(33), WOUND_ID)];
+
+        let next =
+            apply_combat_action(&state, mind_blast_action(&state)).expect("Mind Blast applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 5);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == MIND_BLAST_ID));
+    }
+
+    #[test]
+    fn mind_blast_event_log_records_pile_count_damage_then_discard() {
+        let mut state = hand_only(MIND_BLAST_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(31), DEFEND_R_ID)];
+        let mind_blast_id = hand_card_id(&state, MIND_BLAST_ID);
+
+        let transition = apply_combat_action_with_events(&state, mind_blast_action(&state))
+            .expect("Mind Blast applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: mind_blast_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(mind_blast_id),
+                        target: MonsterId::new(1),
+                        amount: 3,
+                    }
+                },
+                InternalAction::MoveCard {
+                    card_id: mind_blast_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn havoc_top_draw_mind_blast_counts_popped_card_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), MIND_BLAST_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(33), DEFEND_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Havoc plays Mind Blast");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 4);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == MIND_BLAST_ID));
     }
 
     #[test]
@@ -11127,6 +11220,13 @@ mod tests {
     fn flash_of_steel_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, FLASH_OF_STEEL_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn mind_blast_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, MIND_BLAST_ID),
             target: Some(MonsterId::new(1)),
         }
     }
