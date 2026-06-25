@@ -1,6 +1,6 @@
 use crate::card::{CardRarity, CardType};
 use crate::content::cards::{
-    ANGER_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID,
+    ANGER_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLIND_ID,
     BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
     CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
     DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
@@ -244,6 +244,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "JUGGERNAUT" => JUGGERNAUT_ID,
         "DRAMATIC_ENTRANCE" => DRAMATIC_ENTRANCE_ID,
         "BANDAGE_UP" => BANDAGE_UP_ID,
+        "BLIND" => BLIND_ID,
         "FLASH_OF_STEEL" => FLASH_OF_STEEL_ID,
         "GOOD_INSTINCTS" => GOOD_INSTINCTS_ID,
         other => ContentId::new(600 + stable_pool_name_id(other)),
@@ -460,7 +461,7 @@ pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{BANDAGE_UP_ID, FLASH_OF_STEEL_ID, GOOD_INSTINCTS_ID};
+    use crate::content::cards::{BANDAGE_UP_ID, BLIND_ID, FLASH_OF_STEEL_ID, GOOD_INSTINCTS_ID};
 
     #[test]
     fn bandage_up_pool_key_maps_to_concrete_colorless_skill() {
@@ -468,6 +469,14 @@ mod tests {
         assert!(shop_card_is_colorless(BANDAGE_UP_ID));
         assert_eq!(shop_card_type(BANDAGE_UP_ID), Some(CardType::Skill));
         assert_eq!(shop_card_price_rarity(BANDAGE_UP_ID), CardRarity::Uncommon);
+    }
+
+    #[test]
+    fn blind_pool_key_maps_to_concrete_colorless_skill() {
+        assert_eq!(shop_card_content_id("BLIND"), BLIND_ID);
+        assert!(shop_card_is_colorless(BLIND_ID));
+        assert_eq!(shop_card_type(BLIND_ID), Some(CardType::Skill));
+        assert_eq!(shop_card_price_rarity(BLIND_ID), CardRarity::Uncommon);
     }
 
     #[test]

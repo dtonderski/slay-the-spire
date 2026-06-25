@@ -11,7 +11,7 @@ use crate::{
         validate_combat_action, CombatPhase, DiscardSelectPurpose, HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
+        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
         EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, OFFERING_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
@@ -824,6 +824,14 @@ fn apply_play_top_draw_card(
             });
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
+        BLIND_ID => {
+            for monster in state.monsters.iter().filter(|monster| monster.alive) {
+                follow_ups.push(InternalAction::ApplyWeak {
+                    target: monster.id,
+                    amount: 2,
+                });
+            }
+        }
         OFFERING_ID => {
             follow_ups.push(InternalAction::LoseHp {
                 amount: 6,
@@ -1302,8 +1310,8 @@ mod tests {
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
-        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID,
-        BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
+        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
+        BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
         DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
         EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
@@ -3797,6 +3805,84 @@ mod tests {
         assert!(next.piles.discard_pile.is_empty());
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, INTIMIDATE_ID);
+    }
+
+    #[test]
+    fn blind_applies_two_weak_to_each_living_enemy_and_discards() {
+        let state = two_monster_hand(BLIND_ID);
+
+        let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
+
+        assert_eq!(next.player.energy, state.player.energy);
+        assert_eq!(next.monsters[0].powers.weak, 2);
+        assert_eq!(next.monsters[1].powers.weak, 2);
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, BLIND_ID);
+    }
+
+    #[test]
+    fn blind_skips_dead_enemies() {
+        let mut state = two_monster_hand(BLIND_ID);
+        state.monsters[1].alive = false;
+
+        let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 2);
+        assert_eq!(next.monsters[1].powers.weak, 0);
+    }
+
+    #[test]
+    fn blind_event_log_records_weak_applications_then_discard() {
+        let state = two_monster_hand(BLIND_ID);
+        let blind_id = hand_card_id(&state, BLIND_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, blind_action(&state)).expect("Blind applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: blind_id },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::ApplyWeak {
+                    target: MonsterId::new(1),
+                    amount: 2,
+                },
+                InternalAction::ApplyWeak {
+                    target: MonsterId::new(2),
+                    amount: 2,
+                },
+                InternalAction::MoveCard {
+                    card_id: blind_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn havoc_top_draw_blind_applies_weak_to_all_living_enemies_and_exhausts_it() {
+        let mut state = two_monster_hand(HAVOC_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), BLIND_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Blind");
+
+        assert_eq!(next.monsters[0].powers.weak, 2);
+        assert_eq!(next.monsters[1].powers.weak, 2);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == BLIND_ID));
     }
 
     #[test]
@@ -9904,6 +9990,13 @@ mod tests {
     fn finesse_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, FINESSE_ID),
+            target: None,
+        }
+    }
+
+    fn blind_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BLIND_ID),
             target: None,
         }
     }
