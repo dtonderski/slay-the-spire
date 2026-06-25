@@ -291,6 +291,10 @@ fn apply_internal_action(
             state.player.powers.berserk += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainBrutality { amount } => {
+            state.player.powers.brutality += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainMetallicize { amount } => {
             state.player.powers.metallicize += amount;
             Ok(Vec::new())
@@ -1028,12 +1032,12 @@ mod tests {
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-        BERSERK_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID,
-        CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
-        DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
-        FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        BERSERK_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
+        CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID,
+        DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
+        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID,
+        HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
         RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID,
         SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
@@ -5298,6 +5302,211 @@ mod tests {
     }
 
     #[test]
+    fn brutality_grants_power_and_is_removed_from_hand() {
+        let mut state = hand_only(BRUTALITY_ID);
+        state.player.energy = 0;
+
+        let next =
+            apply_combat_action(&state, brutality_action(&state)).expect("Brutality applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.brutality, 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn brutality_rejects_target() {
+        let state = hand_only(BRUTALITY_ID);
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn brutality_uses_effective_card_cost() {
+        let mut state = hand_only(BRUTALITY_ID);
+        state.player.energy = 1;
+        state.piles.hand[0].temp_cost = Some(1);
+
+        let next = apply_combat_action(&state, brutality_action(&state))
+            .expect("Brutality applies with temp cost");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.brutality, 1);
+    }
+
+    #[test]
+    fn brutality_round_trips_through_combat_state_json() {
+        let state = hand_only(BRUTALITY_ID);
+
+        let next =
+            apply_combat_action(&state, brutality_action(&state)).expect("Brutality applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.brutality, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn brutality_event_log_records_power_gain_and_removal() {
+        let state = hand_only(BRUTALITY_ID);
+
+        let transition = apply_combat_action_with_events(&state, brutality_action(&state))
+            .expect("Brutality applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainBrutality { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn brutality_loses_hp_and_draws_before_normal_refill_at_start_of_later_player_turn() {
+        let mut state = hand_only(BRUTALITY_ID);
+        state.player.hp = 40;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), STRIKE_R_ID),
+            CardInstance::new(CardId::new(33), DEFEND_R_ID),
+            CardInstance::new(CardId::new(34), STRIKE_R_ID),
+            CardInstance::new(CardId::new(35), DEFEND_R_ID),
+        ];
+
+        let after_brutality =
+            apply_combat_action(&state, brutality_action(&state)).expect("Brutality applies");
+        let next_turn = crate::combat::end_player_turn(&after_brutality);
+
+        assert_eq!(next_turn.player.hp, 39);
+        assert_eq!(next_turn.player.powers.brutality, 1);
+        assert_eq!(next_turn.piles.hand.len(), 5);
+        assert_eq!(
+            next_turn
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![
+                CardId::new(35),
+                CardId::new(34),
+                CardId::new(33),
+                CardId::new(32),
+                CardId::new(31),
+            ]
+        );
+        assert_eq!(
+            next_turn
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(30)]
+        );
+    }
+
+    #[test]
+    fn brutality_stacks_start_turn_hp_loss_and_draw() {
+        let mut state = hand_only(BRUTALITY_ID);
+        state.player.hp = 40;
+        state.player.powers.brutality = 1;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), STRIKE_R_ID),
+            CardInstance::new(CardId::new(33), DEFEND_R_ID),
+            CardInstance::new(CardId::new(34), STRIKE_R_ID),
+            CardInstance::new(CardId::new(35), DEFEND_R_ID),
+            CardInstance::new(CardId::new(36), STRIKE_R_ID),
+        ];
+
+        let after_brutality =
+            apply_combat_action(&state, brutality_action(&state)).expect("Brutality applies");
+        let next_turn = crate::combat::end_player_turn(&after_brutality);
+
+        assert_eq!(next_turn.player.hp, 38);
+        assert_eq!(next_turn.player.powers.brutality, 2);
+        assert_eq!(next_turn.piles.hand.len(), 5);
+        assert_eq!(
+            next_turn
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(30), CardId::new(31)]
+        );
+    }
+
+    #[test]
+    fn brutality_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(BRUTALITY_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next =
+            apply_combat_action(&state, brutality_action(&state)).expect("Brutality applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.brutality, 1);
+    }
+
+    #[test]
+    fn brutality_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(BRUTALITY_ID);
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next =
+            apply_combat_action(&state, brutality_action(&state)).expect("Brutality applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.brutality, 1);
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -7468,6 +7677,13 @@ mod tests {
     fn berserk_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BERSERK_ID),
+            target: None,
+        }
+    }
+
+    fn brutality_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BRUTALITY_ID),
             target: None,
         }
     }

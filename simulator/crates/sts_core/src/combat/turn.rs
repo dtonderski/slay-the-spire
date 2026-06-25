@@ -56,9 +56,27 @@ pub fn start_player_turn(state: &mut CombatState) {
     }
     state.player.energy += state.player.powers.berserk;
     crate::relic::apply_start_of_player_turn_relics(state);
+    apply_start_of_turn_brutality(state);
+    if state.player.hp <= 0 {
+        state.phase = CombatPhase::Lost;
+        return;
+    }
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
+}
+
+fn apply_start_of_turn_brutality(state: &mut CombatState) {
+    for _ in 0..state.player.powers.brutality.max(0) {
+        let mitigated = crate::relic::mitigate_hp_loss(&state.relics, 1);
+        let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
+        state.player.hp -= hp_loss;
+        crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+        if state.player.hp <= 0 {
+            return;
+        }
+        crate::combat::transition::player_draw_cards(state, 1);
+    }
 }
 
 fn reset_turn_only_temp_costs(state: &mut CombatState) {

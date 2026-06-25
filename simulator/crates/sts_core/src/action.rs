@@ -96,6 +96,9 @@ pub enum InternalAction {
     GainBerserk {
         amount: i32,
     },
+    GainBrutality {
+        amount: i32,
+    },
     GainMetallicize {
         amount: i32,
     },
