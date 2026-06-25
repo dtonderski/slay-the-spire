@@ -1,6 +1,6 @@
 use crate::{
     action::{CardPile, HpLossSource, InternalAction},
-    card::{CardDefinition, CardType, TargetRequirement},
+    card::{CardDefinition, CardRarity, CardType, TargetRequirement},
     combat::{
         damage::{DamageInfo, DamageSource},
         CombatState, HandSelectPurpose,
@@ -24,9 +24,9 @@ use crate::{
         SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE,
-        THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -245,6 +245,7 @@ pub(super) fn play_card_queue(
         ),
         SWORD_BOOMERANG_ID => sword_boomerang_queue(state, card_id, definition),
         WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
+        TRANSMUTATION_ID => transmutation_queue(state, card_id),
         HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
         WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
         THINKING_AHEAD_ID => thinking_ahead_queue(state, card_id, definition),
@@ -2130,6 +2131,47 @@ fn whirlwind_queue(
         card_id,
         from: CardPile::Hand,
         to: CardPile::DiscardPile,
+    });
+
+    Ok(queue)
+}
+
+fn x_cost_uses_with_chemical_x(state: &CombatState) -> i32 {
+    let chemical_x_bonus = if state.relics.contains(&Relic::ChemicalX) {
+        CHEMICAL_X_BONUS_X
+    } else {
+        0
+    };
+    state.player.energy + chemical_x_bonus
+}
+
+fn transmutation_queue(
+    state: &CombatState,
+    card_id: CardId,
+) -> SimResult<VecDeque<InternalAction>> {
+    let x = state.player.energy;
+    let uses = x_cost_uses_with_chemical_x(state);
+    if uses < 1 {
+        return Err(SimError::IllegalAction(
+            "Transmutation requires at least 1 energy",
+        ));
+    }
+
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: x },
+    ]);
+
+    for _ in 0..uses {
+        queue.push_back(InternalAction::AddRandomColorlessCardToHand {
+            rarity: CardRarity::Rare,
+        });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::ExhaustPile,
     });
 
     Ok(queue)

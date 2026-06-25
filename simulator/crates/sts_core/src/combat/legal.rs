@@ -4,8 +4,8 @@ use crate::{
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        EXHUME_ID, FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID,
+        EXHUME_ID, FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, TRANSMUTATION_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -281,7 +281,9 @@ fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
 }
 
 fn is_x_cost(definition: &CardDefinition) -> bool {
-    definition.id == WHIRLWIND_ID || definition.id == WHIRLWIND_PLUS_ID
+    definition.id == WHIRLWIND_ID
+        || definition.id == WHIRLWIND_PLUS_ID
+        || definition.id == TRANSMUTATION_ID
 }
 
 fn living_monster_ids(state: &CombatState) -> impl Iterator<Item = MonsterId> + '_ {
@@ -414,8 +416,9 @@ mod tests {
             POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID,
             REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
             SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-            SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-            TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+            SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRANSMUTATION_ID, TRUE_GRIT_ID,
+            TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
+            WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -786,6 +789,88 @@ mod tests {
             Err(SimError::IllegalAction(
                 "non-targeted card cannot have a target"
             ))
+        );
+    }
+
+    #[test]
+    fn transmutation_is_legal_without_target_at_one_energy() {
+        let mut state = hand_with_card(TRANSMUTATION_ID);
+        state.player.energy = 1;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn transmutation_is_legal_with_chemical_x_at_zero_energy() {
+        let mut state = hand_with_card(TRANSMUTATION_ID);
+        state.player.energy = 0;
+        state.relics.push(Relic::ChemicalX);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn transmutation_is_illegal_at_zero_energy_without_chemical_x() {
+        let mut state = hand_with_card(TRANSMUTATION_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn transmutation_rejects_target() {
+        let state = hand_with_card(TRANSMUTATION_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn transmutation_legal_actions_do_not_consume_card_random_rng() {
+        let mut state = hand_with_card(TRANSMUTATION_ID);
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let before = state.card_random_rng.as_ref().expect("card rng").counter();
+
+        let _actions = legal_combat_actions(&state);
+
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            before
         );
     }
 
