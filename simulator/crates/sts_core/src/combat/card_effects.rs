@@ -9,7 +9,7 @@ use crate::{
         get_card_definition, is_curse_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
         BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID, BODY_SLAM_ID, BURNING_PACT_ID,
         CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DAZED_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID,
+        DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
         HAVOC_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
@@ -135,6 +135,12 @@ pub(super) fn play_card_queue(
         HEMOKINESIS_ID => hemokinesis_queue(
             card_id,
             target.expect("validated Hemokinesis has a target"),
+            definition,
+        ),
+        DROPKICK_ID => dropkick_queue(
+            state,
+            card_id,
+            target.expect("validated Dropkick has a target"),
             definition,
         ),
         INTIMIDATE_ID => intimidate_queue(state, card_id, definition),
@@ -537,6 +543,46 @@ fn hemokinesis_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn dropkick_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let target_has_vulnerable = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == target)
+        .map(|monster| monster.powers.vulnerable > 0)
+        .unwrap_or(false);
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+    ]);
+
+    if target_has_vulnerable {
+        queue.push_back(InternalAction::GainEnergy { amount: 1 });
+        queue.push_back(InternalAction::DrawCards { count: 1 });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+
+    Ok(queue)
 }
 
 fn heavy_blade_queue(

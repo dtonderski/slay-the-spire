@@ -5583,13 +5583,13 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
         BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID,
-        DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
-        FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INTIMIDATE_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID,
+        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
+        INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -5639,6 +5639,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Demon Form" | "demon form" => Some(DEMON_FORM_ID),
         "Bloodletting" | "bloodletting" => Some(BLOODLETTING_ID),
         "Hemokinesis" | "hemokinesis" => Some(HEMOKINESIS_ID),
+        "Dropkick" | "dropkick" => Some(DROPKICK_ID),
         _ => None,
     }
 }
@@ -5647,10 +5648,10 @@ fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
         BODY_SLAM_ID, BURN_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, DEFEND_R_ID,
-        DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DUAL_WIELD_ID, ENTRENCH_ID,
-        FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
-        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENTRENCH_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
+        HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID,
         SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID,
@@ -5714,6 +5715,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == DEMON_FORM_ID => "Demon Form",
         id if id == BLOODLETTING_ID => "Bloodletting",
         id if id == HEMOKINESIS_ID => "Hemokinesis",
+        id if id == DROPKICK_ID => "Dropkick",
         id if id == FEEL_NO_PAIN_ID => "Feel No Pain",
         other if shop_pool_trace_name(other).is_some() => {
             shop_pool_trace_name(other).unwrap_or("unknown")
@@ -5916,7 +5918,7 @@ fn push_sim_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sts_core::content::cards::DRAMATIC_ENTRANCE_ID;
+    use sts_core::content::cards::{DRAMATIC_ENTRANCE_ID, DROPKICK_ID};
 
     #[test]
     fn trace_replay_parses_unknown_exit_metadata_and_supports_empty_trace() {
@@ -5935,6 +5937,14 @@ mod tests {
             content_id_from_card_value(&card),
             Some(DRAMATIC_ENTRANCE_ID)
         );
+    }
+
+    #[test]
+    fn dropkick_maps_from_observed_card_json() {
+        let card = json!({"id": "Dropkick", "name": "Dropkick"});
+
+        assert_eq!(content_id_from_card_value(&card), Some(DROPKICK_ID));
+        assert_eq!(content_key(DROPKICK_ID), "Dropkick");
     }
 
     #[test]
