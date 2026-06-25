@@ -94,6 +94,8 @@ pub struct PlayerState {
     pub temp_strength: i32,
     #[serde(default)]
     pub temp_dexterity: i32,
+    #[serde(default)]
+    pub temp_thorns: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +173,7 @@ impl CombatState {
                 cannot_draw: false,
                 temp_strength: 0,
                 temp_dexterity: 0,
+                temp_thorns: 0,
             },
             monsters: vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
             piles: CardPiles {
@@ -369,10 +372,12 @@ mod tests {
     fn player_temp_strength_round_trips_through_json() {
         let mut state = CombatState::initial_fixture();
         state.player.temp_strength = 2;
+        state.player.temp_thorns = 4;
 
         let json = serde_json::to_string(&state.player).expect("player serializes");
         let restored: PlayerState = serde_json::from_str(&json).expect("player deserializes");
 
         assert_eq!(restored.temp_strength, 2);
+        assert_eq!(restored.temp_thorns, 4);
     }
 }

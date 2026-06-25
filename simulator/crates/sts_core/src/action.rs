@@ -35,6 +35,9 @@ pub enum InternalAction {
     GainBlock {
         amount: i32,
     },
+    GainTemporaryThorns {
+        amount: i32,
+    },
     DoublePlayerBlock,
     ApplyVulnerable {
         target: MonsterId,

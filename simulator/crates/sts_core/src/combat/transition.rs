@@ -222,6 +222,10 @@ fn apply_internal_action(
             state.player.block += gained;
             Ok(Vec::new())
         }
+        InternalAction::GainTemporaryThorns { amount } => {
+            state.player.temp_thorns += amount;
+            Ok(Vec::new())
+        }
         InternalAction::DoublePlayerBlock => {
             state.player.block *= 2;
             Ok(Vec::new())
@@ -855,14 +859,15 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
-        GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
-        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID,
+        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1186,6 +1191,109 @@ mod tests {
             apply_combat_action(&state, body_slam_action(&state)).expect("Body Slam applies");
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+    }
+
+    #[test]
+    fn flame_barrier_grants_block_and_temporary_thorns_then_discards() {
+        let state = hand_only(FLAME_BARRIER_ID);
+        let flame_barrier_id = hand_card_id(&state, FLAME_BARRIER_ID);
+
+        let next = apply_combat_action(&state, flame_barrier_action(&state))
+            .expect("Flame Barrier applies");
+
+        assert_eq!(next.player.block, state.player.block + 12);
+        assert_eq!(next.player.powers.thorns, state.player.powers.thorns);
+        assert_eq!(next.player.temp_thorns, state.player.temp_thorns + 4);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == flame_barrier_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == flame_barrier_id));
+    }
+
+    #[test]
+    fn flame_barrier_uses_existing_block_calculation() {
+        let mut state = hand_only(FLAME_BARRIER_ID);
+        state.player.powers.dexterity = 2;
+        state.player.powers.frail = 1;
+
+        let next = apply_combat_action(&state, flame_barrier_action(&state))
+            .expect("Flame Barrier applies");
+
+        assert_eq!(next.player.block, 10);
+    }
+
+    #[test]
+    fn flame_barrier_event_log_records_block_then_temporary_thorns_then_discard() {
+        let state = hand_only(FLAME_BARRIER_ID);
+        let flame_barrier_id = hand_card_id(&state, FLAME_BARRIER_ID);
+
+        let transition = apply_combat_action_with_events(&state, flame_barrier_action(&state))
+            .expect("Flame Barrier applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: flame_barrier_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::GainBlock { amount: 12 },
+                InternalAction::GainTemporaryThorns { amount: 4 },
+                InternalAction::MoveCard {
+                    card_id: flame_barrier_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn flame_barrier_thorns_damage_attacking_monster_on_monster_turn() {
+        let state = hand_only(FLAME_BARRIER_ID);
+        let after_play = apply_combat_action(&state, flame_barrier_action(&state))
+            .expect("Flame Barrier applies");
+
+        let after_turn =
+            apply_combat_action(&after_play, CombatAction::EndTurn).expect("monster turn applies");
+
+        assert_eq!(after_turn.monsters[0].hp, after_play.monsters[0].hp - 4);
+    }
+
+    #[test]
+    fn flame_barrier_temporary_thorns_clear_after_monster_turn() {
+        let state = hand_only(FLAME_BARRIER_ID);
+        let after_play = apply_combat_action(&state, flame_barrier_action(&state))
+            .expect("Flame Barrier applies");
+
+        let after_turn =
+            apply_combat_action(&after_play, CombatAction::EndTurn).expect("monster turn applies");
+
+        assert_eq!(after_play.player.temp_thorns, 4);
+        assert_eq!(after_turn.player.temp_thorns, 0);
+        assert_eq!(after_turn.player.powers.thorns, 0);
+    }
+
+    #[test]
+    fn flame_barrier_temporary_thorns_stack_with_persistent_thorns_for_reflection() {
+        let mut state = hand_only(FLAME_BARRIER_ID);
+        state.player.powers.thorns = 3;
+
+        let after_play = apply_combat_action(&state, flame_barrier_action(&state))
+            .expect("Flame Barrier applies");
+        let after_turn =
+            apply_combat_action(&after_play, CombatAction::EndTurn).expect("monster turn applies");
+
+        assert_eq!(after_turn.monsters[0].hp, after_play.monsters[0].hp - 7);
+        assert_eq!(after_turn.player.powers.thorns, 3);
+        assert_eq!(after_turn.player.temp_thorns, 0);
     }
 
     #[test]
@@ -5408,6 +5516,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BODY_SLAM_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn flame_barrier_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, FLAME_BARRIER_ID),
+            target: None,
         }
     }
 

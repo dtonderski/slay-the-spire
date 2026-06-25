@@ -1185,8 +1185,9 @@ pub fn apply_monster_intent(
             (0, 0)
         }
     };
-    if player.powers.thorns > 0 && thorns_hits > 0 {
-        deal_unmodified_damage_to_monster(monster, player.powers.thorns * thorns_hits);
+    let total_thorns = player.powers.thorns + player.temp_thorns;
+    if total_thorns > 0 && thorns_hits > 0 {
+        deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
     }
     if monster.content_id == GUARDIAN_ID && monster.in_defensive_mode {
         finish_guardian_defensive_turn(monster);
@@ -1211,6 +1212,7 @@ mod tests {
             cannot_draw: false,
             temp_strength: 0,
             temp_dexterity: 0,
+            temp_thorns: 0,
         }
     }
 

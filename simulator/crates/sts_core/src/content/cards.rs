@@ -1094,6 +1094,21 @@ pub const GHOSTLY_ARMOR: CardDefinition = CardDefinition {
     },
 };
 
+pub const FLAME_BARRIER: CardDefinition = CardDefinition {
+    id: FLAME_BARRIER_ID,
+    key: "FLAME_BARRIER",
+    name: "Flame Barrier",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(12),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const RECKLESS_CHARGE: CardDefinition = CardDefinition {
     id: RECKLESS_CHARGE_ID,
     key: "RECKLESS_CHARGE",
@@ -1461,7 +1476,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 78] = [
+pub const ALL_CARDS: [CardDefinition; 79] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1521,6 +1536,7 @@ pub const ALL_CARDS: [CardDefinition; 78] = [
     POWER_THROUGH,
     ENTRENCH,
     GHOSTLY_ARMOR,
+    FLAME_BARRIER,
     RECKLESS_CHARGE,
     PUMMEL,
     CLOTHESLINE,
@@ -1577,6 +1593,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == ENTRENCH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == FLAME_BARRIER_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2119,6 +2136,20 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(HEMOKINESIS_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn flame_barrier_has_expected_values_and_rarity() {
+        assert_eq!(FLAME_BARRIER.id, FLAME_BARRIER_ID);
+        assert_eq!(FLAME_BARRIER.cost, 2);
+        assert_eq!(FLAME_BARRIER.target, TargetRequirement::None);
+        assert_eq!(FLAME_BARRIER.card_type, CardType::Skill);
+        assert_eq!(FLAME_BARRIER.values.block, Some(12));
+        assert!(!FLAME_BARRIER.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(FLAME_BARRIER_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
 
