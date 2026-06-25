@@ -1058,6 +1058,21 @@ pub const POWER_THROUGH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const ENTRENCH: CardDefinition = CardDefinition {
+    id: ENTRENCH_ID,
+    key: "ENTRENCH",
+    name: "Entrench",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const GHOSTLY_ARMOR: CardDefinition = CardDefinition {
     id: GHOSTLY_ARMOR_ID,
     key: "GHOSTLY_ARMOR",
@@ -1389,7 +1404,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 74] = [
+pub const ALL_CARDS: [CardDefinition; 75] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1447,6 +1462,7 @@ pub const ALL_CARDS: [CardDefinition; 74] = [
     HEAVY_BLADE,
     PERFECTED_STRIKE,
     POWER_THROUGH,
+    ENTRENCH,
     GHOSTLY_ARMOR,
     RECKLESS_CHARGE,
     PUMMEL,
@@ -1499,6 +1515,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == ENTRENCH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
@@ -1734,6 +1751,18 @@ mod tests {
         assert_eq!(POWER_THROUGH.values.block, Some(15));
         assert_eq!(
             card_type_and_rarity(POWER_THROUGH_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn entrench_has_expected_values_and_rarity() {
+        assert_eq!(ENTRENCH.cost, 2);
+        assert_eq!(ENTRENCH.target, TargetRequirement::None);
+        assert_eq!(ENTRENCH.card_type, CardType::Skill);
+        assert_eq!(ENTRENCH.values.block, None);
+        assert_eq!(
+            card_type_and_rarity(ENTRENCH_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
