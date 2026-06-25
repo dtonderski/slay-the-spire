@@ -11,7 +11,7 @@ use crate::{
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
         DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
         FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
         HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
         INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
@@ -160,6 +160,7 @@ pub(super) fn play_card_queue(
         JUGGERNAUT_ID => juggernaut_queue(card_id, definition),
         BRUTALITY_ID => brutality_queue(card_id),
         FIRE_BREATHING_ID => fire_breathing_queue(card_id, definition),
+        EXHUME_ID => exhume_queue(state, card_id),
         DEMON_FORM_ID => demon_form_queue(card_id),
         METALLICIZE_ID => metallicize_queue(card_id, definition),
         POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID => pommel_strike_queue(
@@ -518,6 +519,7 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
             | InternalAction::MoveCard { .. }
             | InternalAction::AwaitHandSelect { .. }
             | InternalAction::AwaitDiscardSelect { .. }
+            | InternalAction::AwaitExhaustSelect { .. }
     ) && !is_card_move_for(action, card_id)
 }
 
@@ -1416,6 +1418,29 @@ fn brutality_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
             from: CardPile::Hand,
         },
     ]))
+}
+
+fn exhume_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    if !has_exhumable_card(state) {
+        return Err(SimError::IllegalAction("Exhume requires an exhumable card"));
+    }
+
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::AwaitExhaustSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
+        },
+    ]))
+}
+
+fn has_exhumable_card(state: &CombatState) -> bool {
+    state
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id != EXHUME_ID)
 }
 
 fn sever_soul_queue(

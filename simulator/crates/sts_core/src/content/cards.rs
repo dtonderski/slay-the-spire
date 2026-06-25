@@ -1747,6 +1747,27 @@ pub const REAPER: CardDefinition = CardDefinition {
     },
 };
 
+pub const EXHUME: CardDefinition = CardDefinition {
+    id: EXHUME_ID,
+    key: "EXHUME",
+    name: "Exhume",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const METALLICIZE: CardDefinition = CardDefinition {
     id: METALLICIZE_ID,
     key: "Metallicize",
@@ -1832,7 +1853,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 100] = [
+pub const ALL_CARDS: [CardDefinition; 101] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1930,6 +1951,7 @@ pub const ALL_CARDS: [CardDefinition; 100] = [
     IMPERVIOUS,
     FIEND_FIRE,
     REAPER,
+    EXHUME,
     METALLICIZE,
     THUNDERCLAP,
     UPPERCUT,
@@ -2025,6 +2047,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FIEND_FIRE_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == REAPER_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == EXHUME_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         _ => None,
     }
@@ -2115,6 +2138,19 @@ mod tests {
         assert!(!REGRET.keywords.retain);
         assert!(!REGRET.keywords.exhaust);
         assert!(is_curse_content_id(REGRET_ID));
+    }
+
+    #[test]
+    fn exhume_is_rare_cost_one_skill_with_exhaust_and_no_target() {
+        assert_eq!(EXHUME.id, EXHUME_ID);
+        assert_eq!(EXHUME.cost, 1);
+        assert_eq!(EXHUME.card_type, CardType::Skill);
+        assert_eq!(EXHUME.target, TargetRequirement::None);
+        assert!(EXHUME.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(EXHUME_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
     }
 
     #[test]

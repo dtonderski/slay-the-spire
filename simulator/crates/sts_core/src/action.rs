@@ -1,5 +1,5 @@
 use crate::{
-    combat::{damage::DamageInfo, DiscardSelectPurpose, HandSelectPurpose},
+    combat::{damage::DamageInfo, DiscardSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose},
     ids::{CardId, MonsterId},
 };
 use serde::{Deserialize, Serialize};
@@ -171,6 +171,10 @@ pub enum InternalAction {
     AwaitDiscardSelect {
         source_card_id: CardId,
         purpose: DiscardSelectPurpose,
+    },
+    AwaitExhaustSelect {
+        source_card_id: CardId,
+        purpose: ExhaustSelectPurpose,
     },
 }
 
