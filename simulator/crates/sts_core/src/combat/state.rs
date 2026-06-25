@@ -40,7 +40,7 @@ pub struct CombatState {
     /// In-combat normal-cost colorless reward from Toolbox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toolbox_card_reward: Option<Vec<CardInstance>>,
-    /// Awaiting player choice for Warcry and similar hand-select effects.
+    /// Awaiting player choice for Warcry, Armaments, and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
     /// Awaiting player choice for discard-pile potion effects such as Liquid Memories.
@@ -56,8 +56,17 @@ pub struct CombatState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HandSelectState {
+    #[serde(default)]
+    pub purpose: HandSelectPurpose,
     pub source_card_id: CardId,
     pub selected_hand_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum HandSelectPurpose {
+    #[default]
+    WarcryPutOnDraw,
+    ArmamentsUpgrade,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

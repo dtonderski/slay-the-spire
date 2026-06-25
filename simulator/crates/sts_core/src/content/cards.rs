@@ -605,6 +605,21 @@ pub const OFFERING: CardDefinition = CardDefinition {
     },
 };
 
+pub const ARMAMENTS: CardDefinition = CardDefinition {
+    id: ARMAMENTS_ID,
+    key: "Armaments",
+    name: "Armaments",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(5),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const POMMEL_STRIKE: CardDefinition = CardDefinition {
     id: POMMEL_STRIKE_ID,
     key: "Pommel Strike",
@@ -1518,7 +1533,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 81] = [
+pub const ALL_CARDS: [CardDefinition; 82] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1547,6 +1562,7 @@ pub const ALL_CARDS: [CardDefinition; 81] = [
     DEMON_FORM,
     LIMIT_BREAK,
     OFFERING,
+    ARMAMENTS,
     POMMEL_STRIKE,
     BATTLE_TRANCE,
     SEEING_RED,
@@ -1631,6 +1647,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == ARMAMENTS_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1818,6 +1835,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(BODY_SLAM_ID),
             Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn armaments_has_expected_values() {
+        assert_eq!(ARMAMENTS.cost, 1);
+        assert_eq!(ARMAMENTS.target, TargetRequirement::None);
+        assert_eq!(ARMAMENTS.card_type, CardType::Skill);
+        assert_eq!(ARMAMENTS.values.block, Some(5));
+        assert_eq!(
+            card_type_and_rarity(ARMAMENTS_ID),
+            Some((CardType::Skill, CardRarity::Common))
         );
     }
 
