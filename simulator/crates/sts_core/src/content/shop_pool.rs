@@ -11,8 +11,8 @@ use crate::content::cards::{
     OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID,
     RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
     SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-    SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-    UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+    SPOT_WEAKNESS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
+    TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
 };
 use crate::content::reward_pool::ironclad_reward_card_rarity;
 use crate::rng::StsRng;
@@ -245,6 +245,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "DRAMATIC_ENTRANCE" => DRAMATIC_ENTRANCE_ID,
         "BANDAGE_UP" => BANDAGE_UP_ID,
         "BLIND" => BLIND_ID,
+        "SWIFT_STRIKE" => SWIFT_STRIKE_ID,
         "FLASH_OF_STEEL" => FLASH_OF_STEEL_ID,
         "GOOD_INSTINCTS" => GOOD_INSTINCTS_ID,
         "PANACEA" => PANACEA_ID,
@@ -464,7 +465,8 @@ pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<C
 mod tests {
     use super::*;
     use crate::content::cards::{
-        BANDAGE_UP_ID, BLIND_ID, FLASH_OF_STEEL_ID, GOOD_INSTINCTS_ID, PANACEA_ID, TRIP_ID,
+        BANDAGE_UP_ID, BLIND_ID, FLASH_OF_STEEL_ID, GOOD_INSTINCTS_ID, PANACEA_ID, SWIFT_STRIKE_ID,
+        TRIP_ID,
     };
 
     #[test]
@@ -519,5 +521,17 @@ mod tests {
         assert!(shop_card_is_colorless(TRIP_ID));
         assert_eq!(shop_card_type(TRIP_ID), Some(CardType::Skill));
         assert_eq!(shop_card_price_rarity(TRIP_ID), CardRarity::Uncommon);
+    }
+
+    #[test]
+    fn swift_strike_pool_key_maps_to_concrete_colorless_attack() {
+        assert_eq!(shop_card_content_id("SWIFT_STRIKE"), SWIFT_STRIKE_ID);
+        assert!(shop_card_is_colorless(SWIFT_STRIKE_ID));
+        assert_eq!(shop_card_type(SWIFT_STRIKE_ID), Some(CardType::Attack));
+        assert_eq!(
+            shop_card_price_rarity(SWIFT_STRIKE_ID),
+            CardRarity::Uncommon
+        );
+        assert!(colorless_discovery_pool().contains(&SWIFT_STRIKE_ID));
     }
 }

@@ -1330,9 +1330,11 @@ mod tests {
         RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
         SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
+    use crate::legal_combat_actions;
 
     #[test]
     fn strike_decreases_monster_hp_by_six() {
@@ -4537,6 +4539,83 @@ mod tests {
         assert!(next.piles.draw_pile.is_empty());
         assert_eq!(next.piles.discard_pile[0].content_id, FLASH_OF_STEEL_ID);
         assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn swift_strike_deals_seven_and_discards_at_zero_cost() {
+        let mut state = hand_only(SWIFT_STRIKE_ID);
+        state.player.energy = 0;
+        let swift_strike_id = hand_card_id(&state, SWIFT_STRIKE_ID);
+
+        let next =
+            apply_combat_action(&state, swift_strike_action(&state)).expect("Swift Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 7);
+        assert_eq!(next.player.energy, 0);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == swift_strike_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == swift_strike_id));
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn swift_strike_is_legal_with_living_enemy_target_only() {
+        let state = hand_only(SWIFT_STRIKE_ID);
+        let card_id = hand_card_id(&state, SWIFT_STRIKE_ID);
+
+        let legal_actions = legal_combat_actions(&state);
+        assert!(legal_actions.contains(&CombatAction::PlayCard {
+            card_id,
+            target: Some(MonsterId::new(1)),
+        }));
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id,
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn swift_strike_event_log_records_generic_attack_queue() {
+        let state = hand_only(SWIFT_STRIKE_ID);
+        let swift_strike_id = hand_card_id(&state, SWIFT_STRIKE_ID);
+
+        let transition = apply_combat_action_with_events(&state, swift_strike_action(&state))
+            .expect("Swift Strike applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: swift_strike_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(swift_strike_id),
+                        target: MonsterId::new(1),
+                        amount: 7,
+                    }
+                },
+                InternalAction::MoveCard {
+                    card_id: swift_strike_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -10169,6 +10248,13 @@ mod tests {
     fn flash_of_steel_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, FLASH_OF_STEEL_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn swift_strike_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, SWIFT_STRIKE_ID),
             target: Some(MonsterId::new(1)),
         }
     }
