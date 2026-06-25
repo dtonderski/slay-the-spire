@@ -628,6 +628,21 @@ pub const BRUTALITY: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const DOUBLE_TAP: CardDefinition = CardDefinition {
+    id: DOUBLE_TAP_ID,
+    key: "DOUBLE_TAP",
+    name: "Double Tap",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const LIMIT_BREAK: CardDefinition = CardDefinition {
     id: LIMIT_BREAK_ID,
     key: "Limit Break",
@@ -1706,7 +1721,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 92] = [
+pub const ALL_CARDS: [CardDefinition; 93] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1737,6 +1752,7 @@ pub const ALL_CARDS: [CardDefinition; 92] = [
     BARRICADE,
     BERSERK,
     BRUTALITY,
+    DOUBLE_TAP,
     LIMIT_BREAK,
     OFFERING,
     ARMAMENTS,
@@ -1863,6 +1879,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == DOUBLE_TAP_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == OFFERING_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),

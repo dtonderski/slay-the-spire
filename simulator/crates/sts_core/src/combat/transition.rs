@@ -115,6 +115,10 @@ fn apply_internal_action(
             state.duplication_potion_pending = false;
             Ok(Vec::new())
         }
+        InternalAction::ConsumeDoubleTap => {
+            state.double_tap_pending = 0;
+            Ok(Vec::new())
+        }
         InternalAction::PlayCard { card_id } => {
             let card = find_hand_card(state, card_id)?;
             let definition = get_card_definition(card.content_id)
@@ -297,6 +301,10 @@ fn apply_internal_action(
         }
         InternalAction::GainCombust { amount } => {
             state.player.powers.combust += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainDoubleTap { amount } => {
+            state.double_tap_pending += amount;
             Ok(Vec::new())
         }
         InternalAction::GainMetallicize { amount } => {
@@ -1038,11 +1046,11 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
         BERSERK_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
         CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
-        DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
-        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
-        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID,
+        DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID,
+        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
         SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
         SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
@@ -5720,6 +5728,207 @@ mod tests {
     }
 
     #[test]
+    fn double_tap_has_expected_base_definition_and_rarity() {
+        let definition = get_card_definition(DOUBLE_TAP_ID).expect("Double Tap definition exists");
+
+        assert_eq!(definition.cost, 1);
+        assert_eq!(definition.card_type, CardType::Skill);
+        assert_eq!(definition.target, crate::TargetRequirement::None);
+        assert_eq!(
+            crate::content::cards::card_type_and_rarity(DOUBLE_TAP_ID),
+            Some((CardType::Skill, crate::card::CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn double_tap_gains_pending_next_attack_replay_and_discards() {
+        let state = hand_only(DOUBLE_TAP_ID);
+
+        let next =
+            apply_combat_action(&state, double_tap_action(&state)).expect("Double Tap applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.double_tap_pending, 1);
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, DOUBLE_TAP_ID);
+    }
+
+    #[test]
+    fn double_tap_rejects_target() {
+        let state = hand_only(DOUBLE_TAP_ID);
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn double_tap_is_listed_as_no_target_legal_action() {
+        let state = hand_only(DOUBLE_TAP_ID);
+
+        assert!(
+            crate::combat::legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn double_tap_uses_effective_card_cost() {
+        let mut state = hand_only(DOUBLE_TAP_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].temp_cost = Some(2);
+
+        let next = apply_combat_action(&state, double_tap_action(&state))
+            .expect("Double Tap applies with temp cost");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.double_tap_pending, 1);
+    }
+
+    #[test]
+    fn double_tap_pending_round_trips_through_combat_state_json() {
+        let state = hand_only(DOUBLE_TAP_ID);
+
+        let next =
+            apply_combat_action(&state, double_tap_action(&state)).expect("Double Tap applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.double_tap_pending, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn double_tap_event_log_records_pending_gain_and_discard() {
+        let state = hand_only(DOUBLE_TAP_ID);
+
+        let transition = apply_combat_action_with_events(&state, double_tap_action(&state))
+            .expect("Double Tap applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainDoubleTap { amount: 1 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn double_tap_triggers_gremlin_nob_skill_enrage() {
+        let mut state = CombatState::gremlin_nob_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DOUBLE_TAP_ID)];
+
+        let next =
+            apply_combat_action(&state, double_tap_action(&state)).expect("Double Tap applies");
+
+        assert_eq!(next.monsters[0].powers.anger, 2);
+        assert_eq!(next.double_tap_pending, 1);
+    }
+
+    #[test]
+    fn double_tap_pending_duplicates_next_attack_without_extra_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DOUBLE_TAP_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let after_double_tap =
+            apply_combat_action(&state, double_tap_action(&state)).expect("Double Tap applies");
+        let after_strike = apply_combat_action(&after_double_tap, strike_action(&after_double_tap))
+            .expect("Strike applies");
+
+        assert_eq!(after_strike.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(after_strike.player.energy, state.player.energy - 2);
+        assert_eq!(after_strike.double_tap_pending, 0);
+        assert_eq!(after_strike.piles.discard_pile.len(), 2);
+    }
+
+    #[test]
+    fn double_tap_pending_does_not_consume_on_non_attack() {
+        let mut state = hand_only(DEFEND_R_ID);
+        state.double_tap_pending = 1;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.player.block, 5);
+        assert_eq!(next.double_tap_pending, 1);
+    }
+
+    #[test]
+    fn stacked_double_tap_pending_replays_next_attack_once_per_stack() {
+        let mut state = hand_only(STRIKE_R_ID);
+        state.double_tap_pending = 2;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 18);
+        assert_eq!(next.double_tap_pending, 0);
+    }
+
+    #[test]
+    fn double_tap_attack_event_log_consumes_pending_before_replayed_effect() {
+        let mut state = hand_only(STRIKE_R_ID);
+        state.double_tap_pending = 1;
+
+        let transition =
+            apply_combat_action_with_events(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::ConsumeDoubleTap,
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(CardId::new(20)),
+                        target: MonsterId::new(1),
+                        amount: 6,
+                    },
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(CardId::new(20)),
+                        target: MonsterId::new(1),
+                        amount: 6,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -7904,6 +8113,13 @@ mod tests {
     fn brutality_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BRUTALITY_ID),
+            target: None,
+        }
+    }
+
+    fn double_tap_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DOUBLE_TAP_ID),
             target: None,
         }
     }
