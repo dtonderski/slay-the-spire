@@ -1253,6 +1253,21 @@ pub const CARNAGE: CardDefinition = CardDefinition {
     },
 };
 
+pub const DROPKICK: CardDefinition = CardDefinition {
+    id: DROPKICK_ID,
+    key: "DROPKICK",
+    name: "Dropkick",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(5),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SWORD_BOOMERANG: CardDefinition = CardDefinition {
     id: SWORD_BOOMERANG_ID,
     key: "Sword Boomerang",
@@ -1425,7 +1440,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 76] = [
+pub const ALL_CARDS: [CardDefinition; 77] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1494,6 +1509,7 @@ pub const ALL_CARDS: [CardDefinition; 76] = [
     SENTINEL,
     BLOODLETTING,
     CARNAGE,
+    DROPKICK,
     SWORD_BOOMERANG,
     HEMOKINESIS,
     IMMOLATE,
@@ -1543,6 +1559,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CARNAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == DROPKICK_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == HEMOKINESIS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -2031,6 +2048,18 @@ mod tests {
         );
         assert_eq!(
             card_type_and_rarity(CARNAGE_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn dropkick_has_expected_values_and_rarity() {
+        assert_eq!(DROPKICK.cost, 1);
+        assert_eq!(DROPKICK.target, TargetRequirement::Enemy);
+        assert_eq!(DROPKICK.card_type, CardType::Attack);
+        assert_eq!(DROPKICK.values.damage, Some(5));
+        assert_eq!(
+            card_type_and_rarity(DROPKICK_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
     }

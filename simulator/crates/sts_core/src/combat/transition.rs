@@ -855,11 +855,11 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID,
-        HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
+        GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
+        REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
         SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
         STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
         WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
@@ -2487,6 +2487,119 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: hemokinesis_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dropkick_without_vulnerable_deals_five_spends_one_and_moves_to_discard() {
+        let mut state = hand_only(DROPKICK_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let dropkick_id = hand_card_id(&state, DROPKICK_ID);
+
+        let next = apply_combat_action(&state, dropkick_action(&state)).expect("Dropkick applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 5);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(next
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(!next.piles.hand.iter().any(|card| card.id == dropkick_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == dropkick_id));
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn dropkick_against_vulnerable_gains_one_energy_and_draws_one() {
+        let mut state = hand_only(DROPKICK_ID);
+        state.monsters[0].powers.vulnerable = 1;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, dropkick_action(&state)).expect("Dropkick applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 7);
+        assert_eq!(next.player.energy, state.player.energy);
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == DROPKICK_ID));
+    }
+
+    #[test]
+    fn dropkick_vulnerable_bonus_uses_pre_damage_target_state_even_when_lethal() {
+        let mut state = hand_only(DROPKICK_ID);
+        state.monsters[0].hp = 7;
+        state.monsters[0].powers.vulnerable = 1;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+
+        let next = apply_combat_action(&state, dropkick_action(&state)).expect("Dropkick applies");
+
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert_eq!(next.player.energy, state.player.energy);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+    }
+
+    #[test]
+    fn dropkick_with_strength_and_vulnerable_applies_existing_attack_damage_order() {
+        let mut state = hand_only(DROPKICK_ID);
+        state.player.powers.strength = 2;
+        state.monsters[0].powers.vulnerable = 1;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, dropkick_action(&state)).expect("Dropkick applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 10);
+        assert_eq!(next.player.energy, state.player.energy);
+    }
+
+    #[test]
+    fn dropkick_event_log_records_damage_bonus_then_discard_when_target_was_vulnerable() {
+        let mut state = hand_only(DROPKICK_ID);
+        state.monsters[0].powers.vulnerable = 1;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let dropkick_id = hand_card_id(&state, DROPKICK_ID);
+
+        let transition = apply_combat_action_with_events(&state, dropkick_action(&state))
+            .expect("Dropkick applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: dropkick_id
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(dropkick_id),
+                        target: MonsterId::new(1),
+                        amount: 5,
+                    },
+                },
+                InternalAction::GainEnergy { amount: 1 },
+                InternalAction::DrawCards { count: 1 },
+                InternalAction::MoveCard {
+                    card_id: dropkick_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -5256,6 +5369,13 @@ mod tests {
     fn hemokinesis_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, HEMOKINESIS_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn dropkick_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DROPKICK_ID),
             target: Some(MonsterId::new(1)),
         }
     }
