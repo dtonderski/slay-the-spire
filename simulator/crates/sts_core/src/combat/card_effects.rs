@@ -11,12 +11,12 @@ use crate::{
         BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DRAMATIC_ENTRANCE_ID,
         DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
-        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
         THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
         WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
@@ -117,6 +117,12 @@ pub(super) fn play_card_queue(
         CLOTHESLINE_ID => clothesline_queue(
             card_id,
             target.expect("validated Clothesline has a target"),
+            definition,
+        ),
+        FIEND_FIRE_ID => fiend_fire_queue(
+            state,
+            card_id,
+            target.expect("validated Fiend Fire has a target"),
             definition,
         ),
         REAPER_ID => reaper_queue(card_id, definition),
@@ -1159,6 +1165,53 @@ fn non_attack_hand_cards_except(state: &CombatState, exclude_id: CardId) -> Vec<
             get_card_definition(card.content_id)
                 .is_some_and(|definition| definition.card_type != CardType::Attack)
         })
+        .map(|card| card.id)
+        .collect()
+}
+
+fn fiend_fire_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let exhaust_targets = other_hand_cards(state, card_id);
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+    for exhaust_target in &exhaust_targets {
+        queue.push_back(InternalAction::MoveCard {
+            card_id: *exhaust_target,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        });
+    }
+    for _ in &exhaust_targets {
+        queue.push_back(InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
+}
+
+fn other_hand_cards(state: &CombatState, exclude_id: CardId) -> Vec<CardId> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != exclude_id)
         .map(|card| card.id)
         .collect()
 }

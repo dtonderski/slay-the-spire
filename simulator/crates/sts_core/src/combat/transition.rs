@@ -993,15 +993,16 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID,
-        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID,
+        FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, REAPER_ID, RECKLESS_CHARGE_ID,
+        REGRET_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -6361,6 +6362,190 @@ mod tests {
     }
 
     #[test]
+    fn fiend_fire_deals_once_per_other_card_then_exhausts_others_and_source() {
+        let mut state = hand_only(FIEND_FIRE_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FIEND_FIRE_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+            CardInstance::new(CardId::new(23), BATTLE_TRANCE_ID),
+        ];
+
+        let next =
+            apply_combat_action(&state, fiend_fire_action(&state)).expect("Fiend Fire applies");
+
+        assert_eq!(next.player.energy, 1);
+        assert_eq!(next.monsters[0].hp, 19);
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, ANGER_ID, BATTLE_TRANCE_ID, FIEND_FIRE_ID]
+        );
+        assert!(next.piles.hand.is_empty());
+    }
+
+    #[test]
+    fn fiend_fire_with_no_other_cards_exhausts_source_without_damage() {
+        let state = hand_only(FIEND_FIRE_ID);
+
+        let next =
+            apply_combat_action(&state, fiend_fire_action(&state)).expect("Fiend Fire applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp);
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![FIEND_FIRE_ID]
+        );
+    }
+
+    #[test]
+    fn fiend_fire_exhausting_sentinel_uses_existing_exhaust_hooks() {
+        let mut state = hand_only(FIEND_FIRE_ID);
+        state.player.energy = 2;
+        state.player.powers.feel_no_pain = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FIEND_FIRE_ID),
+            CardInstance::new(CardId::new(21), SENTINEL_ID),
+        ];
+
+        let next =
+            apply_combat_action(&state, fiend_fire_action(&state)).expect("Fiend Fire applies");
+
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.player.block, 6);
+        assert_eq!(next.monsters[0].hp, 33);
+    }
+
+    #[test]
+    fn fiend_fire_dark_embrace_draw_does_not_add_new_exhaust_or_damage_targets() {
+        let mut state = hand_only(FIEND_FIRE_ID);
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FIEND_FIRE_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), BATTLE_TRANCE_ID)];
+
+        let next =
+            apply_combat_action(&state, fiend_fire_action(&state)).expect("Fiend Fire applies");
+
+        assert_eq!(next.monsters[0].hp, 33);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![BATTLE_TRANCE_ID]
+        );
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, FIEND_FIRE_ID]
+        );
+    }
+
+    #[test]
+    fn strange_spoon_only_rolls_for_fiend_fire_source_exhaust() {
+        let mut state = hand_only(FIEND_FIRE_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FIEND_FIRE_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let next =
+            apply_combat_action(&state, fiend_fire_action(&state)).expect("Fiend Fire applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DEFEND_R_ID);
+        if spoon_proc {
+            assert_eq!(next.piles.discard_pile[0].content_id, FIEND_FIRE_ID);
+            assert_eq!(next.piles.exhaust_pile.len(), 1);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[1].content_id, FIEND_FIRE_ID);
+        }
+    }
+
+    #[test]
+    fn fiend_fire_event_log_records_local_exhaust_then_damage_order() {
+        let mut state = hand_only(FIEND_FIRE_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FIEND_FIRE_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+        ];
+
+        let transition = apply_combat_action_with_events(&state, fiend_fire_action(&state))
+            .expect("Fiend Fire applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20)
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(21),
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(22),
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(CardId::new(20)),
+                        target: MonsterId::new(1),
+                        amount: 7,
+                    }
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(CardId::new(20)),
+                        target: MonsterId::new(1),
+                        amount: 7,
+                    }
+                },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: CardId::new(21)
+                },
+                InternalAction::CardExhausted {
+                    card_id: CardId::new(22)
+                },
+                InternalAction::CardExhausted {
+                    card_id: CardId::new(20)
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn unceasing_top_draws_when_played_card_empties_hand() {
         let mut state = hand_only(STRIKE_R_ID);
         state.relics = vec![Relic::UnceasingTop];
@@ -6672,6 +6857,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SECOND_WIND_ID),
             target: None,
+        }
+    }
+
+    fn fiend_fire_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, FIEND_FIRE_ID),
+            target: Some(MonsterId::new(1)),
         }
     }
 
