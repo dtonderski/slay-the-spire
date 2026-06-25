@@ -362,20 +362,22 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            ANGER_ID, ANGER_PLUS_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
-            BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID,
-            BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
-            CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
-            DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
-            EVOLVE_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID,
-            FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
-            HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-            INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-            POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID,
-            REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-            SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-            SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-            TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+            ANGER_ID, ANGER_PLUS_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID,
+            BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID,
+            BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
+            CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
+            CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID,
+            DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+            FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID,
+            FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID,
+            HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
+            INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID,
+            PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+            PUMMEL_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
+            SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+            SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+            TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+            WILD_STRIKE_ID, WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -588,6 +590,110 @@ mod tests {
                 card_id: CardId::new(20),
                 target: Some(MonsterId::new(1)),
             })
+        );
+    }
+
+    #[test]
+    fn good_instincts_is_legal_without_target_at_zero_energy() {
+        let mut state = hand_with_card(GOOD_INSTINCTS_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn bandage_up_is_legal_without_target_at_zero_energy() {
+        let mut state = hand_with_card(BANDAGE_UP_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn bandage_up_rejects_target() {
+        let state = hand_with_card(BANDAGE_UP_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn finesse_is_legal_without_target_at_zero_energy() {
+        let mut state = hand_with_card(FINESSE_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn finesse_rejects_target() {
+        let state = hand_with_card(FINESSE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn flash_of_steel_is_legal_with_target_at_zero_energy() {
+        let mut state = hand_with_card(FLASH_OF_STEEL_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn flash_of_steel_rejects_missing_target() {
+        let state = hand_with_card(FLASH_OF_STEEL_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
         );
     }
 
@@ -2694,6 +2800,51 @@ mod tests {
             Err(SimError::IllegalAction(
                 "non-targeted card cannot have a target"
             ))
+        );
+    }
+
+    #[test]
+    fn infernal_blade_is_legal_without_target_at_one_energy() {
+        let mut state = hand_with_card(INFERNAL_BLADE_ID);
+        state.player.energy = 1;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn infernal_blade_rejects_target() {
+        let mut state = hand_with_card(INFERNAL_BLADE_ID);
+        state.player.energy = 1;
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn infernal_blade_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(INFERNAL_BLADE_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
         );
     }
 
