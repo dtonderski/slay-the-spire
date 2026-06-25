@@ -563,6 +563,27 @@ pub const DEMON_FORM: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const LIMIT_BREAK: CardDefinition = CardDefinition {
+    id: LIMIT_BREAK_ID,
+    key: "Limit Break",
+    name: "Limit Break",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        unplayable: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+    },
+};
+
 pub const POMMEL_STRIKE: CardDefinition = CardDefinition {
     id: POMMEL_STRIKE_ID,
     key: "Pommel Strike",
@@ -1476,7 +1497,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 79] = [
+pub const ALL_CARDS: [CardDefinition; 80] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1503,6 +1524,7 @@ pub const ALL_CARDS: [CardDefinition; 79] = [
     FEEL_NO_PAIN,
     DARK_EMBRACE,
     DEMON_FORM,
+    LIMIT_BREAK,
     POMMEL_STRIKE,
     BATTLE_TRANCE,
     SEEING_RED,
@@ -1613,6 +1635,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2057,6 +2080,28 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(DEMON_FORM_ID),
             Some((CardType::Power, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn limit_break_has_expected_values_keywords_and_rarity() {
+        assert_eq!(LIMIT_BREAK.id, LIMIT_BREAK_ID);
+        assert_eq!(LIMIT_BREAK.cost, 1);
+        assert_eq!(LIMIT_BREAK.target, TargetRequirement::None);
+        assert_eq!(LIMIT_BREAK.card_type, CardType::Skill);
+        assert_eq!(
+            LIMIT_BREAK.keywords,
+            CardKeywords {
+                innate: false,
+                unplayable: false,
+                ethereal: false,
+                exhaust: true,
+                retain: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(LIMIT_BREAK_ID),
+            Some((CardType::Skill, CardRarity::Rare))
         );
     }
 
