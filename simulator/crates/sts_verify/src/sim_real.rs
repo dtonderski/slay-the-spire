@@ -4830,6 +4830,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         discard_select: None,
         exhaust_select: None,
         duplication_potion_pending: false,
+        double_tap_pending: 0,
     };
 
     Some(RunState {

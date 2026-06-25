@@ -52,6 +52,9 @@ pub struct CombatState {
     /// One-shot flag from Duplication Potion: the next played card resolves twice.
     #[serde(default, skip_serializing_if = "is_false")]
     pub duplication_potion_pending: bool,
+    /// Pending Double Tap stacks: the next played Attack resolves twice per stack.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub double_tap_pending: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -220,6 +223,7 @@ impl CombatState {
             discard_select: None,
             exhaust_select: None,
             duplication_potion_pending: false,
+            double_tap_pending: 0,
         }
     }
 

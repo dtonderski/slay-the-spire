@@ -10,7 +10,7 @@ use crate::{
         ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID,
         BLOODLETTING_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID,
-        DEMON_FORM_ID, DISARM_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID,
         FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
@@ -157,6 +157,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         BATTLE_TRANCE_ID | BATTLE_TRANCE_PLUS_ID => battle_trance_queue(card_id, definition),
+        DOUBLE_TAP_ID => double_tap_queue(card_id, definition),
         SEEING_RED_ID | SEEING_RED_PLUS_ID => seeing_red_queue(card_id, definition),
         BLOODLETTING_ID => bloodletting_queue(card_id, definition),
         HEMOKINESIS_ID => hemokinesis_queue(
@@ -226,6 +227,9 @@ pub(super) fn play_card_queue(
     apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
     if state.duplication_potion_pending {
         queue = apply_duplication_potion_to_queue(queue, card_id);
+    }
+    if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
+        queue = apply_double_tap_to_queue(queue, card_id, state.double_tap_pending);
     }
 
     let mut queued_state = state.clone();
@@ -375,6 +379,38 @@ fn apply_duplication_potion_to_queue(
     queue
 }
 
+fn apply_double_tap_to_queue(
+    mut queue: VecDeque<InternalAction>,
+    card_id: CardId,
+    count: i32,
+) -> VecDeque<InternalAction> {
+    let mut duplicated_effects = VecDeque::new();
+    for _ in 0..count {
+        duplicated_effects.extend(
+            queue
+                .iter()
+                .copied()
+                .filter(|action| is_duplicated_card_effect(*action, card_id)),
+        );
+    }
+
+    let final_move = queue
+        .back()
+        .copied()
+        .filter(|action| is_card_move_for(*action, card_id));
+    if final_move.is_some() {
+        queue.pop_back();
+    }
+
+    queue.push_front(InternalAction::ConsumeDoubleTap);
+    queue.append(&mut duplicated_effects);
+    if let Some(action) = final_move {
+        queue.push_back(action);
+    }
+
+    queue
+}
+
 fn unplayable_relic_queue(
     relics: &[Relic],
     card_id: CardId,
@@ -403,7 +439,9 @@ fn unplayable_relic_queue(
 fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
     !matches!(
         action,
-        InternalAction::PlayCard { .. }
+        InternalAction::ConsumeDuplicationPotion
+            | InternalAction::ConsumeDoubleTap
+            | InternalAction::PlayCard { .. }
             | InternalAction::SpendEnergy { .. }
             | InternalAction::SpendCardEnergy { .. }
             | InternalAction::MoveCard { .. }
@@ -1135,6 +1173,22 @@ fn rage_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDequ
             amount: i32::from(definition.cost),
         },
         InternalAction::GainRage { amount: 3 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn double_tap_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainDoubleTap { amount: 1 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,

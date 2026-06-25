@@ -16,6 +16,7 @@ pub enum CombatAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InternalAction {
     ConsumeDuplicationPotion,
+    ConsumeDoubleTap,
     PlayCard {
         card_id: CardId,
     },
@@ -100,6 +101,9 @@ pub enum InternalAction {
         amount: i32,
     },
     GainCombust {
+        amount: i32,
+    },
+    GainDoubleTap {
         amount: i32,
     },
     GainMetallicize {
