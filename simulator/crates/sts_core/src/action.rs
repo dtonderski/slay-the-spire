@@ -5,6 +5,12 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HpLossSource {
+    Card(CardId),
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CombatAction {
     PlayCard {
         card_id: CardId,
@@ -76,6 +82,7 @@ pub enum InternalAction {
     },
     LoseHp {
         amount: i32,
+        source: HpLossSource,
     },
     SetCannotDraw,
     GainRage {
@@ -95,6 +102,9 @@ pub enum InternalAction {
         amount: i32,
     },
     GainBerserk {
+        amount: i32,
+    },
+    GainRupture {
         amount: i32,
     },
     GainBrutality {

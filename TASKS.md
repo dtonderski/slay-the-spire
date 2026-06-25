@@ -1642,6 +1642,7 @@ Tasks:
   - [x] Move Berserk from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Brutality from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Double Tap from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Rupture from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Second Wind from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Fiend Fire from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
@@ -1680,6 +1681,7 @@ Tasks:
   - [x] Berserk matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
   - [x] Brutality matrix caveat names the missing played-card real-game trace parity, source-backed exact start-turn timing/source evidence, and upgraded behavior.
   - [x] Double Tap matrix caveat names the missing played-card real-game trace parity, source-backed exact replay timing/source evidence, upgraded behavior, and Duplication Potion combination evidence.
+  - [x] Rupture matrix caveat names the missing played-card real-game trace parity, source-backed exact source/action-order evidence, and upgraded behavior.
 
 Acceptance tests:
 
