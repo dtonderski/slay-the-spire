@@ -1463,6 +1463,27 @@ pub const IMPERVIOUS: CardDefinition = CardDefinition {
     },
 };
 
+pub const REAPER: CardDefinition = CardDefinition {
+    id: REAPER_ID,
+    key: "REAPER",
+    name: "Reaper",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(4),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const METALLICIZE: CardDefinition = CardDefinition {
     id: METALLICIZE_ID,
     key: "Metallicize",
@@ -1548,7 +1569,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 83] = [
+pub const ALL_CARDS: [CardDefinition; 84] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1629,6 +1650,7 @@ pub const ALL_CARDS: [CardDefinition; 83] = [
     IMMOLATE,
     BLUDGEON,
     IMPERVIOUS,
+    REAPER,
     METALLICIZE,
     THUNDERCLAP,
     UPPERCUT,
@@ -1707,6 +1729,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == REAPER_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         _ => None,
     }
@@ -2012,6 +2035,20 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(IMPERVIOUS_ID),
             Some((CardType::Skill, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn reaper_has_expected_values() {
+        assert_eq!(REAPER.id, REAPER_ID);
+        assert_eq!(REAPER.cost, 2);
+        assert_eq!(REAPER.target, TargetRequirement::AllEnemies);
+        assert_eq!(REAPER.card_type, CardType::Attack);
+        assert_eq!(REAPER.values.damage, Some(4));
+        assert!(REAPER.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(REAPER_ID),
+            Some((CardType::Attack, CardRarity::Rare))
         );
     }
 

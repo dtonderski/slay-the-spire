@@ -171,50 +171,17 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::DealDamageAll { source, amount } => {
-            let player_powers = state.player.powers;
-            let temp_strength = state.player.temp_strength;
-            let relics = state.relics.clone();
-            let targets: Vec<(MonsterId, i32)> = state
-                .monsters
-                .iter()
-                .filter(|monster| monster.alive)
-                .map(|monster| (monster.id, monster.powers.spikes))
-                .collect();
-            for (target, spikes) in targets {
-                let still_alive = {
-                    let monster = living_monster_mut(state, target)?;
-                    let damage = deal_damage_info_to_monster_with_result(
-                        monster,
-                        DamageInfo {
-                            source: DamageSource::Card(source),
-                            target,
-                            amount,
-                        },
-                        player_powers,
-                        temp_strength,
-                        &relics,
-                    );
-                    if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
-                        crate::relic::apply_monster_vulnerable_with_relics(
-                            &mut monster.powers,
-                            &relics,
-                            crate::relic::HAND_DRILL_VULNERABLE,
-                        );
-                    }
-                    wake_lagavulin_on_damage(monster, damage.hp_damage);
-                    guardian_on_hp_damage(monster, damage.hp_damage);
-                    monster.alive
-                };
-                check_slime_boss_split(state, target);
-                if !still_alive {
-                    crate::relic::apply_monster_death_relics(state);
-                }
-                if still_alive && spikes > 0 {
-                    let hp_before = state.player.hp;
-                    reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                    crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
-                }
-            }
+            deal_attack_damage_to_all_living(state, source, amount)?;
+            Ok(Vec::new())
+        }
+        InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
+            let hp_damage = deal_attack_damage_to_all_living(state, source, amount)?;
+            crate::relic::heal_player_in_combat_with_relics(
+                &mut state.player.hp,
+                state.player.max_hp,
+                hp_damage,
+                &state.relics,
+            );
             Ok(Vec::new())
         }
         InternalAction::GainBlock { amount } => {
@@ -367,6 +334,62 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
     }
+}
+
+fn deal_attack_damage_to_all_living(
+    state: &mut CombatState,
+    source: CardId,
+    amount: i32,
+) -> SimResult<i32> {
+    let player_powers = state.player.powers;
+    let temp_strength = state.player.temp_strength;
+    let relics = state.relics.clone();
+    let targets: Vec<(MonsterId, i32)> = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| (monster.id, monster.powers.spikes))
+        .collect();
+    let mut total_hp_damage = 0;
+
+    for (target, spikes) in targets {
+        let (hp_damage, still_alive) = {
+            let monster = living_monster_mut(state, target)?;
+            let damage = deal_damage_info_to_monster_with_result(
+                monster,
+                DamageInfo {
+                    source: DamageSource::Card(source),
+                    target,
+                    amount,
+                },
+                player_powers,
+                temp_strength,
+                &relics,
+            );
+            if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
+                crate::relic::apply_monster_vulnerable_with_relics(
+                    &mut monster.powers,
+                    &relics,
+                    crate::relic::HAND_DRILL_VULNERABLE,
+                );
+            }
+            wake_lagavulin_on_damage(monster, damage.hp_damage);
+            guardian_on_hp_damage(monster, damage.hp_damage);
+            (damage.hp_damage, monster.alive)
+        };
+        total_hp_damage += hp_damage;
+        check_slime_boss_split(state, target);
+        if !still_alive {
+            crate::relic::apply_monster_death_relics(state);
+        }
+        if still_alive && spikes > 0 {
+            let hp_before = state.player.hp;
+            reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+            crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
+        }
+    }
+
+    Ok(total_hp_damage)
 }
 
 pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) {
@@ -974,11 +997,11 @@ mod tests {
         FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
         METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -3769,6 +3792,89 @@ mod tests {
     }
 
     #[test]
+    fn reaper_damages_all_living_enemies_heals_unblocked_damage_and_exhausts() {
+        let mut state = two_monster_hand(REAPER_ID);
+        state.player.hp = 50;
+        state.monsters[0].block = 2;
+        let reaper_id = hand_card_id(&state, REAPER_ID);
+
+        let next = apply_combat_action(&state, reaper_action(&state)).expect("Reaper applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 2);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 4);
+        assert_eq!(next.player.hp, 56);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].id, reaper_id);
+    }
+
+    #[test]
+    fn reaper_ignores_dead_enemies_for_damage_and_healing() {
+        let mut state = two_monster_hand(REAPER_ID);
+        state.player.hp = 50;
+        state.monsters[1].alive = false;
+        state.monsters[1].hp = 0;
+
+        let next = apply_combat_action(&state, reaper_action(&state)).expect("Reaper applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 4);
+        assert_eq!(next.monsters[1].hp, 0);
+        assert_eq!(next.player.hp, 54);
+    }
+
+    #[test]
+    fn magic_flower_increases_reaper_healing() {
+        let mut state = two_monster_hand(REAPER_ID);
+        state.player.hp = 40;
+        state.relics = vec![Relic::MagicFlower];
+
+        let next = apply_combat_action(&state, reaper_action(&state)).expect("Reaper applies");
+
+        assert_eq!(next.player.hp, 52);
+    }
+
+    #[test]
+    fn akabeko_and_pen_nib_modify_reaper_damage_and_healing() {
+        let mut state = two_monster_hand(REAPER_ID);
+        state.player.hp = 20;
+        state.relics = vec![Relic::Akabeko, Relic::PenNib];
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let next = apply_combat_action(&state, reaper_action(&state)).expect("Reaper applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 24);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 24);
+        assert_eq!(next.player.hp, 68);
+    }
+
+    #[test]
+    fn reaper_event_log_records_damage_heal_action_then_exhaust() {
+        let state = two_monster_hand(REAPER_ID);
+        let reaper_id = hand_card_id(&state, REAPER_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, reaper_action(&state)).expect("Reaper applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: reaper_id },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::DealDamageAllAndHealUnblocked {
+                    source: reaper_id,
+                    amount: 4,
+                },
+                InternalAction::MoveCard {
+                    card_id: reaper_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id: reaper_id },
+            ]
+        );
+    }
+
+    #[test]
     fn dramatic_entrance_deals_eight_to_all_enemies_and_exhausts() {
         use crate::content::cards::DRAMATIC_ENTRANCE_ID;
 
@@ -6388,6 +6494,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DISARM_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn reaper_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, REAPER_ID),
+            target: None,
         }
     }
 
