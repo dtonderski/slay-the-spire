@@ -295,6 +295,10 @@ fn apply_internal_action(
             state.player.powers.barricade += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainEvolve { amount } => {
+            state.player.powers.evolve += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainBerserk { amount } => {
             state.player.powers.berserk += amount;
             Ok(Vec::new())
@@ -1071,16 +1075,16 @@ mod tests {
         BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
         BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID,
-        FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -5268,6 +5272,284 @@ mod tests {
     }
 
     #[test]
+    fn evolve_grants_power_and_is_removed_from_hand() {
+        let mut state = hand_only(EVOLVE_ID);
+        state.player.energy = 1;
+
+        let next = apply_combat_action(&state, evolve_action(&state)).expect("Evolve applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.evolve, 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn evolve_rejects_target() {
+        let state = hand_only(EVOLVE_ID);
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn evolve_uses_effective_card_cost() {
+        let mut state = hand_only(EVOLVE_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].temp_cost = Some(2);
+
+        let next =
+            apply_combat_action(&state, evolve_action(&state)).expect("Evolve applies with cost");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.evolve, 1);
+    }
+
+    #[test]
+    fn evolve_round_trips_through_combat_state_json() {
+        let mut state = hand_only(EVOLVE_ID);
+        state.player.energy = 1;
+
+        let next = apply_combat_action(&state, evolve_action(&state)).expect("Evolve applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.evolve, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn evolve_event_log_records_power_gain_and_removal() {
+        let mut state = hand_only(EVOLVE_ID);
+        state.player.energy = 1;
+
+        let transition =
+            apply_combat_action_with_events(&state, evolve_action(&state)).expect("Evolve applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainEvolve { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn evolve_draws_one_extra_card_when_status_is_drawn() {
+        let mut state = hand_only(POMMEL_STRIKE_ID);
+        state.player.powers.evolve = 1;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), WOUND_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Pommel Strike draws through Evolve");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(32), CardId::new(31)]
+        );
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(30)]
+        );
+    }
+
+    #[test]
+    fn evolve_stacks_extra_status_draws() {
+        let mut state = hand_only(POMMEL_STRIKE_ID);
+        state.player.powers.evolve = 2;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), BASH_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), STRIKE_R_ID),
+            CardInstance::new(CardId::new(33), WOUND_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Pommel Strike draws through stacked Evolve");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(33), CardId::new(32), CardId::new(31)]
+        );
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(30)]
+        );
+    }
+
+    #[test]
+    fn evolve_extra_draw_can_chain_from_another_status_card() {
+        let mut state = hand_only(POMMEL_STRIKE_ID);
+        state.player.powers.evolve = 1;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DAZED_ID),
+            CardInstance::new(CardId::new(32), WOUND_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Pommel Strike draws chained statuses");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(32), CardId::new(31), CardId::new(30)]
+        );
+        assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn evolve_triggers_when_status_is_drawn_during_normal_turn_refill() {
+        let mut state = hand_only(EVOLVE_ID);
+        state.player.energy = 1;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), WOUND_ID),
+            CardInstance::new(CardId::new(32), DEFEND_R_ID),
+            CardInstance::new(CardId::new(33), STRIKE_R_ID),
+            CardInstance::new(CardId::new(34), DEFEND_R_ID),
+            CardInstance::new(CardId::new(35), STRIKE_R_ID),
+        ];
+
+        let after_evolve =
+            apply_combat_action(&state, evolve_action(&state)).expect("Evolve applies");
+        let next_turn = crate::combat::end_player_turn(&after_evolve);
+
+        assert_eq!(next_turn.player.powers.evolve, 1);
+        assert_eq!(next_turn.piles.hand.len(), 6);
+        assert_eq!(
+            next_turn
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![
+                CardId::new(35),
+                CardId::new(34),
+                CardId::new(33),
+                CardId::new(32),
+                CardId::new(31),
+                CardId::new(30),
+            ]
+        );
+        assert!(next_turn.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn evolve_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(EVOLVE_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.player.energy = 1;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next = apply_combat_action(&state, evolve_action(&state)).expect("Evolve applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.evolve, 1);
+    }
+
+    #[test]
+    fn evolve_removal_can_trigger_unceasing_top_and_status_extra_draw() {
+        let mut state = hand_only(EVOLVE_ID);
+        state.player.energy = 1;
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), WOUND_ID),
+        ];
+
+        let next = apply_combat_action(&state, evolve_action(&state)).expect("Evolve applies");
+
+        assert_eq!(next.player.powers.evolve, 1);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(31), CardId::new(30)]
+        );
+        assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
     fn combust_grants_power_spends_one_and_is_removed_from_hand() {
         let mut state = hand_only(COMBUST_ID);
         state.player.energy = 1;
@@ -8435,6 +8717,13 @@ mod tests {
     fn double_tap_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DOUBLE_TAP_ID),
+            target: None,
+        }
+    }
+
+    fn evolve_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, EVOLVE_ID),
             target: None,
         }
     }

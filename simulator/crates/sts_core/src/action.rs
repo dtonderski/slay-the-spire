@@ -101,6 +101,9 @@ pub enum InternalAction {
     GainBarricade {
         amount: i32,
     },
+    GainEvolve {
+        amount: i32,
+    },
     GainBerserk {
         amount: i32,
     },
