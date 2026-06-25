@@ -78,6 +78,9 @@ pub struct CardInstance {
     /// Combat-local Rampage damage growth for this specific card instance.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub rampage_damage_bonus: i32,
+    /// Combat-local Blood for Blood cost reduction for this specific card instance.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub blood_for_blood_cost_reduction: i32,
 }
 
 impl CardInstance {
@@ -91,6 +94,7 @@ impl CardInstance {
             temp_cost_turn_only: false,
             combat_only: false,
             rampage_damage_bonus: 0,
+            blood_for_blood_cost_reduction: 0,
         }
     }
 
@@ -104,6 +108,7 @@ impl CardInstance {
             temp_cost_turn_only: false,
             combat_only: true,
             rampage_damage_bonus: 0,
+            blood_for_blood_cost_reduction: 0,
         }
     }
 }

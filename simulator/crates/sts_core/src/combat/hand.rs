@@ -30,7 +30,7 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
         crate::relic::mitigate_hp_loss(&state.relics, burn_copies * BURN_END_TURN_DAMAGE);
     let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp -= hp_loss;
-    crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
 }
 
 fn apply_regret_damage_in_hand(state: &mut CombatState) {
@@ -46,7 +46,7 @@ fn apply_regret_damage_in_hand(state: &mut CombatState) {
         let mitigated = crate::relic::mitigate_hp_loss(&state.relics, hand_size);
         let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
         state.player.hp -= hp_loss;
-        crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+        crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
     }
 }
 

@@ -3,8 +3,8 @@ use crate::{
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
-        get_card_definition, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
+        HAVOC_ID, HAVOC_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -229,12 +229,17 @@ fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
         .iter()
         .find(|card| card.id == card_id)
         .expect("hand card");
-    if let Some(cost) = card.temp_cost {
-        return i32::from(cost);
+    let base_cost = if let Some(cost) = card.temp_cost {
+        i32::from(cost)
+    } else {
+        get_card_definition(card.content_id)
+            .map(|definition| i32::from(definition.cost))
+            .unwrap_or(i32::MAX)
+    };
+    if card.content_id == BLOOD_FOR_BLOOD_ID {
+        return (base_cost - card.blood_for_blood_cost_reduction).max(0);
     }
-    get_card_definition(card.content_id)
-        .map(|definition| i32::from(definition.cost))
-        .unwrap_or(i32::MAX)
+    base_cost
 }
 
 fn is_x_cost(definition: &CardDefinition) -> bool {
@@ -337,18 +342,19 @@ mod tests {
     use crate::{
         content::cards::{
             ANGER_ID, ANGER_PLUS_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
-            BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID,
-            BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-            CLOTHESLINE_ID, COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-            DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-            FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
-            HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-            INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-            POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID,
-            REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-            SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-            SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-            TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+            BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID,
+            BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
+            CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
+            DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
+            FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
+            HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID,
+            INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID,
+            PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+            PUMMEL_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
+            SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+            SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+            TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+            WILD_STRIKE_ID, WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -1347,6 +1353,71 @@ mod tests {
                 target: Some(MonsterId::new(1)),
             })
         );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn blood_for_blood_is_legal_with_target_at_four_energy() {
+        let mut state = hand_with_card(BLOOD_FOR_BLOOD_ID);
+        state.player.energy = 4;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn blood_for_blood_rejects_missing_target() {
+        let mut state = hand_with_card(BLOOD_FOR_BLOOD_ID);
+        state.player.energy = 4;
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn blood_for_blood_uses_combat_cost_reduction_for_legality() {
+        let mut state = hand_with_card(BLOOD_FOR_BLOOD_ID);
+        state.player.energy = 3;
+        state.piles.hand[0].blood_for_blood_cost_reduction = 1;
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn blood_for_blood_is_illegal_when_unreduced_below_four_energy() {
+        let mut state = hand_with_card(BLOOD_FOR_BLOOD_ID);
+        state.player.energy = 3;
+
         assert_eq!(
             validate_combat_action(
                 &state,

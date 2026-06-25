@@ -11,11 +11,11 @@ use crate::{
         validate_combat_action, CombatPhase, DiscardSelectPurpose, HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, OFFERING_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
+        BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
+        OFFERING_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -171,7 +171,10 @@ fn apply_internal_action(
             if still_alive && spikes > 0 {
                 let hp_before = state.player.hp;
                 reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(
+                    state,
+                    hp_before - state.player.hp,
+                );
             }
             Ok(Vec::new())
         }
@@ -264,7 +267,7 @@ fn apply_internal_action(
             let hp_loss =
                 crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
             state.player.hp -= hp_loss;
-            crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
             apply_rupture_after_hp_loss(state, source, hp_loss);
             Ok(Vec::new())
         }
@@ -435,7 +438,7 @@ fn deal_attack_damage_to_all_living(
         if still_alive && spikes > 0 {
             let hp_before = state.player.hp;
             reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-            crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
+            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_before - state.player.hp);
         }
     }
 
@@ -1014,12 +1017,17 @@ fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
         .iter()
         .find(|card| card.id == card_id)
         .expect("hand card");
-    if let Some(cost) = card.temp_cost {
-        return i32::from(cost);
+    let base_cost = if let Some(cost) = card.temp_cost {
+        i32::from(cost)
+    } else {
+        get_card_definition(card.content_id)
+            .map(|definition| i32::from(definition.cost))
+            .unwrap_or(0)
+    };
+    if card.content_id == BLOOD_FOR_BLOOD_ID {
+        return (base_cost - card.blood_for_blood_cost_reduction).max(0);
     }
-    get_card_definition(card.content_id)
-        .map(|definition| i32::from(definition.cost))
-        .unwrap_or(0)
+    base_cost
 }
 
 fn move_card(
@@ -1060,19 +1068,19 @@ mod tests {
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-        BERSERK_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
-        CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
-        DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID,
-        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
+        BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
+        COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FLAME_BARRIER_ID,
+        FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -2952,6 +2960,115 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: hemokinesis_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn blood_for_blood_deals_eighteen_spends_dynamic_cost_and_moves_to_discard() {
+        let mut state = hand_only(BLOOD_FOR_BLOOD_ID);
+        state.player.energy = 3;
+        state.piles.hand[0].blood_for_blood_cost_reduction = 1;
+        let blood_for_blood_id = hand_card_id(&state, BLOOD_FOR_BLOOD_ID);
+
+        let next = apply_combat_action(&state, blood_for_blood_action(&state))
+            .expect("Blood for Blood applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 18);
+        assert_eq!(next.player.energy, 0);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == blood_for_blood_id));
+        assert_eq!(next.piles.discard_pile[0].id, blood_for_blood_id);
+        assert_eq!(next.piles.discard_pile[0].blood_for_blood_cost_reduction, 1);
+    }
+
+    #[test]
+    fn player_hp_loss_reduces_blood_for_blood_cost_in_all_combat_piles_once() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BLOOD_FOR_BLOOD_ID));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), BLOOD_FOR_BLOOD_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(31), BLOOD_FOR_BLOOD_ID)];
+        state.piles.exhaust_pile = vec![CardInstance::new(CardId::new(32), BLOOD_FOR_BLOOD_ID)];
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 1);
+        assert_eq!(next.piles.draw_pile[0].blood_for_blood_cost_reduction, 1);
+        assert_eq!(next.piles.discard_pile[0].blood_for_blood_cost_reduction, 1);
+        assert_eq!(next.piles.exhaust_pile[0].blood_for_blood_cost_reduction, 1);
+    }
+
+    #[test]
+    fn prevented_hp_loss_does_not_reduce_blood_for_blood_cost() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state.player.powers.buffer = 1;
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BLOOD_FOR_BLOOD_ID));
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.player.hp, state.player.hp);
+        assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 0);
+    }
+
+    #[test]
+    fn blood_for_blood_cost_reduction_round_trips_through_combat_state_json() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BLOOD_FOR_BLOOD_ID));
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        let restored: CombatState =
+            serde_json::from_str(&serde_json::to_string(&next).expect("serialize combat"))
+                .expect("deserialize combat");
+
+        assert_eq!(restored.piles.hand[0].blood_for_blood_cost_reduction, 1);
+    }
+
+    #[test]
+    fn blood_for_blood_event_log_records_dynamic_spend_before_damage() {
+        let mut state = hand_only(BLOOD_FOR_BLOOD_ID);
+        state.player.energy = 3;
+        state.piles.hand[0].blood_for_blood_cost_reduction = 1;
+        let blood_for_blood_id = hand_card_id(&state, BLOOD_FOR_BLOOD_ID);
+
+        let transition = apply_combat_action_with_events(&state, blood_for_blood_action(&state))
+            .expect("Blood for Blood applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: blood_for_blood_id
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: blood_for_blood_id
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(blood_for_blood_id),
+                        target: MonsterId::new(1),
+                        amount: 18,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: blood_for_blood_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -8248,6 +8365,13 @@ mod tests {
     fn hemokinesis_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, HEMOKINESIS_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn blood_for_blood_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BLOOD_FOR_BLOOD_ID),
             target: Some(MonsterId::new(1)),
         }
     }

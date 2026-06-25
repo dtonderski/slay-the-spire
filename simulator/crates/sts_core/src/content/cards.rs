@@ -1552,6 +1552,21 @@ pub const HEMOKINESIS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const BLOOD_FOR_BLOOD: CardDefinition = CardDefinition {
+    id: BLOOD_FOR_BLOOD_ID,
+    key: "BLOOD_FOR_BLOOD",
+    name: "Blood for Blood",
+    cost: 4,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(18),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IMMOLATE: CardDefinition = CardDefinition {
     id: IMMOLATE_ID,
     key: "Immolate",
@@ -1736,7 +1751,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 94] = [
+pub const ALL_CARDS: [CardDefinition; 95] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1823,6 +1838,7 @@ pub const ALL_CARDS: [CardDefinition; 94] = [
     DROPKICK,
     SWORD_BOOMERANG,
     HEMOKINESIS,
+    BLOOD_FOR_BLOOD,
     IMMOLATE,
     BLUDGEON,
     IMPERVIOUS,
@@ -1878,6 +1894,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == CARNAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == DROPKICK_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == HEMOKINESIS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == BLOOD_FOR_BLOOD_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -2631,6 +2648,19 @@ mod tests {
         assert_eq!(HEMOKINESIS.values.damage, Some(15));
         assert_eq!(
             card_type_and_rarity(HEMOKINESIS_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn blood_for_blood_has_expected_values_and_rarity() {
+        assert_eq!(BLOOD_FOR_BLOOD.id, BLOOD_FOR_BLOOD_ID);
+        assert_eq!(BLOOD_FOR_BLOOD.cost, 4);
+        assert_eq!(BLOOD_FOR_BLOOD.target, TargetRequirement::Enemy);
+        assert_eq!(BLOOD_FOR_BLOOD.card_type, CardType::Attack);
+        assert_eq!(BLOOD_FOR_BLOOD.values.damage, Some(18));
+        assert_eq!(
+            card_type_and_rarity(BLOOD_FOR_BLOOD_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
     }

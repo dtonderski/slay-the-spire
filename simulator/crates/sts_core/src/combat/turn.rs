@@ -78,7 +78,7 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) {
         let mitigated = crate::relic::mitigate_hp_loss(&state.relics, 1);
         let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
         state.player.hp -= hp_loss;
-        crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+        crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
         if state.player.hp <= 0 {
             return;
         }
@@ -188,7 +188,7 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
         crate::relic::mitigate_unblocked_attack_damage(&state.relics, incoming - blocked);
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp -= hp_damage;
-    crate::relic::apply_player_hp_loss_relics(state, hp_damage);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_damage);
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
     }
