@@ -1166,6 +1166,27 @@ pub const INTIMIDATE: CardDefinition = CardDefinition {
     },
 };
 
+pub const DISARM: CardDefinition = CardDefinition {
+    id: DISARM_ID,
+    key: "DISARM",
+    name: "Disarm",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const SEVER_SOUL: CardDefinition = CardDefinition {
     id: SEVER_SOUL_ID,
     key: "Sever Soul",
@@ -1404,7 +1425,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 75] = [
+pub const ALL_CARDS: [CardDefinition; 76] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1468,6 +1489,7 @@ pub const ALL_CARDS: [CardDefinition; 75] = [
     PUMMEL,
     CLOTHESLINE,
     INTIMIDATE,
+    DISARM,
     SEVER_SOUL,
     SENTINEL,
     BLOODLETTING,
@@ -1545,6 +1567,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == SENTINEL_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
@@ -1851,6 +1874,28 @@ mod tests {
         assert!(INTIMIDATE.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(INTIMIDATE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn disarm_has_expected_values() {
+        assert_eq!(DISARM.id, DISARM_ID);
+        assert_eq!(DISARM.cost, 1);
+        assert_eq!(DISARM.target, TargetRequirement::Enemy);
+        assert_eq!(DISARM.card_type, CardType::Skill);
+        assert_eq!(
+            DISARM.keywords,
+            CardKeywords {
+                innate: false,
+                ethereal: false,
+                exhaust: true,
+                retain: false,
+                unplayable: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(DISARM_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
