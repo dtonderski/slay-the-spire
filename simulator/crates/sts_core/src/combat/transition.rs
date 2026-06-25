@@ -14,8 +14,8 @@ use crate::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID,
         DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WOUND_ID,
+        SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -305,8 +305,8 @@ fn apply_internal_action(
             state.player.powers.ritual += amount;
             Ok(Vec::new())
         }
-        InternalAction::CardExhausted { .. } => {
-            apply_on_exhaust_effects(state);
+        InternalAction::CardExhausted { card_id } => {
+            apply_on_exhaust_effects(state, card_id);
             Ok(Vec::new())
         }
         InternalAction::PlayTopDrawCard { target } => apply_play_top_draw_card(state, target),
@@ -334,7 +334,10 @@ fn apply_internal_action(
     }
 }
 
-pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState) {
+pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) {
+    if exhausted_card_content_id(state, card_id) == Some(SENTINEL_ID) {
+        state.player.energy += 2;
+    }
     if state.player.powers.feel_no_pain > 0 {
         state.player.block += 3 * state.player.powers.feel_no_pain;
     }
@@ -364,6 +367,15 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState) {
             }
         }
     }
+}
+
+fn exhausted_card_content_id(state: &CombatState, card_id: CardId) -> Option<ContentId> {
+    state
+        .piles
+        .exhaust_pile
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.content_id)
 }
 
 pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
@@ -592,7 +604,7 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     state.piles.draw_pile.push(card);
     let warcry = remove_card_from_pile(state, hand_select.source_card_id, CardPile::Hand)?;
     state.piles.exhaust_pile.push(warcry);
-    apply_on_exhaust_effects(state);
+    apply_on_exhaust_effects(state, hand_select.source_card_id);
     Ok(())
 }
 
@@ -715,8 +727,9 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             return Err(SimError::IllegalAction("exhaust select index out of range"));
         }
         let card = state.piles.hand.remove(index);
+        let card_id = card.id;
         state.piles.exhaust_pile.push(card);
-        apply_on_exhaust_effects(state);
+        apply_on_exhaust_effects(state, card_id);
     }
     Ok(())
 }
@@ -836,10 +849,10 @@ mod tests {
         HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -3571,6 +3584,226 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.id == CardId::new(25)));
+    }
+
+    #[test]
+    fn sentinel_gains_five_block_spends_one_and_moves_to_discard_without_exhaust_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(25), SENTINEL_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Sentinel applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.block, 5);
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(25)));
+    }
+
+    #[test]
+    fn sentinel_event_log_records_generic_block_skill_queue() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(25), SENTINEL_ID)];
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Sentinel applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(25)
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::GainBlock { amount: 5 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(25),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn sentinel_block_uses_dexterity_and_frail() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dexterity = 2;
+        state.player.powers.frail = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(25), SENTINEL_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Sentinel applies");
+
+        assert_eq!(next.player.block, 5);
+    }
+
+    #[test]
+    fn burning_pact_exhausting_sentinel_grants_two_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(20), SENTINEL_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Burning Pact applies");
+        let next = transition.state;
+
+        assert_eq!(next.player.energy, 2);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(
+            transition.event_log.iter().position(|action| {
+                *action
+                    == InternalAction::MoveCard {
+                        card_id: CardId::new(20),
+                        from: CardPile::Hand,
+                        to: CardPile::ExhaustPile,
+                    }
+            }) < transition.event_log.iter().position(|action| {
+                *action
+                    == InternalAction::CardExhausted {
+                        card_id: CardId::new(20),
+                    }
+            })
+        );
+    }
+
+    #[test]
+    fn true_grit_exhausting_sentinel_grants_two_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(20), SENTINEL_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("True Grit applies");
+
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.player.block, 7);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn burning_pact_exhausting_non_sentinel_does_not_grant_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Burning Pact applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn sentinel_exhaust_still_triggers_feel_no_pain() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.feel_no_pain = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(20), SENTINEL_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Burning Pact applies");
+
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.player.block, 3);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn exhaust_select_exhausting_sentinel_grants_two_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 0;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SENTINEL_ID)];
+
+        open_exhaust_select(&mut state).expect("opens exhaust select");
+        choose_exhaust_select(&mut state, 0).expect("chooses Sentinel");
+        confirm_exhaust_select(&mut state).expect("confirms exhaust select");
+
+        assert_eq!(state.player.energy, 2);
+        assert!(state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(state.piles.hand.is_empty());
     }
 
     #[test]
