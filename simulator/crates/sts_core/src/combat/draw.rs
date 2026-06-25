@@ -1,6 +1,8 @@
 use crate::{
+    card::CardType,
     combat::CombatState,
     content::cards::get_card_definition,
+    ids::ContentId,
     rng::{JavaRng, RngStream, SimulatorRng, StsRng},
     CardInstance, Relic,
 };
@@ -21,8 +23,10 @@ pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng)
         }
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
+            let extra_draws = evolve_extra_draw_count(state, card.content_id);
             apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            draw_cards(state, extra_draws, rng);
         }
     }
 }
@@ -38,9 +42,39 @@ pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut 
         }
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
+            let extra_draws = evolve_extra_draw_count(state, card.content_id);
             apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            draw_cards_with_sts_rng(state, extra_draws, rng);
         }
+    }
+}
+
+pub(crate) fn draw_cards_without_shuffle(state: &mut CombatState, count: usize) {
+    for _ in 0..count {
+        if state.piles.draw_pile.is_empty() {
+            break;
+        }
+
+        if let Some(mut card) = draw_card_from_pile_top(state) {
+            let extra_draws = evolve_extra_draw_count(state, card.content_id);
+            apply_snecko_eye_cost_randomization(state, &mut card);
+            state.piles.hand.push(card);
+            draw_cards_without_shuffle(state, extra_draws);
+        }
+    }
+}
+
+pub(crate) fn evolve_extra_draw_count(state: &CombatState, content_id: ContentId) -> usize {
+    if state.player.powers.evolve <= 0 {
+        return 0;
+    }
+    if get_card_definition(content_id)
+        .is_some_and(|definition| definition.card_type == CardType::Status)
+    {
+        state.player.powers.evolve as usize
+    } else {
+        0
     }
 }
 

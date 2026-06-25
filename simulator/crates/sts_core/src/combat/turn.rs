@@ -1,7 +1,10 @@
 use crate::{
     combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
     combat::{
-        draw::apply_snecko_eye_cost_randomization,
+        draw::{
+            apply_snecko_eye_cost_randomization, draw_cards_with_sts_rng,
+            draw_cards_without_shuffle, evolve_extra_draw_count,
+        },
         hand::{discard_end_of_turn_hand, resolve_end_of_turn_doubt, resolve_end_of_turn_hand},
     },
     combat::{CombatPhase, CombatState},
@@ -195,16 +198,21 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
 }
 
 fn draw_next_hand_without_shuffle(state: &mut CombatState) {
+    if let Some(mut rng) = state.shuffle_rng.take() {
+        draw_next_hand_with_sts_rng(state, &mut rng);
+        state.shuffle_rng = Some(rng);
+    } else {
+        draw_next_hand_without_rng(state);
+    }
+}
+
+fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::StsRng) {
     while state.piles.hand.len() < target_hand_size(state) {
-        if state.piles.draw_pile.is_empty() {
-            if let Some(rng) = state.shuffle_rng.as_mut() {
-                if !state.piles.discard_pile.is_empty() {
-                    state.piles.draw_pile.append(&mut state.piles.discard_pile);
-                    let shuffle_seed = rng.random_long();
-                    JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
-                    crate::relic::apply_shuffle_relics(state);
-                }
-            }
+        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
+            state.piles.draw_pile.append(&mut state.piles.discard_pile);
+            let shuffle_seed = rng.random_long();
+            JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+            crate::relic::apply_shuffle_relics(state);
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -212,8 +220,25 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
         }
 
         if let Some(mut card) = state.piles.draw_pile.pop() {
+            let extra_draws = evolve_extra_draw_count(state, card.content_id);
             apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            draw_cards_with_sts_rng(state, extra_draws, rng);
+        }
+    }
+}
+
+fn draw_next_hand_without_rng(state: &mut CombatState) {
+    while state.piles.hand.len() < target_hand_size(state) {
+        if state.piles.draw_pile.is_empty() {
+            break;
+        }
+
+        if let Some(mut card) = state.piles.draw_pile.pop() {
+            let extra_draws = evolve_extra_draw_count(state, card.content_id);
+            apply_snecko_eye_cost_randomization(state, &mut card);
+            state.piles.hand.push(card);
+            draw_cards_without_shuffle(state, extra_draws);
         }
     }
 }

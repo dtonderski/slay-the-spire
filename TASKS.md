@@ -1499,6 +1499,7 @@ Tasks:
   - [x] Implement base Rampage (`RAMPAGE`, ContentId(121)) as a deterministic uncommon attack: 1 energy, targeted enemy, 8 damage, increases only the played card instance's future Rampage damage by 5 for the current combat, no trace-parity claim.
   - [x] Implement base Combust (`COMBUST`, ContentId(123)) as a deterministic uncommon power: 1 energy, no target, grants serialized end-turn HP-loss/all-enemy damage power state, removes the played power card through the existing power-card path, no trace-parity claim.
   - [x] Implement base Barricade (`BARRICADE`, ContentId(143)) as a deterministic rare power: 3 energy, no target, grants player block-retention power state, removes the played power card through the existing power-card path, and preserves block at turn-transition cleanup, no trace-parity claim.
+  - [x] Implement base Evolve (`EVOLVE`, ContentId(136)) as a deterministic uncommon power: 1 energy, no target, grants serialized status-draw power state, removes the played power card through the existing power-card path, draws 1 extra card per stack when a Status card is drawn, no trace-parity claim.
   - [x] Implement base Berserk (`BERSERK`, ContentId(145)) as a deterministic rare power: 0 energy, no target, applies 2 player Vulnerable, grants serialized start-turn energy power state, and removes the played power card through the existing power-card path, no trace-parity claim.
   - [x] Implement base Brutality (`BRUTALITY`, ContentId(148)) as a deterministic rare power: 0 energy, no target, grants serialized start-turn HP-loss/draw power state, removes the played power card through the existing power-card path, no trace-parity claim.
   - [x] Implement base Double Tap (`DOUBLE_TAP`, ContentId(137)) as a deterministic rare skill: 1 energy, no target, next played Attack card replays effect actions once per stack without extra energy or extra card movement, no trace-parity claim.
@@ -1538,6 +1539,7 @@ Tasks:
   - [x] Add Rampage definition/rarity, legality/missing-target/energy, transition, effective-cost spending, per-card-instance growth, serialization, Strength/Vulnerable, Akabeko/Pen Nib, and event-log tests.
   - [x] Add Combust definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, end-turn HP loss/all-enemy damage, stacking, lethal reward transition, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Barricade definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, turn-transition block retention, Calipers precedence, Bird-Faced Urn, Unceasing Top, and event-log tests.
+  - [x] Add Evolve definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, status-card extra draw, stacked draw, chained status draw, start-turn refill, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Berserk definition/rarity, legality/target rejection, transition, self-Vulnerable, Artifact, effective-cost spending, power removal, serialized power state, start-turn energy, Ice Cream, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Brutality definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, start-turn HP loss/draw, stacking, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Double Tap definition/rarity, legality/target rejection, transition, effective-cost spending, serialized pending replay state, Gremlin Nob skill hook, next-Attack replay consumption, stacking, non-Attack non-consumption, and event-log tests.
@@ -1572,6 +1574,7 @@ Tasks:
   - [x] Combust adds serialized player power state for end-turn HP loss and all-enemy damage.
   - [x] Blood for Blood adds serialized card-instance state for combat-local cost reduction.
   - [x] Barricade adds serialized player power state for block retention.
+  - [x] Evolve adds serialized player power state for status-card extra draw.
   - [x] Berserk adds serialized player power state for start-turn energy gain.
   - [x] Brutality adds serialized player power state for start-turn HP loss and draw.
   - [x] Double Tap adds serialized combat-local pending next-Attack replay state.
@@ -1607,6 +1610,7 @@ Tasks:
   - [x] Rampage covers per-card-instance growth, effective-cost spending, attack damage modifiers, damage relic queue modifiers, and discard movement through existing card queue and transition hooks.
   - [x] Combust covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and end-turn HP-loss/all-enemy damage through existing card queue, HP-loss, damage, and turn hooks.
   - [x] Barricade covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, turn-transition block retention, and Calipers precedence through existing card queue and turn cleanup hooks.
+  - [x] Evolve covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, stacked/chained status-card extra draw hooks, and start-turn refill through existing card queue, draw, and turn hooks.
   - [x] Berserk covers self-debuff Artifact handling, effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn energy with Ice Cream through existing card queue and turn hooks.
   - [x] Brutality covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn HP-loss/draw stacks through existing card queue, HP-loss, draw, and turn hooks.
   - [x] Double Tap covers effective-cost spending, Skill-play hooks, discard movement, serialized replay state, and next-Attack effect replay through existing card queue and transition hooks.
@@ -1644,6 +1648,7 @@ Tasks:
   - [x] Move Rampage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Combust from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Barricade from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Evolve from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Berserk from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Brutality from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Double Tap from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1684,6 +1689,7 @@ Tasks:
   - [x] Rampage matrix caveat names the missing played-card real-game trace parity, source-backed exact card-UUID/copy semantics, and upgraded behavior.
   - [x] Combust matrix caveat names the missing played-card real-game trace parity, source-backed exact end-turn timing/source evidence, stacking semantics, and upgraded behavior.
   - [x] Barricade matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
+  - [x] Evolve matrix caveat names the missing played-card real-game trace parity, source-backed exact draw-trigger timing/source evidence, and upgraded behavior.
   - [x] Berserk matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
   - [x] Brutality matrix caveat names the missing played-card real-game trace parity, source-backed exact start-turn timing/source evidence, and upgraded behavior.
   - [x] Double Tap matrix caveat names the missing played-card real-game trace parity, source-backed exact replay timing/source evidence, upgraded behavior, and Duplication Potion combination evidence.

@@ -583,6 +583,21 @@ pub const DEMON_FORM: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const EVOLVE: CardDefinition = CardDefinition {
+    id: EVOLVE_ID,
+    key: "EVOLVE",
+    name: "Evolve",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BARRICADE: CardDefinition = CardDefinition {
     id: BARRICADE_ID,
     key: "BARRICADE",
@@ -1751,7 +1766,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 95] = [
+pub const ALL_CARDS: [CardDefinition; 96] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1779,6 +1794,7 @@ pub const ALL_CARDS: [CardDefinition; 95] = [
     DARK_EMBRACE,
     COMBUST,
     DEMON_FORM,
+    EVOLVE,
     BARRICADE,
     BERSERK,
     RUPTURE,
@@ -1909,6 +1925,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
@@ -1989,6 +2006,18 @@ mod tests {
         assert_eq!(BASH.card_type, CardType::Attack);
         assert_eq!(BASH.values.damage, Some(8));
         assert_eq!(BASH.values.vulnerable, Some(2));
+    }
+
+    #[test]
+    fn evolve_has_expected_base_power_values() {
+        assert_eq!(EVOLVE.id, EVOLVE_ID);
+        assert_eq!(EVOLVE.cost, 1);
+        assert_eq!(EVOLVE.target, TargetRequirement::None);
+        assert_eq!(EVOLVE.card_type, CardType::Power);
+        assert_eq!(
+            card_type_and_rarity(EVOLVE_ID),
+            Some((CardType::Power, CardRarity::Uncommon))
+        );
     }
 
     #[test]

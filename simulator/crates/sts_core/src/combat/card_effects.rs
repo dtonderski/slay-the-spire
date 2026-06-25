@@ -11,7 +11,7 @@ use crate::{
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, DARK_EMBRACE_ID, DAZED_ID,
         DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
         FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
         HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
@@ -148,6 +148,7 @@ pub(super) fn play_card_queue(
         DARK_EMBRACE_ID => dark_embrace_queue(card_id),
         COMBUST_ID => combust_queue(card_id),
         BARRICADE_ID => barricade_queue(card_id),
+        EVOLVE_ID => evolve_queue(card_id),
         BERSERK_ID => berserk_queue(card_id, definition),
         RUPTURE_ID => rupture_queue(card_id),
         BRUTALITY_ID => brutality_queue(card_id),
@@ -1239,6 +1240,18 @@ fn barricade_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBarricade { amount: 1 },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn evolve_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainEvolve { amount: 1 },
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
