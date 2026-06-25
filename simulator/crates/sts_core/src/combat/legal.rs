@@ -345,7 +345,7 @@ mod tests {
             BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID,
             BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
             CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
-            DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID,
+            DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
             FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
             FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
             IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
@@ -398,11 +398,23 @@ mod tests {
     #[test]
     fn evolve_is_legal_without_target() {
         let state = hand_with_card(EVOLVE_ID);
-
         assert!(
             legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: CardId::new(20),
                 target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn feed_is_legal_with_target_at_one_energy() {
+        let mut state = hand_with_card(FEED_ID);
+        state.player.energy = 1;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
             })
         );
     }

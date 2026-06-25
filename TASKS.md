@@ -1616,6 +1616,7 @@ Tasks:
   - [x] Brutality covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn HP-loss/draw stacks through existing card queue, HP-loss, draw, and turn hooks.
   - [x] Double Tap covers effective-cost spending, Skill-play hooks, discard movement, serialized replay state, and next-Attack effect replay through existing card queue and transition hooks.
   - [x] Fire Breathing covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, serialized damage stacks, and Status/Curse draw-trigger all-enemy damage through the shared draw hook.
+  - [x] Feed covers base rare attack definition, target legality, attack damage modifiers, fatal Feed-scoped current/max-HP gain, exhaust movement, and monster-death relic hooks through existing damage and card queue hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
   - [x] Move Iron Wave from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Body Slam from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1656,6 +1657,7 @@ Tasks:
   - [x] Move Double Tap from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Rupture from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Fire Breathing from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Feed from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Second Wind from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Fiend Fire from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
@@ -1697,6 +1699,7 @@ Tasks:
   - [x] Brutality matrix caveat names the missing played-card real-game trace parity, source-backed exact start-turn timing/source evidence, and upgraded behavior.
   - [x] Double Tap matrix caveat names the missing played-card real-game trace parity, source-backed exact replay timing/source evidence, upgraded behavior, and Duplication Potion combination evidence.
   - [x] Rupture matrix caveat names the missing played-card real-game trace parity, source-backed exact source/action-order evidence, and upgraded behavior.
+  - [x] Feed matrix caveat names the missing played-card real-game trace parity, upgraded behavior, local current-HP convention, and unmodeled minion/half-dead fatal exclusions.
 
 Acceptance tests:
 

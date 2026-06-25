@@ -178,6 +178,44 @@ fn apply_internal_action(
             }
             Ok(Vec::new())
         }
+        InternalAction::DealFeedDamage { info, max_hp_gain } => {
+            let player_powers = state.player.powers;
+            let temp_strength = state.player.temp_strength;
+            let relics = state.relics.clone();
+            let (spikes, still_alive) = {
+                let monster = living_monster_mut(state, info.target)?;
+                let spikes = monster.powers.spikes;
+                let damage = deal_damage_info_to_monster_with_result(
+                    monster,
+                    info,
+                    player_powers,
+                    temp_strength,
+                    &relics,
+                );
+                if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
+                    crate::relic::apply_monster_vulnerable_with_relics(
+                        &mut monster.powers,
+                        &relics,
+                        crate::relic::HAND_DRILL_VULNERABLE,
+                    );
+                }
+                wake_lagavulin_on_damage(monster, damage.hp_damage);
+                guardian_on_hp_damage(monster, damage.hp_damage);
+                (spikes, monster.alive)
+            };
+            check_slime_boss_split(state, info.target);
+            if !still_alive {
+                state.player.max_hp += max_hp_gain;
+                state.player.hp += max_hp_gain;
+                crate::relic::apply_monster_death_relics(state);
+            }
+            if still_alive && spikes > 0 {
+                let hp_before = state.player.hp;
+                reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
+            }
+            Ok(Vec::new())
+        }
         InternalAction::DealDamageAll { source, amount } => {
             deal_attack_damage_to_all_living(state, source, amount)?;
             Ok(Vec::new())
@@ -1079,16 +1117,17 @@ mod tests {
         BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
         BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID, FEEL_NO_PAIN_ID,
+        FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
+        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -2705,6 +2744,140 @@ mod tests {
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn feed_deals_ten_spends_one_and_exhausts_without_max_hp_on_nonlethal_hit() {
+        let mut state = hand_only(FEED_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.monsters[0].hp = 20;
+        let feed_id = hand_card_id(&state, FEED_ID);
+
+        let next = apply_combat_action(&state, feed_action(&state)).expect("Feed applies");
+
+        assert_eq!(next.monsters[0].hp, 10);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.hp, 40);
+        assert_eq!(next.player.max_hp, 70);
+        assert!(!next.piles.hand.iter().any(|card| card.id == feed_id));
+        assert_eq!(next.piles.exhaust_pile[0].id, feed_id);
+    }
+
+    #[test]
+    fn feed_fatal_damage_increases_current_and_max_hp_by_three() {
+        let mut state = two_monster_hand(FEED_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.monsters[0].hp = 10;
+
+        let next = apply_combat_action(&state, feed_action(&state)).expect("Feed applies");
+
+        assert_eq!(next.player.max_hp, 73);
+        assert_eq!(next.player.hp, 43);
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+    }
+
+    #[test]
+    fn feed_does_not_gain_max_hp_when_block_prevents_fatal_hp_damage() {
+        let mut state = hand_only(FEED_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.monsters[0].hp = 10;
+        state.monsters[0].block = 10;
+
+        let next = apply_combat_action(&state, feed_action(&state)).expect("Feed applies");
+
+        assert_eq!(next.monsters[0].hp, 10);
+        assert!(next.monsters[0].alive);
+        assert_eq!(next.player.max_hp, 70);
+        assert_eq!(next.player.hp, 40);
+    }
+
+    #[test]
+    fn strength_can_make_feed_fatal_for_max_hp_gain() {
+        let mut state = two_monster_hand(FEED_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.player.powers.strength = 5;
+        state.monsters[0].hp = 15;
+
+        let next = apply_combat_action(&state, feed_action(&state)).expect("Feed applies");
+
+        assert_eq!(next.player.max_hp, 73);
+        assert_eq!(next.player.hp, 43);
+    }
+
+    #[test]
+    fn akabeko_and_pen_nib_modify_feed_damage_before_fatal_check() {
+        let mut state = two_monster_hand(FEED_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.monsters[0].hp = 36;
+        state.relics = vec![Relic::Akabeko, Relic::PenNib];
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let next = apply_combat_action(&state, feed_action(&state)).expect("Feed applies");
+
+        assert_eq!(next.player.max_hp, 73);
+        assert_eq!(next.player.hp, 43);
+        assert!(!next.monsters[0].alive);
+    }
+
+    #[test]
+    fn feed_fatal_damage_still_triggers_monster_death_relics() {
+        let mut state = two_monster_hand(FEED_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.monsters[0].hp = 10;
+        state.relics = vec![Relic::GremlinHorn];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+
+        let next = apply_combat_action(&state, feed_action(&state)).expect("Feed applies");
+
+        assert_eq!(next.player.max_hp, 73);
+        assert_eq!(next.player.hp, 43);
+        assert_eq!(
+            next.player.energy,
+            state.player.energy - 1 + crate::relic::GREMLIN_HORN_ENERGY
+        );
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+    }
+
+    #[test]
+    fn feed_event_log_records_damage_bonus_action_then_exhaust() {
+        let state = hand_only(FEED_ID);
+        let feed_id = hand_card_id(&state, FEED_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, feed_action(&state)).expect("Feed applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: feed_id },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealFeedDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(feed_id),
+                        target: MonsterId::new(1),
+                        amount: 10,
+                    },
+                    max_hp_gain: 3,
+                },
+                InternalAction::MoveCard {
+                    card_id: feed_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id: feed_id },
             ]
         );
     }
@@ -8807,6 +8980,13 @@ mod tests {
     fn bludgeon_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BLUDGEON_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn feed_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, FEED_ID),
             target: Some(MonsterId::new(1)),
         }
     }
