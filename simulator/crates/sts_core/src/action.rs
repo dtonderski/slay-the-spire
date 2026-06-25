@@ -1,4 +1,5 @@
 use crate::{
+    card::CardRarity,
     combat::{damage::DamageInfo, DiscardSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose},
     ids::{CardId, MonsterId},
 };
@@ -84,6 +85,9 @@ pub enum InternalAction {
         content_id: crate::ContentId,
         to: CardPile,
         temp_cost: Option<u8>,
+    },
+    AddRandomColorlessCardToHand {
+        rarity: CardRarity,
     },
     MoveCard {
         card_id: CardId,

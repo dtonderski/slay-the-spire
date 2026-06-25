@@ -1,7 +1,7 @@
 use super::card_effects;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
-    card::CardType,
+    card::{CardRarity, CardType},
     combat::{
         apply_burning_blood,
         damage::{
@@ -23,6 +23,9 @@ use crate::{
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
         wake_lagavulin_on_damage,
+    },
+    content::shop_pool::{
+        colorless_pool_for_rarity, random_colorless_from_pool, shop_card_content_id,
     },
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
@@ -323,6 +326,11 @@ fn apply_internal_action(
             temp_cost,
         } => {
             add_generated_card_to_pile(state, content_id, to, temp_cost);
+            Ok(Vec::new())
+        }
+        InternalAction::AddRandomColorlessCardToHand { rarity } => {
+            let content_id = random_colorless_card(state, rarity);
+            add_generated_card_to_pile(state, content_id, CardPile::Hand, None);
             Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
@@ -702,6 +710,15 @@ fn add_generated_card_to_pile(
     };
     card.temp_cost = temp_cost;
     push_card_to_pile(state, card, to);
+}
+
+fn random_colorless_card(state: &mut CombatState, rarity: CardRarity) -> ContentId {
+    if let Some(rng) = state.card_random_rng.as_mut() {
+        return random_colorless_from_pool(rng, rarity);
+    }
+
+    let pool = colorless_pool_for_rarity(rarity);
+    shop_card_content_id(pool[0])
 }
 
 fn push_card_to_pile(state: &mut CombatState, card: CardInstance, to: CardPile) {
@@ -1432,9 +1449,9 @@ mod tests {
         RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
         SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, THINKING_AHEAD_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -2594,6 +2611,123 @@ mod tests {
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn transmutation_adds_x_random_colorless_rare_cards_to_hand_and_exhausts_source() {
+        let mut state = hand_only(TRANSMUTATION_ID);
+        state.player.energy = 2;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let rare_pool = colorless_pool_for_rarity(CardRarity::Rare);
+        let expected = (0..2)
+            .map(|_| {
+                shop_card_content_id(
+                    rare_pool[expected_rng.random_int((rare_pool.len() - 1) as i32) as usize],
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let next = apply_combat_action(&state, transmutation_action(&state))
+            .expect("Transmutation applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == TRANSMUTATION_ID));
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .collect::<Vec<_>>();
+        assert_eq!(generated.len(), 2);
+        assert_eq!(
+            generated
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(generated.iter().all(|card| card.temp_cost.is_none()));
+    }
+
+    #[test]
+    fn transmutation_chemical_x_adds_two_colorless_cards_at_zero_energy() {
+        let mut state = hand_only(TRANSMUTATION_ID);
+        state.player.energy = 0;
+        state.relics.push(Relic::ChemicalX);
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+
+        let next = apply_combat_action(&state, transmutation_action(&state))
+            .expect("Transmutation applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .filter(|card| card.combat_only)
+                .count(),
+            2
+        );
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            2
+        );
+    }
+
+    #[test]
+    fn transmutation_without_card_random_rng_uses_deterministic_rare_fallback() {
+        let mut state = hand_only(TRANSMUTATION_ID);
+        state.player.energy = 1;
+        let expected = shop_card_content_id(colorless_pool_for_rarity(CardRarity::Rare)[0]);
+
+        let next = apply_combat_action(&state, transmutation_action(&state))
+            .expect("Transmutation applies");
+
+        assert!(next.card_random_rng.is_none());
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.combat_only)
+            .expect("generated colorless card");
+        assert_eq!(generated.content_id, expected);
+        assert_eq!(generated.temp_cost, None);
+    }
+
+    #[test]
+    fn transmutation_event_log_records_random_generation_before_source_exhaust() {
+        let mut state = hand_only(TRANSMUTATION_ID);
+        state.player.energy = 1;
+        let card_id = hand_card_id(&state, TRANSMUTATION_ID);
+
+        let transition = apply_combat_action_with_events(&state, transmutation_action(&state))
+            .expect("Transmutation applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::AddRandomColorlessCardToHand {
+                    rarity: CardRarity::Rare,
+                },
+                InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id },
             ]
         );
     }
@@ -11505,6 +11639,13 @@ mod tests {
     fn infernal_blade_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, INFERNAL_BLADE_ID),
+            target: None,
+        }
+    }
+
+    fn transmutation_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, TRANSMUTATION_ID),
             target: None,
         }
     }

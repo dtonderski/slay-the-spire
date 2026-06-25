@@ -14,8 +14,8 @@ use crate::content::cards::{
     POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID,
     SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
     SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_ID,
-    THINKING_AHEAD_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
-    WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+    THINKING_AHEAD_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+    UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
 };
 use crate::content::reward_pool::ironclad_reward_card_rarity;
 use crate::rng::StsRng;
@@ -265,6 +265,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "MASTER_OF_STRATEGY" => MASTER_OF_STRATEGY_ID,
         "THE_BOMB" => THE_BOMB_ID,
         "THINKING_AHEAD" => THINKING_AHEAD_ID,
+        "TRANSMUTATION" => TRANSMUTATION_ID,
         other => ContentId::new(600 + stable_pool_name_id(other)),
     }
 }
@@ -302,13 +303,18 @@ pub fn random_class_card_of_type_and_rarity_with_fallback(
 
 #[must_use]
 pub fn random_colorless_from_pool(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
-    let pool = match rarity {
+    let pool = colorless_pool_for_rarity(rarity);
+    let idx = rng.random_int((pool.len() - 1) as i32) as usize;
+    shop_card_content_id(pool[idx])
+}
+
+#[must_use]
+pub fn colorless_pool_for_rarity(rarity: CardRarity) -> &'static [&'static str] {
+    match rarity {
         CardRarity::Uncommon => COLORLESS_UNCOMMON,
         CardRarity::Rare => COLORLESS_RARE,
         _ => COLORLESS_UNCOMMON,
-    };
-    let idx = rng.random_int((pool.len() - 1) as i32) as usize;
-    shop_card_content_id(pool[idx])
+    }
 }
 
 #[must_use]
@@ -484,7 +490,7 @@ mod tests {
         BANDAGE_UP_ID, BLIND_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DISCOVERY_ID, ENLIGHTENMENT_ID,
         FLASH_OF_STEEL_ID, FORETHOUGHT_ID, GOOD_INSTINCTS_ID, IMPATIENCE_ID, JACK_OF_ALL_TRADES_ID,
         MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, PANACEA_ID, SWIFT_STRIKE_ID, THE_BOMB_ID,
-        THINKING_AHEAD_ID, TRIP_ID,
+        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID,
     };
 
     #[test]
@@ -665,5 +671,13 @@ mod tests {
         assert!(shop_card_is_colorless(THINKING_AHEAD_ID));
         assert_eq!(shop_card_type(THINKING_AHEAD_ID), Some(CardType::Skill));
         assert_eq!(shop_card_price_rarity(THINKING_AHEAD_ID), CardRarity::Rare);
+    }
+
+    #[test]
+    fn transmutation_pool_key_maps_to_concrete_colorless_rare_skill() {
+        assert_eq!(shop_card_content_id("TRANSMUTATION"), TRANSMUTATION_ID);
+        assert!(shop_card_is_colorless(TRANSMUTATION_ID));
+        assert_eq!(shop_card_type(TRANSMUTATION_ID), Some(CardType::Skill));
+        assert_eq!(shop_card_price_rarity(TRANSMUTATION_ID), CardRarity::Rare);
     }
 }
