@@ -832,13 +832,13 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLUDGEON_ID,
         BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID,
-        HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1658,6 +1658,115 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: power_through_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn ghostly_armor_gains_ten_block_spends_one_and_moves_to_discard() {
+        let state = hand_only(GHOSTLY_ARMOR_ID);
+        let ghostly_armor_id = hand_card_id(&state, GHOSTLY_ARMOR_ID);
+
+        let next = apply_combat_action(&state, ghostly_armor_action(&state))
+            .expect("Ghostly Armor applies");
+
+        assert_eq!(next.player.block, state.player.block + 10);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == ghostly_armor_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == ghostly_armor_id));
+    }
+
+    #[test]
+    fn ghostly_armor_with_dexterity_gains_extra_block() {
+        let mut state = hand_only(GHOSTLY_ARMOR_ID);
+        state.player.powers.dexterity = 2;
+
+        let next = apply_combat_action(&state, ghostly_armor_action(&state))
+            .expect("Ghostly Armor applies");
+
+        assert_eq!(next.player.block, state.player.block + 12);
+    }
+
+    #[test]
+    fn ghostly_armor_with_frail_gains_reduced_block() {
+        let mut state = hand_only(GHOSTLY_ARMOR_ID);
+        state.player.powers.frail = 1;
+
+        let next = apply_combat_action(&state, ghostly_armor_action(&state))
+            .expect("Ghostly Armor applies");
+
+        assert_eq!(next.player.block, state.player.block + 7);
+    }
+
+    #[test]
+    fn played_ghostly_armor_moves_to_discard_not_exhaust() {
+        let state = hand_only(GHOSTLY_ARMOR_ID);
+        let ghostly_armor_id = hand_card_id(&state, GHOSTLY_ARMOR_ID);
+
+        let next = apply_combat_action(&state, ghostly_armor_action(&state))
+            .expect("Ghostly Armor applies");
+
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == ghostly_armor_id));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == ghostly_armor_id));
+    }
+
+    #[test]
+    fn unplayed_ghostly_armor_exhausts_at_end_of_turn() {
+        let mut state = hand_only(GHOSTLY_ARMOR_ID);
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(&state, CombatAction::EndTurn).expect("end turn applies");
+
+        assert!(next.piles.hand.is_empty());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == GHOSTLY_ARMOR_ID));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == GHOSTLY_ARMOR_ID));
+    }
+
+    #[test]
+    fn ghostly_armor_event_log_records_generic_block_skill_queue() {
+        let state = hand_only(GHOSTLY_ARMOR_ID);
+        let ghostly_armor_id = hand_card_id(&state, GHOSTLY_ARMOR_ID);
+
+        let transition = apply_combat_action_with_events(&state, ghostly_armor_action(&state))
+            .expect("Ghostly Armor applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: ghostly_armor_id
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::GainBlock { amount: 10 },
+                InternalAction::MoveCard {
+                    card_id: ghostly_armor_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -4172,6 +4281,13 @@ mod tests {
     fn power_through_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, POWER_THROUGH_ID),
+            target: None,
+        }
+    }
+
+    fn ghostly_armor_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, GHOSTLY_ARMOR_ID),
             target: None,
         }
     }

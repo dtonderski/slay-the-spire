@@ -1058,6 +1058,27 @@ pub const POWER_THROUGH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const GHOSTLY_ARMOR: CardDefinition = CardDefinition {
+    id: GHOSTLY_ARMOR_ID,
+    key: "GHOSTLY_ARMOR",
+    name: "Ghostly Armor",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(10),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: true,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const RECKLESS_CHARGE: CardDefinition = CardDefinition {
     id: RECKLESS_CHARGE_ID,
     key: "RECKLESS_CHARGE",
@@ -1347,7 +1368,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 72] = [
+pub const ALL_CARDS: [CardDefinition; 73] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1405,6 +1426,7 @@ pub const ALL_CARDS: [CardDefinition; 72] = [
     HEAVY_BLADE,
     PERFECTED_STRIKE,
     POWER_THROUGH,
+    GHOSTLY_ARMOR,
     RECKLESS_CHARGE,
     PUMMEL,
     CLOTHESLINE,
@@ -1455,6 +1477,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1661,6 +1684,20 @@ mod tests {
         assert_eq!(POWER_THROUGH.values.block, Some(15));
         assert_eq!(
             card_type_and_rarity(POWER_THROUGH_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn ghostly_armor_has_expected_values() {
+        assert_eq!(GHOSTLY_ARMOR.cost, 1);
+        assert_eq!(GHOSTLY_ARMOR.target, TargetRequirement::None);
+        assert_eq!(GHOSTLY_ARMOR.card_type, CardType::Skill);
+        assert_eq!(GHOSTLY_ARMOR.values.block, Some(10));
+        assert!(GHOSTLY_ARMOR.keywords.ethereal);
+        assert!(!GHOSTLY_ARMOR.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(GHOSTLY_ARMOR_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
