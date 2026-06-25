@@ -57,7 +57,7 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
         if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
             let card = state.piles.hand.remove(index);
             state.piles.exhaust_pile.push(card);
-            apply_on_exhaust_effects(state);
+            apply_on_exhaust_effects(state, card_id);
         }
     }
 }

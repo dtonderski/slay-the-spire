@@ -1525,6 +1525,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == WARCRY_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == SENTINEL_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -1842,6 +1843,18 @@ mod tests {
         assert_eq!(BURNING_PACT.cost, 1);
         assert_eq!(BURNING_PACT.target, TargetRequirement::None);
         assert_eq!(BURNING_PACT.card_type, CardType::Skill);
+    }
+
+    #[test]
+    fn sentinel_has_expected_values_and_rarity() {
+        assert_eq!(SENTINEL.cost, 1);
+        assert_eq!(SENTINEL.target, TargetRequirement::None);
+        assert_eq!(SENTINEL.card_type, CardType::Skill);
+        assert_eq!(SENTINEL.values.block, Some(5));
+        assert_eq!(
+            card_type_and_rarity(SENTINEL_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
     }
 
     #[test]
