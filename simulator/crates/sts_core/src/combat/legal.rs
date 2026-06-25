@@ -363,7 +363,7 @@ mod tests {
     use crate::{
         content::cards::{
             ANGER_ID, ANGER_PLUS_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID,
-            BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID,
+            BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID,
             BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
             CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
             CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID,
@@ -633,6 +633,37 @@ mod tests {
             ),
             Err(SimError::IllegalAction(
                 "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn blind_is_legal_without_target_at_zero_energy() {
+        let mut state = hand_with_card(BLIND_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn blind_rejects_explicit_target() {
+        let state = hand_with_card(BLIND_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "all-enemies card cannot have a target"
             ))
         );
     }

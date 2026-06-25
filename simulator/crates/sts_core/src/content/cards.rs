@@ -56,6 +56,7 @@ pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
 pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
 pub const BANDAGE_UP_ID: ContentId = ContentId::new(1_802_661_242_803_912);
+pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
 pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
@@ -1190,6 +1191,21 @@ pub const BANDAGE_UP: CardDefinition = CardDefinition {
     },
 };
 
+pub const BLIND: CardDefinition = CardDefinition {
+    id: BLIND_ID,
+    key: "BLIND",
+    name: "Blind",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     id: SWIFT_STRIKE_ID,
     key: "Swift Strike",
@@ -1938,7 +1954,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 106] = [
+pub const ALL_CARDS: [CardDefinition; 107] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2003,6 +2019,7 @@ pub const ALL_CARDS: [CardDefinition; 106] = [
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
     BANDAGE_UP,
+    BLIND,
     SWIFT_STRIKE,
     FLASH_OF_STEEL,
     GOOD_INSTINCTS,
@@ -2074,6 +2091,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BANDAGE_UP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == BLIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -2291,6 +2309,19 @@ mod tests {
         assert!(BANDAGE_UP.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(BANDAGE_UP_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn blind_has_expected_values_and_rarity() {
+        assert_eq!(BLIND.id, BLIND_ID);
+        assert_eq!(BLIND.cost, 0);
+        assert_eq!(BLIND.target, TargetRequirement::AllEnemies);
+        assert_eq!(BLIND.card_type, CardType::Skill);
+        assert_eq!(BLIND.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(BLIND_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }

@@ -8,10 +8,10 @@ use crate::{
     content::cards::{
         get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID,
         ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
-        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BODY_SLAM_ID,
-        BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
-        COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID,
-        DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
+        BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID,
         FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID,
         FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
@@ -195,6 +195,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Dropkick has a target"),
             definition,
         ),
+        BLIND_ID => blind_queue(state, card_id, definition),
         INTIMIDATE_ID => intimidate_queue(state, card_id, definition),
         SHOCKWAVE_ID => shockwave_queue(state, card_id, definition),
         DISARM_ID => disarm_queue(
@@ -1204,6 +1205,34 @@ fn intimidate_queue(
         queue.push_back(InternalAction::ApplyWeak {
             target: monster.id,
             amount: 1,
+        });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+
+    Ok(queue)
+}
+
+fn blind_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+
+    for monster in state.monsters.iter().filter(|monster| monster.alive) {
+        queue.push_back(InternalAction::ApplyWeak {
+            target: monster.id,
+            amount: 2,
         });
     }
 
