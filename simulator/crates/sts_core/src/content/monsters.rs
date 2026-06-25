@@ -693,6 +693,7 @@ pub fn monster_state_for_ascension(
             spikes: definition.starting_spikes,
             ..MonsterPowers::default()
         },
+        temp_strength_down: 0,
         content_id: definition.content_id,
         moves_executed: 0,
         sleep_turns_remaining: definition.starting_sleep_turns,

@@ -57,6 +57,7 @@ pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
 pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
 pub const BANDAGE_UP_ID: ContentId = ContentId::new(1_802_661_242_803_912);
 pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
+pub const DARK_SHACKLES_ID: ContentId = ContentId::new(18_388_408_013_683_944_583);
 pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
@@ -1238,6 +1239,27 @@ pub const FLASH_OF_STEEL: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const DARK_SHACKLES: CardDefinition = CardDefinition {
+    id: DARK_SHACKLES_ID,
+    key: "DARK_SHACKLES",
+    name: "Dark Shackles",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        unplayable: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+    },
+};
+
 pub const GOOD_INSTINCTS: CardDefinition = CardDefinition {
     id: GOOD_INSTINCTS_ID,
     key: "GOOD_INSTINCTS",
@@ -1992,7 +2014,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 109] = [
+pub const ALL_CARDS: [CardDefinition; 110] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2060,6 +2082,7 @@ pub const ALL_CARDS: [CardDefinition; 109] = [
     BLIND,
     SWIFT_STRIKE,
     FLASH_OF_STEEL,
+    DARK_SHACKLES,
     GOOD_INSTINCTS,
     FINESSE,
     PANACEA,
@@ -2201,6 +2224,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == DARK_SHACKLES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2409,6 +2433,31 @@ mod tests {
             card_type_and_rarity(SWIFT_STRIKE_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
+    }
+
+    #[test]
+    fn dark_shackles_has_expected_values_keywords_and_rarity() {
+        assert_eq!(DARK_SHACKLES.id, DARK_SHACKLES_ID);
+        assert_eq!(DARK_SHACKLES.cost, 0);
+        assert_eq!(DARK_SHACKLES.target, TargetRequirement::Enemy);
+        assert_eq!(DARK_SHACKLES.card_type, CardType::Skill);
+        assert_eq!(DARK_SHACKLES.values.damage, None);
+        assert_eq!(DARK_SHACKLES.values.block, None);
+        assert_eq!(
+            DARK_SHACKLES.keywords,
+            CardKeywords {
+                innate: false,
+                unplayable: false,
+                ethereal: false,
+                exhaust: true,
+                retain: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(DARK_SHACKLES_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+        assert_eq!(upgrade_content_id(DARK_SHACKLES_ID), None);
     }
 
     #[test]

@@ -154,6 +154,10 @@ fn run_monster_turn(state: &mut CombatState) {
                 monster.powers.weak -= 1;
             }
             apply_end_of_monster_turn_powers(monster);
+            if monster.temp_strength_down > 0 {
+                monster.powers.strength += monster.temp_strength_down;
+                monster.temp_strength_down = 0;
+            }
         }
     }
 
