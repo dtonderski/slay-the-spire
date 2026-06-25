@@ -584,6 +584,27 @@ pub const LIMIT_BREAK: CardDefinition = CardDefinition {
     },
 };
 
+pub const OFFERING: CardDefinition = CardDefinition {
+    id: OFFERING_ID,
+    key: "Offering",
+    name: "Offering",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        unplayable: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+    },
+};
+
 pub const POMMEL_STRIKE: CardDefinition = CardDefinition {
     id: POMMEL_STRIKE_ID,
     key: "Pommel Strike",
@@ -1497,7 +1518,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 80] = [
+pub const ALL_CARDS: [CardDefinition; 81] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1525,6 +1546,7 @@ pub const ALL_CARDS: [CardDefinition; 80] = [
     DARK_EMBRACE,
     DEMON_FORM,
     LIMIT_BREAK,
+    OFFERING,
     POMMEL_STRIKE,
     BATTLE_TRANCE,
     SEEING_RED,
@@ -1636,6 +1658,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == OFFERING_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2101,6 +2124,28 @@ mod tests {
         );
         assert_eq!(
             card_type_and_rarity(LIMIT_BREAK_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn offering_has_expected_values_keywords_and_rarity() {
+        assert_eq!(OFFERING.id, OFFERING_ID);
+        assert_eq!(OFFERING.cost, 0);
+        assert_eq!(OFFERING.target, TargetRequirement::None);
+        assert_eq!(OFFERING.card_type, CardType::Skill);
+        assert_eq!(
+            OFFERING.keywords,
+            CardKeywords {
+                innate: false,
+                unplayable: false,
+                ethereal: false,
+                exhaust: true,
+                retain: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(OFFERING_ID),
             Some((CardType::Skill, CardRarity::Rare))
         );
     }
