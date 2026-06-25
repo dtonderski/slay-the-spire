@@ -24,8 +24,8 @@ use crate::{
         SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE,
-        THE_BOMB_ID, THE_BOMB_TURNS, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
         WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::{
@@ -247,6 +247,7 @@ pub(super) fn play_card_queue(
         WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
         HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
         WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
+        THINKING_AHEAD_ID => thinking_ahead_queue(state, card_id, definition),
         DUAL_WIELD_ID | DUAL_WIELD_PLUS_ID => dual_wield_queue(state, card_id, definition),
         SEARING_BLOW_ID | SEARING_BLOW_PLUS_ID => generic_attack_queue(
             card_id,
@@ -2189,6 +2190,30 @@ fn warcry_queue(
         InternalAction::DrawCards {
             count: warcry_draw_count(definition),
         },
+        InternalAction::AwaitHandSelect {
+            source_card_id: card_id,
+            purpose: HandSelectPurpose::WarcryPutOnDraw,
+        },
+    ]))
+}
+
+fn thinking_ahead_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    if lowest_other_hand_card(state, card_id).is_none() {
+        return Err(SimError::IllegalAction(
+            "Thinking Ahead requires another card in hand",
+        ));
+    }
+
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DrawCards { count: 2 },
         InternalAction::AwaitHandSelect {
             source_card_id: card_id,
             purpose: HandSelectPurpose::WarcryPutOnDraw,
