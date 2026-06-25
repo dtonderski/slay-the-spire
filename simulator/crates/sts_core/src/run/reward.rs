@@ -1436,8 +1436,9 @@ mod tests {
     use crate::card::CardType;
     use crate::content::cards::{
         ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID,
-        CURSE_OF_THE_BELL_ID, DEFEND_R_ID, FEED_ID, HAVOC_ID, INFLAME_ID, REAPER_ID, SENTINEL_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        CURSE_OF_THE_BELL_ID, DEFEND_R_ID, EXHUME_ID, FEED_ID, HAVOC_ID, INFLAME_ID, REAPER_ID,
+        SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID,
     };
     use crate::relic::Relic;
 
@@ -1765,6 +1766,46 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn dead_branch_counts_exhume_source_exhaust_even_when_exhaust_pile_size_is_flat() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        run.reward_rng_seed = 1234;
+        run.current_floor = 2;
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![CardInstance::new(CardId::new(25), EXHUME_ID)];
+        combat.piles.draw_pile.clear();
+        combat.piles.discard_pile.clear();
+        combat.piles.exhaust_pile = vec![CardInstance::new(CardId::new(20), DEFEND_R_ID)];
+
+        let after_play = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Exhume opens select");
+        let after_choice =
+            apply_run_action(&after_play, RunAction::ChooseExhaustSelect { index: 0 })
+                .expect("choose exhausted Defend");
+        let after_confirm = apply_run_action(&after_choice, RunAction::ConfirmExhaustSelect)
+            .expect("confirm Exhume select");
+        let combat = after_confirm.combat.expect("combat remains active");
+
+        assert_eq!(after_confirm.card_random_rng_counter, 1);
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20) && card.content_id == DEFEND_R_ID));
+        assert!(combat.piles.hand.iter().any(|card| card.combat_only));
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(25) && card.content_id == EXHUME_ID));
     }
 
     #[test]

@@ -13,9 +13,10 @@ use crate::{
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        OFFERING_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        EXHUME_ID, OFFERING_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -433,6 +434,17 @@ fn apply_internal_action(
                 purpose,
                 source_card_id: Some(source_card_id),
                 selected_discard_index: None,
+            });
+            Ok(Vec::new())
+        }
+        InternalAction::AwaitExhaustSelect {
+            source_card_id,
+            purpose,
+        } => {
+            state.exhaust_select = Some(crate::combat::ExhaustSelectState {
+                purpose,
+                source_card_id: Some(source_card_id),
+                selected_hand_indices: Vec::new(),
             });
             Ok(Vec::new())
         }
@@ -992,6 +1004,7 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
 pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     state.exhaust_select = Some(crate::combat::ExhaustSelectState {
         purpose: crate::combat::ExhaustSelectPurpose::Exhaust,
+        source_card_id: None,
         selected_hand_indices: Vec::new(),
     });
     Ok(())
@@ -1003,35 +1016,44 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
     }
     state.exhaust_select = Some(crate::combat::ExhaustSelectState {
         purpose: crate::combat::ExhaustSelectPurpose::GamblingChip,
+        source_card_id: None,
         selected_hand_indices: Vec::new(),
     });
     Ok(())
 }
 
 pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
-    exhaust_select_ui_to_hand_index(state, ui_index)?;
+    let pile_index = exhaust_select_ui_to_hand_index(state, ui_index)?;
     let exhaust_select = state
         .exhaust_select
         .as_mut()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
+        exhaust_select.selected_hand_indices.clear();
+        exhaust_select.selected_hand_indices.push(pile_index);
+        return Ok(());
+    }
     if let Some(position) = exhaust_select
         .selected_hand_indices
         .iter()
-        .position(|index| *index == ui_index)
+        .position(|index| *index == pile_index)
     {
         exhaust_select.selected_hand_indices.remove(position);
     } else {
-        exhaust_select.selected_hand_indices.push(ui_index);
+        exhaust_select.selected_hand_indices.push(pile_index);
         exhaust_select.selected_hand_indices.sort_unstable();
     }
     Ok(())
 }
 
 pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
-    state
+    let exhaust_select = state
         .exhaust_select
         .as_ref()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
+        return exhumable_ui_to_exhaust_index(state, ui_index);
+    }
     if ui_index >= state.piles.hand.len() {
         return Err(SimError::IllegalAction("exhaust select index out of range"));
     }
@@ -1046,6 +1068,9 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::GamblingChip {
         return confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices);
     }
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
+        return confirm_exhume_select(state, exhaust_select);
+    }
     let mut selected = exhaust_select.selected_hand_indices;
     selected.sort_unstable();
     selected.dedup();
@@ -1058,6 +1083,46 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
         state.piles.exhaust_pile.push(card);
         apply_on_exhaust_effects(state, card_id);
     }
+    Ok(())
+}
+
+fn exhumable_ui_to_exhaust_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
+    state
+        .piles
+        .exhaust_pile
+        .iter()
+        .enumerate()
+        .filter(|(_, card)| card.content_id != EXHUME_ID)
+        .map(|(index, _)| index)
+        .nth(ui_index)
+        .ok_or(SimError::IllegalAction("exhaust select index out of range"))
+}
+
+fn confirm_exhume_select(
+    state: &mut CombatState,
+    exhaust_select: crate::combat::ExhaustSelectState,
+) -> SimResult<()> {
+    let source_card_id = exhaust_select
+        .source_card_id
+        .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+    let index = exhaust_select
+        .selected_hand_indices
+        .first()
+        .copied()
+        .ok_or(SimError::IllegalAction("exhaust select choice is required"))?;
+    let card = state
+        .piles
+        .exhaust_pile
+        .get(index)
+        .copied()
+        .ok_or(SimError::IllegalAction("exhaust select index out of range"))?;
+    if card.content_id == EXHUME_ID {
+        return Err(SimError::IllegalAction("Exhume cannot return Exhume"));
+    }
+    state.piles.exhaust_pile.remove(index);
+    state.piles.hand.push(card);
+    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+    apply_on_exhaust_effects(state, source_card_id);
     Ok(())
 }
 
@@ -1193,7 +1258,7 @@ mod tests {
         BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
         BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
+        DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
         FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
         GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
         INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
@@ -7240,6 +7305,123 @@ mod tests {
     }
 
     #[test]
+    fn exhume_is_legal_only_with_non_exhume_exhausted_card() {
+        let mut state = hand_only(EXHUME_ID);
+
+        assert!(
+            !crate::combat::legal_combat_actions(&state).contains(&exhume_action(&state)),
+            "empty exhaust pile should not offer Exhume"
+        );
+
+        state
+            .piles
+            .exhaust_pile
+            .push(CardInstance::new(CardId::new(30), EXHUME_ID));
+        assert!(
+            !crate::combat::legal_combat_actions(&state).contains(&exhume_action(&state)),
+            "only Exhume in exhaust should not offer Exhume"
+        );
+
+        state
+            .piles
+            .exhaust_pile
+            .push(CardInstance::new(CardId::new(31), STRIKE_R_ID));
+        assert!(crate::combat::legal_combat_actions(&state).contains(&exhume_action(&state)));
+    }
+
+    #[test]
+    fn exhume_spends_effective_cost_and_opens_exhaust_pile_select() {
+        let mut state = hand_only(EXHUME_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].temp_cost = Some(2);
+        state
+            .piles
+            .exhaust_pile
+            .push(CardInstance::new(CardId::new(30), STRIKE_R_ID));
+
+        let next = apply_combat_action(&state, exhume_action(&state)).expect("Exhume opens select");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.piles.hand[0].content_id, EXHUME_ID);
+        assert_eq!(
+            next.exhaust_select.as_ref().map(|select| select.purpose),
+            Some(crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand)
+        );
+        assert_eq!(
+            next.exhaust_select
+                .as_ref()
+                .and_then(|select| select.source_card_id),
+            Some(CardId::new(20))
+        );
+    }
+
+    #[test]
+    fn exhume_select_purpose_round_trips_through_json() {
+        let mut state = hand_only(EXHUME_ID);
+        state
+            .piles
+            .exhaust_pile
+            .push(CardInstance::new(CardId::new(30), STRIKE_R_ID));
+
+        let next = apply_combat_action(&state, exhume_action(&state)).expect("Exhume opens select");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.exhaust_select, next.exhaust_select);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn exhume_confirm_returns_selected_exhausted_card_and_exhausts_source() {
+        let mut state = hand_only(EXHUME_ID);
+        state.piles.exhaust_pile = vec![
+            CardInstance::new(CardId::new(30), EXHUME_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), STRIKE_R_ID),
+        ];
+
+        let mut next =
+            apply_combat_action(&state, exhume_action(&state)).expect("Exhume opens select");
+        assert_eq!(exhaust_select_ui_to_hand_index(&next, 0), Ok(1));
+        choose_exhaust_select(&mut next, 0).expect("choose Defend");
+        confirm_exhaust_select(&mut next).expect("confirm Exhume select");
+
+        assert!(next.exhaust_select.is_none());
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(31) && card.content_id == DEFEND_R_ID));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20) && card.content_id == EXHUME_ID));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(31)));
+    }
+
+    #[test]
+    fn exhume_source_exhaust_uses_existing_on_exhaust_hooks() {
+        let mut state = hand_only(EXHUME_ID);
+        state.player.powers.feel_no_pain = 1;
+        state
+            .piles
+            .exhaust_pile
+            .push(CardInstance::new(CardId::new(30), STRIKE_R_ID));
+
+        let mut next =
+            apply_combat_action(&state, exhume_action(&state)).expect("Exhume opens select");
+        choose_exhaust_select(&mut next, 0).expect("choose Strike");
+        confirm_exhaust_select(&mut next).expect("confirm Exhume select");
+
+        assert_eq!(next.player.block, 3);
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -9444,6 +9626,13 @@ mod tests {
     fn juggernaut_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, JUGGERNAUT_ID),
+            target: None,
+        }
+    }
+
+    fn exhume_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, EXHUME_ID),
             target: None,
         }
     }

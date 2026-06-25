@@ -8,7 +8,7 @@ use crate::{
         hand_select_ui_to_hand_index, open_discard_select, open_exhaust_select, player_draw_cards,
         top_draw_card_definition,
     },
-    combat::{CombatPhase, CombatState},
+    combat::{CombatPhase, CombatState, ExhaustSelectPurpose},
     content::cards::{get_card_definition, upgrade_content_id},
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
     ids::{CardId, MonsterId},
@@ -180,10 +180,15 @@ pub fn validate_exhaust_select_confirm(run: &RunState) -> SimResult<()> {
         .combat
         .as_ref()
         .ok_or(SimError::IllegalAction("exhaust select requires combat"))?;
-    combat
+    let exhaust_select = combat
         .exhaust_select
         .as_ref()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand
+        && exhaust_select.selected_hand_indices.is_empty()
+    {
+        return Err(SimError::IllegalAction("exhaust select choice is required"));
+    }
     Ok(())
 }
 
@@ -239,16 +244,48 @@ pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
     validate_exhaust_select_confirm(run)?;
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
+    let before = combat.clone();
     let exhaust_before = combat.piles.exhaust_pile.len();
     confirm_exhaust_select(&mut combat)?;
-    let exhaust_count = combat
-        .piles
-        .exhaust_pile
-        .len()
-        .saturating_sub(exhaust_before);
+    let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
     next.combat = Some(combat);
     Ok(next)
+}
+
+fn exhaust_count_for_confirmed_select(
+    before: &CombatState,
+    after: &CombatState,
+    exhaust_before: usize,
+) -> usize {
+    let Some(select) = before.exhaust_select.as_ref() else {
+        return after
+            .piles
+            .exhaust_pile
+            .len()
+            .saturating_sub(exhaust_before);
+    };
+    if select.purpose != ExhaustSelectPurpose::ExhumeReturnToHand {
+        return after
+            .piles
+            .exhaust_pile
+            .len()
+            .saturating_sub(exhaust_before);
+    }
+    let Some(source_card_id) = select.source_card_id else {
+        return 0;
+    };
+    let source_started_in_hand = before
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id == source_card_id);
+    let source_ended_in_exhaust = after
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.id == source_card_id);
+    usize::from(source_started_in_hand && source_ended_in_exhaust)
 }
 
 pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
