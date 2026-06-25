@@ -861,7 +861,7 @@ mod tests {
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
         DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID,
         FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
         RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
         SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
@@ -5013,6 +5013,104 @@ mod tests {
     }
 
     #[test]
+    fn limit_break_doubles_positive_strength_spends_one_and_exhausts() {
+        let mut state = hand_only(LIMIT_BREAK_ID);
+        state.player.powers.strength = 3;
+        let limit_break_id = hand_card_id(&state, LIMIT_BREAK_ID);
+
+        let next =
+            apply_combat_action(&state, limit_break_action(&state)).expect("Limit Break applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.powers.strength, 6);
+        assert!(!next.piles.hand.iter().any(|card| card.id == limit_break_id));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == limit_break_id));
+    }
+
+    #[test]
+    fn limit_break_with_zero_strength_keeps_zero() {
+        let state = hand_only(LIMIT_BREAK_ID);
+
+        let next =
+            apply_combat_action(&state, limit_break_action(&state)).expect("Limit Break applies");
+
+        assert_eq!(next.player.powers.strength, 0);
+    }
+
+    #[test]
+    fn limit_break_uses_existing_signed_strength_semantics() {
+        let mut state = hand_only(LIMIT_BREAK_ID);
+        state.player.powers.strength = -2;
+
+        let next =
+            apply_combat_action(&state, limit_break_action(&state)).expect("Limit Break applies");
+
+        assert_eq!(next.player.powers.strength, -4);
+    }
+
+    #[test]
+    fn limit_break_ignores_temporary_strength() {
+        let mut state = hand_only(LIMIT_BREAK_ID);
+        state.player.powers.strength = 2;
+        state.player.temp_strength = 3;
+
+        let next =
+            apply_combat_action(&state, limit_break_action(&state)).expect("Limit Break applies");
+
+        assert_eq!(next.player.powers.strength, 4);
+        assert_eq!(next.player.temp_strength, 3);
+    }
+
+    #[test]
+    fn limit_break_uses_effective_temp_cost() {
+        let mut state = hand_only(LIMIT_BREAK_ID);
+        state.player.energy = 0;
+        state.player.powers.strength = 2;
+        state.piles.hand[0].temp_cost = Some(0);
+
+        let next =
+            apply_combat_action(&state, limit_break_action(&state)).expect("Limit Break applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.strength, 4);
+    }
+
+    #[test]
+    fn limit_break_event_log_records_strength_gain_then_exhaust() {
+        let mut state = hand_only(LIMIT_BREAK_ID);
+        state.player.powers.strength = 5;
+        let limit_break_id = hand_card_id(&state, LIMIT_BREAK_ID);
+
+        let transition = apply_combat_action_with_events(&state, limit_break_action(&state))
+            .expect("Limit Break applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: limit_break_id
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: limit_break_id
+                },
+                InternalAction::GainStrength { amount: 5 },
+                InternalAction::MoveCard {
+                    card_id: limit_break_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: limit_break_id,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn spot_weakness_grants_three_strength_when_enemy_intends_attack() {
         let state = hand_only(SPOT_WEAKNESS_ID);
 
@@ -5627,6 +5725,13 @@ mod tests {
     fn demon_form_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DEMON_FORM_ID),
+            target: None,
+        }
+    }
+
+    fn limit_break_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, LIMIT_BREAK_ID),
             target: None,
         }
     }
