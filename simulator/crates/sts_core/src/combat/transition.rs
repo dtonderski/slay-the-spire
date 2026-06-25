@@ -319,6 +319,10 @@ fn apply_internal_action(
             state.double_tap_pending += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainFireBreathing { amount } => {
+            state.player.powers.fire_breathing += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainMetallicize { amount } => {
             state.player.powers.metallicize += amount;
             Ok(Vec::new())
@@ -1076,15 +1080,15 @@ mod tests {
         BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
         DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -6506,6 +6510,176 @@ mod tests {
     }
 
     #[test]
+    fn fire_breathing_grants_power_spends_one_and_is_removed_from_hand() {
+        let state = hand_only(FIRE_BREATHING_ID);
+
+        let next = apply_combat_action(&state, fire_breathing_action(&state))
+            .expect("Fire Breathing applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.powers.fire_breathing, 6);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn fire_breathing_rejects_target() {
+        let state = hand_only(FIRE_BREATHING_ID);
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn fire_breathing_uses_effective_card_cost() {
+        let mut state = hand_only(FIRE_BREATHING_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].temp_cost = Some(2);
+
+        let next = apply_combat_action(&state, fire_breathing_action(&state))
+            .expect("Fire Breathing applies with temp cost");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.fire_breathing, 6);
+    }
+
+    #[test]
+    fn fire_breathing_round_trips_through_combat_state_json() {
+        let state = hand_only(FIRE_BREATHING_ID);
+
+        let next = apply_combat_action(&state, fire_breathing_action(&state))
+            .expect("Fire Breathing applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.fire_breathing, 6);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn fire_breathing_event_log_records_power_gain_and_removal() {
+        let state = hand_only(FIRE_BREATHING_ID);
+
+        let transition = apply_combat_action_with_events(&state, fire_breathing_action(&state))
+            .expect("Fire Breathing applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainFireBreathing { amount: 6 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn fire_breathing_drawn_status_deals_six_to_all_living_monsters() {
+        let mut state = two_monster_hand(FIRE_BREATHING_ID);
+        state.piles.hand.clear();
+        state.player.powers.fire_breathing = 6;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DAZED_ID)];
+        let before = state
+            .monsters
+            .iter()
+            .map(|monster| monster.hp)
+            .collect::<Vec<_>>();
+
+        player_draw_cards(&mut state, 1);
+
+        assert_eq!(state.piles.hand[0].content_id, DAZED_ID);
+        assert_eq!(state.monsters[0].hp, before[0] - 6);
+        assert_eq!(state.monsters[1].hp, before[1] - 6);
+    }
+
+    #[test]
+    fn fire_breathing_drawn_curse_uses_stacked_damage() {
+        let mut state = hand_only(FIRE_BREATHING_ID);
+        state.piles.hand.clear();
+        state.player.powers.fire_breathing = 12;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), REGRET_ID)];
+        let before = state.monsters[0].hp;
+
+        player_draw_cards(&mut state, 1);
+
+        assert_eq!(state.piles.hand[0].content_id, REGRET_ID);
+        assert_eq!(state.monsters[0].hp, before - 12);
+    }
+
+    #[test]
+    fn fire_breathing_does_not_trigger_on_drawn_attack() {
+        let mut state = hand_only(FIRE_BREATHING_ID);
+        state.piles.hand.clear();
+        state.player.powers.fire_breathing = 6;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let before = state.monsters[0].hp;
+
+        player_draw_cards(&mut state, 1);
+
+        assert_eq!(state.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(state.monsters[0].hp, before);
+    }
+
+    #[test]
+    fn fire_breathing_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(FIRE_BREATHING_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next = apply_combat_action(&state, fire_breathing_action(&state))
+            .expect("Fire Breathing applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.fire_breathing, 6);
+    }
+
+    #[test]
+    fn fire_breathing_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(FIRE_BREATHING_ID);
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, fire_breathing_action(&state))
+            .expect("Fire Breathing applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.fire_breathing, 6);
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -8717,6 +8891,13 @@ mod tests {
     fn double_tap_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DOUBLE_TAP_ID),
+            target: None,
+        }
+    }
+
+    fn fire_breathing_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, FIRE_BREATHING_ID),
             target: None,
         }
     }

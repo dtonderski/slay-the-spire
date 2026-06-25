@@ -1578,6 +1578,7 @@ Tasks:
   - [x] Berserk adds serialized player power state for start-turn energy gain.
   - [x] Brutality adds serialized player power state for start-turn HP loss and draw.
   - [x] Double Tap adds serialized combat-local pending next-Attack replay state.
+  - [x] Fire Breathing adds serialized player power state for Status/Curse draw-trigger damage.
 - add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
   - [x] Iron Wave covers damage/block/pile movement through the existing card queue and transition hooks.
   - [x] Body Slam covers current-block-derived damage, attack damage modifiers, and pile movement through the existing card queue and transition hooks.
@@ -1614,6 +1615,7 @@ Tasks:
   - [x] Berserk covers self-debuff Artifact handling, effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn energy with Ice Cream through existing card queue and turn hooks.
   - [x] Brutality covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn HP-loss/draw stacks through existing card queue, HP-loss, draw, and turn hooks.
   - [x] Double Tap covers effective-cost spending, Skill-play hooks, discard movement, serialized replay state, and next-Attack effect replay through existing card queue and transition hooks.
+  - [x] Fire Breathing covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, serialized damage stacks, and Status/Curse draw-trigger all-enemy damage through the shared draw hook.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
   - [x] Move Iron Wave from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Body Slam from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1653,6 +1655,7 @@ Tasks:
   - [x] Move Brutality from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Double Tap from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Rupture from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Fire Breathing from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Second Wind from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Fiend Fire from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
