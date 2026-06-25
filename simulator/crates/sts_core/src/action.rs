@@ -80,6 +80,10 @@ pub enum InternalAction {
     GainRage {
         amount: i32,
     },
+    IncreaseRampageDamage {
+        card_id: CardId,
+        amount: i32,
+    },
     GainFeelNoPain {
         amount: i32,
     },

@@ -271,6 +271,10 @@ fn apply_internal_action(
             state.player.temp_rage_block += amount;
             Ok(Vec::new())
         }
+        InternalAction::IncreaseRampageDamage { card_id, amount } => {
+            find_hand_card_mut(state, card_id)?.rampage_damage_bonus += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainFeelNoPain { amount } => {
             state.player.powers.feel_no_pain += amount;
             Ok(Vec::new())
@@ -951,6 +955,15 @@ fn find_hand_card(state: &CombatState, card_id: CardId) -> SimResult<CardInstanc
         .ok_or(SimError::UnknownCard(card_id))
 }
 
+fn find_hand_card_mut(state: &mut CombatState, card_id: CardId) -> SimResult<&mut CardInstance> {
+    state
+        .piles
+        .hand
+        .iter_mut()
+        .find(|card| card.id == card_id)
+        .ok_or(SimError::UnknownCard(card_id))
+}
+
 fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<CardInstance> {
     let index = state
         .piles
@@ -1022,11 +1035,11 @@ mod tests {
         HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -1832,6 +1845,155 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn rampage_first_play_deals_eight_gains_bonus_and_moves_to_discard() {
+        let state = hand_only(RAMPAGE_ID);
+        let rampage_id = hand_card_id(&state, RAMPAGE_ID);
+
+        let next = apply_combat_action(&state, rampage_action(&state)).expect("Rampage applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(!next.piles.hand.iter().any(|card| card.id == rampage_id));
+        let discarded = next
+            .piles
+            .discard_pile
+            .iter()
+            .find(|card| card.id == rampage_id)
+            .expect("Rampage moved to discard");
+        assert_eq!(discarded.rampage_damage_bonus, 5);
+    }
+
+    #[test]
+    fn rampage_later_play_uses_accumulated_card_instance_bonus() {
+        let state = hand_only(RAMPAGE_ID);
+        let after_first =
+            apply_combat_action(&state, rampage_action(&state)).expect("Rampage applies");
+        let mut replay = after_first.clone();
+        replay.piles.hand = vec![replay.piles.discard_pile.remove(0)];
+        replay.player.energy = 3;
+
+        let after_second =
+            apply_combat_action(&replay, rampage_action(&replay)).expect("Rampage applies again");
+
+        assert_eq!(after_second.monsters[0].hp, after_first.monsters[0].hp - 13);
+        assert_eq!(after_second.piles.discard_pile[0].rampage_damage_bonus, 10);
+    }
+
+    #[test]
+    fn rampage_bonus_is_scoped_to_the_played_card_instance() {
+        let mut state = hand_only(RAMPAGE_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), RAMPAGE_ID));
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Rampage applies");
+
+        assert_eq!(next.piles.discard_pile[0].id, CardId::new(20));
+        assert_eq!(next.piles.discard_pile[0].rampage_damage_bonus, 5);
+        assert_eq!(next.piles.hand[0].id, CardId::new(21));
+        assert_eq!(next.piles.hand[0].rampage_damage_bonus, 0);
+    }
+
+    #[test]
+    fn rampage_card_instance_bonus_round_trips_through_combat_state_json() {
+        let state = hand_only(RAMPAGE_ID);
+        let next = apply_combat_action(&state, rampage_action(&state)).expect("Rampage applies");
+
+        let restored: CombatState =
+            serde_json::from_str(&serde_json::to_string(&next).expect("serialize combat"))
+                .expect("deserialize combat");
+
+        assert_eq!(restored.piles.discard_pile[0].rampage_damage_bonus, 5);
+    }
+
+    #[test]
+    fn rampage_event_log_records_damage_bonus_before_discard() {
+        let state = hand_only(RAMPAGE_ID);
+        let rampage_id = hand_card_id(&state, RAMPAGE_ID);
+
+        let transition = apply_combat_action_with_events(&state, rampage_action(&state))
+            .expect("Rampage applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: rampage_id
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: rampage_id,
+                },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(rampage_id),
+                        target: MonsterId::new(1),
+                        amount: 8,
+                    },
+                },
+                InternalAction::IncreaseRampageDamage {
+                    card_id: rampage_id,
+                    amount: 5,
+                },
+                InternalAction::MoveCard {
+                    card_id: rampage_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn rampage_uses_generic_strength_and_vulnerable_damage_resolution() {
+        let mut state = hand_only(RAMPAGE_ID);
+        state.player.powers.strength = 2;
+        state.monsters[0].powers.vulnerable = 1;
+
+        let next = apply_combat_action(&state, rampage_action(&state)).expect("Rampage applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 15);
+    }
+
+    #[test]
+    fn rampage_uses_effective_card_cost() {
+        let mut state = hand_only(RAMPAGE_ID);
+        state.player.energy = 0;
+        state.piles.hand[0].temp_cost = Some(0);
+
+        let next = apply_combat_action(&state, rampage_action(&state))
+            .expect("Rampage applies with temp cost");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.piles.discard_pile[0].rampage_damage_bonus, 5);
+    }
+
+    #[test]
+    fn rampage_queue_accepts_akabeko_and_pen_nib_damage_modifiers() {
+        let mut state = hand_only(RAMPAGE_ID);
+        state.relics = vec![Relic::Akabeko, Relic::PenNib];
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let transition = apply_combat_action_with_events(&state, rampage_action(&state))
+            .expect("Rampage applies");
+
+        assert!(transition.event_log.contains(&InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(CardId::new(20)),
+                target: MonsterId::new(1),
+                amount: 32,
+            },
+        }));
     }
 
     #[test]
@@ -7208,6 +7370,13 @@ mod tests {
     fn perfected_strike_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, PERFECTED_STRIKE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn rampage_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, RAMPAGE_ID),
             target: Some(MonsterId::new(1)),
         }
     }
