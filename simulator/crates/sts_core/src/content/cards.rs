@@ -1504,6 +1504,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CARNAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == HEMOKINESIS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1908,6 +1909,18 @@ mod tests {
         );
         assert_eq!(
             card_type_and_rarity(CARNAGE_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn hemokinesis_has_expected_values_and_rarity() {
+        assert_eq!(HEMOKINESIS.cost, 1);
+        assert_eq!(HEMOKINESIS.target, TargetRequirement::Enemy);
+        assert_eq!(HEMOKINESIS.card_type, CardType::Attack);
+        assert_eq!(HEMOKINESIS.values.damage, Some(15));
+        assert_eq!(
+            card_type_and_rarity(HEMOKINESIS_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
     }

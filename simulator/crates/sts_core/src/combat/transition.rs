@@ -833,12 +833,13 @@ mod tests {
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DUAL_WIELD_ID,
         FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID,
-        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -2243,6 +2244,134 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: carnage_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn hemokinesis_loses_two_hp_deals_fifteen_spends_one_and_moves_to_discard() {
+        let state = hand_only(HEMOKINESIS_ID);
+        let hemokinesis_id = hand_card_id(&state, HEMOKINESIS_ID);
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 2);
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 15);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(!next.piles.hand.iter().any(|card| card.id == hemokinesis_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == hemokinesis_id));
+    }
+
+    #[test]
+    fn hemokinesis_applies_strength_normally() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state.player.powers.strength = 2;
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 17);
+        assert_eq!(next.player.hp, state.player.hp - 2);
+    }
+
+    #[test]
+    fn akabeko_adds_eight_damage_to_hemokinesis() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state.relics.push(Relic::Akabeko);
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 23);
+        assert_eq!(next.player.hp, state.player.hp - 2);
+    }
+
+    #[test]
+    fn pen_nib_doubles_hemokinesis_damage_not_hp_loss() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state.relics.push(Relic::PenNib);
+        state.relic_counters.pen_nib_attacks_played = 9;
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 30);
+        assert_eq!(next.player.hp, state.player.hp - 2);
+        assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
+    }
+
+    #[test]
+    fn duplication_potion_duplicates_hemokinesis_damage_and_hp_loss() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state.duplication_potion_pending = true;
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 30);
+        assert_eq!(next.player.hp, state.player.hp - 4);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(!next.duplication_potion_pending);
+    }
+
+    #[test]
+    fn hemokinesis_hp_loss_is_reduced_by_tungsten_rod() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state.relics.push(Relic::TungstenRod);
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 1);
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 15);
+    }
+
+    #[test]
+    fn hemokinesis_hp_loss_consumes_buffer_without_losing_hp() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state.player.powers.buffer = 1;
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.player.hp, state.player.hp);
+        assert_eq!(next.player.powers.buffer, 0);
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 15);
+    }
+
+    #[test]
+    fn hemokinesis_event_log_records_hp_loss_before_damage() {
+        let state = hand_only(HEMOKINESIS_ID);
+        let hemokinesis_id = hand_card_id(&state, HEMOKINESIS_ID);
+
+        let transition = apply_combat_action_with_events(&state, hemokinesis_action(&state))
+            .expect("Hemokinesis applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: hemokinesis_id
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::LoseHp { amount: 2 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(hemokinesis_id),
+                        target: MonsterId::new(1),
+                        amount: 15,
+                    },
+                },
+                InternalAction::MoveCard {
+                    card_id: hemokinesis_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -4568,6 +4697,13 @@ mod tests {
     fn carnage_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, CARNAGE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn hemokinesis_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, HEMOKINESIS_ID),
             target: Some(MonsterId::new(1)),
         }
     }
