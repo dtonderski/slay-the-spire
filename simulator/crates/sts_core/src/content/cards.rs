@@ -1480,6 +1480,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1853,6 +1854,17 @@ mod tests {
         assert_eq!(SEEING_RED.cost, 1);
         assert_eq!(SEEING_RED.target, TargetRequirement::None);
         assert_eq!(SEEING_RED.card_type, CardType::Skill);
+    }
+
+    #[test]
+    fn bloodletting_has_expected_values_and_rarity() {
+        assert_eq!(BLOODLETTING.cost, 0);
+        assert_eq!(BLOODLETTING.target, TargetRequirement::None);
+        assert_eq!(BLOODLETTING.card_type, CardType::Skill);
+        assert_eq!(
+            card_type_and_rarity(BLOODLETTING_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
     }
 
     #[test]
