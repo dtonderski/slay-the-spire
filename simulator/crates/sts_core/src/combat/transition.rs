@@ -209,6 +209,10 @@ fn apply_internal_action(
             }
             Ok(Vec::new())
         }
+        InternalAction::ApplyPlayerVulnerable { amount } => {
+            crate::power::apply_player_vulnerable(&mut state.player.powers, amount);
+            Ok(Vec::new())
+        }
         InternalAction::ApplyWeak { target, amount } => {
             if let Some(monster) = living_monster_mut_opt(state, target) {
                 monster.powers.weak += amount;
@@ -277,6 +281,10 @@ fn apply_internal_action(
         }
         InternalAction::GainBarricade { amount } => {
             state.player.powers.barricade += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainBerserk { amount } => {
+            state.player.powers.berserk += amount;
             Ok(Vec::new())
         }
         InternalAction::GainMetallicize { amount } => {
@@ -1007,18 +1015,18 @@ mod tests {
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-        BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID,
-        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID,
-        DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        BERSERK_ID, BLOODLETTING_ID, BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID,
+        CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
+        DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
+        FIEND_FIRE_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -4945,6 +4953,189 @@ mod tests {
     }
 
     #[test]
+    fn berserk_grants_power_applies_vulnerable_and_is_removed_from_hand() {
+        let mut state = hand_only(BERSERK_ID);
+        state.player.energy = 0;
+
+        let next = apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.berserk, 1);
+        assert_eq!(next.player.powers.vulnerable, 2);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn berserk_rejects_target() {
+        let mut state = hand_only(BERSERK_ID);
+        state.player.energy = 0;
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn berserk_uses_effective_card_cost() {
+        let mut state = hand_only(BERSERK_ID);
+        state.player.energy = 1;
+        state.piles.hand[0].temp_cost = Some(1);
+
+        let next = apply_combat_action(&state, berserk_action(&state))
+            .expect("Berserk applies with temp cost");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.berserk, 1);
+    }
+
+    #[test]
+    fn berserk_artifact_blocks_self_vulnerable_but_not_power_gain() {
+        let mut state = hand_only(BERSERK_ID);
+        state.player.powers.artifact = 1;
+
+        let next = apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+
+        assert_eq!(next.player.powers.artifact, 0);
+        assert_eq!(next.player.powers.vulnerable, 0);
+        assert_eq!(next.player.powers.berserk, 1);
+    }
+
+    #[test]
+    fn berserk_round_trips_through_combat_state_json() {
+        let state = hand_only(BERSERK_ID);
+
+        let next = apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.berserk, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn berserk_event_log_records_self_vulnerable_power_gain_and_removal() {
+        let state = hand_only(BERSERK_ID);
+
+        let transition = apply_combat_action_with_events(&state, berserk_action(&state))
+            .expect("Berserk applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::ApplyPlayerVulnerable { amount: 2 },
+                InternalAction::GainBerserk { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn berserk_grants_energy_at_start_of_later_player_turn() {
+        let mut state = hand_only(BERSERK_ID);
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let after_berserk =
+            apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+        let next_turn = crate::combat::end_player_turn(&after_berserk);
+
+        assert_eq!(after_berserk.player.energy, state.player.energy);
+        assert_eq!(next_turn.player.energy, next_turn.player.max_energy + 1);
+        assert_eq!(next_turn.player.powers.berserk, 1);
+    }
+
+    #[test]
+    fn berserk_energy_stacks() {
+        let mut state = hand_only(BERSERK_ID);
+        state.player.powers.berserk = 1;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let after_berserk =
+            apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+        let next_turn = crate::combat::end_player_turn(&after_berserk);
+
+        assert_eq!(next_turn.player.energy, next_turn.player.max_energy + 2);
+        assert_eq!(next_turn.player.powers.berserk, 2);
+    }
+
+    #[test]
+    fn berserk_adds_energy_after_ice_cream_preserves_energy() {
+        let mut state = hand_only(BERSERK_ID);
+        state.player.energy = 2;
+        state.player.powers.berserk = 1;
+        state.relics.push(Relic::IceCream);
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let after_berserk =
+            apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+        let next_turn = crate::combat::end_player_turn(&after_berserk);
+
+        assert_eq!(after_berserk.player.energy, 2);
+        assert_eq!(next_turn.player.energy, 4);
+        assert_eq!(next_turn.player.powers.berserk, 2);
+    }
+
+    #[test]
+    fn berserk_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(BERSERK_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next = apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.berserk, 1);
+    }
+
+    #[test]
+    fn berserk_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(BERSERK_ID);
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, berserk_action(&state)).expect("Berserk applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.berserk, 1);
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -7101,6 +7292,13 @@ mod tests {
     fn barricade_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BARRICADE_ID),
+            target: None,
+        }
+    }
+
+    fn berserk_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BERSERK_ID),
             target: None,
         }
     }

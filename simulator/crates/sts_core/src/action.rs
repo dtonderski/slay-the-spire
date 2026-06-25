@@ -47,6 +47,9 @@ pub enum InternalAction {
         target: MonsterId,
         amount: i32,
     },
+    ApplyPlayerVulnerable {
+        amount: i32,
+    },
     ReduceMonsterStrength {
         target: MonsterId,
         amount: i32,
@@ -84,6 +87,9 @@ pub enum InternalAction {
         amount: i32,
     },
     GainBarricade {
+        amount: i32,
+    },
+    GainBerserk {
         amount: i32,
     },
     GainMetallicize {

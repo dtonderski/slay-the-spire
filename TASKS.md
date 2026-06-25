@@ -1496,6 +1496,7 @@ Tasks:
   - [x] Implement base Intimidate (`INTIMIDATE`, ContentId(115)) as a deterministic uncommon skill: 0 energy, 1 weak to all living enemies, exhaust, no trace-parity claim.
   - [x] Implement base Rage (`RAGE`, ContentId(125)) as a deterministic uncommon skill: 0 energy, no target, this-turn attack plays gain 3 block via turn-scoped local state, no trace-parity claim.
   - [x] Implement base Barricade (`BARRICADE`, ContentId(143)) as a deterministic rare power: 3 energy, no target, grants player block-retention power state, removes the played power card through the existing power-card path, and preserves block at turn-transition cleanup, no trace-parity claim.
+  - [x] Implement base Berserk (`BERSERK`, ContentId(145)) as a deterministic rare power: 0 energy, no target, applies 2 player Vulnerable, grants serialized start-turn energy power state, and removes the played power card through the existing power-card path, no trace-parity claim.
   - [x] Implement base Second Wind (`SECOND_WIND`, ContentId(128)) as a deterministic uncommon skill: 1 energy, no target, exhaust all non-Attack hand cards except the source, gain 5 block per exhausted non-source card, move source to discard, no trace-parity claim.
   - [x] Implement base Fiend Fire (`FIEND_FIRE`, ContentId(144)) as a deterministic rare attack: 2 energy, targeted enemy, exhaust every other current hand card, deal 7 damage once per exhausted other hand card, exhaust source through the played-card exhaust path, no trace-parity claim.
 - add focused unit tests for every newly completed surface
@@ -1529,6 +1530,7 @@ Tasks:
   - [x] Add Intimidate definition, legality, all-living-enemy, dead-enemy skip, exhaust, and event-log tests.
   - [x] Add Rage definition, legality/target rejection, transition, turn-scoped stacking, attack-only trigger, Havoc/top-draw attack trigger, turn expiry, serialization, and event-log tests.
   - [x] Add Barricade definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, turn-transition block retention, Calipers precedence, Bird-Faced Urn, Unceasing Top, and event-log tests.
+  - [x] Add Berserk definition/rarity, legality/target rejection, transition, self-Vulnerable, Artifact, effective-cost spending, power removal, serialized power state, start-turn energy, Ice Cream, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Second Wind definition, legality, no-target rejection, unaffordable, non-Attack exhaust filtering, aggregate block, source discard, Sentinel/Feel No Pain/Dark Embrace hook interaction, and event-log tests.
   - [x] Add Fiend Fire definition, legality, target rejection, unaffordable, hit-count, zero-other-card, source exclusion, other-card exhaust, Sentinel/Feel No Pain/Dark Embrace hook interaction, Strange Spoon source-only behavior, and event-log tests.
 - add serialization and counter round-trip tests for newly stateful surfaces
@@ -1557,6 +1559,7 @@ Tasks:
   - [x] Headbutt uses explicit-purpose discard-select state; Liquid Memories retains its separate discard-select purpose.
   - [x] Rage uses turn-scoped player combat state and includes player-state serialization coverage.
   - [x] Barricade adds serialized player power state for block retention.
+  - [x] Berserk adds serialized player power state for start-turn energy gain.
 - add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
   - [x] Iron Wave covers damage/block/pile movement through the existing card queue and transition hooks.
   - [x] Body Slam covers current-block-derived damage, attack damage modifiers, and pile movement through the existing card queue and transition hooks.
@@ -1586,6 +1589,7 @@ Tasks:
   - [x] Headbutt covers targeted attack damage, explicit discard-select purpose serialization, selected discard-to-draw-pile movement, lethal-selection skip, and played-card discard movement through existing card queue and selection hooks.
   - [x] Rage covers turn-scoped state serialization, Skill play hooks, later Attack play hooks, Havoc top-draw attacks, block modifiers through the local block calculation path, discard movement, and turn reset.
   - [x] Barricade covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, turn-transition block retention, and Calipers precedence through existing card queue and turn cleanup hooks.
+  - [x] Berserk covers self-debuff Artifact handling, effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn energy with Ice Cream through existing card queue and turn hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
   - [x] Move Iron Wave from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Body Slam from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1617,6 +1621,7 @@ Tasks:
   - [x] Move Intimidate from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Rage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Barricade from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Berserk from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Second Wind from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Fiend Fire from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
@@ -1650,6 +1655,7 @@ Tasks:
   - [x] Intimidate matrix caveat names the missing real-game trace parity evidence.
   - [x] Rage matrix caveat names the missing real-game trace parity, source-backed exact trigger ordering/modifier evidence, and upgraded behavior.
   - [x] Barricade matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
+  - [x] Berserk matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
 
 Acceptance tests:
 

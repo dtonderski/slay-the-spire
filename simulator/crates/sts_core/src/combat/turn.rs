@@ -54,6 +54,7 @@ pub fn start_player_turn(state: &mut CombatState) {
         state.player.powers.dexterity -= state.player.temp_dexterity;
         state.player.temp_dexterity = 0;
     }
+    state.player.energy += state.player.powers.berserk;
     crate::relic::apply_start_of_player_turn_relics(state);
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);

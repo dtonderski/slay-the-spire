@@ -7,7 +7,7 @@ use crate::{
     },
     content::cards::{
         get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID,
-        ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
+        ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID,
         BLOODLETTING_ID, BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         CLOTHESLINE_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
         DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID,
@@ -140,6 +140,7 @@ pub(super) fn play_card_queue(
         FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
         DARK_EMBRACE_ID => dark_embrace_queue(card_id),
         BARRICADE_ID => barricade_queue(card_id),
+        BERSERK_ID => berserk_queue(card_id, definition),
         DEMON_FORM_ID => demon_form_queue(card_id),
         METALLICIZE_ID => metallicize_queue(card_id, definition),
         POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID => pommel_strike_queue(
@@ -1106,6 +1107,24 @@ fn barricade_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBarricade { amount: 1 },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn berserk_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::ApplyPlayerVulnerable {
+            amount: definition.values.vulnerable.unwrap_or(0),
+        },
+        InternalAction::GainBerserk { amount: 1 },
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
