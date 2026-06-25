@@ -13,10 +13,10 @@ use crate::{
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID,
-        DRAMATIC_ENTRANCE_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, OFFERING_ID, PANACEA_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
-        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        DRAMATIC_ENTRANCE_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, IMPATIENCE_ID, OFFERING_ID,
+        PANACEA_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -829,6 +829,9 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::GainBlock { amount: 8 });
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
+        IMPATIENCE_ID => {
+            follow_ups.push(InternalAction::DrawCards { count: 2 });
+        }
         FINESSE_ID => {
             follow_ups.push(InternalAction::GainBlock {
                 amount: definition.values.block.unwrap_or(0),
@@ -1334,15 +1337,15 @@ mod tests {
         DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID,
         FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID,
         FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-        SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -4813,6 +4816,103 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn impatience_draws_two_at_zero_cost_and_discards() {
+        let mut state = hand_only(IMPATIENCE_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), GOOD_INSTINCTS_ID),
+        ];
+        let impatience_id = hand_card_id(&state, IMPATIENCE_ID);
+
+        let next =
+            apply_combat_action(&state, impatience_action(&state)).expect("Impatience applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(31)));
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == impatience_id));
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn impatience_event_log_records_draw_then_discard() {
+        let mut state = hand_only(IMPATIENCE_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), GOOD_INSTINCTS_ID),
+        ];
+        let impatience_id = hand_card_id(&state, IMPATIENCE_ID);
+
+        let transition = apply_combat_action_with_events(&state, impatience_action(&state))
+            .expect("Impatience applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: impatience_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DrawCards { count: 2 },
+                InternalAction::MoveCard {
+                    card_id: impatience_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn havoc_top_draw_impatience_draws_two_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), GOOD_INSTINCTS_ID),
+            CardInstance::new(CardId::new(32), IMPATIENCE_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Impatience");
+
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(31)));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == IMPATIENCE_ID));
     }
 
     #[test]
@@ -10434,6 +10534,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DARK_SHACKLES_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn impatience_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, IMPATIENCE_ID),
+            target: None,
         }
     }
 

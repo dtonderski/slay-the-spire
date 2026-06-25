@@ -15,7 +15,7 @@ use crate::{
         DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
         FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
         FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFERNAL_BLADE_ID, INFLAME_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID, INFERNAL_BLADE_ID, INFLAME_ID,
         INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
         METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
@@ -153,6 +153,7 @@ pub(super) fn play_card_queue(
         ),
         DEEP_BREATH_ID => deep_breath_queue(card_id, definition),
         FINESSE_ID => finesse_queue(card_id, definition),
+        IMPATIENCE_ID => impatience_queue(card_id, definition),
         SHRUG_IT_OFF_ID => shrug_it_off_queue(card_id),
         TRUE_GRIT_ID => true_grit_queue(state, card_id),
         BURNING_PACT_ID => burning_pact_queue(state, card_id),
@@ -2190,6 +2191,24 @@ fn deep_breath_queue(
             card_id,
             from: CardPile::Hand,
             to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn impatience_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DrawCards { count: 2 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
         },
     ]))
 }

@@ -4,7 +4,7 @@ use crate::{
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        EXHUME_ID, HAVOC_ID, HAVOC_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        EXHUME_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -48,6 +48,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         }
 
         if definition.id == CLASH_ID && !hand_contains_only_attacks(state) {
+            continue;
+        }
+
+        if definition.id == IMPATIENCE_ID && hand_contains_attack_other_than(state, card.id) {
             continue;
         }
 
@@ -179,6 +183,12 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 ));
             }
 
+            if definition.id == IMPATIENCE_ID && hand_contains_attack_other_than(state, card_id) {
+                return Err(SimError::IllegalAction(
+                    "Impatience requires no attacks in hand",
+                ));
+            }
+
             match (definition.target, target) {
                 (TargetRequirement::Enemy, Some(monster_id)) => {
                     if is_living_monster(state, monster_id) {
@@ -302,6 +312,14 @@ fn hand_contains_only_attacks(state: &CombatState) -> bool {
     })
 }
 
+fn hand_contains_attack_other_than(state: &CombatState, exclude_id: CardId) -> bool {
+    state.piles.hand.iter().any(|card| {
+        card.id != exclude_id
+            && get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.card_type == CardType::Attack)
+    })
+}
+
 fn push_havoc_actions(actions: &mut Vec<CombatAction>, state: &CombatState, card_id: CardId) {
     let Some(top_definition) = top_draw_card_definition(state) else {
         return;
@@ -370,7 +388,7 @@ mod tests {
             DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
             FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
             FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID,
-            HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
+            HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
             INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
             LIMIT_BREAK_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
             POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID, REAPER_ID,
@@ -756,6 +774,69 @@ mod tests {
                 },
             ),
             Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn impatience_is_legal_without_target_at_zero_energy_when_hand_has_no_attacks() {
+        let mut state = hand_with_card(IMPATIENCE_ID);
+        state.player.energy = 0;
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), DEFEND_R_ID));
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn impatience_is_illegal_when_another_attack_is_in_hand() {
+        let mut state = hand_with_card(IMPATIENCE_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), STRIKE_R_ID));
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "Impatience requires no attacks in hand"
+            ))
+        );
+    }
+
+    #[test]
+    fn impatience_rejects_target() {
+        let state = hand_with_card(IMPATIENCE_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
         );
     }
 

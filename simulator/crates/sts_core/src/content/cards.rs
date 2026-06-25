@@ -64,6 +64,7 @@ pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_9
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
+pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1327,6 +1328,21 @@ pub const PANACEA: CardDefinition = CardDefinition {
     },
 };
 
+pub const IMPATIENCE: CardDefinition = CardDefinition {
+    id: IMPATIENCE_ID,
+    key: "IMPATIENCE",
+    name: "Impatience",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const TRIP: CardDefinition = CardDefinition {
     id: TRIP_ID,
     key: "TRIP",
@@ -2030,7 +2046,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 111] = [
+pub const ALL_CARDS: [CardDefinition; 112] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2104,6 +2120,7 @@ pub const ALL_CARDS: [CardDefinition; 111] = [
     FINESSE,
     PANACEA,
     TRIP,
+    IMPATIENCE,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2247,6 +2264,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         _ => None,
     }
 }
@@ -2514,6 +2532,19 @@ mod tests {
         assert!(PANACEA.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(PANACEA_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn impatience_has_expected_values_and_rarity() {
+        assert_eq!(IMPATIENCE.id, IMPATIENCE_ID);
+        assert_eq!(IMPATIENCE.cost, 0);
+        assert_eq!(IMPATIENCE.target, TargetRequirement::None);
+        assert_eq!(IMPATIENCE.card_type, CardType::Skill);
+        assert_eq!(IMPATIENCE.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(IMPATIENCE_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
