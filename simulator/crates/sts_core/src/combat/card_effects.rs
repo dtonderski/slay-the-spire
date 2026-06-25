@@ -12,7 +12,7 @@ use crate::{
         DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
         HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
         RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
@@ -154,6 +154,7 @@ pub(super) fn play_card_queue(
         INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
         LIMIT_BREAK_ID => limit_break_queue(state, card_id, definition),
+        OFFERING_ID => offering_queue(card_id, definition),
         SPOT_WEAKNESS_ID | SPOT_WEAKNESS_PLUS_ID => spot_weakness_queue(state, card_id, definition),
         THUNDERCLAP_ID => thunderclap_queue(state, card_id, definition),
         UPPERCUT_ID => uppercut_queue(
@@ -1683,6 +1684,26 @@ fn limit_break_queue(
         InternalAction::GainStrength {
             amount: state.player.powers.strength,
         },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn offering_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::LoseHp { amount: 6 },
+        InternalAction::GainEnergy { amount: 2 },
+        InternalAction::DrawCards { count: 3 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,

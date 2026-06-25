@@ -1489,6 +1489,7 @@ Tasks:
   - [x] Implement base Bludgeon (`BLUDGEON`, ContentId(139)) as a deterministic rare attack: 3 energy, targeted enemy, 32 damage, no trace-parity claim.
   - [x] Implement base Impervious (`IMPERVIOUS`, ContentId(146)) as a deterministic rare skill: 2 energy, no target, 30 block, exhausts, no trace-parity claim.
   - [x] Implement base Limit Break (`LIMIT_BREAK`, ContentId(141)) as a deterministic rare skill: 1 energy, no target, doubles current signed player Strength, exhausts, no trace-parity claim.
+  - [x] Implement base Offering (`OFFERING`, ContentId(151)) as a deterministic rare skill: 0 energy, no target, lose 6 HP, gain 2 energy, draw 3 cards, exhausts, no trace-parity claim.
   - [x] Implement base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack: 2 energy, targeted enemy, 12 damage, 2 weak, no trace-parity claim.
   - [x] Implement base Intimidate (`INTIMIDATE`, ContentId(115)) as a deterministic uncommon skill: 0 energy, 1 weak to all living enemies, exhaust, no trace-parity claim.
 - add focused unit tests for every newly completed surface
@@ -1515,6 +1516,7 @@ Tasks:
   - [x] Add Bludgeon definition, legality, transition, discard, damage, Strength, Akabeko interaction, and event-log tests.
   - [x] Add Impervious definition, legality, transition, block, Dexterity/Frail interaction, exhaust-pile movement, and event-log tests.
   - [x] Add Limit Break definition, legality, transition, positive/zero/negative Strength, temporary Strength exclusion, effective-cost, exhaust-pile movement, and event-log tests.
+  - [x] Add Offering definition, legality, transition, HP loss, energy gain, draw, exhaust-pile movement, Tungsten Rod, Buffer, Centennial Puzzle, Runic Cube, and event-log tests.
   - [x] Add Clothesline definition, legality, transition, discard, and event-log tests.
   - [x] Add Intimidate definition, legality, all-living-enemy, dead-enemy skip, exhaust, and event-log tests.
 - add serialization and counter round-trip tests for newly stateful surfaces
@@ -1538,6 +1540,7 @@ Tasks:
   - [x] No new stateful surface in the Bludgeon slice.
   - [x] No new stateful surface in the Impervious slice.
   - [x] No new stateful surface in the Limit Break slice; signed Strength uses existing player power state.
+  - [x] No new stateful surface in the Offering slice; HP loss, energy, draw, and exhaust use existing combat state/hooks.
 - add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
   - [x] Iron Wave covers damage/block/pile movement through the existing card queue and transition hooks.
   - [x] Body Slam covers current-block-derived damage, attack damage modifiers, and pile movement through the existing card queue and transition hooks.
@@ -1562,6 +1565,7 @@ Tasks:
   - [x] Bludgeon covers high-cost targeted attack damage and pile movement through the existing card queue and transition hooks.
   - [x] Impervious covers high-block skill behavior, block modifiers, and exhaust movement through the existing card queue and transition hooks.
   - [x] Limit Break covers signed Strength doubling, temporary Strength exclusion, effective-cost spending, and exhaust movement through existing card queue and transition hooks.
+  - [x] Offering covers HP-loss mitigation/prevention, HP-loss draw relic hooks, energy gain, draw, Havoc top-draw effect, and exhaust movement through existing card queue and transition hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
   - [x] Move Iron Wave from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Body Slam from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1586,6 +1590,7 @@ Tasks:
   - [x] Move Bludgeon from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Impervious from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Limit Break from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Offering from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Clothesline from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Intimidate from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
@@ -1612,6 +1617,7 @@ Tasks:
   - [x] Bludgeon matrix caveat names the missing real-game trace parity evidence.
   - [x] Impervious matrix caveat names the missing real-game trace parity evidence.
   - [x] Limit Break matrix caveat names the missing played-card real-game trace parity, source-backed exact action-order evidence, upgraded behavior, and local signed Strength semantics.
+  - [x] Offering matrix caveat names the missing played-card real-game trace parity, source-backed exact action-order evidence, and upgraded behavior.
   - [x] Clothesline matrix caveat names the missing real-game trace parity evidence.
   - [x] Intimidate matrix caveat names the missing real-game trace parity evidence.
 

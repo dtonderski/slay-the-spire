@@ -12,7 +12,7 @@ use crate::{
     },
     content::cards::{
         get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID,
-        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, OFFERING_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
         SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WOUND_ID,
@@ -545,6 +545,11 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::GainBlock { amount: 8 });
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
+        OFFERING_ID => {
+            follow_ups.push(InternalAction::LoseHp { amount: 6 });
+            follow_ups.push(InternalAction::GainEnergy { amount: 2 });
+            follow_ups.push(InternalAction::DrawCards { count: 3 });
+        }
         POWER_THROUGH_ID => {
             follow_ups.push(InternalAction::GainBlock { amount: 15 });
             follow_ups.push(InternalAction::AddCardToPile {
@@ -862,12 +867,12 @@ mod tests {
         DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID,
         FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
         INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -5111,6 +5116,186 @@ mod tests {
     }
 
     #[test]
+    fn offering_loses_six_hp_gains_two_energy_draws_three_and_exhausts() {
+        let mut state = hand_only(OFFERING_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+        let offering_id = hand_card_id(&state, OFFERING_ID);
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 6);
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![BASH_ID, DEFEND_R_ID, STRIKE_R_ID]
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == offering_id));
+    }
+
+    #[test]
+    fn offering_event_log_records_hp_loss_energy_draw_then_exhaust() {
+        let mut state = hand_only(OFFERING_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+        let offering_id = hand_card_id(&state, OFFERING_ID);
+
+        let transition = apply_combat_action_with_events(&state, offering_action(&state))
+            .expect("Offering applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: offering_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::LoseHp { amount: 6 },
+                InternalAction::GainEnergy { amount: 2 },
+                InternalAction::DrawCards { count: 3 },
+                InternalAction::MoveCard {
+                    card_id: offering_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: offering_id,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn offering_hp_loss_is_reduced_by_tungsten_rod() {
+        let mut state = hand_only(OFFERING_ID);
+        state.relics = vec![Relic::TungstenRod];
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 5);
+        assert_eq!(next.player.energy, state.player.energy + 2);
+    }
+
+    #[test]
+    fn offering_hp_loss_consumes_buffer_without_losing_hp() {
+        let mut state = hand_only(OFFERING_ID);
+        state.player.powers.buffer = 1;
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp);
+        assert_eq!(next.player.powers.buffer, 0);
+        assert_eq!(next.player.energy, state.player.energy + 2);
+    }
+
+    #[test]
+    fn offering_hp_loss_triggers_centennial_puzzle_once() {
+        let mut state = hand_only(OFFERING_ID);
+        state.relics = vec![Relic::CentennialPuzzle];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+            CardInstance::new(CardId::new(33), CLEAVE_ID),
+            CardInstance::new(CardId::new(34), ANGER_ID),
+            CardInstance::new(CardId::new(35), SHRUG_IT_OFF_ID),
+        ];
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 6);
+        assert_eq!(next.relic_counters.centennial_puzzle_triggers, 1);
+        assert_eq!(next.piles.hand.len(), 6);
+        assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn offering_hp_loss_triggers_runic_cube() {
+        let mut state = hand_only(OFFERING_ID);
+        state.relics = vec![Relic::RunicCube];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+            CardInstance::new(CardId::new(33), CLEAVE_ID),
+        ];
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 6);
+        assert_eq!(next.piles.hand.len(), 4);
+        assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn offering_buffer_prevents_hp_loss_relic_draws() {
+        let mut state = hand_only(OFFERING_ID);
+        state.relics = vec![Relic::CentennialPuzzle, Relic::RunicCube];
+        state.player.powers.buffer = 1;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+            CardInstance::new(CardId::new(33), CLEAVE_ID),
+            CardInstance::new(CardId::new(34), ANGER_ID),
+            CardInstance::new(CardId::new(35), SHRUG_IT_OFF_ID),
+        ];
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp);
+        assert_eq!(next.player.powers.buffer, 0);
+        assert_eq!(next.relic_counters.centennial_puzzle_triggers, 0);
+        assert_eq!(next.piles.hand.len(), 3);
+        assert_eq!(next.piles.draw_pile.len(), 3);
+    }
+
+    #[test]
+    fn havoc_plays_top_offering_for_hp_loss_energy_draw_and_exhaust() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(33), OFFERING_ID)];
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Havoc applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 6);
+        assert_eq!(next.player.energy, state.player.energy + 1);
+        assert_eq!(next.piles.hand.len(), 3);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == OFFERING_ID));
+    }
+
+    #[test]
     fn spot_weakness_grants_three_strength_when_enemy_intends_attack() {
         let state = hand_only(SPOT_WEAKNESS_ID);
 
@@ -5732,6 +5917,13 @@ mod tests {
     fn limit_break_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, LIMIT_BREAK_ID),
+            target: None,
+        }
+    }
+
+    fn offering_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, OFFERING_ID),
             target: None,
         }
     }
