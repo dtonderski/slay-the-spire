@@ -1484,6 +1484,27 @@ pub const IMPERVIOUS: CardDefinition = CardDefinition {
     },
 };
 
+pub const FIEND_FIRE: CardDefinition = CardDefinition {
+    id: FIEND_FIRE_ID,
+    key: "FIEND_FIRE",
+    name: "Fiend Fire",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const REAPER: CardDefinition = CardDefinition {
     id: REAPER_ID,
     key: "REAPER",
@@ -1590,7 +1611,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 85] = [
+pub const ALL_CARDS: [CardDefinition; 86] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1672,6 +1693,7 @@ pub const ALL_CARDS: [CardDefinition; 85] = [
     IMMOLATE,
     BLUDGEON,
     IMPERVIOUS,
+    FIEND_FIRE,
     REAPER,
     METALLICIZE,
     THUNDERCLAP,
@@ -1752,6 +1774,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == FIEND_FIRE_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == REAPER_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         _ => None,
@@ -2071,6 +2094,20 @@ mod tests {
         assert!(REAPER.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(REAPER_ID),
+            Some((CardType::Attack, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn fiend_fire_has_expected_values_keywords_and_rarity() {
+        assert_eq!(FIEND_FIRE.id, FIEND_FIRE_ID);
+        assert_eq!(FIEND_FIRE.cost, 2);
+        assert_eq!(FIEND_FIRE.target, TargetRequirement::Enemy);
+        assert_eq!(FIEND_FIRE.card_type, CardType::Attack);
+        assert_eq!(FIEND_FIRE.values.damage, Some(7));
+        assert!(FIEND_FIRE.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(FIEND_FIRE_ID),
             Some((CardType::Attack, CardRarity::Rare))
         );
     }
