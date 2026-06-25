@@ -1196,6 +1196,27 @@ pub const BLOODLETTING: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const CARNAGE: CardDefinition = CardDefinition {
+    id: CARNAGE_ID,
+    key: "CARNAGE",
+    name: "Carnage",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(20),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: true,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const SWORD_BOOMERANG: CardDefinition = CardDefinition {
     id: SWORD_BOOMERANG_ID,
     key: "Sword Boomerang",
@@ -1368,7 +1389,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 73] = [
+pub const ALL_CARDS: [CardDefinition; 74] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1434,6 +1455,7 @@ pub const ALL_CARDS: [CardDefinition; 73] = [
     SEVER_SOUL,
     SENTINEL,
     BLOODLETTING,
+    CARNAGE,
     SWORD_BOOMERANG,
     HEMOKINESIS,
     IMMOLATE,
@@ -1481,6 +1503,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == CARNAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1864,6 +1887,28 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(BLOODLETTING_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn carnage_has_expected_values_and_keywords() {
+        assert_eq!(CARNAGE.cost, 2);
+        assert_eq!(CARNAGE.target, TargetRequirement::Enemy);
+        assert_eq!(CARNAGE.card_type, CardType::Attack);
+        assert_eq!(CARNAGE.values.damage, Some(20));
+        assert_eq!(
+            CARNAGE.keywords,
+            CardKeywords {
+                innate: false,
+                ethereal: true,
+                exhaust: false,
+                retain: false,
+                unplayable: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(CARNAGE_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
         );
     }
 

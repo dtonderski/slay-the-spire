@@ -1476,6 +1476,7 @@ Tasks:
   - [x] Implement base Reckless Charge (`RECKLESS_CHARGE`, ContentId(113)) as a deterministic uncommon attack: 0 energy, targeted enemy, 7 damage, adds one Dazed to the draw pile with local deterministic card IDs/order, no trace-parity claim.
   - [x] Implement base Pummel (`PUMMEL`, ContentId(118)) as a deterministic uncommon attack: 1 energy, targeted enemy, 2 damage 4 times, exhausts, no trace-parity claim.
   - [x] Implement base Bloodletting (`BLOODLETTING`, ContentId(130)) as a deterministic uncommon skill: 0 energy, no target, lose 3 HP, gain 2 energy, no trace-parity claim.
+  - [x] Implement base Carnage (`CARNAGE`, ContentId(131)) as a deterministic uncommon attack: 2 energy, targeted enemy, 20 damage, ethereal, no trace-parity claim.
   - [x] Implement base Ghostly Armor (`GHOSTLY_ARMOR`, ContentId(134)) as a deterministic uncommon skill: 1 energy, no target, 10 block, ethereal, no trace-parity claim.
   - [x] Implement base Bludgeon (`BLUDGEON`, ContentId(139)) as a deterministic rare attack: 3 energy, targeted enemy, 32 damage, no trace-parity claim.
   - [x] Implement base Impervious (`IMPERVIOUS`, ContentId(146)) as a deterministic rare skill: 2 energy, no target, 30 block, exhausts, no trace-parity claim.
@@ -1492,6 +1493,7 @@ Tasks:
   - [x] Add Reckless Charge definition, legality, transition, zero-cost play, Dazed-to-draw-pile deterministic ID/order, Strength, Akabeko, discard, Havoc top-draw effect, and event-log tests.
   - [x] Add Pummel definition, legality, transition, four-hit damage, exhaust movement, Strength, Vulnerable, Akabeko, Pen Nib, Strange Spoon, Havoc top-draw effect, and event-log tests.
   - [x] Add Bloodletting definition, legality, transition, HP loss, energy gain, discard movement, event-log order, Tungsten Rod, and Buffer tests.
+  - [x] Add Carnage definition, legality, transition, discard movement, Strength, Akabeko, Pen Nib, played discard, unplayed ethereal cleanup, Runic Pyramid, and event-log tests.
   - [x] Add Ghostly Armor definition, legality, transition, block, Dexterity/Frail interaction, played discard movement, unplayed ethereal end-turn behavior, and event-log tests.
   - [x] Add Bludgeon definition, legality, transition, discard, damage, Strength, Akabeko interaction, and event-log tests.
   - [x] Add Impervious definition, legality, transition, block, Dexterity/Frail interaction, exhaust-pile movement, and event-log tests.
@@ -1505,6 +1507,7 @@ Tasks:
   - [x] No new stateful surface in the Heavy Blade slice.
   - [x] No new stateful surface in the Pummel slice.
   - [x] No new stateful surface in the Bloodletting slice.
+  - [x] No new stateful surface in the Carnage slice.
   - [x] No new stateful surface in the Ghostly Armor slice.
   - [x] No new stateful surface in the Bludgeon slice.
   - [x] No new stateful surface in the Impervious slice.
@@ -1519,6 +1522,7 @@ Tasks:
   - [x] Reckless Charge covers generated status-card insertion, attack damage modifiers, zero-cost play, Havoc top-draw effects, and pile movement through the existing card queue and transition hooks.
   - [x] Pummel covers multi-hit attack damage, attack damage modifiers, exhaust movement, Strange Spoon exhaust retention, Havoc top-draw effects, and pile movement through the existing card queue and transition hooks.
   - [x] Bloodletting covers HP-loss mitigation/prevention, energy gain, skill-play hooks, and pile movement through the existing card queue and transition hooks.
+  - [x] Carnage covers generic attack damage modifiers, played discard movement, and unplayed ethereal cleanup through existing card queue and hand cleanup hooks.
   - [x] Ghostly Armor covers generic skill block, block modifiers, played discard movement, and unplayed ethereal end-turn exhaust behavior through existing card queue and hand cleanup hooks.
   - [x] Bludgeon covers high-cost targeted attack damage and pile movement through the existing card queue and transition hooks.
   - [x] Impervious covers high-block skill behavior, block modifiers, and exhaust movement through the existing card queue and transition hooks.
@@ -1533,6 +1537,7 @@ Tasks:
   - [x] Move Reckless Charge from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Pummel from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Bloodletting from `unsupported` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Carnage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Ghostly Armor from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Bludgeon from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Impervious from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1549,6 +1554,7 @@ Tasks:
   - [x] Reckless Charge matrix caveat names the missing real-game trace parity and exact Dazed draw-pile shuffle-order evidence.
   - [x] Pummel matrix caveat names the missing real-game trace parity evidence.
   - [x] Bloodletting matrix caveat names the missing played-card real-game trace parity and source-backed action-order evidence.
+  - [x] Carnage matrix caveat names the missing played-card real-game trace parity and exact ethereal timing evidence.
   - [x] Ghostly Armor matrix caveat names the missing real-game trace parity and exact ethereal timing evidence.
   - [x] Bludgeon matrix caveat names the missing real-game trace parity evidence.
   - [x] Impervious matrix caveat names the missing real-game trace parity evidence.
