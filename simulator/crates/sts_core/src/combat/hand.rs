@@ -489,6 +489,25 @@ mod tests {
     }
 
     #[test]
+    fn runic_pyramid_keeps_wound_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::RunicPyramid];
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), WOUND_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, WOUND_ID);
+        assert!(next.piles.discard_pile.is_empty());
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == WOUND_ID));
+    }
+
+    #[test]
     fn end_turn_discards_hand_from_top_to_bottom() {
         let mut state = CombatState::initial_fixture();
         state.monsters[0].alive = false;

@@ -1478,6 +1478,7 @@ Tasks:
   - [x] Implement base Hemokinesis (`HEMOKINESIS`, ContentId(114)) as a deterministic uncommon attack: 1 energy, targeted enemy, lose 2 HP, 15 damage, no trace-parity claim.
   - [x] Implement base Sentinel (`SENTINEL`, ContentId(127)) as a deterministic uncommon skill: 1 energy, no target, 5 block, gain 2 energy when exhausted, no trace-parity claim.
   - [x] Implement base Doubt (`Doubt`, ContentId(63)) as a deterministic curse/status: unplayable, end-turn 1 Weak per copy in hand after the normal player Weak tick, no trace-parity claim.
+  - [x] Implement base Wound (`Wound`, ContentId(4)) as a deterministic inert status: unplayable, non-ethereal, normal end-turn discard or Runic Pyramid retention, Medical Kit status play/exhaust path through existing hooks, no trace-parity claim.
   - [x] Implement base Dazed (`Dazed`, ContentId(5)) as a deterministic status: unplayable, ethereal, exhausts at end-turn before discard/Runic Pyramid retention, no trace-parity claim.
   - [x] Implement base Bloodletting (`BLOODLETTING`, ContentId(130)) as a deterministic uncommon skill: 0 energy, no target, lose 3 HP, gain 2 energy, no trace-parity claim.
   - [x] Implement base Carnage (`CARNAGE`, ContentId(131)) as a deterministic uncommon attack: 2 energy, targeted enemy, 20 damage, ethereal, no trace-parity claim.
@@ -1499,6 +1500,7 @@ Tasks:
   - [x] Add Hemokinesis definition, legality, transition, HP loss, damage, discard movement, Strength, Akabeko, Pen Nib, Tungsten Rod, Buffer, Duplication Potion, and event-log tests.
   - [x] Add Sentinel definition, legality, normal-play block/discard, Dexterity/Frail, no normal-play exhaust energy, exhaust-trigger energy, non-Sentinel exhaust control, Feel No Pain interaction, exhaust-select, and event-log tests.
   - [x] Add Doubt definition/classification/unplayable, end-turn Weak, existing Weak lifecycle, Artifact, Ginger, multiple-copy, discard, and Runic Pyramid tests.
+  - [x] Add Wound definition/unplayable/non-ethereal, no-play-action, serialization, end-turn discard, Runic Pyramid retention, Medical Kit, and existing generation-path tests.
   - [x] Add Dazed definition/unplayable/ethereal, end-turn exhaust, Runic Pyramid exhaust, and Wound non-ethereal control tests.
   - [x] Add Bloodletting definition, legality, transition, HP loss, energy gain, discard movement, event-log order, Tungsten Rod, and Buffer tests.
   - [x] Add Carnage definition, legality, transition, discard movement, Strength, Akabeko, Pen Nib, played discard, unplayed ethereal cleanup, Runic Pyramid, and event-log tests.
@@ -1517,6 +1519,7 @@ Tasks:
   - [x] No new stateful surface in the Hemokinesis slice.
   - [x] No new stateful surface in the Sentinel slice.
   - [x] No new stateful surface in the Doubt slice.
+  - [x] No new stateful surface in the Wound slice.
   - [x] No new stateful surface in the Dazed slice.
   - [x] No new stateful surface in the Bloodletting slice.
   - [x] No new stateful surface in the Carnage slice.
@@ -1536,6 +1539,7 @@ Tasks:
   - [x] Hemokinesis covers HP-loss mitigation/prevention, generic attack damage modifiers, local Duplication Potion behavior, and pile movement through existing card queue and transition hooks.
   - [x] Sentinel covers generic skill block, block modifiers, normal discard movement, and card-aware exhaust hooks through existing card queue and transition hooks.
   - [x] Doubt covers end-turn hand curse behavior, player Weak lifecycle, Artifact/Ginger prevention, multiple-copy stacking, discard movement, and Runic Pyramid retention through existing hand/turn hooks.
+  - [x] Wound covers inert unplayable status behavior, normal discard, Runic Pyramid retention, Medical Kit status play/exhaust, and existing Wild Strike/Power Through/Mark of Pain generation hooks.
   - [x] Dazed covers unplayed ethereal status cleanup, exhaust movement, Runic Pyramid interaction, and Wound non-ethereal contrast through existing hand cleanup hooks.
   - [x] Bloodletting covers HP-loss mitigation/prevention, energy gain, skill-play hooks, and pile movement through the existing card queue and transition hooks.
   - [x] Carnage covers generic attack damage modifiers, played discard movement, and unplayed ethereal cleanup through existing card queue and hand cleanup hooks.
@@ -1555,6 +1559,7 @@ Tasks:
   - [x] Move Hemokinesis from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Sentinel from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Doubt from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Wound from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Dazed from `placeholder` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Bloodletting from `unsupported` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Carnage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1576,6 +1581,7 @@ Tasks:
   - [x] Hemokinesis matrix caveat names the missing played-card real-game trace parity, decoded action-order evidence, and Duplication Potion source timing evidence.
   - [x] Sentinel matrix caveat names the missing played-card real-game trace parity, source-backed exhaust-order evidence, and upgraded Sentinel behavior.
   - [x] Doubt matrix caveat names the missing real-game trace parity and source-backed ordering/duplicate-trigger evidence.
+  - [x] Wound matrix caveat names the missing real-game trace parity and source-backed exact Wound timing evidence.
   - [x] Dazed matrix caveat names the missing real-game trace parity and source-backed exact ethereal timing evidence.
   - [x] Bloodletting matrix caveat names the missing played-card real-game trace parity and source-backed action-order evidence.
   - [x] Carnage matrix caveat names the missing played-card real-game trace parity and exact ethereal timing evidence.
