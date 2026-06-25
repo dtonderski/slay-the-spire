@@ -1330,7 +1330,7 @@ mod tests {
         RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
         SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
         WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
@@ -4056,6 +4056,80 @@ mod tests {
                 },
                 InternalAction::CardExhausted {
                     card_id: shockwave_id,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn trip_applies_two_vulnerable_to_each_living_enemy_and_discards() {
+        let mut state = two_monster_hand(TRIP_ID);
+        state.player.energy = 0;
+
+        let next = apply_combat_action(&state, trip_action(&state)).expect("Trip applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+        assert_eq!(next.monsters[1].powers.vulnerable, 2);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, TRIP_ID);
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn trip_skips_dead_enemies() {
+        let mut state = two_monster_hand(TRIP_ID);
+        state.monsters[1].alive = false;
+
+        let next = apply_combat_action(&state, trip_action(&state)).expect("Trip applies");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+        assert_eq!(next.monsters[1].powers.vulnerable, 0);
+    }
+
+    #[test]
+    fn trip_rejects_target() {
+        let state = hand_only(TRIP_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: hand_card_id(&state, TRIP_ID),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn trip_event_log_records_vulnerable_applications_then_discard() {
+        let state = two_monster_hand(TRIP_ID);
+        let trip_id = hand_card_id(&state, TRIP_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, trip_action(&state)).expect("Trip applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: trip_id },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::ApplyVulnerable {
+                    target: MonsterId::new(1),
+                    amount: 2,
+                },
+                InternalAction::ApplyVulnerable {
+                    target: MonsterId::new(2),
+                    amount: 2,
+                },
+                InternalAction::MoveCard {
+                    card_id: trip_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
                 },
             ]
         );
@@ -10347,6 +10421,13 @@ mod tests {
     fn shockwave_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SHOCKWAVE_ID),
+            target: None,
+        }
+    }
+
+    fn trip_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, TRIP_ID),
             target: None,
         }
     }

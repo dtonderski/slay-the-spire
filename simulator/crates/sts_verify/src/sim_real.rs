@@ -5591,8 +5591,8 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -5644,6 +5644,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Bloodletting" | "bloodletting" => Some(BLOODLETTING_ID),
         "Hemokinesis" | "hemokinesis" => Some(HEMOKINESIS_ID),
         "Dropkick" | "dropkick" => Some(DROPKICK_ID),
+        "Trip" | "trip" => Some(TRIP_ID),
         _ => None,
     }
 }
@@ -5659,8 +5660,8 @@ fn content_key(content_id: ContentId) -> &'static str {
         OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID,
         REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WILD_STRIKE_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WILD_STRIKE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -5722,6 +5723,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == BLOODLETTING_ID => "Bloodletting",
         id if id == HEMOKINESIS_ID => "Hemokinesis",
         id if id == DROPKICK_ID => "Dropkick",
+        id if id == TRIP_ID => "Trip",
         id if id == FEEL_NO_PAIN_ID => "Feel No Pain",
         other if shop_pool_trace_name(other).is_some() => {
             shop_pool_trace_name(other).unwrap_or("unknown")

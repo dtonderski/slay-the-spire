@@ -11,7 +11,7 @@ use crate::content::cards::{
     OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID,
     RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
     SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-    SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+    SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
     UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
 };
 use crate::content::reward_pool::ironclad_reward_card_rarity;
@@ -248,6 +248,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "FLASH_OF_STEEL" => FLASH_OF_STEEL_ID,
         "GOOD_INSTINCTS" => GOOD_INSTINCTS_ID,
         "PANACEA" => PANACEA_ID,
+        "TRIP" => TRIP_ID,
         other => ContentId::new(600 + stable_pool_name_id(other)),
     }
 }
@@ -463,7 +464,7 @@ pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<C
 mod tests {
     use super::*;
     use crate::content::cards::{
-        BANDAGE_UP_ID, BLIND_ID, FLASH_OF_STEEL_ID, GOOD_INSTINCTS_ID, PANACEA_ID,
+        BANDAGE_UP_ID, BLIND_ID, FLASH_OF_STEEL_ID, GOOD_INSTINCTS_ID, PANACEA_ID, TRIP_ID,
     };
 
     #[test]
@@ -510,5 +511,13 @@ mod tests {
         assert!(shop_card_is_colorless(PANACEA_ID));
         assert_eq!(shop_card_type(PANACEA_ID), Some(CardType::Skill));
         assert_eq!(shop_card_price_rarity(PANACEA_ID), CardRarity::Uncommon);
+    }
+
+    #[test]
+    fn trip_pool_key_maps_to_concrete_colorless_skill() {
+        assert_eq!(shop_card_content_id("TRIP"), TRIP_ID);
+        assert!(shop_card_is_colorless(TRIP_ID));
+        assert_eq!(shop_card_type(TRIP_ID), Some(CardType::Skill));
+        assert_eq!(shop_card_price_rarity(TRIP_ID), CardRarity::Uncommon);
     }
 }
