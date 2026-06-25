@@ -1,6 +1,6 @@
 use crate::{
     combat::{transition::apply_on_exhaust_effects, CombatState},
-    content::cards::{get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID, REGRET_ID},
+    content::cards::{get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID, DOUBT_ID, REGRET_ID},
     ids::CardId,
 };
 
@@ -8,6 +8,13 @@ pub fn resolve_end_of_turn_hand(state: &mut CombatState) {
     apply_burn_damage_in_hand(state);
     apply_regret_damage_in_hand(state);
     exhaust_unplayed_ethereal_cards(state);
+}
+
+pub(crate) fn resolve_end_of_turn_doubt(state: &mut CombatState) {
+    apply_doubt_weak_in_hand(state);
+}
+
+pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
     discard_non_retain_hand(state);
 }
 
@@ -38,6 +45,23 @@ fn apply_regret_damage_in_hand(state: &mut CombatState) {
         let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
         state.player.hp -= hp_loss;
         crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+    }
+}
+
+fn apply_doubt_weak_in_hand(state: &mut CombatState) {
+    let doubt_copies = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.content_id == DOUBT_ID)
+        .count() as i32;
+
+    if doubt_copies > 0 {
+        crate::relic::apply_player_weak_with_relics(
+            &mut state.player.powers,
+            &state.relics,
+            doubt_copies,
+        );
     }
 }
 
@@ -88,7 +112,9 @@ fn discard_non_retain_hand(state: &mut CombatState) {
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{DAZED_ID, DEFEND_R_ID, ETHEREAL_STRIKE_ID, RETAIN_DEFEND_ID, WOUND_ID},
+        content::cards::{
+            DAZED_ID, DEFEND_R_ID, DOUBT, ETHEREAL_STRIKE_ID, RETAIN_DEFEND_ID, WOUND_ID,
+        },
         ids::CardId,
         CardInstance,
     };
@@ -197,6 +223,113 @@ mod tests {
         let next = crate::combat::end_player_turn(&state);
 
         assert_eq!(next.player.hp, 17);
+    }
+
+    #[test]
+    fn doubt_is_status_curse_and_unplayable() {
+        assert_eq!(DOUBT.id, DOUBT_ID);
+        assert_eq!(DOUBT.card_type, crate::card::CardType::Status);
+        assert!(DOUBT.keywords.unplayable);
+        assert!(crate::content::cards::is_curse_content_id(DOUBT_ID));
+    }
+
+    #[test]
+    fn doubt_in_hand_applies_weak_at_end_of_turn_then_discards() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].alive = false;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DOUBT_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.powers.weak, 1);
+        assert_eq!(next.piles.hand.len(), 0);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == DOUBT_ID));
+    }
+
+    #[test]
+    fn multiple_doubts_stack_weak_at_end_of_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].alive = false;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DOUBT_ID),
+            CardInstance::new(CardId::new(21), DOUBT_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.powers.weak, 2);
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .filter(|card| card.content_id == DOUBT_ID)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn runic_pyramid_keeps_doubt_after_it_applies_weak() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].alive = false;
+        state.relics = vec![crate::Relic::RunicPyramid];
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DOUBT_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.powers.weak, 1);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DOUBT_ID);
+        assert!(next.piles.discard_pile.is_empty());
+    }
+
+    #[test]
+    fn doubt_weak_composes_with_existing_player_weak_lifecycle() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].alive = false;
+        state.player.powers.weak = 2;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DOUBT_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.powers.weak, 2);
+    }
+
+    #[test]
+    fn artifact_blocks_doubt_weak() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].alive = false;
+        state.player.powers.artifact = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DOUBT_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.powers.weak, 0);
+        assert_eq!(next.player.powers.artifact, 0);
+    }
+
+    #[test]
+    fn ginger_prevents_doubt_weak_without_consuming_artifact() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].alive = false;
+        state.player.powers.artifact = 1;
+        state.relics = vec![crate::Relic::Ginger];
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), DOUBT_ID)];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.powers.weak, 0);
+        assert_eq!(next.player.powers.artifact, 1);
     }
 
     #[test]

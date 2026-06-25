@@ -1,6 +1,9 @@
 use crate::{
     combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
-    combat::{draw::apply_snecko_eye_cost_randomization, hand::resolve_end_of_turn_hand},
+    combat::{
+        draw::apply_snecko_eye_cost_randomization,
+        hand::{discard_end_of_turn_hand, resolve_end_of_turn_doubt, resolve_end_of_turn_hand},
+    },
     combat::{CombatPhase, CombatState},
     content::monsters::{
         apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent,
@@ -22,7 +25,9 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 
     resolve_end_of_turn_hand(&mut next);
     apply_end_of_player_turn_powers(&mut next);
+    resolve_end_of_turn_doubt(&mut next);
     crate::relic::apply_end_of_player_turn_relics(&mut next);
+    discard_end_of_turn_hand(&mut next);
     next.phase = CombatPhase::MonsterTurn;
     run_monster_turn(&mut next);
 
