@@ -860,9 +860,9 @@ mod tests {
         INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
         REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -2806,6 +2806,128 @@ mod tests {
                 },
                 InternalAction::CardExhausted {
                     card_id: intimidate_id,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn shockwave_applies_three_debuffs_to_each_living_enemy_and_exhausts() {
+        let state = two_monster_hand(SHOCKWAVE_ID);
+
+        let next =
+            apply_combat_action(&state, shockwave_action(&state)).expect("Shockwave applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert_eq!(next.monsters[0].powers.weak, 3);
+        assert_eq!(next.monsters[0].powers.vulnerable, 3);
+        assert_eq!(next.monsters[0].powers.strength, -3);
+        assert_eq!(next.monsters[1].powers.weak, 3);
+        assert_eq!(next.monsters[1].powers.vulnerable, 3);
+        assert_eq!(next.monsters[1].powers.strength, -3);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, SHOCKWAVE_ID);
+    }
+
+    #[test]
+    fn shockwave_skips_dead_enemies() {
+        let mut state = two_monster_hand(SHOCKWAVE_ID);
+        state.monsters[1].alive = false;
+
+        let next =
+            apply_combat_action(&state, shockwave_action(&state)).expect("Shockwave applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 3);
+        assert_eq!(next.monsters[0].powers.vulnerable, 3);
+        assert_eq!(next.monsters[0].powers.strength, -3);
+        assert_eq!(next.monsters[1].powers.weak, 0);
+        assert_eq!(next.monsters[1].powers.vulnerable, 0);
+        assert_eq!(next.monsters[1].powers.strength, 0);
+    }
+
+    #[test]
+    fn shockwave_champion_belt_adds_weak_from_vulnerable_applications() {
+        let mut state = two_monster_hand(SHOCKWAVE_ID);
+        state.relics.push(Relic::ChampionBelt);
+
+        let next =
+            apply_combat_action(&state, shockwave_action(&state)).expect("Shockwave applies");
+
+        assert_eq!(
+            next.monsters[0].powers.weak,
+            3 + crate::relic::CHAMPION_BELT_WEAK
+        );
+        assert_eq!(
+            next.monsters[1].powers.weak,
+            3 + crate::relic::CHAMPION_BELT_WEAK
+        );
+        assert_eq!(next.monsters[0].powers.vulnerable, 3);
+        assert_eq!(next.monsters[1].powers.vulnerable, 3);
+    }
+
+    #[test]
+    fn shockwave_reduces_monster_outgoing_attack_damage() {
+        let mut state = hand_only(SHOCKWAVE_ID);
+        state.monsters[0].powers.strength = 4;
+
+        let next =
+            apply_combat_action(&state, shockwave_action(&state)).expect("Shockwave applies");
+
+        assert_eq!(next.monsters[0].powers.strength, 1);
+        assert_eq!(next.monsters[0].powers.weak, 3);
+        assert_eq!(
+            crate::combat::turn_powers::monster_attack_damage(&next.monsters[0], 6),
+            5
+        );
+    }
+
+    #[test]
+    fn shockwave_event_log_records_all_debuffs_then_exhaust() {
+        let state = two_monster_hand(SHOCKWAVE_ID);
+        let shockwave_id = hand_card_id(&state, SHOCKWAVE_ID);
+
+        let transition = apply_combat_action_with_events(&state, shockwave_action(&state))
+            .expect("Shockwave applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: shockwave_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::ApplyWeak {
+                    target: MonsterId::new(1),
+                    amount: 3,
+                },
+                InternalAction::ApplyVulnerable {
+                    target: MonsterId::new(1),
+                    amount: 3,
+                },
+                InternalAction::ReduceMonsterStrength {
+                    target: MonsterId::new(1),
+                    amount: 3,
+                },
+                InternalAction::ApplyWeak {
+                    target: MonsterId::new(2),
+                    amount: 3,
+                },
+                InternalAction::ApplyVulnerable {
+                    target: MonsterId::new(2),
+                    amount: 3,
+                },
+                InternalAction::ReduceMonsterStrength {
+                    target: MonsterId::new(2),
+                    amount: 3,
+                },
+                InternalAction::MoveCard {
+                    card_id: shockwave_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: shockwave_id,
                 },
             ]
         );
@@ -5404,6 +5526,13 @@ mod tests {
     fn intimidate_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, INTIMIDATE_ID),
+            target: None,
+        }
+    }
+
+    fn shockwave_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, SHOCKWAVE_ID),
             target: None,
         }
     }

@@ -14,11 +14,11 @@ use crate::{
         HAVOC_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
-        WOUND_ID,
+        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{
@@ -144,6 +144,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         INTIMIDATE_ID => intimidate_queue(state, card_id, definition),
+        SHOCKWAVE_ID => shockwave_queue(state, card_id, definition),
         DISARM_ID => disarm_queue(
             card_id,
             target.expect("validated Disarm has a target"),
@@ -820,6 +821,42 @@ fn intimidate_queue(
         queue.push_back(InternalAction::ApplyWeak {
             target: monster.id,
             amount: 1,
+        });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+
+    Ok(queue)
+}
+
+fn shockwave_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+
+    for monster in state.monsters.iter().filter(|monster| monster.alive) {
+        queue.push_back(InternalAction::ApplyWeak {
+            target: monster.id,
+            amount: 3,
+        });
+        queue.push_back(InternalAction::ApplyVulnerable {
+            target: monster.id,
+            amount: definition.values.vulnerable.unwrap_or(0),
+        });
+        queue.push_back(InternalAction::ReduceMonsterStrength {
+            target: monster.id,
+            amount: 3,
         });
     }
 
