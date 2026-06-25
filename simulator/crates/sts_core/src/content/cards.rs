@@ -1310,6 +1310,27 @@ pub const SEVER_SOUL: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const SECOND_WIND: CardDefinition = CardDefinition {
+    id: SECOND_WIND_ID,
+    key: "SECOND_WIND",
+    name: "Second Wind",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(5),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const SENTINEL: CardDefinition = CardDefinition {
     id: SENTINEL_ID,
     key: "Sentinel",
@@ -1569,7 +1590,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 84] = [
+pub const ALL_CARDS: [CardDefinition; 85] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1641,6 +1662,7 @@ pub const ALL_CARDS: [CardDefinition; 84] = [
     SHOCKWAVE,
     DISARM,
     SEVER_SOUL,
+    SECOND_WIND,
     SENTINEL,
     BLOODLETTING,
     CARNAGE,
@@ -1723,6 +1745,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == WARCRY_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == SECOND_WIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SENTINEL_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SHOCKWAVE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2172,6 +2195,29 @@ mod tests {
         assert_eq!(SENTINEL.values.block, Some(5));
         assert_eq!(
             card_type_and_rarity(SENTINEL_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn second_wind_has_expected_values_keywords_and_rarity() {
+        assert_eq!(SECOND_WIND.id, SECOND_WIND_ID);
+        assert_eq!(SECOND_WIND.cost, 1);
+        assert_eq!(SECOND_WIND.target, TargetRequirement::None);
+        assert_eq!(SECOND_WIND.card_type, CardType::Skill);
+        assert_eq!(SECOND_WIND.values.block, Some(5));
+        assert_eq!(
+            SECOND_WIND.keywords,
+            CardKeywords {
+                innate: false,
+                unplayable: false,
+                ethereal: false,
+                exhaust: false,
+                retain: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(SECOND_WIND_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
