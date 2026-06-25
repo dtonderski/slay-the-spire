@@ -43,7 +43,7 @@ pub struct CombatState {
     /// Awaiting player choice for Warcry, Armaments, and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
-    /// Awaiting player choice for discard-pile potion effects such as Liquid Memories.
+    /// Awaiting player choice for discard-pile effects such as Liquid Memories or Headbutt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discard_select: Option<DiscardSelectState>,
     /// Awaiting player choice for multi-card hand effects such as Elixir or Gambling Chip.
@@ -71,7 +71,17 @@ pub enum HandSelectPurpose {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiscardSelectState {
+    #[serde(default)]
+    pub purpose: DiscardSelectPurpose,
+    pub source_card_id: Option<CardId>,
     pub selected_discard_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DiscardSelectPurpose {
+    #[default]
+    LiquidMemoriesReturnToHand,
+    HeadbuttPutOnDraw,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

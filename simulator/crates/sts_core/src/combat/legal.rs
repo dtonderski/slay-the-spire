@@ -341,13 +341,13 @@ mod tests {
             CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID,
             DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
             FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
-            HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-            INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-            POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-            RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-            SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-            STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID,
-            WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+            HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID,
+            INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID,
+            PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+            PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+            SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+            SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+            WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -2389,6 +2389,64 @@ mod tests {
             !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: CardId::new(20),
                 target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn headbutt_is_legal_with_target() {
+        let state = hand_with_card(HEADBUTT_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+    }
+
+    #[test]
+    fn headbutt_rejects_missing_target() {
+        let state = hand_with_card(HEADBUTT_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn headbutt_rejects_dead_target() {
+        let mut state = hand_with_card(HEADBUTT_ID);
+        state.monsters[0].alive = false;
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction("target is not a living monster"))
+        );
+    }
+
+    #[test]
+    fn headbutt_is_illegal_at_zero_energy() {
+        let mut state = hand_with_card(HEADBUTT_ID);
+        state.player.energy = 0;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
             })
         );
     }

@@ -620,6 +620,21 @@ pub const ARMAMENTS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const HEADBUTT: CardDefinition = CardDefinition {
+    id: HEADBUTT_ID,
+    key: "Headbutt",
+    name: "Headbutt",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(9),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const POMMEL_STRIKE: CardDefinition = CardDefinition {
     id: POMMEL_STRIKE_ID,
     key: "Pommel Strike",
@@ -1533,7 +1548,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 82] = [
+pub const ALL_CARDS: [CardDefinition; 83] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1563,6 +1578,7 @@ pub const ALL_CARDS: [CardDefinition; 82] = [
     LIMIT_BREAK,
     OFFERING,
     ARMAMENTS,
+    HEADBUTT,
     POMMEL_STRIKE,
     BATTLE_TRANCE,
     SEEING_RED,
@@ -1648,6 +1664,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ARMAMENTS_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == HEADBUTT_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1847,6 +1864,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(ARMAMENTS_ID),
             Some((CardType::Skill, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn headbutt_has_expected_values() {
+        assert_eq!(HEADBUTT.cost, 1);
+        assert_eq!(HEADBUTT.target, TargetRequirement::Enemy);
+        assert_eq!(HEADBUTT.card_type, CardType::Attack);
+        assert_eq!(HEADBUTT.values.damage, Some(9));
+        assert_eq!(
+            card_type_and_rarity(HEADBUTT_ID),
+            Some((CardType::Attack, CardRarity::Common))
         );
     }
 
