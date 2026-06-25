@@ -151,6 +151,10 @@ pub enum InternalAction {
     GainCorruption {
         amount: i32,
     },
+    ArmTheBomb {
+        turns: i32,
+        damage: i32,
+    },
     DealUnmodifiedDamage {
         target: crate::MonsterId,
         amount: i32,

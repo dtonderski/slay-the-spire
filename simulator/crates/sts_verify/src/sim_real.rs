@@ -4821,6 +4821,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         phase: CombatPhase::WaitingForPlayer,
         relics: Vec::new(),
         relic_counters: Default::default(),
+        bomb_timers: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         shuffle_rng: None,
         card_random_rng: None,

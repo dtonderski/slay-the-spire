@@ -10,6 +10,7 @@ use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId};
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
     apply_player_end_of_turn_powers_for_combat_state(state);
     apply_end_of_turn_combust(state);
+    apply_end_of_turn_bomb_timers(state);
 }
 
 fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
@@ -93,6 +94,29 @@ fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
 }
 
 fn deal_combust_damage_to_living_monsters(state: &mut CombatState) {
+    deal_unmodified_damage_to_living_monsters(state, COMBUST_DAMAGE);
+}
+
+fn apply_end_of_turn_bomb_timers(state: &mut CombatState) {
+    if state.bomb_timers.is_empty() {
+        return;
+    }
+
+    let timers = std::mem::take(&mut state.bomb_timers);
+    for mut timer in timers {
+        timer.turns_remaining -= 1;
+        if timer.turns_remaining <= 0 {
+            deal_unmodified_damage_to_living_monsters(state, timer.damage);
+            if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
+                return;
+            }
+        } else {
+            state.bomb_timers.push(timer);
+        }
+    }
+}
+
+fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i32) {
     let targets = state
         .monsters
         .iter()
@@ -107,7 +131,7 @@ fn deal_combust_damage_to_living_monsters(state: &mut CombatState) {
                 .iter_mut()
                 .find(|monster| monster.id == target && monster.alive)
                 .expect("target was collected from living monsters");
-            let hp_damage = deal_unmodified_damage_to_monster(monster, COMBUST_DAMAGE);
+            let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
             wake_lagavulin_on_damage(monster, hp_damage);
             guardian_on_hp_damage(monster, hp_damage);
             !monster.alive

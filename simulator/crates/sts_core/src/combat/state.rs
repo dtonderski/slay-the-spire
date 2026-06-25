@@ -58,6 +58,15 @@ pub struct CombatState {
     /// Pending Double Tap stacks: the next played Attack resolves twice per stack.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub double_tap_pending: i32,
+    /// Pending The Bomb explosions. Each entry ticks down at end of player turn.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bomb_timers: Vec<BombTimer>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BombTimer {
+    pub turns_remaining: i32,
+    pub damage: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,6 +243,7 @@ impl CombatState {
             exhaust_select: None,
             duplication_potion_pending: false,
             double_tap_pending: 0,
+            bomb_timers: Vec::new(),
         }
     }
 
