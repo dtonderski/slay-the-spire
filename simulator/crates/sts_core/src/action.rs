@@ -119,6 +119,9 @@ pub enum InternalAction {
     GainDoubleTap {
         amount: i32,
     },
+    GainFireBreathing {
+        amount: i32,
+    },
     GainMetallicize {
         amount: i32,
     },

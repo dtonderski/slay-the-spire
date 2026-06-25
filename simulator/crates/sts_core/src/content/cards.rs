@@ -673,6 +673,21 @@ pub const DOUBLE_TAP: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const FIRE_BREATHING: CardDefinition = CardDefinition {
+    id: FIRE_BREATHING_ID,
+    key: "FIRE_BREATHING",
+    name: "Fire Breathing",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const LIMIT_BREAK: CardDefinition = CardDefinition {
     id: LIMIT_BREAK_ID,
     key: "Limit Break",
@@ -1766,7 +1781,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 96] = [
+pub const ALL_CARDS: [CardDefinition; 97] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1800,6 +1815,7 @@ pub const ALL_CARDS: [CardDefinition; 96] = [
     RUPTURE,
     BRUTALITY,
     DOUBLE_TAP,
+    FIRE_BREATHING,
     LIMIT_BREAK,
     OFFERING,
     ARMAMENTS,
@@ -1931,6 +1947,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DOUBLE_TAP_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == FIRE_BREATHING_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == OFFERING_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
@@ -2555,6 +2572,19 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(BRUTALITY_ID),
             Some((CardType::Power, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn fire_breathing_has_expected_values_and_rarity() {
+        assert_eq!(FIRE_BREATHING.id, FIRE_BREATHING_ID);
+        assert_eq!(FIRE_BREATHING.cost, 1);
+        assert_eq!(FIRE_BREATHING.target, TargetRequirement::None);
+        assert_eq!(FIRE_BREATHING.card_type, CardType::Power);
+        assert_eq!(FIRE_BREATHING.values.damage, Some(6));
+        assert_eq!(
+            card_type_and_rarity(FIRE_BREATHING_ID),
+            Some((CardType::Power, CardRarity::Uncommon))
         );
     }
 

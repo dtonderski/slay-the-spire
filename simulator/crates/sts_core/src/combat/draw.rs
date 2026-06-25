@@ -1,8 +1,11 @@
 use crate::{
     card::CardType,
-    combat::CombatState,
-    content::cards::get_card_definition,
-    ids::ContentId,
+    combat::{damage::deal_unmodified_damage_to_monster, CombatState},
+    content::{
+        cards::{get_card_definition, is_curse_content_id},
+        monsters::{check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage},
+    },
+    ids::{ContentId, MonsterId},
     rng::{JavaRng, RngStream, SimulatorRng, StsRng},
     CardInstance, Relic,
 };
@@ -23,10 +26,11 @@ pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng)
         }
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
-            let extra_draws = evolve_extra_draw_count(state, card.content_id);
+            let content_id = card.content_id;
             apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
-            draw_cards(state, extra_draws, rng);
+            apply_fire_breathing_on_draw(state, content_id);
+            draw_cards(state, evolve_extra_draw_count(state, content_id), rng);
         }
     }
 }
@@ -42,10 +46,11 @@ pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut 
         }
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
-            let extra_draws = evolve_extra_draw_count(state, card.content_id);
+            let content_id = card.content_id;
             apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
-            draw_cards_with_sts_rng(state, extra_draws, rng);
+            apply_fire_breathing_on_draw(state, content_id);
+            draw_cards_with_sts_rng(state, evolve_extra_draw_count(state, content_id), rng);
         }
     }
 }
@@ -57,10 +62,45 @@ pub(crate) fn draw_cards_without_shuffle(state: &mut CombatState, count: usize) 
         }
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
-            let extra_draws = evolve_extra_draw_count(state, card.content_id);
+            let content_id = card.content_id;
             apply_snecko_eye_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
-            draw_cards_without_shuffle(state, extra_draws);
+            apply_fire_breathing_on_draw(state, content_id);
+            draw_cards_without_shuffle(state, evolve_extra_draw_count(state, content_id));
+        }
+    }
+}
+
+fn apply_fire_breathing_on_draw(state: &mut CombatState, content_id: crate::ContentId) {
+    let amount = state.player.powers.fire_breathing;
+    if amount <= 0 || !is_status_or_curse(content_id) {
+        return;
+    }
+
+    let targets = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| monster.id)
+        .collect::<Vec<MonsterId>>();
+
+    for target in targets {
+        let still_alive = {
+            let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == target && monster.alive)
+            else {
+                continue;
+            };
+            let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
+            wake_lagavulin_on_damage(monster, hp_damage);
+            guardian_on_hp_damage(monster, hp_damage);
+            monster.alive
+        };
+        check_slime_boss_split(state, target);
+        if !still_alive {
+            crate::relic::apply_monster_death_relics(state);
         }
     }
 }
@@ -76,6 +116,12 @@ pub(crate) fn evolve_extra_draw_count(state: &CombatState, content_id: ContentId
     } else {
         0
     }
+}
+
+fn is_status_or_curse(content_id: crate::ContentId) -> bool {
+    is_curse_content_id(content_id)
+        || get_card_definition(content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Status)
 }
 
 pub(crate) fn apply_snecko_eye_cost_randomization(
