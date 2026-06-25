@@ -1166,6 +1166,27 @@ pub const INTIMIDATE: CardDefinition = CardDefinition {
     },
 };
 
+pub const SHOCKWAVE: CardDefinition = CardDefinition {
+    id: SHOCKWAVE_ID,
+    key: "SHOCKWAVE",
+    name: "Shockwave",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: Some(3),
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const DISARM: CardDefinition = CardDefinition {
     id: DISARM_ID,
     key: "DISARM",
@@ -1440,7 +1461,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 77] = [
+pub const ALL_CARDS: [CardDefinition; 78] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1504,6 +1525,7 @@ pub const ALL_CARDS: [CardDefinition; 77] = [
     PUMMEL,
     CLOTHESLINE,
     INTIMIDATE,
+    SHOCKWAVE,
     DISARM,
     SEVER_SOUL,
     SENTINEL,
@@ -1584,6 +1606,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == SENTINEL_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SHOCKWAVE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -1891,6 +1914,29 @@ mod tests {
         assert!(INTIMIDATE.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(INTIMIDATE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn shockwave_has_expected_values() {
+        assert_eq!(SHOCKWAVE.id, SHOCKWAVE_ID);
+        assert_eq!(SHOCKWAVE.cost, 2);
+        assert_eq!(SHOCKWAVE.target, TargetRequirement::None);
+        assert_eq!(SHOCKWAVE.card_type, CardType::Skill);
+        assert_eq!(SHOCKWAVE.values.vulnerable, Some(3));
+        assert_eq!(
+            SHOCKWAVE.keywords,
+            CardKeywords {
+                innate: false,
+                ethereal: false,
+                exhaust: true,
+                retain: false,
+                unplayable: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(SHOCKWAVE_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
