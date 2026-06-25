@@ -344,7 +344,7 @@ mod tests {
             HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID,
             INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID,
             PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-            PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
+            PUMMEL_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
             SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
             SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
             WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
@@ -371,6 +371,18 @@ mod tests {
         assert!(
             legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: hand_card_id(&state, DEFEND_R_ID),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn reaper_is_legal_without_target_when_enemy_is_alive() {
+        let state = hand_with_card(REAPER_ID);
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
                 target: None,
             })
         );

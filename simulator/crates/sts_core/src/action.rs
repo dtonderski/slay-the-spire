@@ -32,6 +32,10 @@ pub enum InternalAction {
         source: CardId,
         amount: i32,
     },
+    DealDamageAllAndHealUnblocked {
+        source: CardId,
+        amount: i32,
+    },
     GainBlock {
         amount: i32,
     },
