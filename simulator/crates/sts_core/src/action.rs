@@ -156,6 +156,9 @@ pub enum InternalAction {
     GainRitual {
         amount: i32,
     },
+    GainArtifact {
+        amount: i32,
+    },
     ApplyWeak {
         target: MonsterId,
         amount: i32,
