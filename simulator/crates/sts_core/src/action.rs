@@ -1,5 +1,5 @@
 use crate::{
-    combat::{damage::DamageInfo, HandSelectPurpose},
+    combat::{damage::DamageInfo, DiscardSelectPurpose, HandSelectPurpose},
     ids::{CardId, MonsterId},
 };
 use serde::{Deserialize, Serialize};
@@ -107,6 +107,10 @@ pub enum InternalAction {
     AwaitHandSelect {
         source_card_id: CardId,
         purpose: HandSelectPurpose,
+    },
+    AwaitDiscardSelect {
+        source_card_id: CardId,
+        purpose: DiscardSelectPurpose,
     },
 }
 

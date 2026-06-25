@@ -3,10 +3,10 @@ use crate::{
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_play_top_draw_card_action, choose_discard_select, choose_exhaust_select,
-        choose_hand_select, confirm_exhaust_select, confirm_hand_select,
-        confirm_liquid_memories_select, discard_select_ui_to_discard_index,
-        exhaust_select_ui_to_hand_index, hand_select_ui_to_hand_index, open_discard_select,
-        open_exhaust_select, player_draw_cards, top_draw_card_definition,
+        choose_hand_select, confirm_discard_select, confirm_exhaust_select, confirm_hand_select,
+        discard_select_ui_to_discard_index, exhaust_select_ui_to_hand_index,
+        hand_select_ui_to_hand_index, open_discard_select, open_exhaust_select, player_draw_cards,
+        top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState},
     content::cards::{get_card_definition, upgrade_content_id},
@@ -223,7 +223,7 @@ pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
     validate_discard_select_confirm(run)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
-    confirm_liquid_memories_select(combat)?;
+    confirm_discard_select(combat)?;
     Ok(next)
 }
 

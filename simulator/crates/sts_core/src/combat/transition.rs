@@ -8,7 +8,7 @@ use crate::{
             deal_damage_info_to_monster_with_result, deal_unmodified_damage_to_monster,
             reflect_spikes_to_player, DamageInfo, DamageSource,
         },
-        validate_combat_action, CombatPhase, HandSelectPurpose,
+        validate_combat_action, CombatPhase, DiscardSelectPurpose, HandSelectPurpose,
     },
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID,
@@ -349,6 +349,23 @@ fn apply_internal_action(
             });
             Ok(Vec::new())
         }
+        InternalAction::AwaitDiscardSelect {
+            source_card_id,
+            purpose,
+        } => {
+            if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw
+                && state.monsters.iter().all(|monster| !monster.alive)
+            {
+                move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
+                return Ok(Vec::new());
+            }
+            state.discard_select = Some(crate::combat::DiscardSelectState {
+                purpose,
+                source_card_id: Some(source_card_id),
+                selected_discard_index: None,
+            });
+            Ok(Vec::new())
+        }
     }
 }
 
@@ -678,6 +695,8 @@ pub fn open_discard_select(state: &mut CombatState) -> SimResult<()> {
         return Err(SimError::IllegalAction("discard pile is empty"));
     }
     state.discard_select = Some(crate::combat::DiscardSelectState {
+        purpose: DiscardSelectPurpose::LiquidMemoriesReturnToHand,
+        source_card_id: None,
         selected_discard_index: None,
     });
     Ok(())
@@ -712,6 +731,9 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
         .discard_select
         .take()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    if discard_select.purpose != DiscardSelectPurpose::LiquidMemoriesReturnToHand {
+        return Err(SimError::IllegalAction("discard select purpose mismatch"));
+    }
     let index = discard_select
         .selected_discard_index
         .ok_or(SimError::IllegalAction("discard select choice is required"))?;
@@ -725,6 +747,43 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
     card.temp_cost = Some(0);
     state.piles.hand.push(card);
     Ok(())
+}
+
+pub fn confirm_discard_select(state: &mut CombatState) -> SimResult<()> {
+    let purpose = state
+        .discard_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?
+        .purpose;
+    match purpose {
+        DiscardSelectPurpose::LiquidMemoriesReturnToHand => confirm_liquid_memories_select(state),
+        DiscardSelectPurpose::HeadbuttPutOnDraw => confirm_headbutt_select(state),
+    }
+}
+
+pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
+    let discard_select = state
+        .discard_select
+        .take()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    if discard_select.purpose != DiscardSelectPurpose::HeadbuttPutOnDraw {
+        return Err(SimError::IllegalAction("discard select purpose mismatch"));
+    }
+    let source_card_id = discard_select
+        .source_card_id
+        .ok_or(SimError::IllegalAction("discard select source is required"))?;
+    let index = discard_select
+        .selected_discard_index
+        .ok_or(SimError::IllegalAction("discard select choice is required"))?;
+    let card = state
+        .piles
+        .discard_pile
+        .get(index)
+        .copied()
+        .ok_or(SimError::IllegalAction("discard select index out of range"))?;
+    state.piles.discard_pile.remove(index);
+    state.piles.draw_pile.push(card);
+    move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)
 }
 
 pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
@@ -912,9 +971,9 @@ mod tests {
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
         DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID,
-        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
-        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
         POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
@@ -5789,6 +5848,146 @@ mod tests {
                 .map(|card| card.content_id)
                 .collect::<Vec<_>>(),
             vec![ARMAMENTS_ID]
+        );
+    }
+
+    #[test]
+    fn headbutt_with_empty_discard_deals_damage_and_discards() {
+        let state = hand_only(HEADBUTT_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Headbutt applies");
+
+        assert_eq!(next.monsters[0].hp, 31);
+        assert_eq!(next.player.energy, 2);
+        assert!(next.discard_select.is_none());
+        assert_eq!(next.piles.discard_pile[0].content_id, HEADBUTT_ID);
+    }
+
+    #[test]
+    fn headbutt_opens_discard_select_when_discard_has_cards() {
+        let mut state = hand_only(HEADBUTT_ID);
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+        ];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Headbutt opens discard select");
+
+        assert_eq!(after_play.monsters[0].hp, 31);
+        assert_eq!(after_play.player.energy, 2);
+        assert_eq!(
+            after_play
+                .discard_select
+                .as_ref()
+                .map(|select| select.purpose),
+            Some(DiscardSelectPurpose::HeadbuttPutOnDraw)
+        );
+        assert_eq!(discard_select_ui_to_discard_index(&after_play, 1), Ok(1));
+        assert_eq!(after_play.piles.hand[0].content_id, HEADBUTT_ID);
+    }
+
+    #[test]
+    fn headbutt_confirm_puts_selected_discard_card_on_draw_top_and_discards_headbutt() {
+        let mut state = hand_only(HEADBUTT_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(40), BASH_ID)];
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+        ];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Headbutt opens discard select");
+
+        choose_discard_select(&mut after_play, 1).expect("choose Defend");
+        confirm_discard_select(&mut after_play).expect("confirm Headbutt select");
+
+        assert!(after_play.discard_select.is_none());
+        assert_eq!(
+            after_play.piles.draw_pile.last().unwrap().content_id,
+            DEFEND_R_ID
+        );
+        assert_eq!(
+            after_play
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID, HEADBUTT_ID]
+        );
+        assert!(after_play.piles.hand.is_empty());
+    }
+
+    #[test]
+    fn lethal_headbutt_with_discard_cards_does_not_open_discard_select() {
+        let mut state = hand_only(HEADBUTT_ID);
+        state.monsters[0].hp = 9;
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Headbutt applies");
+
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert!(next.discard_select.is_none());
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID, HEADBUTT_ID]
+        );
+    }
+
+    #[test]
+    fn headbutt_discard_select_purpose_round_trips_through_json() {
+        let mut state = hand_only(HEADBUTT_ID);
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Headbutt opens discard select");
+        let json = serde_json::to_string(&after_play).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.discard_select, after_play.discard_select);
+        assert_eq!(
+            restored
+                .discard_select
+                .as_ref()
+                .map(|select| select.purpose),
+            Some(DiscardSelectPurpose::HeadbuttPutOnDraw)
         );
     }
 
