@@ -3,22 +3,23 @@ use crate::{
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{
         damage::{DamageInfo, DamageSource},
-        CombatState,
+        CombatState, HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, is_curse_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
-        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID, BODY_SLAM_ID, BURNING_PACT_ID,
-        CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DAZED_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        DUAL_WIELD_PLUS_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
-        HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID,
+        ARMAMENTS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
+        BODY_SLAM_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
+        DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DRAMATIC_ENTRANCE_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
+        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{
@@ -94,6 +95,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         POWER_THROUGH_ID => power_through_queue(card_id, definition),
+        ARMAMENTS_ID => armaments_queue(state, card_id, definition),
         FLAME_BARRIER_ID => flame_barrier_queue(card_id, definition),
         ENTRENCH_ID => entrench_queue(card_id),
         RECKLESS_CHARGE_ID => reckless_charge_queue(
@@ -489,6 +491,45 @@ fn body_slam_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn armaments_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: definition.values.block.unwrap_or(0),
+        },
+    ]);
+
+    if has_upgradeable_other_hand_card(state, card_id) {
+        queue.push_back(InternalAction::AwaitHandSelect {
+            source_card_id: card_id,
+            purpose: HandSelectPurpose::ArmamentsUpgrade,
+        });
+    } else {
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        });
+    }
+
+    Ok(queue)
+}
+
+fn has_upgradeable_other_hand_card(state: &CombatState, exclude_id: CardId) -> bool {
+    state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id != exclude_id && upgrade_content_id(card.content_id).is_some())
 }
 
 fn entrench_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
@@ -1289,6 +1330,7 @@ fn warcry_queue(
         },
         InternalAction::AwaitHandSelect {
             source_card_id: card_id,
+            purpose: HandSelectPurpose::WarcryPutOnDraw,
         },
     ]))
 }

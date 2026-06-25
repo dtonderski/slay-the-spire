@@ -8,14 +8,14 @@ use crate::{
             deal_damage_info_to_monster_with_result, deal_unmodified_damage_to_monster,
             reflect_spikes_to_player, DamageInfo, DamageSource,
         },
-        validate_combat_action, CombatPhase,
+        validate_combat_action, CombatPhase, HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID,
-        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, OFFERING_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, CLEAVE_ID,
+        CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, OFFERING_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -338,8 +338,12 @@ fn apply_internal_action(
                 .push(CardInstance::new(next_id, card.content_id));
             Ok(Vec::new())
         }
-        InternalAction::AwaitHandSelect { source_card_id } => {
+        InternalAction::AwaitHandSelect {
+            source_card_id,
+            purpose,
+        } => {
             state.hand_select = Some(crate::combat::HandSelectState {
+                purpose,
                 source_card_id,
                 selected_hand_index: None,
             });
@@ -586,23 +590,36 @@ pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult
 }
 
 pub fn hand_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
-    let source_card_id = state
+    let hand_select = state
         .hand_select
         .as_ref()
-        .ok_or(SimError::IllegalAction("no hand select is open"))?
-        .source_card_id;
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
     let selectable: Vec<usize> = state
         .piles
         .hand
         .iter()
         .enumerate()
-        .filter(|(_, card)| card.id != source_card_id)
+        .filter(|(_, card)| hand_select_allows_card(hand_select, card))
         .map(|(index, _)| index)
         .collect();
     selectable
         .get(ui_index)
         .copied()
         .ok_or(SimError::IllegalAction("hand select index out of range"))
+}
+
+fn hand_select_allows_card(
+    hand_select: &crate::combat::HandSelectState,
+    card: &CardInstance,
+) -> bool {
+    if card.id == hand_select.source_card_id {
+        return false;
+    }
+
+    match hand_select.purpose {
+        HandSelectPurpose::WarcryPutOnDraw => true,
+        HandSelectPurpose::ArmamentsUpgrade => upgrade_content_id(card.content_id).is_some(),
+    }
 }
 
 pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
@@ -613,18 +630,47 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     let index = hand_select
         .selected_hand_index
         .ok_or(SimError::IllegalAction("hand select choice is required"))?;
-    let put_back = state.piles.hand[index].id;
-    if put_back == hand_select.source_card_id {
-        return Err(SimError::IllegalAction(
-            "cannot put Warcry on top of the draw pile",
-        ));
+    match hand_select.purpose {
+        HandSelectPurpose::WarcryPutOnDraw => {
+            confirm_warcry_select(state, hand_select.source_card_id, index)
+        }
+        HandSelectPurpose::ArmamentsUpgrade => {
+            confirm_armaments_select(state, hand_select.source_card_id, index)
+        }
     }
+}
+
+fn confirm_warcry_select(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    index: usize,
+) -> SimResult<()> {
+    let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
     state.piles.draw_pile.push(card);
-    let warcry = remove_card_from_pile(state, hand_select.source_card_id, CardPile::Hand)?;
+    let warcry = remove_card_from_pile(state, source_card_id, CardPile::Hand)?;
     state.piles.exhaust_pile.push(warcry);
-    apply_on_exhaust_effects(state, hand_select.source_card_id);
+    apply_on_exhaust_effects(state, source_card_id);
     Ok(())
+}
+
+fn confirm_armaments_select(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    index: usize,
+) -> SimResult<()> {
+    let card = state
+        .piles
+        .hand
+        .get_mut(index)
+        .ok_or(SimError::IllegalAction("hand select index out of range"))?;
+    if card.id == source_card_id {
+        return Err(SimError::IllegalAction("cannot upgrade Armaments"));
+    }
+    let upgraded = upgrade_content_id(card.content_id)
+        .ok_or(SimError::IllegalAction("selected card cannot be upgraded"))?;
+    card.content_id = upgraded;
+    move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)
 }
 
 pub fn open_discard_select(state: &mut CombatState) -> SimResult<()> {
@@ -860,6 +906,7 @@ fn move_card(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
@@ -5554,6 +5601,195 @@ mod tests {
 
         assert_eq!(after_play.piles.hand.len(), 2);
         assert_eq!(after_play.piles.draw_pile[0].content_id, DEFEND_R_ID);
+    }
+
+    #[test]
+    fn warcry_hand_select_still_allows_unupgradeable_cards() {
+        let mut state = hand_only(WARCRY_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), WARCRY_ID),
+            CardInstance::new(CardId::new(21), WOUND_ID),
+        ];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Warcry opens hand select");
+
+        assert_eq!(
+            after_play.hand_select.as_ref().map(|select| select.purpose),
+            Some(HandSelectPurpose::WarcryPutOnDraw)
+        );
+        assert_eq!(hand_select_ui_to_hand_index(&after_play, 0), Ok(1));
+    }
+
+    #[test]
+    fn armaments_gains_block_and_opens_upgradeable_hand_select() {
+        let mut state = hand_only(ARMAMENTS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_PLUS_ID),
+        ];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Armaments opens hand select");
+
+        assert_eq!(after_play.player.block, 5);
+        assert_eq!(after_play.player.energy, 2);
+        assert!(after_play.hand_select.is_some());
+        assert_eq!(
+            after_play.hand_select.as_ref().map(|select| select.purpose),
+            Some(HandSelectPurpose::ArmamentsUpgrade)
+        );
+        assert_eq!(hand_select_ui_to_hand_index(&after_play, 0), Ok(1));
+        assert_eq!(
+            hand_select_ui_to_hand_index(&after_play, 1),
+            Err(SimError::IllegalAction("hand select index out of range"))
+        );
+    }
+
+    #[test]
+    fn armaments_hand_select_skips_unupgradeable_cards_before_upgradeable_cards() {
+        let mut state = hand_only(ARMAMENTS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(21), WOUND_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+        ];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Armaments opens hand select");
+
+        assert_eq!(hand_select_ui_to_hand_index(&after_play, 0), Ok(2));
+        assert_eq!(
+            hand_select_ui_to_hand_index(&after_play, 1),
+            Err(SimError::IllegalAction("hand select index out of range"))
+        );
+    }
+
+    #[test]
+    fn armaments_hand_select_purpose_round_trips_through_json() {
+        let mut state = hand_only(ARMAMENTS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Armaments opens hand select");
+        let json = serde_json::to_string(&after_play).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.hand_select, after_play.hand_select);
+        assert_eq!(
+            restored.hand_select.as_ref().map(|select| select.purpose),
+            Some(HandSelectPurpose::ArmamentsUpgrade)
+        );
+    }
+
+    #[test]
+    fn armaments_confirm_upgrades_selected_card_and_discards_armaments() {
+        let mut state = hand_only(ARMAMENTS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Armaments opens hand select");
+
+        choose_hand_select(&mut after_play, 0).expect("choose Strike");
+        confirm_hand_select(&mut after_play).expect("confirm Armaments select");
+
+        assert!(after_play.hand_select.is_none());
+        assert_eq!(after_play.piles.hand[0].id, CardId::new(21));
+        assert_eq!(after_play.piles.hand[0].content_id, STRIKE_R_PLUS_ID);
+        assert_eq!(after_play.piles.discard_pile[0].content_id, ARMAMENTS_ID);
+    }
+
+    #[test]
+    fn armaments_confirm_rejects_stale_unupgradeable_selection() {
+        let mut state = hand_only(ARMAMENTS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Armaments opens hand select");
+
+        choose_hand_select(&mut after_play, 0).expect("choose Strike");
+        after_play.piles.hand[1].content_id = STRIKE_R_PLUS_ID;
+
+        assert_eq!(
+            confirm_hand_select(&mut after_play),
+            Err(SimError::IllegalAction("selected card cannot be upgraded"))
+        );
+    }
+
+    #[test]
+    fn armaments_without_upgradeable_cards_gains_block_and_discards() {
+        let mut state = hand_only(ARMAMENTS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_PLUS_ID),
+        ];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Armaments resolves without hand select");
+
+        assert_eq!(after_play.player.block, 5);
+        assert!(after_play.hand_select.is_none());
+        assert_eq!(
+            after_play
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![ARMAMENTS_ID]
+        );
     }
 
     #[test]
