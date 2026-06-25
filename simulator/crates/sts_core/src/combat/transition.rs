@@ -13,10 +13,10 @@ use crate::{
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        EXHUME_ID, OFFERING_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WOUND_ID,
+        EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, OFFERING_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -231,6 +231,15 @@ fn apply_internal_action(
             );
             Ok(Vec::new())
         }
+        InternalAction::HealPlayer { amount } => {
+            crate::relic::heal_player_in_combat_with_relics(
+                &mut state.player.hp,
+                state.player.max_hp,
+                amount,
+                &state.relics,
+            );
+            Ok(Vec::new())
+        }
         InternalAction::GainBlock { amount } => {
             let gained = calculate_block(amount, state.player.powers);
             state.player.block += gained;
@@ -291,6 +300,14 @@ fn apply_internal_action(
         }
         InternalAction::AddCardToPile { content_id, to } => {
             add_card_to_pile(state, content_id, to);
+            Ok(Vec::new())
+        }
+        InternalAction::AddGeneratedCardToPile {
+            content_id,
+            to,
+            temp_cost,
+        } => {
+            add_generated_card_to_pile(state, content_id, to, temp_cost);
             Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
@@ -638,6 +655,25 @@ fn apply_unceasing_top_after_hand_emptied(state: &mut CombatState) {
 fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) {
     let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
     let card = CardInstance::new(next_id, content_id);
+    push_card_to_pile(state, card, to);
+}
+
+fn add_generated_card_to_pile(
+    state: &mut CombatState,
+    content_id: ContentId,
+    to: CardPile,
+    temp_cost: Option<u8>,
+) {
+    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let mut card = CardInstance {
+        combat_only: true,
+        ..CardInstance::new(next_id, content_id)
+    };
+    card.temp_cost = temp_cost;
+    push_card_to_pile(state, card, to);
+}
+
+fn push_card_to_pile(state: &mut CombatState, card: CardInstance, to: CardPile) {
     match to {
         CardPile::DiscardPile => state.piles.discard_pile.push(card),
         CardPile::DrawPile => state.piles.draw_pile.push(card),
@@ -713,6 +749,7 @@ fn apply_play_top_draw_card(
         | ANGER_PLUS_ID
         | POMMEL_STRIKE_ID
         | POMMEL_STRIKE_PLUS_ID
+        | FLASH_OF_STEEL_ID
         | SEARING_BLOW_ID
         | SEARING_BLOW_PLUS_ID
         | BASH_ID
@@ -730,6 +767,9 @@ fn apply_play_top_draw_card(
                     content_id: DAZED_ID,
                     to: CardPile::DrawPile,
                 });
+            }
+            if definition.id == FLASH_OF_STEEL_ID {
+                follow_ups.push(InternalAction::DrawCards { count: 1 });
             }
         }
         PUMMEL_ID => {
@@ -776,6 +816,12 @@ fn apply_play_top_draw_card(
         }
         SHRUG_IT_OFF_ID => {
             follow_ups.push(InternalAction::GainBlock { amount: 8 });
+            follow_ups.push(InternalAction::DrawCards { count: 1 });
+        }
+        FINESSE_ID => {
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
         OFFERING_ID => {
@@ -1251,24 +1297,26 @@ fn move_card(
 
 #[cfg(test)]
 mod tests {
+    use super::card_effects::infernal_blade_modeled_attack_pool;
     use super::*;
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-        BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
-        BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
-        COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
-        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
-        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
-        INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        ANGER_ID, ANGER_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
+        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID,
+        BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
+        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
+        GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -2340,6 +2388,89 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: power_through_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn infernal_blade_adds_zero_cost_combat_only_attack_to_hand_and_discards_source() {
+        let mut state = hand_only(INFERNAL_BLADE_ID);
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let expected_pool = infernal_blade_modeled_attack_pool();
+        let expected =
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize];
+
+        let next = apply_combat_action(&state, infernal_blade_action(&state))
+            .expect("Infernal Blade applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == INFERNAL_BLADE_ID));
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == expected)
+            .expect("generated attack");
+        assert!(generated.combat_only);
+        assert_eq!(generated.temp_cost, Some(0));
+        assert_eq!(
+            get_card_definition(generated.content_id).map(|definition| definition.card_type),
+            Some(CardType::Attack)
+        );
+    }
+
+    #[test]
+    fn infernal_blade_without_card_random_rng_uses_deterministic_modeled_fallback() {
+        let state = hand_only(INFERNAL_BLADE_ID);
+        let expected = infernal_blade_modeled_attack_pool()[0];
+
+        let next = apply_combat_action(&state, infernal_blade_action(&state))
+            .expect("Infernal Blade applies");
+
+        assert!(next.card_random_rng.is_none());
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.combat_only)
+            .expect("generated attack");
+        assert_eq!(generated.content_id, expected);
+        assert_eq!(generated.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn infernal_blade_event_log_records_generation_before_source_discard() {
+        let state = hand_only(INFERNAL_BLADE_ID);
+        let card_id = hand_card_id(&state, INFERNAL_BLADE_ID);
+        let expected = infernal_blade_modeled_attack_pool()[0];
+
+        let transition = apply_combat_action_with_events(&state, infernal_blade_action(&state))
+            .expect("Infernal Blade applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected,
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
+                },
+                InternalAction::MoveCard {
+                    card_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -3942,6 +4073,286 @@ mod tests {
         let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
 
         assert_eq!(next.player.block, 3);
+    }
+
+    #[test]
+    fn good_instincts_gains_six_block_at_zero_cost_and_discards() {
+        let mut state = hand_only(GOOD_INSTINCTS_ID);
+        state.player.energy = 0;
+        let good_instincts_id = hand_card_id(&state, GOOD_INSTINCTS_ID);
+
+        let next = apply_combat_action(&state, good_instincts_action(&state))
+            .expect("Good Instincts applies");
+
+        assert_eq!(next.player.block, 6);
+        assert_eq!(next.player.energy, 0);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == good_instincts_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == good_instincts_id));
+    }
+
+    #[test]
+    fn good_instincts_rejects_target() {
+        let state = hand_only(GOOD_INSTINCTS_ID);
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: hand_card_id(&state, GOOD_INSTINCTS_ID),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn good_instincts_uses_existing_block_calculation() {
+        let mut state = hand_only(GOOD_INSTINCTS_ID);
+        state.player.powers.dexterity = 2;
+        state.player.powers.frail = 1;
+
+        let next = apply_combat_action(&state, good_instincts_action(&state))
+            .expect("Good Instincts applies");
+
+        assert_eq!(next.player.block, calculate_block(6, state.player.powers));
+    }
+
+    #[test]
+    fn good_instincts_event_log_records_generic_skill_queue() {
+        let state = hand_only(GOOD_INSTINCTS_ID);
+        let good_instincts_id = hand_card_id(&state, GOOD_INSTINCTS_ID);
+
+        let transition = apply_combat_action_with_events(&state, good_instincts_action(&state))
+            .expect("Good Instincts applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: good_instincts_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::GainBlock { amount: 6 },
+                InternalAction::MoveCard {
+                    card_id: good_instincts_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn bandage_up_heals_four_at_zero_cost_and_exhausts() {
+        let mut state = hand_only(BANDAGE_UP_ID);
+        state.player.energy = 0;
+        state.player.hp = 40;
+        state.player.max_hp = 80;
+        let bandage_up_id = hand_card_id(&state, BANDAGE_UP_ID);
+
+        let next =
+            apply_combat_action(&state, bandage_up_action(&state)).expect("Bandage Up applies");
+
+        assert_eq!(next.player.hp, 44);
+        assert_eq!(next.player.energy, 0);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == bandage_up_id));
+    }
+
+    #[test]
+    fn bandage_up_healing_is_capped_at_max_hp() {
+        let mut state = hand_only(BANDAGE_UP_ID);
+        state.player.hp = 78;
+        state.player.max_hp = 80;
+
+        let next =
+            apply_combat_action(&state, bandage_up_action(&state)).expect("Bandage Up applies");
+
+        assert_eq!(next.player.hp, 80);
+    }
+
+    #[test]
+    fn magic_flower_increases_bandage_up_healing() {
+        let mut state = hand_only(BANDAGE_UP_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 80;
+        state.relics = vec![Relic::MagicFlower];
+
+        let next =
+            apply_combat_action(&state, bandage_up_action(&state)).expect("Bandage Up applies");
+
+        assert_eq!(next.player.hp, 46);
+    }
+
+    #[test]
+    fn bandage_up_event_log_records_heal_before_exhaust() {
+        let mut state = hand_only(BANDAGE_UP_ID);
+        state.player.hp = 40;
+        let bandage_up_id = hand_card_id(&state, BANDAGE_UP_ID);
+
+        let transition = apply_combat_action_with_events(&state, bandage_up_action(&state))
+            .expect("Bandage Up applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: bandage_up_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::HealPlayer { amount: 4 },
+                InternalAction::MoveCard {
+                    card_id: bandage_up_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: bandage_up_id
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn finesse_gains_two_block_draws_one_at_zero_cost_and_discards() {
+        let mut state = hand_only(FINESSE_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let finesse_id = hand_card_id(&state, FINESSE_ID);
+
+        let next = apply_combat_action(&state, finesse_action(&state)).expect("Finesse applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.block, 2);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == finesse_id));
+    }
+
+    #[test]
+    fn finesse_event_log_records_block_draw_then_discard() {
+        let mut state = hand_only(FINESSE_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let finesse_id = hand_card_id(&state, FINESSE_ID);
+
+        let transition = apply_combat_action_with_events(&state, finesse_action(&state))
+            .expect("Finesse applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: finesse_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::GainBlock { amount: 2 },
+                InternalAction::DrawCards { count: 1 },
+                InternalAction::MoveCard {
+                    card_id: finesse_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn flash_of_steel_deals_three_draws_one_and_discards_at_zero_cost() {
+        let mut state = hand_only(FLASH_OF_STEEL_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, flash_of_steel_action(&state))
+            .expect("Flash of Steel applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 3);
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert!(next.piles.draw_pile.is_empty());
+        assert_eq!(next.piles.discard_pile[0].content_id, FLASH_OF_STEEL_ID);
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn flash_of_steel_event_log_records_damage_draw_then_discard() {
+        let mut state = hand_only(FLASH_OF_STEEL_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+        let flash_of_steel_id = hand_card_id(&state, FLASH_OF_STEEL_ID);
+
+        let transition = apply_combat_action_with_events(&state, flash_of_steel_action(&state))
+            .expect("Flash of Steel applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: flash_of_steel_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(flash_of_steel_id),
+                        target: MonsterId::new(1),
+                        amount: 3,
+                    }
+                },
+                InternalAction::DrawCards { count: 1 },
+                InternalAction::MoveCard {
+                    card_id: flash_of_steel_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn havoc_top_draw_flash_of_steel_deals_damage_draws_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), FLASH_OF_STEEL_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Havoc plays Flash of Steel");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 3);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == HAVOC_ID));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == FLASH_OF_STEEL_ID));
     }
 
     #[test]
@@ -9476,6 +9887,34 @@ mod tests {
         }
     }
 
+    fn good_instincts_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, GOOD_INSTINCTS_ID),
+            target: None,
+        }
+    }
+
+    fn bandage_up_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BANDAGE_UP_ID),
+            target: None,
+        }
+    }
+
+    fn finesse_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, FINESSE_ID),
+            target: None,
+        }
+    }
+
+    fn flash_of_steel_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, FLASH_OF_STEEL_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
     fn clash_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, CLASH_ID),
@@ -9514,6 +9953,13 @@ mod tests {
     fn power_through_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, POWER_THROUGH_ID),
+            target: None,
+        }
+    }
+
+    fn infernal_blade_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, INFERNAL_BLADE_ID),
             target: None,
         }
     }

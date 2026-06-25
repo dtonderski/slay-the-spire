@@ -55,6 +55,10 @@ pub const SEARING_BLOW_ID: ContentId = ContentId::new(42);
 pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
 pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
+pub const BANDAGE_UP_ID: ContentId = ContentId::new(1_802_661_242_803_912);
+pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
+pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
+pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1165,6 +1169,27 @@ pub const DRAMATIC_ENTRANCE: CardDefinition = CardDefinition {
     },
 };
 
+pub const BANDAGE_UP: CardDefinition = CardDefinition {
+    id: BANDAGE_UP_ID,
+    key: "BANDAGE_UP",
+    name: "Bandage Up",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     id: SWIFT_STRIKE_ID,
     key: "Swift Strike",
@@ -1175,6 +1200,51 @@ pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     values: CardValues {
         damage: Some(7),
         block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const FLASH_OF_STEEL: CardDefinition = CardDefinition {
+    id: FLASH_OF_STEEL_ID,
+    key: "Flash of Steel",
+    name: "Flash of Steel",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(3),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const GOOD_INSTINCTS: CardDefinition = CardDefinition {
+    id: GOOD_INSTINCTS_ID,
+    key: "GOOD_INSTINCTS",
+    name: "Good Instincts",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(6),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const FINESSE: CardDefinition = CardDefinition {
+    id: FINESSE_ID,
+    key: "FINESSE",
+    name: "Finesse",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(2),
         vulnerable: None,
     },
     keywords: CARD_KEYWORDS_NONE,
@@ -1295,6 +1365,21 @@ pub const POWER_THROUGH: CardDefinition = CardDefinition {
     values: CardValues {
         damage: None,
         block: Some(15),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const INFERNAL_BLADE: CardDefinition = CardDefinition {
+    id: INFERNAL_BLADE_ID,
+    key: "INFERNAL_BLADE",
+    name: "Infernal Blade",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
         vulnerable: None,
     },
     keywords: CARD_KEYWORDS_NONE,
@@ -1853,7 +1938,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 101] = [
+pub const ALL_CARDS: [CardDefinition; 106] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1917,7 +2002,11 @@ pub const ALL_CARDS: [CardDefinition; 101] = [
     SEARING_BLOW,
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
+    BANDAGE_UP,
     SWIFT_STRIKE,
+    FLASH_OF_STEEL,
+    GOOD_INSTINCTS,
+    FINESSE,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -1926,6 +2015,7 @@ pub const ALL_CARDS: [CardDefinition; 101] = [
     PERFECTED_STRIKE,
     RAMPAGE,
     POWER_THROUGH,
+    INFERNAL_BLADE,
     ENTRENCH,
     GHOSTLY_ARMOR,
     FLAME_BARRIER,
@@ -1983,6 +2073,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == STRIKE_R_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == BANDAGE_UP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -1993,6 +2084,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == RAMPAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == INFERNAL_BLADE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == ENTRENCH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FLAME_BARRIER_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2049,6 +2141,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == REAPER_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == EXHUME_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         _ => None,
     }
 }
@@ -2185,6 +2280,61 @@ mod tests {
         assert_eq!(DRAMATIC_ENTRANCE.card_type, CardType::Attack);
         assert_eq!(DRAMATIC_ENTRANCE.values.damage, Some(8));
         assert!(DRAMATIC_ENTRANCE.keywords.exhaust);
+    }
+
+    #[test]
+    fn bandage_up_has_expected_values_keywords_and_rarity() {
+        assert_eq!(BANDAGE_UP.id, BANDAGE_UP_ID);
+        assert_eq!(BANDAGE_UP.cost, 0);
+        assert_eq!(BANDAGE_UP.target, TargetRequirement::None);
+        assert_eq!(BANDAGE_UP.card_type, CardType::Skill);
+        assert!(BANDAGE_UP.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(BANDAGE_UP_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn good_instincts_has_expected_values_and_rarity() {
+        assert_eq!(GOOD_INSTINCTS.id, GOOD_INSTINCTS_ID);
+        assert_eq!(GOOD_INSTINCTS.cost, 0);
+        assert_eq!(GOOD_INSTINCTS.target, TargetRequirement::None);
+        assert_eq!(GOOD_INSTINCTS.card_type, CardType::Skill);
+        assert_eq!(GOOD_INSTINCTS.values.block, Some(6));
+        assert_eq!(GOOD_INSTINCTS.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(GOOD_INSTINCTS_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn flash_of_steel_has_expected_values_and_rarity() {
+        assert_eq!(FLASH_OF_STEEL.id, FLASH_OF_STEEL_ID);
+        assert_eq!(FLASH_OF_STEEL.cost, 0);
+        assert_eq!(FLASH_OF_STEEL.target, TargetRequirement::Enemy);
+        assert_eq!(FLASH_OF_STEEL.card_type, CardType::Attack);
+        assert_eq!(FLASH_OF_STEEL.values.damage, Some(3));
+        assert_eq!(FLASH_OF_STEEL.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(FLASH_OF_STEEL_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn finesse_has_expected_values_and_rarity() {
+        assert_eq!(FINESSE.id, FINESSE_ID);
+        assert_eq!(FINESSE.cost, 0);
+        assert_eq!(FINESSE.target, TargetRequirement::None);
+        assert_eq!(FINESSE.card_type, CardType::Skill);
+        assert_eq!(FINESSE.values.block, Some(2));
+        assert_eq!(FINESSE.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(FINESSE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
     }
 
     #[test]
@@ -2717,6 +2867,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(FIRE_BREATHING_ID),
             Some((CardType::Power, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn infernal_blade_has_expected_values_and_rarity() {
+        assert_eq!(INFERNAL_BLADE.id, INFERNAL_BLADE_ID);
+        assert_eq!(INFERNAL_BLADE.cost, 1);
+        assert_eq!(INFERNAL_BLADE.target, TargetRequirement::None);
+        assert_eq!(INFERNAL_BLADE.card_type, CardType::Skill);
+        assert_eq!(
+            card_type_and_rarity(INFERNAL_BLADE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
 

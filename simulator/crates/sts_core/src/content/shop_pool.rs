@@ -1,18 +1,18 @@
 use crate::card::{CardRarity, CardType};
 use crate::content::cards::{
-    ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
-    BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
-    CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DEMON_FORM_ID,
-    DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
-    EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID,
-    FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-    HEMOKINESIS_ID, IMMOLATE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INTIMIDATE_ID,
-    IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-    POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
-    RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID,
-    SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID,
-    THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID,
-    WILD_STRIKE_ID,
+    ANGER_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID,
+    BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
+    CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
+    DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+    ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID,
+    FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID,
+    HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID,
+    INFLAME_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+    OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID,
+    RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+    SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+    SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
+    WHIRLWIND_ID, WILD_STRIKE_ID,
 };
 use crate::content::reward_pool::ironclad_reward_card_rarity;
 use crate::rng::StsRng;
@@ -243,6 +243,9 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "DEMON_FORM" => DEMON_FORM_ID,
         "JUGGERNAUT" => JUGGERNAUT_ID,
         "DRAMATIC_ENTRANCE" => DRAMATIC_ENTRANCE_ID,
+        "BANDAGE_UP" => BANDAGE_UP_ID,
+        "FLASH_OF_STEEL" => FLASH_OF_STEEL_ID,
+        "GOOD_INSTINCTS" => GOOD_INSTINCTS_ID,
         other => ContentId::new(600 + stable_pool_name_id(other)),
     }
 }
@@ -452,4 +455,40 @@ pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<C
         }
     }
     choices
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::cards::{BANDAGE_UP_ID, FLASH_OF_STEEL_ID, GOOD_INSTINCTS_ID};
+
+    #[test]
+    fn bandage_up_pool_key_maps_to_concrete_colorless_skill() {
+        assert_eq!(shop_card_content_id("BANDAGE_UP"), BANDAGE_UP_ID);
+        assert!(shop_card_is_colorless(BANDAGE_UP_ID));
+        assert_eq!(shop_card_type(BANDAGE_UP_ID), Some(CardType::Skill));
+        assert_eq!(shop_card_price_rarity(BANDAGE_UP_ID), CardRarity::Uncommon);
+    }
+
+    #[test]
+    fn good_instincts_pool_key_maps_to_concrete_colorless_skill() {
+        assert_eq!(shop_card_content_id("GOOD_INSTINCTS"), GOOD_INSTINCTS_ID);
+        assert!(shop_card_is_colorless(GOOD_INSTINCTS_ID));
+        assert_eq!(shop_card_type(GOOD_INSTINCTS_ID), Some(CardType::Skill));
+        assert_eq!(
+            shop_card_price_rarity(GOOD_INSTINCTS_ID),
+            CardRarity::Uncommon
+        );
+    }
+
+    #[test]
+    fn flash_of_steel_pool_key_maps_to_concrete_colorless_attack() {
+        assert_eq!(shop_card_content_id("FLASH_OF_STEEL"), FLASH_OF_STEEL_ID);
+        assert!(shop_card_is_colorless(FLASH_OF_STEEL_ID));
+        assert_eq!(shop_card_type(FLASH_OF_STEEL_ID), Some(CardType::Attack));
+        assert_eq!(
+            shop_card_price_rarity(FLASH_OF_STEEL_ID),
+            CardRarity::Uncommon
+        );
+    }
 }

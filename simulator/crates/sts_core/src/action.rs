@@ -47,6 +47,9 @@ pub enum InternalAction {
         source: CardId,
         amount: i32,
     },
+    HealPlayer {
+        amount: i32,
+    },
     GainBlock {
         amount: i32,
     },
@@ -68,6 +71,11 @@ pub enum InternalAction {
     AddCardToPile {
         content_id: crate::ContentId,
         to: CardPile,
+    },
+    AddGeneratedCardToPile {
+        content_id: crate::ContentId,
+        to: CardPile,
+        temp_cost: Option<u8>,
     },
     MoveCard {
         card_id: CardId,
