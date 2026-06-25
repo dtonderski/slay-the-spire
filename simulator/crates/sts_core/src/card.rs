@@ -75,6 +75,9 @@ pub struct CardInstance {
     /// Cards created only for the current combat vanish after play.
     #[serde(default)]
     pub combat_only: bool,
+    /// Combat-local Rampage damage growth for this specific card instance.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub rampage_damage_bonus: i32,
 }
 
 impl CardInstance {
@@ -87,6 +90,7 @@ impl CardInstance {
             temp_cost: None,
             temp_cost_turn_only: false,
             combat_only: false,
+            rampage_damage_bonus: 0,
         }
     }
 
@@ -99,10 +103,15 @@ impl CardInstance {
             temp_cost: Some(temp_cost),
             temp_cost_turn_only: false,
             combat_only: true,
+            rampage_damage_bonus: 0,
         }
     }
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
 }

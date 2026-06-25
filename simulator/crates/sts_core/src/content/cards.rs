@@ -1145,6 +1145,21 @@ pub const PERFECTED_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const RAMPAGE: CardDefinition = CardDefinition {
+    id: RAMPAGE_ID,
+    key: "RAMPAGE",
+    name: "Rampage",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const POWER_THROUGH: CardDefinition = CardDefinition {
     id: POWER_THROUGH_ID,
     key: "POWER_THROUGH",
@@ -1656,7 +1671,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 89] = [
+pub const ALL_CARDS: [CardDefinition; 90] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1719,6 +1734,7 @@ pub const ALL_CARDS: [CardDefinition; 89] = [
     WILD_STRIKE,
     HEAVY_BLADE,
     PERFECTED_STRIKE,
+    RAMPAGE,
     POWER_THROUGH,
     ENTRENCH,
     GHOSTLY_ARMOR,
@@ -1782,6 +1798,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == RAMPAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == ENTRENCH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2044,6 +2061,18 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(PERFECTED_STRIKE_ID),
             Some((CardType::Attack, CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn rampage_has_expected_values_and_rarity() {
+        assert_eq!(RAMPAGE.cost, 1);
+        assert_eq!(RAMPAGE.target, TargetRequirement::Enemy);
+        assert_eq!(RAMPAGE.card_type, CardType::Attack);
+        assert_eq!(RAMPAGE.values.damage, Some(8));
+        assert_eq!(
+            card_type_and_rarity(RAMPAGE_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
         );
     }
 

@@ -1495,6 +1495,7 @@ Tasks:
   - [x] Implement base Clothesline (`CLOTHESLINE`, ContentId(104)) as a deterministic common attack: 2 energy, targeted enemy, 12 damage, 2 weak, no trace-parity claim.
   - [x] Implement base Intimidate (`INTIMIDATE`, ContentId(115)) as a deterministic uncommon skill: 0 energy, 1 weak to all living enemies, exhaust, no trace-parity claim.
   - [x] Implement base Rage (`RAGE`, ContentId(125)) as a deterministic uncommon skill: 0 energy, no target, this-turn attack plays gain 3 block via turn-scoped local state, no trace-parity claim.
+  - [x] Implement base Rampage (`RAMPAGE`, ContentId(121)) as a deterministic uncommon attack: 1 energy, targeted enemy, 8 damage, increases only the played card instance's future Rampage damage by 5 for the current combat, no trace-parity claim.
   - [x] Implement base Barricade (`BARRICADE`, ContentId(143)) as a deterministic rare power: 3 energy, no target, grants player block-retention power state, removes the played power card through the existing power-card path, and preserves block at turn-transition cleanup, no trace-parity claim.
   - [x] Implement base Berserk (`BERSERK`, ContentId(145)) as a deterministic rare power: 0 energy, no target, applies 2 player Vulnerable, grants serialized start-turn energy power state, and removes the played power card through the existing power-card path, no trace-parity claim.
   - [x] Implement base Second Wind (`SECOND_WIND`, ContentId(128)) as a deterministic uncommon skill: 1 energy, no target, exhaust all non-Attack hand cards except the source, gain 5 block per exhausted non-source card, move source to discard, no trace-parity claim.
@@ -1529,6 +1530,7 @@ Tasks:
   - [x] Add Clothesline definition, legality, transition, discard, and event-log tests.
   - [x] Add Intimidate definition, legality, all-living-enemy, dead-enemy skip, exhaust, and event-log tests.
   - [x] Add Rage definition, legality/target rejection, transition, turn-scoped stacking, attack-only trigger, Havoc/top-draw attack trigger, turn expiry, serialization, and event-log tests.
+  - [x] Add Rampage definition/rarity, legality/missing-target/energy, transition, effective-cost spending, per-card-instance growth, serialization, Strength/Vulnerable, Akabeko/Pen Nib, and event-log tests.
   - [x] Add Barricade definition/rarity, legality/target rejection, transition, effective-cost spending, power removal, serialized power state, turn-transition block retention, Calipers precedence, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Berserk definition/rarity, legality/target rejection, transition, self-Vulnerable, Artifact, effective-cost spending, power removal, serialized power state, start-turn energy, Ice Cream, Bird-Faced Urn, Unceasing Top, and event-log tests.
   - [x] Add Second Wind definition, legality, no-target rejection, unaffordable, non-Attack exhaust filtering, aggregate block, source discard, Sentinel/Feel No Pain/Dark Embrace hook interaction, and event-log tests.
@@ -1558,6 +1560,7 @@ Tasks:
   - [x] Armaments uses explicit-purpose hand-select state and mutates existing hand card content IDs for combat-local upgrades.
   - [x] Headbutt uses explicit-purpose discard-select state; Liquid Memories retains its separate discard-select purpose.
   - [x] Rage uses turn-scoped player combat state and includes player-state serialization coverage.
+  - [x] Rampage adds serialized card-instance state for combat-local damage growth.
   - [x] Barricade adds serialized player power state for block retention.
   - [x] Berserk adds serialized player power state for start-turn energy gain.
 - add interaction tests when a surface touches existing card, relic, power, potion, pile, reward, or room hooks
@@ -1588,6 +1591,7 @@ Tasks:
   - [x] Armaments covers block modifiers, hand-select purpose serialization, hand-select filtering, selected hand-card content upgrade, and no-upgradeable fallback through existing card queue and selection hooks.
   - [x] Headbutt covers targeted attack damage, explicit discard-select purpose serialization, selected discard-to-draw-pile movement, lethal-selection skip, and played-card discard movement through existing card queue and selection hooks.
   - [x] Rage covers turn-scoped state serialization, Skill play hooks, later Attack play hooks, Havoc top-draw attacks, block modifiers through the local block calculation path, discard movement, and turn reset.
+  - [x] Rampage covers per-card-instance growth, effective-cost spending, attack damage modifiers, damage relic queue modifiers, and discard movement through existing card queue and transition hooks.
   - [x] Barricade covers effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, turn-transition block retention, and Calipers precedence through existing card queue and turn cleanup hooks.
   - [x] Berserk covers self-debuff Artifact handling, effective-cost spending, power-card removal, power-play relic hooks, hand-empty draw hooks, and start-turn energy with Ice Cream through existing card queue and turn hooks.
 - update the support matrix status and caveats as each surface moves from `inventory_only` or `placeholder` to `implemented`
@@ -1620,6 +1624,7 @@ Tasks:
   - [x] Move Clothesline from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Intimidate from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Rage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Move Rampage from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Barricade from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Berserk from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Second Wind from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
@@ -1654,6 +1659,7 @@ Tasks:
   - [x] Clothesline matrix caveat names the missing real-game trace parity evidence.
   - [x] Intimidate matrix caveat names the missing real-game trace parity evidence.
   - [x] Rage matrix caveat names the missing real-game trace parity, source-backed exact trigger ordering/modifier evidence, and upgraded behavior.
+  - [x] Rampage matrix caveat names the missing played-card real-game trace parity, source-backed exact card-UUID/copy semantics, and upgraded behavior.
   - [x] Barricade matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
   - [x] Berserk matrix caveat names the missing played-card real-game trace parity, source-backed exact power lifecycle/timing evidence, and upgraded behavior.
 

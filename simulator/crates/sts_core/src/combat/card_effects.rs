@@ -15,7 +15,7 @@ use crate::{
         HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID,
         INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
         SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
         SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
         STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
@@ -93,6 +93,12 @@ pub(super) fn play_card_queue(
             state,
             card_id,
             target.expect("validated Perfected Strike has a target"),
+            definition,
+        ),
+        RAMPAGE_ID => rampage_queue(
+            state,
+            card_id,
+            target.expect("validated Rampage has a target"),
             definition,
         ),
         POWER_THROUGH_ID => power_through_queue(card_id, definition),
@@ -791,6 +797,39 @@ fn wild_strike_queue(
             content_id: WOUND_ID,
             to: CardPile::DrawPile,
         },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn rampage_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let bonus = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.rampage_damage_bonus)
+        .unwrap_or(0);
+
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0) + bonus,
+            },
+        },
+        InternalAction::IncreaseRampageDamage { card_id, amount: 5 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
