@@ -361,6 +361,10 @@ fn apply_internal_action(
             state.player.powers.fire_breathing += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainCorruption { amount } => {
+            state.player.powers.corruption += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainMetallicize { amount } => {
             state.player.powers.metallicize += amount;
             Ok(Vec::new())
@@ -1070,6 +1074,11 @@ fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
             .map(|definition| i32::from(definition.cost))
             .unwrap_or(0)
     };
+    if get_card_definition(card.content_id).is_some_and(|definition| {
+        state.player.powers.corruption > 0 && definition.card_type == CardType::Skill
+    }) {
+        return 0;
+    }
     if card.content_id == BLOOD_FOR_BLOOD_ID {
         return (base_cost - card.blood_for_blood_cost_reduction).max(0);
     }
@@ -1116,9 +1125,9 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
         BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
         BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
-        COMBUST_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID, FEEL_NO_PAIN_ID,
-        FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
+        COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
+        DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
+        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
         GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID,
         INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
         OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
@@ -5935,6 +5944,166 @@ mod tests {
     }
 
     #[test]
+    fn corruption_grants_power_spends_three_and_is_removed_from_hand() {
+        let mut state = hand_only(CORRUPTION_ID);
+        state.player.energy = 3;
+
+        let next =
+            apply_combat_action(&state, corruption_action(&state)).expect("Corruption applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.corruption, 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn corruption_rejects_target() {
+        let mut state = hand_only(CORRUPTION_ID);
+        state.player.energy = 3;
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn corruption_uses_effective_card_cost() {
+        let mut state = hand_only(CORRUPTION_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].temp_cost = Some(1);
+
+        let next = apply_combat_action(&state, corruption_action(&state))
+            .expect("Corruption applies with temp cost");
+
+        assert_eq!(next.player.energy, 1);
+        assert_eq!(next.player.powers.corruption, 1);
+    }
+
+    #[test]
+    fn corruption_round_trips_through_combat_state_json() {
+        let mut state = hand_only(CORRUPTION_ID);
+        state.player.energy = 3;
+
+        let next =
+            apply_combat_action(&state, corruption_action(&state)).expect("Corruption applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.corruption, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn corruption_event_log_records_power_gain_and_removal() {
+        let mut state = hand_only(CORRUPTION_ID);
+        state.player.energy = 3;
+
+        let transition = apply_combat_action_with_events(&state, corruption_action(&state))
+            .expect("Corruption applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainCorruption { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn corruption_makes_played_skills_cost_zero_and_exhaust() {
+        let mut state = hand_only(DEFEND_R_ID);
+        state.player.energy = 0;
+        state.player.powers.corruption = 1;
+        state.player.powers.feel_no_pain = 1;
+
+        let transition = apply_combat_action_with_events(&state, defend_action(&state))
+            .expect("Defend applies under Corruption");
+        let next = transition.state;
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.block, 8);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].id, CardId::new(20));
+        assert!(transition
+            .event_log
+            .contains(&InternalAction::SpendEnergy { amount: 0 }));
+        assert!(transition.event_log.contains(&InternalAction::MoveCard {
+            card_id: CardId::new(20),
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        }));
+        assert!(transition
+            .event_log
+            .contains(&InternalAction::CardExhausted {
+                card_id: CardId::new(20),
+            }));
+    }
+
+    #[test]
+    fn corruption_triggers_bird_faced_urn_power_heal() {
+        let mut state = hand_only(CORRUPTION_ID);
+        state.player.hp = 60;
+        state.player.max_hp = 70;
+        state.player.energy = 3;
+        state.relics = vec![Relic::BirdFacedUrn];
+
+        let next =
+            apply_combat_action(&state, corruption_action(&state)).expect("Corruption applies");
+
+        assert_eq!(next.player.hp, 60 + crate::relic::BIRD_FACED_URN_HEAL);
+        assert_eq!(next.player.powers.corruption, 1);
+    }
+
+    #[test]
+    fn corruption_removal_can_trigger_unceasing_top() {
+        let mut state = hand_only(CORRUPTION_ID);
+        state.player.energy = 3;
+        state.relics = vec![Relic::UnceasingTop];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next =
+            apply_combat_action(&state, corruption_action(&state)).expect("Corruption applies");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.player.powers.corruption, 1);
+    }
+
+    #[test]
     fn berserk_grants_power_applies_vulnerable_and_is_removed_from_hand() {
         let mut state = hand_only(BERSERK_ID);
         state.player.energy = 0;
@@ -9036,6 +9205,13 @@ mod tests {
     fn barricade_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BARRICADE_ID),
+            target: None,
+        }
+    }
+
+    fn corruption_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, CORRUPTION_ID),
             target: None,
         }
     }

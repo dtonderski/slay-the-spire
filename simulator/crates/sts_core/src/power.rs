@@ -30,6 +30,8 @@ pub struct PlayerPowers {
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub fire_breathing: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub corruption: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub buffer: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub intangible: i32,

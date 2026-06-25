@@ -126,6 +126,9 @@ pub enum InternalAction {
     GainFireBreathing {
         amount: i32,
     },
+    GainCorruption {
+        amount: i32,
+    },
     GainMetallicize {
         amount: i32,
     },

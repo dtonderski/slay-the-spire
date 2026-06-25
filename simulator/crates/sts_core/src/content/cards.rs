@@ -598,6 +598,21 @@ pub const EVOLVE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const CORRUPTION: CardDefinition = CardDefinition {
+    id: CORRUPTION_ID,
+    key: "CORRUPTION",
+    name: "Corruption",
+    cost: 3,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BARRICADE: CardDefinition = CardDefinition {
     id: BARRICADE_ID,
     key: "BARRICADE",
@@ -1802,7 +1817,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 98] = [
+pub const ALL_CARDS: [CardDefinition; 99] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1831,6 +1846,7 @@ pub const ALL_CARDS: [CardDefinition; 98] = [
     COMBUST,
     DEMON_FORM,
     EVOLVE,
+    CORRUPTION,
     BARRICADE,
     BERSERK,
     RUPTURE,
@@ -1964,6 +1980,8 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == CORRUPTION_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
@@ -2546,6 +2564,18 @@ mod tests {
         assert_eq!(DEMON_FORM.card_type, CardType::Power);
         assert_eq!(
             card_type_and_rarity(DEMON_FORM_ID),
+            Some((CardType::Power, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn corruption_has_expected_values_and_rarity() {
+        assert_eq!(CORRUPTION.id, CORRUPTION_ID);
+        assert_eq!(CORRUPTION.cost, 3);
+        assert_eq!(CORRUPTION.target, TargetRequirement::None);
+        assert_eq!(CORRUPTION.card_type, CardType::Power);
+        assert_eq!(
+            card_type_and_rarity(CORRUPTION_ID),
             Some((CardType::Power, CardRarity::Rare))
         );
     }
