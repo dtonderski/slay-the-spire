@@ -21,7 +21,7 @@ pub use setup::{
     order_deck_for_combat_shuffle, starter_only_deck,
 };
 pub use state::{
-    CardPiles, CombatPhase, CombatState, DiscardSelectPurpose, DiscardSelectState,
+    BombTimer, CardPiles, CombatPhase, CombatState, DiscardSelectPurpose, DiscardSelectState,
     ExhaustSelectPurpose, ExhaustSelectState, HandSelectPurpose, HandSelectState, MonsterIntent,
     MonsterState, PlayerState, BASE_PLAYER_ENERGY,
 };

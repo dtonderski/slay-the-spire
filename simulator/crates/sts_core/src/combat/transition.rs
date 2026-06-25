@@ -8,6 +8,7 @@ use crate::{
             deal_damage_info_to_monster_with_result, deal_unmodified_damage_to_monster,
             reflect_spikes_to_player, DamageInfo, DamageSource,
         },
+        state::BombTimer,
         validate_combat_action, CombatPhase, DiscardSelectPurpose, HandSelectPurpose,
     },
     content::cards::{
@@ -403,6 +404,13 @@ fn apply_internal_action(
         }
         InternalAction::GainCorruption { amount } => {
             state.player.powers.corruption += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::ArmTheBomb { turns, damage } => {
+            state.bomb_timers.push(BombTimer {
+                turns_remaining: turns,
+                damage,
+            });
             Ok(Vec::new())
         }
         InternalAction::DealUnmodifiedDamage { target, amount } => {

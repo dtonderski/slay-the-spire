@@ -72,6 +72,7 @@ pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
 pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
+pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -257,6 +258,8 @@ pub const BURN_END_TURN_DAMAGE: i32 = 2;
 pub const COMBUST_HP_LOSS: i32 = 1;
 /// Combust deals this much damage to all living enemies per stack at end of turn.
 pub const COMBUST_DAMAGE: i32 = 5;
+pub const THE_BOMB_DAMAGE: i32 = 40;
+pub const THE_BOMB_TURNS: i32 = 3;
 
 pub const BURN: CardDefinition = CardDefinition {
     id: BURN_ID,
@@ -1449,6 +1452,21 @@ pub const MASTER_OF_STRATEGY: CardDefinition = CardDefinition {
     },
 };
 
+pub const THE_BOMB: CardDefinition = CardDefinition {
+    id: THE_BOMB_ID,
+    key: "THE_BOMB",
+    name: "The Bomb",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(THE_BOMB_DAMAGE),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const JACK_OF_ALL_TRADES: CardDefinition = CardDefinition {
     id: JACK_OF_ALL_TRADES_ID,
     key: "JACK_OF_ALL_TRADES",
@@ -2188,7 +2206,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 119] = [
+pub const ALL_CARDS: [CardDefinition; 120] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2270,6 +2288,7 @@ pub const ALL_CARDS: [CardDefinition; 119] = [
     JACK_OF_ALL_TRADES,
     MADNESS,
     MASTER_OF_STRATEGY,
+    THE_BOMB,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2421,6 +2440,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == THE_BOMB_ID => Some((CardType::Skill, CardRarity::Rare)),
         _ => None,
     }
 }
