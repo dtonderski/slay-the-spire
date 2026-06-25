@@ -1295,6 +1295,21 @@ pub const DISARM: CardDefinition = CardDefinition {
     },
 };
 
+pub const RAGE: CardDefinition = CardDefinition {
+    id: RAGE_ID,
+    key: "RAGE",
+    name: "Rage",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SEVER_SOUL: CardDefinition = CardDefinition {
     id: SEVER_SOUL_ID,
     key: "Sever Soul",
@@ -1611,7 +1626,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 86] = [
+pub const ALL_CARDS: [CardDefinition; 87] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -1682,6 +1697,7 @@ pub const ALL_CARDS: [CardDefinition; 86] = [
     INTIMIDATE,
     SHOCKWAVE,
     DISARM,
+    RAGE,
     SEVER_SOUL,
     SECOND_WIND,
     SENTINEL,
@@ -1772,6 +1788,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SHOCKWAVE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == RAGE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FIEND_FIRE_ID => Some((CardType::Attack, CardRarity::Rare)),
@@ -2177,6 +2194,19 @@ mod tests {
         );
         assert_eq!(
             card_type_and_rarity(DISARM_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn rage_has_expected_values_and_rarity() {
+        assert_eq!(RAGE.id, RAGE_ID);
+        assert_eq!(RAGE.cost, 0);
+        assert_eq!(RAGE.target, TargetRequirement::None);
+        assert_eq!(RAGE.card_type, CardType::Skill);
+        assert_eq!(RAGE.values.block, None);
+        assert_eq!(
+            card_type_and_rarity(RAGE_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }

@@ -115,6 +115,8 @@ pub struct PlayerState {
     pub temp_dexterity: i32,
     #[serde(default)]
     pub temp_thorns: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub temp_rage_block: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,6 +195,7 @@ impl CombatState {
                 temp_strength: 0,
                 temp_dexterity: 0,
                 temp_thorns: 0,
+                temp_rage_block: 0,
             },
             monsters: vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
             piles: CardPiles {
@@ -337,6 +340,10 @@ fn default_player_energy() -> i32 {
     BASE_PLAYER_ENERGY
 }
 
+fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
+}
+
 impl CardPiles {
     pub fn max_card_instance_id(&self) -> u64 {
         self.all_cards()
@@ -392,11 +399,13 @@ mod tests {
         let mut state = CombatState::initial_fixture();
         state.player.temp_strength = 2;
         state.player.temp_thorns = 4;
+        state.player.temp_rage_block = 3;
 
         let json = serde_json::to_string(&state.player).expect("player serializes");
         let restored: PlayerState = serde_json::from_str(&json).expect("player deserializes");
 
         assert_eq!(restored.temp_strength, 2);
         assert_eq!(restored.temp_thorns, 4);
+        assert_eq!(restored.temp_rage_block, 3);
     }
 }

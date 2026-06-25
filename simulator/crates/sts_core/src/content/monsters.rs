@@ -1213,6 +1213,7 @@ mod tests {
             temp_strength: 0,
             temp_dexterity: 0,
             temp_thorns: 0,
+            temp_rage_block: 0,
         }
     }
 
