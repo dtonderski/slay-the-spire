@@ -3,7 +3,8 @@
 ## What Exists
 
 ### Combat
-- **45 Ironclad cards** (Milestone 5 complete + Ascender's Bane + Dramatic Entrance)
+- **46 Ironclad cards** (Milestone 5 complete + Ascender's Bane + Dramatic Entrance + base Flame Barrier)
+- Latest slice: base Flame Barrier (`ContentId(117)`, `FLAME_BARRIER`) is implemented as an Ironclad uncommon skill with cost 2, no target, 12 block via the shared block calculation, and 4 temporary player Thorns for the next monster turn. Caveats: upgraded Flame Barrier is not implemented and there is no played-card CommunicationMod trace parity claim.
 - Full Act 1 monster + boss roster
 - Ascension modifiers A0-A20 (config, elites, damage, HP, Bane, deadly enemies, double boss)
 
