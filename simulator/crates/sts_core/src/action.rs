@@ -40,6 +40,10 @@ pub enum InternalAction {
         target: MonsterId,
         amount: i32,
     },
+    ReduceMonsterStrength {
+        target: MonsterId,
+        amount: i32,
+    },
     AddCardToPile {
         content_id: crate::ContentId,
         to: CardPile,

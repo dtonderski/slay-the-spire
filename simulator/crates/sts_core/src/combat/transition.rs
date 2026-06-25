@@ -243,6 +243,12 @@ fn apply_internal_action(
             }
             Ok(Vec::new())
         }
+        InternalAction::ReduceMonsterStrength { target, amount } => {
+            if let Some(monster) = living_monster_mut_opt(state, target) {
+                monster.powers.strength -= amount;
+            }
+            Ok(Vec::new())
+        }
         InternalAction::MoveCard { card_id, from, to } => {
             move_card(state, card_id, from, to)?;
             let mut follow_ups = Vec::new();
@@ -848,15 +854,15 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLOODLETTING_ID,
         BLUDGEON_ID, BODY_SLAM_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DUAL_WIELD_ID,
-        ENTRENCH_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, HAVOC_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID, SEARING_BLOW_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, DARK_EMBRACE_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
+        DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID,
+        HAVOC_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, METALLICIZE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+        SEARING_BLOW_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
 
     #[test]
@@ -2700,6 +2706,70 @@ mod tests {
         assert_eq!(
             apply_combat_action(&state, bash_action(&state)),
             Err(SimError::IllegalAction("card is unaffordable"))
+        );
+    }
+
+    #[test]
+    fn disarm_applies_minus_two_strength_to_target_and_exhausts() {
+        let state = two_monster_hand(DISARM_ID);
+
+        let next = apply_combat_action(&state, disarm_action(&state)).expect("Disarm applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.monsters[0].powers.strength, -2);
+        assert_eq!(next.monsters[1].powers.strength, 0);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DISARM_ID);
+    }
+
+    #[test]
+    fn disarm_stacks_with_existing_monster_strength() {
+        let mut state = hand_only(DISARM_ID);
+        state.monsters[0].powers.strength = 3;
+
+        let next = apply_combat_action(&state, disarm_action(&state)).expect("Disarm applies");
+
+        assert_eq!(next.monsters[0].powers.strength, 1);
+    }
+
+    #[test]
+    fn disarm_reduces_monster_outgoing_attack_damage() {
+        let mut state = hand_only(DISARM_ID);
+        state.monsters[0].powers.strength = 3;
+
+        let next = apply_combat_action(&state, disarm_action(&state)).expect("Disarm applies");
+
+        assert_eq!(
+            crate::combat::turn_powers::monster_attack_damage(&next.monsters[0], 6),
+            7
+        );
+    }
+
+    #[test]
+    fn disarm_event_log_records_strength_reduction_then_exhaust() {
+        let state = hand_only(DISARM_ID);
+        let disarm_id = hand_card_id(&state, DISARM_ID);
+
+        let transition =
+            apply_combat_action_with_events(&state, disarm_action(&state)).expect("Disarm applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id: disarm_id },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::ReduceMonsterStrength {
+                    target: MonsterId::new(1),
+                    amount: 2,
+                },
+                InternalAction::MoveCard {
+                    card_id: disarm_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id: disarm_id },
+            ]
         );
     }
 
@@ -5215,6 +5285,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, INTIMIDATE_ID),
             target: None,
+        }
+    }
+
+    fn disarm_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DISARM_ID),
+            target: Some(MonsterId::new(1)),
         }
     }
 
