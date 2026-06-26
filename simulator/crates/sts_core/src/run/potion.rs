@@ -109,6 +109,7 @@ pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimRe
         .potion_card_reward
         .as_ref()
         .or(combat.toolbox_card_reward.as_ref())
+        .or(combat.discovery_card_reward.as_ref())
         .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
     if index >= choices.len() {
         return Err(SimError::IllegalAction(
@@ -300,6 +301,11 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             choice.content_id,
             0,
         ));
+    } else if let Some(choices) = combat.discovery_card_reward.take() {
+        let choice = choices[index];
+        let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
+        card.temp_cost_turn_only = true;
+        combat.piles.hand.push(card);
     } else {
         let choices = combat.toolbox_card_reward.take().expect("validated reward");
         let choice = choices[index];
@@ -639,7 +645,8 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{DEFEND_R_ID, STRIKE_R_ID, WOUND_ID},
+        action::CombatAction,
+        content::cards::{DEFEND_R_ID, DISCOVERY_ID, STRIKE_R_ID, WOUND_ID},
         MapNodeId, MonsterId, Relic,
     };
 
@@ -1958,6 +1965,39 @@ mod tests {
             .expect("combat")
             .potion_card_reward
             .is_none());
+    }
+
+    #[test]
+    fn discovery_choice_adds_zero_cost_turn_only_combat_card_to_hand() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![CardInstance::new(CardId::new(20), DISCOVERY_ID)];
+
+        let after_play = crate::combat::apply_combat_action(
+            combat,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Discovery applies");
+        let expected = after_play.discovery_card_reward.as_ref().expect("choices")[0].content_id;
+        assert!(crate::combat::legal_combat_actions(&after_play).is_empty());
+        run.combat = Some(after_play);
+
+        let after_choice = apply_combat_card_reward_choice(&run, 0).expect("choose Discovery card");
+
+        let combat = after_choice.combat.as_ref().expect("combat");
+        assert!(combat.discovery_card_reward.is_none());
+        let generated = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == expected)
+            .expect("generated Discovery card");
+        assert!(generated.combat_only);
+        assert_eq!(generated.temp_cost, Some(0));
+        assert!(generated.temp_cost_turn_only);
     }
 
     #[test]

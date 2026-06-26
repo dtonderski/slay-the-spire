@@ -40,6 +40,9 @@ pub struct CombatState {
     /// In-combat normal-cost colorless reward from Toolbox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toolbox_card_reward: Option<Vec<CardInstance>>,
+    /// In-combat zero-cost card reward from Discovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_card_reward: Option<Vec<CardInstance>>,
     /// Awaiting player choice for Warcry, Armaments, and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
@@ -224,6 +227,7 @@ impl CombatState {
             card_random_rng: None,
             potion_card_reward: None,
             toolbox_card_reward: None,
+            discovery_card_reward: None,
             hand_select: None,
             discard_select: None,
             exhaust_select: None,

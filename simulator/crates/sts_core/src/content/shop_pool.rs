@@ -3,7 +3,7 @@ use crate::content::cards::{
     ANGER_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLIND_ID,
     BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
     CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
-    DARK_SHACKLES_ID, DEEP_BREATH_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
+    DARK_SHACKLES_ID, DEEP_BREATH_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
     DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
     FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID,
     FLEX_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
@@ -249,6 +249,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "DARK_SHACKLES" => DARK_SHACKLES_ID,
         "DEEP_BREATH" => DEEP_BREATH_ID,
         "SWIFT_STRIKE" => SWIFT_STRIKE_ID,
+        "DISCOVERY" => DISCOVERY_ID,
         "FLASH_OF_STEEL" => FLASH_OF_STEEL_ID,
         "GOOD_INSTINCTS" => GOOD_INSTINCTS_ID,
         "PANACEA" => PANACEA_ID,
@@ -469,7 +470,7 @@ pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<C
 mod tests {
     use super::*;
     use crate::content::cards::{
-        BANDAGE_UP_ID, BLIND_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, FLASH_OF_STEEL_ID,
+        BANDAGE_UP_ID, BLIND_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DISCOVERY_ID, FLASH_OF_STEEL_ID,
         GOOD_INSTINCTS_ID, IMPATIENCE_ID, PANACEA_ID, SWIFT_STRIKE_ID, TRIP_ID,
     };
 
@@ -564,5 +565,13 @@ mod tests {
         assert!(shop_card_is_colorless(IMPATIENCE_ID));
         assert_eq!(shop_card_type(IMPATIENCE_ID), Some(CardType::Skill));
         assert_eq!(shop_card_price_rarity(IMPATIENCE_ID), CardRarity::Uncommon);
+    }
+
+    #[test]
+    fn discovery_pool_key_maps_to_concrete_colorless_skill() {
+        assert_eq!(shop_card_content_id("DISCOVERY"), DISCOVERY_ID);
+        assert!(shop_card_is_colorless(DISCOVERY_ID));
+        assert_eq!(shop_card_type(DISCOVERY_ID), Some(CardType::Skill));
+        assert_eq!(shop_card_price_rarity(DISCOVERY_ID), CardRarity::Uncommon);
     }
 }
