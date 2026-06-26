@@ -113,6 +113,12 @@ pub struct NeowTransformReward {
     pub neow_rng_counter: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NeowRelicReward {
+    pub relic: RelicKey,
+    pub relic_rng_counter: u32,
+}
+
 pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
     let mut rng = StsRng::new(numeric_seed);
     (0..4)
@@ -243,6 +249,28 @@ pub fn generate_neow_transform_reward_with_rng(
     NeowTransformReward {
         cards,
         neow_rng_counter: rng.counter(),
+    }
+}
+
+pub fn apply_neow_relic_reward(run: &mut RunState, reward: NeowRewardType) -> NeowRelicReward {
+    let tier = match reward {
+        NeowRewardType::RandomCommonRelic => RelicTier::Common,
+        NeowRewardType::OneRareRelic => RelicTier::Rare,
+        other => panic!("Neow reward {other:?} is not a fixed-tier relic reward"),
+    };
+
+    run.ensure_ironclad_relic_pools();
+    let context = run.relic_spawn_context(run.current_floor, false);
+    let relic = run
+        .relic_pools
+        .as_mut()
+        .expect("relic pools initialized")
+        .return_random_relic(tier, &context);
+    run.gain_relic_key(relic);
+
+    NeowRelicReward {
+        relic,
+        relic_rng_counter: run.relic_rng_counter,
     }
 }
 
@@ -780,5 +808,56 @@ mod tests {
         assert_eq!(reward.cards.len(), 2);
         assert_eq!(reward.neow_rng_counter, 7);
         assert!(reward.cards.iter().all(|card| *card != STRIKE_R_ID));
+    }
+
+    #[test]
+    fn random_common_relic_initializes_pool_and_grants_verify01_toy_ornithopter() {
+        let mut run = RunState::map_fixture();
+        run.relic_rng_seed = 1_957_307_888_551;
+
+        let reward = apply_neow_relic_reward(&mut run, NeowRewardType::RandomCommonRelic);
+
+        assert_eq!(reward.relic, RelicKey::ToyOrnithopter);
+        assert_eq!(reward.relic_rng_counter, 5);
+        assert!(run.relics.contains(&Relic::ToyOrnithopter));
+    }
+
+    #[test]
+    fn one_rare_relic_pops_from_rare_pool_without_tier_roll() {
+        let mut run = RunState::map_fixture();
+        run.relic_rng_counter = 17;
+        run.relic_pools = Some(RelicPoolState {
+            common: Vec::new(),
+            uncommon: Vec::new(),
+            rare: vec![RelicKey::Ginger, RelicKey::OldCoin],
+            shop: Vec::new(),
+            boss: Vec::new(),
+        });
+
+        let reward = apply_neow_relic_reward(&mut run, NeowRewardType::OneRareRelic);
+
+        assert_eq!(reward.relic, RelicKey::Ginger);
+        assert_eq!(reward.relic_rng_counter, 17);
+        assert!(run.relics.contains(&Relic::Ginger));
+        assert!(!run.relics.contains(&Relic::OldCoin));
+    }
+
+    #[test]
+    fn neow_relic_reward_does_not_advance_counter_when_pools_are_initialized() {
+        let mut run = RunState::map_fixture();
+        run.relic_rng_counter = 23;
+        run.relic_pools = Some(RelicPoolState {
+            common: vec![RelicKey::ToyOrnithopter],
+            uncommon: Vec::new(),
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: Vec::new(),
+        });
+
+        let reward = apply_neow_relic_reward(&mut run, NeowRewardType::RandomCommonRelic);
+
+        assert_eq!(reward.relic, RelicKey::ToyOrnithopter);
+        assert_eq!(reward.relic_rng_counter, 23);
+        assert_eq!(run.relic_rng_counter, 23);
     }
 }
