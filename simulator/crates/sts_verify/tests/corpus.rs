@@ -966,6 +966,77 @@ fn test_m32c_20260625_clean_prefix_records_32b_shop_reward_deck_evidence() {
 }
 
 #[test]
+fn test_m33_manual01_selected_neow_random_rare_card_prefix() {
+    let Some(content) = load_corpus_file(
+        "communication_mod/trace-2026-06-25T00-44-15-558Z.neow-rare-prefix.step4.jsonl",
+    ) else {
+        return;
+    };
+
+    let trace = sts_verify::import_communication_mod_trace(&content).expect("prefix imports");
+    assert_eq!(raw_trace_count(&content, "metadata"), 1);
+    assert_eq!(raw_trace_count(&content, "action"), 4);
+    assert_eq!(raw_trace_count(&content, "state"), 5);
+    assert!(trace.lines.iter().all(|line| match line {
+        sts_verify::TraceLine::State(state) => state.step <= 4,
+        sts_verify::TraceLine::Action(action) => action.step <= 4,
+        sts_verify::TraceLine::Metadata(_) => true,
+    }));
+
+    let options = state_message_at_step(&content, 2).expect("step 2 state");
+    let choices = game_choice_labels(&options);
+    assert!(
+        choices.contains(&"obtain a random rare card"),
+        "step 2 missing random rare Neow choice; choices: {choices:?}"
+    );
+
+    let leave = state_message_at_step(&content, 3).expect("step 3 state");
+    assert_eq!(game_str(&leave, "screen_type"), Some("EVENT"));
+    assert_eq!(game_choice_labels(&leave), vec!["leave"]);
+    assert!(!deck_names(&leave).contains(&"Immolate"));
+
+    let map = state_message_at_step(&content, 4).expect("step 4 state");
+    assert_eq!(game_str(&map, "screen_type"), Some("MAP"));
+    assert_deck_includes(&content, 4, "Immolate");
+    assert_eq!(deck_names(&map).len(), 11);
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(seed_start.expected_failure);
+    assert_eq!(seed_start.start_command.external_seed, "MANUAL01");
+    assert_eq!(seed_start.start_command.numeric_seed, 1_435_099_163_226);
+    assert_eq!(seed_start.first_boundary.path, "$.actions");
+    assert_eq!(
+        seed_start.first_boundary.category,
+        "missing_post_reward_boundary"
+    );
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "seed-start bootstrap",
+        "Neow talk",
+        "Neow random rare card reward",
+        "Neow leave",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified seed-start label {expected}; labels: {labels:?}"
+        );
+    }
+}
+
+#[test]
 fn test_seed_start_full_act1_boss_relic_prefix() {
     let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
@@ -1104,6 +1175,33 @@ fn game_i64(message: &serde_json::Value, key: &str) -> Option<i64> {
         .get("game_state")
         .and_then(|game| game.get(key))
         .and_then(serde_json::Value::as_i64)
+}
+
+fn game_choice_labels(message: &serde_json::Value) -> Vec<&str> {
+    message
+        .get("game_state")
+        .and_then(|game| game.get("choice_list"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|choice| {
+            choice
+                .get("label")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| choice.as_str())
+        })
+        .collect()
+}
+
+fn deck_names(message: &serde_json::Value) -> Vec<&str> {
+    message
+        .get("game_state")
+        .and_then(|game| game.get("deck"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|card| card.get("name").and_then(serde_json::Value::as_str))
+        .collect()
 }
 
 fn assert_screen_cards_include(content: &str, step: u32, expected_names: &[&str]) {

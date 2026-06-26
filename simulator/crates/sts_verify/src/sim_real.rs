@@ -598,6 +598,42 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(|option| option.reward == NeowRewardType::OneRandomRareCard) =>
+            {
+                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .expect("matched generated Neow random rare card option");
+                let run =
+                    seed_start_apply_neow_reward_drawback(start.numeric_seed, &deck_ids, &option);
+                deck_ids = deck_content_keys(&run.deck);
+                neow_gold = run.gold;
+                neow_current_hp = run.player_hp;
+                neow_max_hp = run.player_max_hp;
+                compare_subset(
+                    report,
+                    action,
+                    seed_start_neow_card_reward_label(option.reward),
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
+                deck_ids.extend(seed_start_neow_card_reward_ids(
+                    start.numeric_seed,
+                    &option,
+                    Some(&run),
+                ));
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowOptions
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(seed_start_neow_option_is_supported_card_reward) =>
             {
                 let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -723,6 +759,20 @@ fn verify_seed_start_transitions(
                     relics = relic_ids;
                     seed_sim = Some(run);
                     phase = SeedStartPhase::NeowBossSwapCallingBellGrid;
+                    continue;
+                }
+                if seed_start_boss_swap_is_astrolabe_grid(&run) {
+                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow boss swap Astrolabe grid",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                    );
+                    relics = relic_ids;
+                    seed_sim = Some(run);
+                    phase = SeedStartPhase::NeowBossSwapAstrolabeGrid;
                     continue;
                 }
                 if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
@@ -883,6 +933,58 @@ fn verify_seed_start_transitions(
                 );
                 seed_sim = Some(next);
                 phase = SeedStartPhase::Reward;
+            }
+            SeedStartPhase::NeowBossSwapAstrolabeGrid
+                if command_choose_index(&action.command).is_some() =>
+            {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason:
+                            "seed-start Astrolabe boss-swap grid without initialized run simulation"
+                                .to_owned(),
+                    };
+                };
+                let index = command_choose_index(&action.command).expect("matched choose command");
+                let Ok(next) = select_grid_card(sim, index) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason: "seed-start Astrolabe boss-swap grid choose failed".to_owned(),
+                    };
+                };
+                deck_ids = deck_content_keys(&next.deck);
+                if next.card_grid.is_some() {
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow boss swap Astrolabe grid select",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&next, &relics),
+                    );
+                    seed_sim = Some(next);
+                    continue;
+                }
+                compare_subset(
+                    report,
+                    action,
+                    "Neow boss swap Astrolabe transformed",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
+                seed_sim = Some(next);
+                phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowCardReward
                 if seed_start_pick_neow_card_reward(&neow_card_reward_choices, &action.command)
@@ -2444,6 +2546,7 @@ enum SeedStartPhase {
     NeowGrid,
     NeowGridConfirm,
     NeowBossSwapCallingBellGrid,
+    NeowBossSwapAstrolabeGrid,
     NeowLeave,
     Map,
     Event,
@@ -3135,7 +3238,6 @@ fn seed_start_neow_option_is_supported_card_reward(option: GeneratedNeowOption) 
         && matches!(
             option.reward,
             NeowRewardType::ThreeCards
-                | NeowRewardType::OneRandomRareCard
                 | NeowRewardType::RandomColorlessTwo
                 | NeowRewardType::ThreeRareCards
         )
@@ -3235,6 +3337,12 @@ fn seed_start_boss_swap_is_calling_bell_grid(run: &RunState) -> bool {
     run.card_grid
         .as_ref()
         .is_some_and(|grid| grid.purpose == GridPurpose::CallingBellCurse)
+}
+
+fn seed_start_boss_swap_is_astrolabe_grid(run: &RunState) -> bool {
+    run.card_grid
+        .as_ref()
+        .is_some_and(|grid| grid.purpose == GridPurpose::Astrolabe)
 }
 
 fn seed_start_unsupported_boss_swap_reason(run: &RunState) -> Option<String> {
@@ -6631,7 +6739,7 @@ fn first_choice(message: &Value) -> Option<&str> {
 
 fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
     match action.command.split_whitespace().next().unwrap_or("") {
-        "START" => "seed-start run creation is unsupported until map, Neow, and reward RNG parity are implemented".to_owned(),
+        "START" => "seed-start run creation is source-backed/generated for selected Ironclad A0 surfaces, with remaining map, Neow branch-combo, and reward RNG parity gaps classified".to_owned(),
         "CHOOSE" if screen_type(&pre.message) == Some("EVENT") => {
             "Neow/event choice side effects are unsupported in sim-to-real replay".to_owned()
         }
@@ -7061,6 +7169,133 @@ mod tests {
         }));
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 4 && transition.label == "Neow boss swap Calling Bell rewards"
+        }));
+    }
+
+    #[test]
+    fn seed_start_boss_swap_astrolabe_grid_transforms_three_selected_cards() {
+        let (numeric_seed, astrolabe_run) = (1_i64..100_000)
+            .map(|seed| {
+                (
+                    seed,
+                    seed_start_apply_neow_boss_swap(seed, &ironclad_starter_deck_keys()),
+                )
+            })
+            .find(|(_, run)| seed_start_boss_swap_is_astrolabe_grid(run))
+            .expect("synthetic seed with Astrolabe boss swap");
+        let seed_string = test_seed_string_from_long(numeric_seed);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let astrolabe_relics: Vec<_> = seed_start_boss_swap_relic_ids(&astrolabe_run)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let after_first = select_grid_card(&astrolabe_run, 0).expect("select first");
+        let after_second = select_grid_card(&after_first, 1).expect("select second");
+        let after_third = select_grid_card(&after_second, 2).expect("select third");
+        let transformed_deck: Vec<_> = deck_content_keys(&after_third.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let grid_choices: Vec<_> =
+            seed_start_grid_simulated_subset(&astrolabe_run, &["Astrolabe".to_owned()])["choices"]
+                .as_array()
+                .expect("grid choices")
+                .clone();
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 3"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": astrolabe_relics,
+                "choice_list": grid_choices
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": astrolabe_relics,
+                "choice_list": grid_choices
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CHOOSE 1"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": astrolabe_relics,
+                "choice_list": grid_choices
+            }}}),
+            json!({"type": "action", "step": 6, "command": "CHOOSE 2"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": transformed_deck,
+                "relics": astrolabe_relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow boss swap Astrolabe grid"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 6
+                && transition.label == "Neow boss swap Astrolabe transformed"
         }));
     }
 

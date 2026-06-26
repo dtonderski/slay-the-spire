@@ -566,7 +566,7 @@ pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
             ],
             branch: Some(KnownNeowBranch::TransformCard),
             unchosen_command: "CHOOSE 1/2/3",
-            unchosen_reason: "unchosen Neow branches are classified but not implemented: Neow's Lament, curse max-hp bonus, and boss swap",
+            unchosen_reason: "unchosen Neow branches are classified with generated/source-backed partial support; selected-trace parity remains caveated for Neow's Lament, curse max-hp bonus, and boss swap",
         },
         "M290008" => KnownNeowScreen {
             options: vec![
@@ -577,7 +577,7 @@ pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
             ],
             branch: Some(KnownNeowBranch::TransformCard),
             unchosen_command: "CHOOSE 1/2/3",
-            unchosen_reason: "unchosen Neow branches are classified but not implemented: gold, all-gold max-hp bonus, and boss swap",
+            unchosen_reason: "unchosen Neow branches are classified with generated/source-backed partial support; selected-trace parity remains caveated for gold, all-gold max-hp bonus, and boss swap",
         },
         "TEST" => KnownNeowScreen {
             options: vec![
@@ -588,7 +588,7 @@ pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
             ],
             branch: Some(KnownNeowBranch::ColorlessCardReward),
             unchosen_command: "CHOOSE 1/2/3",
-            unchosen_reason: "unchosen Neow branches are classified but not implemented: Neow's Lament, max-hp rare relic, and boss swap",
+            unchosen_reason: "unchosen Neow branches are classified with generated/source-backed partial support; selected-trace parity remains caveated for Neow's Lament, max-hp rare relic, and boss swap",
         },
         "CODEX04" => KnownNeowScreen {
             options: vec![
@@ -599,7 +599,7 @@ pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
             ],
             branch: Some(KnownNeowBranch::ColorlessCardReward),
             unchosen_command: "CHOOSE 1/2/3",
-            unchosen_reason: "unchosen Neow branches are classified but not implemented: potions, max-hp removal, and boss swap",
+            unchosen_reason: "unchosen Neow branches are classified with generated/source-backed partial support; selected-trace parity remains caveated for potions, max-hp removal, and boss swap",
         },
         "CODEX03" => KnownNeowScreen {
             options: vec![
@@ -610,7 +610,7 @@ pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
             ],
             branch: Some(KnownNeowBranch::NeowsLament),
             unchosen_command: "CHOOSE 0/2/3",
-            unchosen_reason: "unchosen Neow branches are classified but not implemented: card upgrade, gold-for-relic, and boss swap",
+            unchosen_reason: "unchosen Neow branches are classified with generated/source-backed partial support; selected-trace parity remains caveated for card upgrade, gold-for-relic, and boss swap",
         },
         _ => KnownNeowScreen {
             options: vec![
@@ -621,7 +621,7 @@ pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
             ],
             branch: Some(KnownNeowBranch::CommonRelic),
             unchosen_command: "CHOOSE 0/2/3",
-            unchosen_reason: "unchosen Neow branches are classified but not implemented: card reward, max-hp removal, and boss swap",
+            unchosen_reason: "unchosen Neow branches are classified with generated/source-backed partial support; selected-trace parity remains caveated for card reward, max-hp removal, and boss swap",
         },
     }
 }
