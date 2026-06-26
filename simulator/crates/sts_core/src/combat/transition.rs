@@ -74,6 +74,18 @@ pub fn apply_play_top_draw_card_action(
     .state)
 }
 
+pub fn apply_play_top_draw_card_to_state(
+    state: &mut CombatState,
+    target: Option<MonsterId>,
+) -> SimResult<()> {
+    let transition = process_internal_queue(
+        state,
+        VecDeque::from([InternalAction::PlayTopDrawCard { target }]),
+    )?;
+    *state = transition.state;
+    Ok(())
+}
+
 fn apply_play_card(
     state: &CombatState,
     card_id: CardId,
@@ -446,6 +458,10 @@ fn apply_internal_action(
         }
         InternalAction::GainBrutality { amount } => {
             state.player.powers.brutality += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainMayhem { amount } => {
+            state.player.powers.mayhem += amount;
             Ok(Vec::new())
         }
         InternalAction::GainCombust { amount } => {

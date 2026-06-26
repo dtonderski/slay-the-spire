@@ -72,6 +72,7 @@ pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
 pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
+pub const MAYHEM_ID: ContentId = ContentId::new(2_267_196_899);
 pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_713);
 pub const VIOLENCE_ID: ContentId = ContentId::new(2_433_206_606_067);
 pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
@@ -703,6 +704,21 @@ pub const BRUTALITY: CardDefinition = CardDefinition {
     key: "BRUTALITY",
     name: "Brutality",
     cost: 0,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const MAYHEM: CardDefinition = CardDefinition {
+    id: MAYHEM_ID,
+    key: "MAYHEM",
+    name: "Mayhem",
+    cost: 2,
     card_type: CardType::Power,
     target: TargetRequirement::None,
     values: CardValues {
@@ -2316,7 +2332,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 125] = [
+pub const ALL_CARDS: [CardDefinition; 126] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2351,6 +2367,7 @@ pub const ALL_CARDS: [CardDefinition; 125] = [
     RUPTURE,
     JUGGERNAUT,
     BRUTALITY,
+    MAYHEM,
     DOUBLE_TAP,
     FIRE_BREATHING,
     LIMIT_BREAK,
@@ -2518,6 +2535,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == JUGGERNAUT_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == MAYHEM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DOUBLE_TAP_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FIRE_BREATHING_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),

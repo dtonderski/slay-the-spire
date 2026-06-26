@@ -18,11 +18,11 @@ use crate::{
         FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMMOLATE_ID, IMPATIENCE_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID,
-        MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID,
-        PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        MASTER_OF_STRATEGY_ID, MAYHEM_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID,
+        OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
+        RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
         SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE, THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
         THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
@@ -183,6 +183,7 @@ pub(super) fn play_card_queue(
         RUPTURE_ID => rupture_queue(card_id),
         JUGGERNAUT_ID => juggernaut_queue(card_id, definition),
         BRUTALITY_ID => brutality_queue(card_id),
+        MAYHEM_ID => mayhem_queue(card_id),
         FIRE_BREATHING_ID => fire_breathing_queue(card_id, definition),
         EXHUME_ID => exhume_queue(state, card_id),
         DEMON_FORM_ID => demon_form_queue(card_id),
@@ -1800,6 +1801,18 @@ fn brutality_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBrutality { amount: 1 },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn mayhem_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainMayhem { amount: 1 },
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
