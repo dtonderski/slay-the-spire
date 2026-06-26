@@ -133,6 +133,7 @@ pub enum ExhaustSelectPurpose {
     Exhaust,
     GamblingChip,
     ExhumeReturnToHand,
+    PurityExhaustUpTo3,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
