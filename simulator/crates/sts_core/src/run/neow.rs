@@ -296,6 +296,15 @@ pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) {
     }
 }
 
+pub fn open_neow_reward_grid(run: &mut RunState, reward: NeowRewardType) {
+    match reward {
+        NeowRewardType::RemoveCard => super::grid::open_neow_remove_grid(run, 1),
+        NeowRewardType::RemoveTwo => super::grid::open_neow_remove_grid(run, 2),
+        NeowRewardType::UpgradeCard => super::grid::open_neow_upgrade_grid(run),
+        other => panic!("Neow reward {other:?} does not open a grid"),
+    }
+}
+
 fn gain_max_hp(run: &mut RunState, amount: i32) {
     run.player_max_hp += amount;
     run.player_hp += amount;
@@ -615,6 +624,7 @@ mod tests {
         DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
     use crate::relic::RelicPoolState;
+    use crate::run::GridPurpose;
 
     #[test]
     fn known_verify01_common_relic_branch_matches_current_verifier_scope() {
@@ -958,5 +968,33 @@ mod tests {
         apply_neow_simple_drawback(&mut run, NeowDrawback::NoGold);
 
         assert_eq!(run.gold, 0);
+    }
+
+    #[test]
+    fn grid_rewards_open_neow_specific_grids() {
+        let mut remove = RunState::map_fixture();
+        open_neow_reward_grid(&mut remove, NeowRewardType::RemoveCard);
+        assert_eq!(
+            remove.card_grid.as_ref().expect("remove grid").purpose,
+            GridPurpose::NeowRemove { remaining: 1 }
+        );
+
+        let mut remove_two = RunState::map_fixture();
+        open_neow_reward_grid(&mut remove_two, NeowRewardType::RemoveTwo);
+        assert_eq!(
+            remove_two
+                .card_grid
+                .as_ref()
+                .expect("remove two grid")
+                .purpose,
+            GridPurpose::NeowRemove { remaining: 2 }
+        );
+
+        let mut upgrade = RunState::map_fixture();
+        open_neow_reward_grid(&mut upgrade, NeowRewardType::UpgradeCard);
+        assert_eq!(
+            upgrade.card_grid.as_ref().expect("upgrade grid").purpose,
+            GridPurpose::NeowUpgrade
+        );
     }
 }

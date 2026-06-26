@@ -16,6 +16,8 @@ pub enum GridPurpose {
     RestSmith,
     ShopRemove,
     EmptyCage { remaining: u8 },
+    NeowRemove { remaining: u8 },
+    NeowUpgrade,
     Bottle { card_type: CardType },
     DollysMirror,
     CallingBellCurse,
@@ -59,6 +61,38 @@ pub fn open_empty_cage_grid(run: &mut RunState) {
     run.card_grid = Some(CardGridScreen {
         cards: run.deck.clone(),
         purpose: GridPurpose::EmptyCage { remaining: 2 },
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_neow_remove_grid(run: &mut RunState, count: u8) {
+    if run.deck.is_empty() || count == 0 {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards: run.deck.clone(),
+        purpose: GridPurpose::NeowRemove { remaining: count },
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_neow_upgrade_grid(run: &mut RunState) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| upgrade_content_id(card.content_id).is_some())
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::NeowUpgrade,
         selected: None,
         selected_indices: Vec::new(),
     });
@@ -236,16 +270,14 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         }
         GridPurpose::RestSmith => {
             let card = selected_grid_card(grid)?;
-            let upgraded = upgrade_content_id(card.content_id)
-                .ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
-            for deck_card in &mut next.deck {
-                if deck_card.id == card.id {
-                    deck_card.content_id = upgraded;
-                    break;
-                }
-            }
+            upgrade_deck_card(&mut next, card)?;
             next.card_grid = None;
             next.phase = RunPhase::Idle;
+        }
+        GridPurpose::NeowUpgrade => {
+            let card = selected_grid_card(grid)?;
+            upgrade_deck_card(&mut next, card)?;
+            next.card_grid = None;
         }
         GridPurpose::ShopRemove => {
             let card = selected_grid_card(grid)?;
@@ -269,19 +301,11 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         }
         GridPurpose::EmptyCage { remaining } => {
             let card = selected_grid_card(grid)?;
-            next.deck.retain(|deck_card| deck_card.id != card.id);
-            if remaining > 1 && !next.deck.is_empty() {
-                next.card_grid = Some(CardGridScreen {
-                    cards: next.deck.clone(),
-                    purpose: GridPurpose::EmptyCage {
-                        remaining: remaining - 1,
-                    },
-                    selected: None,
-                    selected_indices: Vec::new(),
-                });
-            } else {
-                next.card_grid = None;
-            }
+            remove_grid_card(&mut next, card, GridPurpose::EmptyCage { remaining });
+        }
+        GridPurpose::NeowRemove { remaining } => {
+            let card = selected_grid_card(grid)?;
+            remove_grid_card(&mut next, card, GridPurpose::NeowRemove { remaining });
         }
         GridPurpose::Bottle { .. } => {
             let card = selected_grid_card(grid)?;
@@ -314,6 +338,44 @@ fn selected_grid_card(grid: &CardGridScreen) -> SimResult<CardInstance> {
         .get(selected)
         .copied()
         .ok_or(SimError::IllegalAction("grid index out of range"))
+}
+
+fn upgrade_deck_card(run: &mut RunState, card: CardInstance) -> SimResult<()> {
+    let upgraded = upgrade_content_id(card.content_id)
+        .ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
+    for deck_card in &mut run.deck {
+        if deck_card.id == card.id {
+            deck_card.content_id = upgraded;
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn remove_grid_card(run: &mut RunState, card: CardInstance, purpose: GridPurpose) {
+    let remaining = match purpose {
+        GridPurpose::EmptyCage { remaining } | GridPurpose::NeowRemove { remaining } => remaining,
+        _ => unreachable!("remove grid purpose required"),
+    };
+    run.deck.retain(|deck_card| deck_card.id != card.id);
+    if remaining > 1 && !run.deck.is_empty() {
+        run.card_grid = Some(CardGridScreen {
+            cards: run.deck.clone(),
+            purpose: match purpose {
+                GridPurpose::EmptyCage { .. } => GridPurpose::EmptyCage {
+                    remaining: remaining - 1,
+                },
+                GridPurpose::NeowRemove { .. } => GridPurpose::NeowRemove {
+                    remaining: remaining - 1,
+                },
+                _ => unreachable!("remove grid purpose required"),
+            },
+            selected: None,
+            selected_indices: Vec::new(),
+        });
+    } else {
+        run.card_grid = None;
+    }
 }
 
 fn confirm_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
@@ -503,6 +565,76 @@ mod tests {
         assert_ne!(copy.id, source_id);
         assert_eq!(copy.content_id, after.deck[0].content_id);
         assert!(!copy.bottled);
+    }
+
+    #[test]
+    fn neow_remove_grid_removes_one_card_without_gold_cost() {
+        let mut run = RunState::map_fixture();
+        let removed = run.deck[0];
+        open_neow_remove_grid(&mut run, 1);
+
+        let selected = select_grid_card(&run, 0).expect("select");
+        let after = confirm_grid(&selected).expect("confirm");
+
+        assert!(after.card_grid.is_none());
+        assert_eq!(after.gold, run.gold);
+        assert_eq!(after.deck.len(), run.deck.len() - 1);
+        assert!(!after.deck.iter().any(|card| card.id == removed.id));
+    }
+
+    #[test]
+    fn neow_remove_grid_can_remove_two_cards() {
+        let mut run = RunState::map_fixture();
+        let first_removed = run.deck[0];
+        open_neow_remove_grid(&mut run, 2);
+
+        let after_first =
+            confirm_grid(&select_grid_card(&run, 0).expect("select first")).expect("confirm first");
+        assert_eq!(
+            after_first.card_grid.as_ref().expect("second grid").purpose,
+            GridPurpose::NeowRemove { remaining: 1 }
+        );
+        assert!(!after_first
+            .deck
+            .iter()
+            .any(|card| card.id == first_removed.id));
+
+        let second_removed = after_first.deck[0];
+        let after_second = confirm_grid(&select_grid_card(&after_first, 0).expect("select second"))
+            .expect("confirm second");
+
+        assert!(after_second.card_grid.is_none());
+        assert_eq!(after_second.deck.len(), run.deck.len() - 2);
+        assert!(!after_second
+            .deck
+            .iter()
+            .any(|card| card.id == second_removed.id));
+    }
+
+    #[test]
+    fn neow_upgrade_grid_upgrades_card_without_rest_phase_side_effect() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        open_neow_upgrade_grid(&mut run);
+
+        let selected = select_grid_card(&run, 0).expect("select");
+        let selected_card = selected
+            .card_grid
+            .as_ref()
+            .expect("grid")
+            .cards
+            .first()
+            .copied()
+            .expect("card");
+        let after = confirm_grid(&selected).expect("confirm");
+
+        assert!(after.card_grid.is_none());
+        assert_eq!(after.phase, RunPhase::Event);
+        assert!(after.deck.iter().any(|card| {
+            card.id == selected_card.id
+                && card.content_id != selected_card.content_id
+                && upgrade_content_id(selected_card.content_id) == Some(card.content_id)
+        }));
     }
 
     #[test]
