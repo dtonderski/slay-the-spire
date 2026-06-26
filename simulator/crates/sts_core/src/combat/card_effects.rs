@@ -390,6 +390,9 @@ fn apply_akabeko_to_first_attack_queue(
             } if *source == card_id => {
                 *amount += AKABEKO_DAMAGE;
             }
+            InternalAction::DealDamageRandomEnemy { source, amount } if *source == card_id => {
+                *amount += AKABEKO_DAMAGE;
+            }
             InternalAction::DealDamageAll { source, amount } if *source == card_id => {
                 *amount += AKABEKO_DAMAGE;
             }
@@ -437,6 +440,9 @@ fn apply_pen_nib_to_tenth_attack_queue(
                         ..
                     },
             } if *source == card_id => {
+                *amount *= 2;
+            }
+            InternalAction::DealDamageRandomEnemy { source, amount } if *source == card_id => {
                 *amount *= 2;
             }
             InternalAction::DealDamageAll { source, amount } if *source == card_id => {
@@ -1585,19 +1591,14 @@ fn sword_boomerang_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let living_targets = state
+    state
         .monsters
         .iter()
-        .filter(|monster| monster.alive)
-        .map(|monster| monster.id)
-        .collect::<Vec<_>>();
-    let first = living_targets
-        .first()
-        .copied()
+        .any(|monster| monster.alive)
+        .then_some(())
         .ok_or(SimError::InvalidState(
             "Sword Boomerang requires a living monster",
         ))?;
-    let last = living_targets.last().copied().unwrap_or(first);
     let damage = definition.values.damage.unwrap_or(0);
 
     Ok(VecDeque::from([
@@ -1605,26 +1606,17 @@ fn sword_boomerang_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DealDamage {
-            info: DamageInfo {
-                source: DamageSource::Card(card_id),
-                target: first,
-                amount: damage,
-            },
+        InternalAction::DealDamageRandomEnemy {
+            source: card_id,
+            amount: damage,
         },
-        InternalAction::DealDamage {
-            info: DamageInfo {
-                source: DamageSource::Card(card_id),
-                target: last,
-                amount: damage,
-            },
+        InternalAction::DealDamageRandomEnemy {
+            source: card_id,
+            amount: damage,
         },
-        InternalAction::DealDamage {
-            info: DamageInfo {
-                source: DamageSource::Card(card_id),
-                target: last,
-                amount: damage,
-            },
+        InternalAction::DealDamageRandomEnemy {
+            source: card_id,
+            amount: damage,
         },
         InternalAction::MoveCard {
             card_id,

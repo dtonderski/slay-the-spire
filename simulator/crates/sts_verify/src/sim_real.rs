@@ -6,6 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sts_core::content::cards::SWORD_BOOMERANG_ID;
 use sts_core::content::monsters::{
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
     GREMLIN_NOB_ID, GUARDIAN_ID, LAGAVULIN_ID,
@@ -4782,6 +4783,11 @@ fn unsupported_seed_start_combat_command(combat: &CombatState, command: &str) ->
     let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
     let card = combat.piles.hand.get(index)?;
     let key = content_key(card.content_id);
+    if card.content_id == SWORD_BOOMERANG_ID {
+        return Some(
+            "Sword Boomerang random target parity is unsupported in seed-start combat".to_owned(),
+        );
+    }
     if key != "unknown" {
         return None;
     }

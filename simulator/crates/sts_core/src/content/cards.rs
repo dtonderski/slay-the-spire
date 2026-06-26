@@ -2477,6 +2477,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == SWORD_BOOMERANG_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == SHRUG_IT_OFF_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == TRUE_GRIT_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == POMMEL_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),

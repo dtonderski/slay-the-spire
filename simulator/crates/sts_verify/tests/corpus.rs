@@ -893,13 +893,10 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
     assert!(seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "M290008");
     assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_133);
-    assert_eq!(
-        seed_start.first_boundary.path,
-        "$.actions[step=100].command"
-    );
+    assert_eq!(seed_start.first_boundary.path, "$.actions[step=73].command");
     assert_eq!(
         seed_start.first_boundary.category,
-        "unexpected_extra_action"
+        "unsupported_combat_path"
     );
 
     let labels: Vec<_> = report
@@ -907,13 +904,7 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
         .iter()
         .map(|step| step.label.as_str())
         .collect();
-    for expected in [
-        "Neow transform confirm",
-        "captured Scrap Ooze success",
-        "Sword Boomerang",
-        "captured Looter escape reward",
-        "boss chest proceed to map",
-    ] {
+    for expected in ["Neow transform confirm", "captured Scrap Ooze success"] {
         assert!(
             labels.contains(&expected),
             "missing verified label {expected}; labels: {labels:?}"
