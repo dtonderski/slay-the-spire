@@ -1729,9 +1729,26 @@ fn confirm_purity_select(
         state.piles.exhaust_pile.push(card);
         apply_on_exhaust_effects(state, card.id);
     }
-    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
-    apply_on_exhaust_effects(state, source_card_id);
+    let source_destination = purity_source_destination(state);
+    move_card(state, source_card_id, CardPile::Hand, source_destination)?;
+    if source_destination == CardPile::ExhaustPile {
+        apply_on_exhaust_effects(state, source_card_id);
+    }
     Ok(())
+}
+
+fn purity_source_destination(state: &mut CombatState) -> CardPile {
+    if !state.relics.contains(&Relic::StrangeSpoon) {
+        return CardPile::ExhaustPile;
+    }
+    let Some(rng) = state.card_random_rng.as_mut() else {
+        return CardPile::ExhaustPile;
+    };
+    if rng.random_bool() {
+        CardPile::DiscardPile
+    } else {
+        CardPile::ExhaustPile
+    }
 }
 
 fn purity_select_cap(state: &CombatState, source_card_id: CardId) -> SimResult<usize> {
@@ -11548,6 +11565,55 @@ mod tests {
 
         assert_eq!(next.player.energy, 5);
         assert_eq!(next.player.block, 6);
+    }
+
+    #[test]
+    fn purity_strange_spoon_roll_controls_source_only() {
+        let mut state = hand_only(PURITY_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.player.powers.feel_no_pain = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), PURITY_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let mut next =
+            apply_combat_action(&state, purity_action(&state)).expect("Purity opens select");
+        choose_exhaust_select(&mut next, 0).expect("choose Defend");
+        confirm_exhaust_select(&mut next).expect("confirm Purity select");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+        if spoon_proc {
+            assert_eq!(next.player.block, 3);
+            assert!(next
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == PURITY_ID));
+            assert!(!next
+                .piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == PURITY_ID));
+        } else {
+            assert_eq!(next.player.block, 6);
+            assert!(next
+                .piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == PURITY_ID));
+        }
     }
 
     #[test]
