@@ -29,7 +29,9 @@ use crate::{
     },
     content::shop_pool::colorless_discovery_pool,
     ids::{CardId, ContentId, MonsterId},
-    power::calculate_block,
+    power::{
+        apply_monster_vulnerable, apply_monster_weak, calculate_block, reduce_monster_strength,
+    },
     relic::Relic,
     rng::{JavaRng, SimulatorRng},
     CardInstance, CombatState, MonsterState, SimError, SimResult,
@@ -351,8 +353,7 @@ fn apply_internal_action(
         InternalAction::ApplyWeak { target, amount } => {
             let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                monster.powers.weak += amount;
-                applied = amount > 0;
+                applied = apply_monster_weak(&mut monster.powers, amount);
             }
             apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
@@ -360,8 +361,7 @@ fn apply_internal_action(
         InternalAction::ReduceMonsterStrength { target, amount } => {
             let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                monster.powers.strength -= amount;
-                applied = amount > 0;
+                applied = reduce_monster_strength(&mut monster.powers, amount);
             }
             apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
@@ -369,9 +369,10 @@ fn apply_internal_action(
         InternalAction::ReduceMonsterStrengthThisTurn { target, amount } => {
             let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                monster.powers.strength -= amount;
-                monster.temp_strength_down += amount;
-                applied = amount > 0;
+                applied = reduce_monster_strength(&mut monster.powers, amount);
+                if applied {
+                    monster.temp_strength_down += amount;
+                }
             }
             apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
@@ -755,13 +756,10 @@ fn apply_player_vulnerable_debuff(
     let mut vulnerable_applied = false;
     let mut champion_belt_weak_applied = false;
     if let Some(monster) = living_monster_mut_opt(state, target) {
-        if amount > 0 {
-            monster.powers.vulnerable += amount;
-            vulnerable_applied = true;
-        }
+        vulnerable_applied = apply_monster_vulnerable(&mut monster.powers, amount);
         if vulnerable_applied && applies_champion_belt {
-            monster.powers.weak += crate::relic::CHAMPION_BELT_WEAK;
-            champion_belt_weak_applied = true;
+            champion_belt_weak_applied =
+                apply_monster_weak(&mut monster.powers, crate::relic::CHAMPION_BELT_WEAK);
         }
     }
 
@@ -5512,6 +5510,20 @@ mod tests {
     }
 
     #[test]
+    fn blind_artifact_blocks_weak_and_sadistic_nature() {
+        let mut state = two_monster_hand(BLIND_ID);
+        state.player.powers.sadistic_nature = 5;
+        state.monsters[0].powers.artifact = 1;
+        let first_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
+
+        assert_eq!(next.monsters[0].powers.artifact, 0);
+        assert_eq!(next.monsters[0].powers.weak, 0);
+        assert_eq!(next.monsters[0].hp, first_hp);
+    }
+
+    #[test]
     fn blind_plus_applies_two_weak_to_each_living_enemy_and_discards() {
         let state = two_monster_hand(BLIND_PLUS_ID);
 
@@ -5814,6 +5826,22 @@ mod tests {
     }
 
     #[test]
+    fn trip_artifact_blocks_vulnerable_champion_belt_and_sadistic_nature() {
+        let mut state = two_monster_hand(TRIP_ID);
+        state.relics.push(Relic::ChampionBelt);
+        state.player.powers.sadistic_nature = 5;
+        state.monsters[0].powers.artifact = 1;
+        let first_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(&state, trip_action(&state)).expect("Trip applies");
+
+        assert_eq!(next.monsters[0].powers.artifact, 0);
+        assert_eq!(next.monsters[0].powers.vulnerable, 0);
+        assert_eq!(next.monsters[0].powers.weak, 0);
+        assert_eq!(next.monsters[0].hp, first_hp);
+    }
+
+    #[test]
     fn trip_plus_applies_two_vulnerable_to_each_living_enemy_and_discards() {
         let mut state = two_monster_hand(TRIP_PLUS_ID);
         state.player.energy = 0;
@@ -5977,6 +6005,24 @@ mod tests {
         assert_eq!(next.monsters[1].temp_strength_down, 0);
         assert!(next.piles.discard_pile.is_empty());
         assert_eq!(next.piles.exhaust_pile[0].content_id, DARK_SHACKLES_ID);
+    }
+
+    #[test]
+    fn dark_shackles_artifact_blocks_temporary_strength_down_and_sadistic_nature() {
+        let mut state = two_monster_hand(DARK_SHACKLES_ID);
+        state.player.energy = 0;
+        state.player.powers.sadistic_nature = 5;
+        state.monsters[0].powers.artifact = 1;
+        state.monsters[0].powers.strength = 4;
+        let first_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(&state, dark_shackles_action(&state))
+            .expect("Dark Shackles applies");
+
+        assert_eq!(next.monsters[0].powers.artifact, 0);
+        assert_eq!(next.monsters[0].powers.strength, 4);
+        assert_eq!(next.monsters[0].temp_strength_down, 0);
+        assert_eq!(next.monsters[0].hp, first_hp);
     }
 
     #[test]

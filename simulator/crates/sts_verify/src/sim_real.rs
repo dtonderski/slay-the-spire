@@ -5521,6 +5521,7 @@ fn monster_powers(value: Option<&Value>) -> MonsterPowers {
             Some("Vulnerable") => powers.vulnerable = amount,
             Some("Weak") => powers.weak = amount,
             Some("Strength") => powers.strength = amount,
+            Some("Artifact") => powers.artifact = amount,
             Some("Ritual") | Some("Demon Form") => powers.ritual = amount,
             Some("Sharp Hide") | Some("Spikes") => powers.spikes = amount,
             Some("Curl Up") => powers.curl_up = amount,
