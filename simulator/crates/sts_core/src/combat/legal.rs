@@ -4,9 +4,9 @@ use crate::{
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        EXHUME_ID, FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        EXHUME_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID,
+        IMPATIENCE_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
+        SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -55,7 +55,9 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         }
 
-        if definition.id == IMPATIENCE_ID && hand_contains_attack_other_than(state, card.id) {
+        if (definition.id == IMPATIENCE_ID || definition.id == IMPATIENCE_PLUS_ID)
+            && hand_contains_attack_other_than(state, card.id)
+        {
             continue;
         }
 
@@ -78,7 +80,9 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         }
 
-        if definition.id == FORETHOUGHT_ID && !has_other_hand_card(state, card.id) {
+        if (definition.id == FORETHOUGHT_ID || definition.id == FORETHOUGHT_PLUS_ID)
+            && !has_other_hand_card(state, card.id)
+        {
             continue;
         }
 
@@ -199,7 +203,9 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 return Err(SimError::IllegalAction("Exhume requires an exhumable card"));
             }
 
-            if definition.id == FORETHOUGHT_ID && !has_other_hand_card(state, card_id) {
+            if (definition.id == FORETHOUGHT_ID || definition.id == FORETHOUGHT_PLUS_ID)
+                && !has_other_hand_card(state, card_id)
+            {
                 return Err(SimError::IllegalAction(
                     "Forethought requires another card in hand",
                 ));
@@ -227,7 +233,9 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 ));
             }
 
-            if definition.id == IMPATIENCE_ID && hand_contains_attack_other_than(state, card_id) {
+            if (definition.id == IMPATIENCE_ID || definition.id == IMPATIENCE_PLUS_ID)
+                && hand_contains_attack_other_than(state, card_id)
+            {
                 return Err(SimError::IllegalAction(
                     "Impatience requires no attacks in hand",
                 ));
