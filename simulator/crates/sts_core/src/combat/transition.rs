@@ -30,7 +30,7 @@ use crate::{
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
     relic::Relic,
-    rng::SimulatorRng,
+    rng::{JavaRng, SimulatorRng},
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
 use std::collections::VecDeque;
@@ -841,32 +841,52 @@ pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
 }
 
 fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
+    let mut attack_ids = Vec::new();
+    for card in &state.piles.draw_pile {
+        let is_attack = get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Attack);
+        if !is_attack {
+            continue;
+        }
+
+        if attack_ids.is_empty() {
+            attack_ids.push(card.id);
+        } else {
+            let index = state
+                .card_random_rng
+                .as_mut()
+                .map_or(attack_ids.len(), |rng| {
+                    rng.random_int(attack_ids.len() as i32) as usize
+                });
+            attack_ids.insert(index, card.id);
+        }
+    }
+
     for _ in 0..count {
-        let attack_indices = state
-            .piles
-            .draw_pile
-            .iter()
-            .enumerate()
-            .filter_map(|(index, card)| {
-                get_card_definition(card.content_id)
-                    .is_some_and(|definition| definition.card_type == CardType::Attack)
-                    .then_some(index)
-            })
-            .collect::<Vec<_>>();
-        if attack_indices.is_empty() {
+        if attack_ids.is_empty() {
             return;
         }
 
-        let choice = if attack_indices.len() == 1 {
-            0
-        } else {
-            state.card_random_rng.as_mut().map_or(0, |rng| {
-                rng.random_int((attack_indices.len() - 1) as i32) as usize
-            })
+        if let Some(rng) = state.shuffle_rng.as_mut() {
+            let shuffle_seed = rng.random_long();
+            JavaRng::new(shuffle_seed).collections_shuffle(&mut attack_ids);
+        }
+
+        let selected_id = attack_ids.remove(0);
+        let Some(draw_index) = state
+            .piles
+            .draw_pile
+            .iter()
+            .position(|card| card.id == selected_id)
+        else {
+            continue;
         };
-        let draw_index = attack_indices[choice];
         let card = state.piles.draw_pile.remove(draw_index);
-        state.piles.hand.push(card);
+        if state.piles.hand.len() >= 10 {
+            state.piles.discard_pile.push(card);
+        } else {
+            state.piles.hand.push(card);
+        }
     }
 }
 
@@ -5487,7 +5507,7 @@ mod tests {
     }
 
     #[test]
-    fn violence_draws_three_random_attacks_from_draw_pile_and_exhausts() {
+    fn violence_draws_three_target_ordered_attacks_from_draw_pile_and_exhausts() {
         let mut state = hand_only(VIOLENCE_ID);
         state.player.energy = 0;
         state.card_random_rng = Some(crate::rng::StsRng::new(123));
@@ -5501,15 +5521,14 @@ mod tests {
         ];
         let violence_id = hand_card_id(&state, VIOLENCE_ID);
         let mut expected_rng = crate::rng::StsRng::new(123);
-        let mut attack_ids = vec![CardId::new(31), CardId::new(32), CardId::new(34)];
         let mut expected_drawn = Vec::new();
-        while !attack_ids.is_empty() {
-            let choice = if attack_ids.len() == 1 {
-                0
+        for card_id in [CardId::new(31), CardId::new(32), CardId::new(34)] {
+            if expected_drawn.is_empty() {
+                expected_drawn.push(card_id);
             } else {
-                expected_rng.random_int((attack_ids.len() - 1) as i32) as usize
-            };
-            expected_drawn.push(attack_ids.remove(choice));
+                let index = expected_rng.random_int(expected_drawn.len() as i32) as usize;
+                expected_drawn.insert(index, card_id);
+            }
         }
 
         let next = apply_combat_action(&state, violence_action(&state)).expect("Violence applies");
@@ -5544,7 +5563,7 @@ mod tests {
     }
 
     #[test]
-    fn violence_without_card_random_rng_uses_deterministic_attack_order_fallback() {
+    fn violence_without_card_random_rng_uses_deterministic_attack_group_order_fallback() {
         let mut state = hand_only(VIOLENCE_ID);
         state.piles.draw_pile = vec![
             CardInstance::new(CardId::new(30), DEFEND_R_ID),
@@ -5564,6 +5583,54 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![STRIKE_R_ID, BASH_ID, FLASH_OF_STEEL_ID]
         );
+    }
+
+    #[test]
+    fn violence_moves_selected_attacks_to_discard_when_hand_is_full() {
+        let mut state = hand_only(VIOLENCE_ID);
+        state
+            .piles
+            .hand
+            .extend((0..9).map(|offset| CardInstance::new(CardId::new(40 + offset), DEFEND_R_ID)));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(&state, violence_action(&state)).expect("Violence applies");
+
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.id != CardId::new(30)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == VIOLENCE_ID));
+    }
+
+    #[test]
+    fn violence_consumes_shuffle_rng_once_per_selected_attack_when_available() {
+        let mut state = hand_only(VIOLENCE_ID);
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.shuffle_rng = Some(crate::rng::StsRng::new(456));
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), BASH_ID),
+        ];
+
+        let next = apply_combat_action(&state, violence_action(&state)).expect("Violence applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            1
+        );
+        assert_eq!(next.shuffle_rng.as_ref().expect("shuffle rng").counter(), 2);
+        assert!(next.piles.draw_pile.is_empty());
     }
 
     #[test]
