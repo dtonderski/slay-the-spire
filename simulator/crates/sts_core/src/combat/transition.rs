@@ -17,9 +17,10 @@ use crate::{
         BLOOD_FOR_BLOOD_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
         DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, EXHUME_ID, FINESSE_ID,
         FLASH_OF_STEEL_ID, IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
-        PANACEA_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        PANACEA_ID, PANIC_BUTTON_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -309,10 +310,10 @@ fn apply_internal_action(
             );
             Ok(Vec::new())
         }
-        InternalAction::GainBlock { amount } => {
-            let gained = calculate_block(amount, state.player.powers);
-            state.player.block += gained;
-            Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
+        InternalAction::GainBlock { amount } => Ok(apply_player_card_block_gain(state, amount)),
+        InternalAction::PreventBlockGain { turns } => {
+            state.player.no_block_turns = state.player.no_block_turns.max(turns);
+            Ok(Vec::new())
         }
         InternalAction::GainTemporaryThorns { amount } => {
             state.player.temp_thorns += amount;
@@ -753,6 +754,23 @@ pub(crate) fn apply_juggernaut_after_direct_block_gain(state: &mut CombatState, 
     }
 }
 
+fn apply_player_card_block_gain(state: &mut CombatState, amount: i32) -> Vec<InternalAction> {
+    if state.player.no_block_turns > 0 {
+        return Vec::new();
+    }
+    let gained = calculate_block(amount, state.player.powers);
+    state.player.block += gained;
+    juggernaut_follow_up_for_positive_block_gain(state, gained)
+}
+
+pub(crate) fn apply_player_direct_block_gain(state: &mut CombatState, amount: i32) {
+    if state.player.no_block_turns > 0 {
+        return;
+    }
+    state.player.block += amount;
+    apply_juggernaut_after_direct_block_gain(state, amount);
+}
+
 fn first_living_monster_id(state: &CombatState) -> Option<MonsterId> {
     state
         .monsters
@@ -768,8 +786,7 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId)
     }
     if state.player.powers.feel_no_pain > 0 {
         let gained = 3 * state.player.powers.feel_no_pain;
-        state.player.block += gained;
-        apply_juggernaut_after_direct_block_gain(state, gained);
+        apply_player_direct_block_gain(state, gained);
     }
     if state.player.powers.dark_embrace > 0 {
         player_draw_cards(state, state.player.powers.dark_embrace as usize);
@@ -928,8 +945,7 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
 fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) {
     if card_type == CardType::Attack && state.player.temp_rage_block > 0 {
         let gained = calculate_block(state.player.temp_rage_block, state.player.powers);
-        state.player.block += gained;
-        apply_juggernaut_after_direct_block_gain(state, gained);
+        apply_player_direct_block_gain(state, gained);
     }
 }
 
@@ -1073,6 +1089,12 @@ fn apply_play_top_draw_card(
                     temp_cost: Some(0),
                 });
             }
+        }
+        PANIC_BUTTON_ID => {
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
+            follow_ups.push(InternalAction::PreventBlockGain { turns: 2 });
         }
         FINESSE_ID => {
             follow_ups.push(InternalAction::GainBlock {
@@ -1795,14 +1817,15 @@ mod tests {
         INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MASTER_OF_STRATEGY_ID,
         METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-        SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID,
-        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
+        REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -6185,6 +6208,122 @@ mod tests {
                     card_id: hand_of_greed_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn panic_button_gains_thirty_block_at_zero_cost_prevents_block_and_exhausts() {
+        let mut state = hand_only(PANIC_BUTTON_ID);
+        state.player.energy = 0;
+        let panic_button_id = hand_card_id(&state, PANIC_BUTTON_ID);
+
+        let next =
+            apply_combat_action(&state, panic_button_action(&state)).expect("Panic Button applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.block, 30);
+        assert_eq!(next.player.no_block_turns, 2);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == panic_button_id));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == panic_button_id));
+    }
+
+    #[test]
+    fn duplication_potion_duplicates_panic_button_block_before_prevention() {
+        let mut state = hand_only(PANIC_BUTTON_ID);
+        state.duplication_potion_pending = true;
+
+        let next =
+            apply_combat_action(&state, panic_button_action(&state)).expect("Panic Button applies");
+
+        assert_eq!(next.player.block, 60);
+        assert_eq!(next.player.no_block_turns, 2);
+        assert!(!next.duplication_potion_pending);
+    }
+
+    #[test]
+    fn panic_button_prevents_later_block_gains_until_counter_expires() {
+        let mut state = hand_only(PANIC_BUTTON_ID);
+        state.monsters[0].intent = MonsterIntent::Block { block: 0 };
+        let after_panic =
+            apply_combat_action(&state, panic_button_action(&state)).expect("Panic Button applies");
+
+        let mut same_turn = after_panic.clone();
+        same_turn.piles.hand = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+        same_turn.player.energy = 1;
+        let after_same_turn_defend =
+            apply_combat_action(&same_turn, defend_action(&same_turn)).expect("Defend applies");
+        assert_eq!(after_same_turn_defend.player.block, 30);
+
+        let mut next_turn =
+            apply_combat_action(&after_panic, CombatAction::EndTurn).expect("turn ends");
+        assert_eq!(next_turn.player.no_block_turns, 1);
+        next_turn.piles.hand = vec![CardInstance::new(CardId::new(31), DEFEND_R_ID)];
+        next_turn.player.energy = 1;
+        let after_next_turn_defend =
+            apply_combat_action(&next_turn, defend_action(&next_turn)).expect("Defend applies");
+        assert_eq!(after_next_turn_defend.player.block, 0);
+
+        let mut later_setup = after_next_turn_defend.clone();
+        later_setup.monsters[0].intent = MonsterIntent::Block { block: 0 };
+        let mut later_turn =
+            apply_combat_action(&later_setup, CombatAction::EndTurn).expect("turn ends");
+        assert_eq!(later_turn.player.no_block_turns, 0);
+        later_turn.piles.hand = vec![CardInstance::new(CardId::new(32), DEFEND_R_ID)];
+        later_turn.player.energy = 1;
+        let after_later_defend =
+            apply_combat_action(&later_turn, defend_action(&later_turn)).expect("Defend applies");
+        assert_eq!(after_later_defend.player.block, 5);
+    }
+
+    #[test]
+    fn panic_button_prevents_end_of_turn_power_block() {
+        let mut state = hand_only(PANIC_BUTTON_ID);
+        state.player.powers.metallicize = 3;
+        state.monsters[0].intent = MonsterIntent::Block { block: 0 };
+
+        let after_panic =
+            apply_combat_action(&state, panic_button_action(&state)).expect("Panic Button applies");
+        let next_turn =
+            apply_combat_action(&after_panic, CombatAction::EndTurn).expect("turn ends");
+
+        assert_eq!(next_turn.player.block, 0);
+        assert_eq!(next_turn.player.no_block_turns, 1);
+    }
+
+    #[test]
+    fn panic_button_event_log_records_block_prevention_and_exhaust() {
+        let state = hand_only(PANIC_BUTTON_ID);
+        let panic_button_id = hand_card_id(&state, PANIC_BUTTON_ID);
+
+        let transition = apply_combat_action_with_events(&state, panic_button_action(&state))
+            .expect("Panic Button applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: panic_button_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::GainBlock { amount: 30 },
+                InternalAction::PreventBlockGain { turns: 2 },
+                InternalAction::MoveCard {
+                    card_id: panic_button_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: panic_button_id
                 },
             ]
         );
@@ -13023,6 +13162,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, HAND_OF_GREED_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn panic_button_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, PANIC_BUTTON_ID),
+            target: None,
         }
     }
 

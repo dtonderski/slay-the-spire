@@ -71,6 +71,7 @@ pub const CHRYSALIS_ID: ContentId = ContentId::new(59_200_009_685_460);
 pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const PANACHE_ID: ContentId = ContentId::new(72_935_227_636);
+pub const PANIC_BUTTON_ID: ContentId = ContentId::new(2_088_080_471_569_008_754);
 pub const PURITY_ID: ContentId = ContentId::new(2_371_347_673);
 pub const SADISTIC_NATURE_ID: ContentId = ContentId::new(16_049_541_496_988_266_320);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
@@ -1765,6 +1766,27 @@ pub const SADISTIC_NATURE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const PANIC_BUTTON: CardDefinition = CardDefinition {
+    id: PANIC_BUTTON_ID,
+    key: "PANIC_BUTTON",
+    name: "Panic Button",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(30),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const TRIP: CardDefinition = CardDefinition {
     id: TRIP_ID,
     key: "TRIP",
@@ -2468,7 +2490,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 133] = [
+pub const ALL_CARDS: [CardDefinition; 134] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2549,6 +2571,7 @@ pub const ALL_CARDS: [CardDefinition; 133] = [
     FINESSE,
     PANACEA,
     PANACHE,
+    PANIC_BUTTON,
     PURITY,
     SADISTIC_NATURE,
     TRIP,
@@ -2715,6 +2738,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACHE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == PANIC_BUTTON_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PURITY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SADISTIC_NATURE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -3102,6 +3126,21 @@ mod tests {
             Some((CardType::Power, CardRarity::Rare))
         );
         assert_eq!(upgrade_content_id(SADISTIC_NATURE_ID), None);
+    }
+
+    #[test]
+    fn panic_button_has_expected_values_keywords_and_rarity() {
+        assert_eq!(PANIC_BUTTON.id, PANIC_BUTTON_ID);
+        assert_eq!(PANIC_BUTTON.cost, 0);
+        assert_eq!(PANIC_BUTTON.target, TargetRequirement::None);
+        assert_eq!(PANIC_BUTTON.card_type, CardType::Skill);
+        assert_eq!(PANIC_BUTTON.values.block, Some(30));
+        assert!(PANIC_BUTTON.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(PANIC_BUTTON_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+        assert_eq!(upgrade_content_id(PANIC_BUTTON_ID), None);
     }
 
     #[test]

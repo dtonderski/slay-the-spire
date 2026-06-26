@@ -65,6 +65,9 @@ pub enum InternalAction {
     GainBlock {
         amount: i32,
     },
+    PreventBlockGain {
+        turns: i32,
+    },
     GainTemporaryThorns {
         amount: i32,
     },

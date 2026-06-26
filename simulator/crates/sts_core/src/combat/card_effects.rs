@@ -20,9 +20,9 @@ use crate::{
         INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MASTER_OF_STRATEGY_ID,
         MAYHEM_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
-        PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID,
-        SADISTIC_NATURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
+        PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
+        RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
         SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE,
@@ -163,6 +163,7 @@ pub(super) fn play_card_queue(
         ENLIGHTENMENT_ID => enlightenment_queue(state, card_id, definition),
         FINESSE_ID => finesse_queue(card_id, definition),
         IMPATIENCE_ID => impatience_queue(card_id, definition),
+        PANIC_BUTTON_ID => panic_button_queue(card_id, definition),
         SHRUG_IT_OFF_ID => shrug_it_off_queue(card_id),
         TRUE_GRIT_ID => true_grit_queue(state, card_id),
         BURNING_PACT_ID => burning_pact_queue(state, card_id),
@@ -496,8 +497,20 @@ fn apply_duplication_potion_to_queue(
         queue.pop_back();
     }
 
+    let mut delayed_prevention = VecDeque::new();
+    let mut immediate_queue = VecDeque::new();
+    while let Some(action) = queue.pop_front() {
+        if matches!(action, InternalAction::PreventBlockGain { .. }) {
+            delayed_prevention.push_back(action);
+        } else {
+            immediate_queue.push_back(action);
+        }
+    }
+    queue = immediate_queue;
+
     queue.push_front(InternalAction::ConsumeDuplicationPotion);
     queue.append(&mut duplicated_effects);
+    queue.append(&mut delayed_prevention);
     if let Some(action) = final_move {
         queue.push_back(action);
     }
@@ -571,6 +584,7 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
             | InternalAction::PlayCard { .. }
             | InternalAction::SpendEnergy { .. }
             | InternalAction::SpendCardEnergy { .. }
+            | InternalAction::PreventBlockGain { .. }
             | InternalAction::MoveCard { .. }
             | InternalAction::AwaitHandSelect { .. }
             | InternalAction::AwaitDrawSelect { .. }
@@ -2720,6 +2734,27 @@ fn impatience_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::DrawCards { count: 2 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn panic_button_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: definition.values.block.unwrap_or(0),
+        },
+        InternalAction::PreventBlockGain { turns: 2 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
