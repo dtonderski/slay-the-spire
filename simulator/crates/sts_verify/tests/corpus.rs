@@ -1037,6 +1037,88 @@ fn test_m33_manual01_selected_neow_random_rare_card_prefix() {
 }
 
 #[test]
+fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
+    let Some(content) = load_corpus_file(
+        "communication_mod/trace-2026-06-23T07-42-06-085Z.m290005-neow-remove-card.jsonl",
+    ) else {
+        return;
+    };
+
+    let trace = sts_verify::import_communication_mod_trace(&content).expect("prefix imports");
+    assert_eq!(raw_trace_count(&content, "metadata"), 1);
+    assert_eq!(raw_trace_count(&content, "action"), 7);
+    assert_eq!(raw_trace_count(&content, "state"), 8);
+    assert!(trace.lines.iter().all(|line| match line {
+        sts_verify::TraceLine::State(state) => state.step <= 7,
+        sts_verify::TraceLine::Action(action) => action.step <= 7,
+        sts_verify::TraceLine::Metadata(_) => true,
+    }));
+
+    let options = state_message_at_step(&content, 3).expect("step 3 state");
+    let choices = game_choice_labels(&options);
+    assert!(
+        choices.contains(&"remove a card from your deck"),
+        "step 3 missing remove-card Neow choice; choices: {choices:?}"
+    );
+
+    let grid = state_message_at_step(&content, 4).expect("step 4 state");
+    assert_eq!(game_str(&grid, "screen_type"), Some("GRID"));
+    assert_screen_cards_include(&content, 4, &["Strike", "Defend", "Bash"]);
+    assert_eq!(deck_name_count(&grid, "Strike"), 5);
+
+    let selected = state_message_at_step(&content, 5).expect("step 5 state");
+    assert_eq!(game_str(&selected, "screen_type"), Some("GRID"));
+
+    let leave = state_message_at_step(&content, 6).expect("step 6 state");
+    assert_eq!(game_str(&leave, "screen_type"), Some("EVENT"));
+    assert_eq!(game_choice_labels(&leave), vec!["leave"]);
+    assert_eq!(deck_names(&leave).len(), 9);
+    assert_eq!(deck_name_count(&leave, "Strike"), 4);
+
+    let map = state_message_at_step(&content, 7).expect("step 7 state");
+    assert_eq!(game_str(&map, "screen_type"), Some("MAP"));
+    assert_eq!(deck_names(&map).len(), 9);
+    assert_eq!(deck_name_count(&map, "Strike"), 4);
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(seed_start.expected_failure);
+    assert_eq!(seed_start.start_command.external_seed, "M290005");
+    assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_130);
+    assert_eq!(seed_start.first_boundary.path, "$.actions");
+    assert_eq!(
+        seed_start.first_boundary.category,
+        "missing_post_reward_boundary"
+    );
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "seed-start bootstrap",
+        "Neow talk",
+        "Neow remove card grid",
+        "Neow grid select",
+        "Neow grid confirm",
+        "Neow leave",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified seed-start label {expected}; labels: {labels:?}"
+        );
+    }
+}
+
+#[test]
 fn test_seed_start_full_act1_boss_relic_prefix() {
     let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
@@ -1202,6 +1284,13 @@ fn deck_names(message: &serde_json::Value) -> Vec<&str> {
         .flatten()
         .filter_map(|card| card.get("name").and_then(serde_json::Value::as_str))
         .collect()
+}
+
+fn deck_name_count(message: &serde_json::Value, expected_name: &str) -> usize {
+    deck_names(message)
+        .into_iter()
+        .filter(|name| *name == expected_name)
+        .count()
 }
 
 fn assert_screen_cards_include(content: &str, step: u32, expected_names: &[&str]) {

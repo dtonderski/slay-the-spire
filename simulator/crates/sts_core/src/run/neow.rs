@@ -433,7 +433,7 @@ fn reward_label(reward: NeowRewardType, player_max_hp: i32) -> String {
         NeowRewardType::OneRandomRareCard => "obtain a random rare card".to_owned(),
         NeowRewardType::RandomColorless => "choose a colorless card to obtain".to_owned(),
         NeowRewardType::RandomColorlessTwo => "choose a rare colorless card to obtain".to_owned(),
-        NeowRewardType::RemoveCard => "remove a card".to_owned(),
+        NeowRewardType::RemoveCard => "remove a card from your deck".to_owned(),
         NeowRewardType::RemoveTwo => "remove 2 cards".to_owned(),
         NeowRewardType::UpgradeCard => "upgrade a card".to_owned(),
         NeowRewardType::TransformCard => "transform a card".to_owned(),
