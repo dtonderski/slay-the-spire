@@ -16,8 +16,9 @@ pub use event::{
 };
 pub use grid::{
     cancel_grid, confirm_grid, open_astrolabe_grid, open_bottle_grid, open_calling_bell_grid,
-    open_dollys_mirror_grid, open_empty_cage_grid, open_pandoras_box_grid, open_rest_smith_grid,
-    open_shop_remove_grid, select_grid_card, CardGridScreen, GridPurpose,
+    open_dollys_mirror_grid, open_empty_cage_grid, open_neow_remove_grid, open_neow_upgrade_grid,
+    open_pandoras_box_grid, open_rest_smith_grid, open_shop_remove_grid, select_grid_card,
+    CardGridScreen, GridPurpose,
 };
 pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
 pub use neow::{
@@ -28,9 +29,9 @@ pub use neow::{
     generate_neow_three_potions, generate_neow_three_potions_with_rng,
     generate_neow_transform_reward, generate_neow_transform_reward_with_rng,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
-    GeneratedNeowOption, KnownNeowBranch, KnownNeowColorlessReward, KnownNeowScreen,
-    NeowBossSwapReward, NeowCardReward, NeowColorlessReward, NeowDrawback, NeowPotionReward,
-    NeowRelicReward, NeowRewardType, NeowTransformReward,
+    open_neow_reward_grid, GeneratedNeowOption, KnownNeowBranch, KnownNeowColorlessReward,
+    KnownNeowScreen, NeowBossSwapReward, NeowCardReward, NeowColorlessReward, NeowDrawback,
+    NeowPotionReward, NeowRelicReward, NeowRewardType, NeowTransformReward,
 };
 pub use potion::{apply_potion_action, validate_potion_action};
 pub use rest::{
