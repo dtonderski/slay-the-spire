@@ -616,14 +616,6 @@ pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
     }
 }
 
-pub fn known_neow_transformed_card(seed: &str) -> Option<&'static str> {
-    match seed {
-        "M290001" => Some("Sever Soul"),
-        "M290008" => Some("Sentinel"),
-        _ => None,
-    }
-}
-
 pub fn known_neow_colorless_reward_for_seed(seed: &str) -> Option<KnownNeowColorlessReward> {
     match seed {
         "TEST" => Some(KnownNeowColorlessReward {
@@ -649,7 +641,7 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         is_curse_content_id, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID,
-        STRIKE_R_ID, SWIFT_STRIKE_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
     use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
     use crate::run::GridPurpose;
@@ -699,8 +691,6 @@ mod tests {
             known_neow_screen_for_seed("M290008").branch,
             Some(KnownNeowBranch::TransformCard)
         );
-        assert_eq!(known_neow_transformed_card("M290001"), Some("Sever Soul"));
-        assert_eq!(known_neow_transformed_card("M290008"), Some("Sentinel"));
     }
 
     #[test]
@@ -866,9 +856,27 @@ mod tests {
     fn transform_reward_consumes_neow_rng_after_option_generation() {
         let reward = generate_neow_transform_reward(40_560_393_126, &[STRIKE_R_ID]);
 
-        assert_eq!(reward.cards.len(), 1);
-        assert_ne!(reward.cards[0], STRIKE_R_ID);
+        assert_eq!(reward.cards, vec![SEVER_SOUL_ID]);
         assert_eq!(reward.neow_rng_counter, 6);
+    }
+
+    #[test]
+    fn transform_reward_matches_m290008_captured_replacement() {
+        let reward = generate_neow_transform_reward(40_560_393_133, &[STRIKE_R_ID]);
+
+        assert_eq!(reward.cards, vec![SENTINEL_ID]);
+        assert_eq!(reward.neow_rng_counter, 6);
+    }
+
+    #[test]
+    fn transform_reward_excludes_source_for_one_and_two_transforms() {
+        let one = generate_neow_transform_reward(40_560_393_133, &[STRIKE_R_ID]);
+        let two = generate_neow_transform_reward(40_560_393_133, &[STRIKE_R_ID, STRIKE_R_ID]);
+
+        assert!(one.cards.iter().all(|card| *card != STRIKE_R_ID));
+        assert!(two.cards.iter().all(|card| *card != STRIKE_R_ID));
+        assert_eq!(one.neow_rng_counter, 6);
+        assert_eq!(two.neow_rng_counter, 7);
     }
 
     #[test]

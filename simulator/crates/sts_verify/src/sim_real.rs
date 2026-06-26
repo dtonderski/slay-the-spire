@@ -6,7 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sts_core::content::cards::SWORD_BOOMERANG_ID;
+use sts_core::content::cards::{STRIKE_R_ID, SWORD_BOOMERANG_ID};
 use sts_core::content::monsters::{
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
     GREMLIN_NOB_ID, GUARDIAN_ID, LAGAVULIN_ID,
@@ -22,14 +22,14 @@ use sts_core::{
     enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
-    generate_neow_three_potions, initialize_combat_piles_with_relics,
-    known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
-    leave_shop_merchant, leave_shop_room, open_neow_reward_grid, select_grid_card,
-    shop_action_for_choice_index, starter_only_deck, CardId, CardInstance, CardPiles, CombatAction,
-    CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice, EventScreen,
-    GeneratedNeowOption, KnownNeowBranch, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
-    NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic, RelicKey, RestAction,
-    RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    generate_neow_three_potions, generate_neow_transform_reward,
+    initialize_combat_piles_with_relics, known_neow_colorless_reward_for_seed,
+    known_neow_screen_for_seed, leave_shop_merchant, leave_shop_room, open_neow_reward_grid,
+    select_grid_card, shop_action_for_choice_index, starter_only_deck, CardId, CardInstance,
+    CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice,
+    EventScreen, GeneratedNeowOption, KnownNeowBranch, MonsterId, MonsterIntent, MonsterPowers,
+    MonsterState, NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic, RelicKey,
+    RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -536,7 +536,8 @@ fn verify_seed_start_transitions(
                         "choices": ["leave"],
                     }),
                 );
-                deck_ids = seed_start_deck_after_transform(&start.external_seed);
+                deck_ids =
+                    seed_start_deck_after_transform(start.numeric_seed, &start.external_seed);
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
@@ -864,9 +865,11 @@ fn verify_seed_start_transitions(
                             .get("game_state")
                             .and_then(|game| game.get("deck")),
                     );
-                    if observed_deck.iter().any(|card| {
-                        seed_start_transformed_card(&start.external_seed) == Some(card.as_str())
-                    }) {
+                    let transformed = seed_start_generated_transform_card(start.numeric_seed);
+                    if observed_deck
+                        .iter()
+                        .any(|card| transformed.as_deref() == Some(card.as_str()))
+                    {
                         deck_ids.clone()
                     } else {
                         seed_start_visible_deck_after_transform(&start.external_seed)
@@ -2990,10 +2993,6 @@ fn seed_start_is_transform_neow_branch(seed: &str) -> bool {
     known_neow_screen_for_seed(seed).branch == Some(KnownNeowBranch::TransformCard)
 }
 
-fn seed_start_transformed_card(seed: &str) -> Option<&'static str> {
-    known_neow_transformed_card(seed)
-}
-
 fn seed_start_visible_deck_after_transform(seed: &str) -> Vec<String> {
     match seed {
         "M290001" | "M290008" => seed_start_m290001_visible_deck_after_transform(),
@@ -3001,10 +3000,19 @@ fn seed_start_visible_deck_after_transform(seed: &str) -> Vec<String> {
     }
 }
 
-fn seed_start_deck_after_transform(seed: &str) -> Vec<String> {
+fn seed_start_generated_transform_card(numeric_seed: i64) -> Option<String> {
+    generate_neow_transform_reward(numeric_seed, &[STRIKE_R_ID])
+        .cards
+        .first()
+        .map(|card| deck_content_key(*card).to_owned())
+}
+
+fn seed_start_deck_after_transform(numeric_seed: i64, seed: &str) -> Vec<String> {
     let mut deck = seed_start_visible_deck_after_transform(seed);
-    if let Some(card) = seed_start_transformed_card(seed) {
-        deck.push(card.to_owned());
+    if seed_start_is_transform_neow_branch(seed) {
+        if let Some(card) = seed_start_generated_transform_card(numeric_seed) {
+            deck.push(card);
+        }
     }
     deck
 }
@@ -4413,7 +4421,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, and VERIFY01 common relic identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, M290001/M290008 transform identity, curse drawback identity, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, curse drawback identity, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
