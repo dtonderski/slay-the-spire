@@ -191,6 +191,9 @@ pub enum InternalAction {
         source_card_id: CardId,
         purpose: ExhaustSelectPurpose,
     },
+    OpenDiscoveryCardReward {
+        source_card_id: CardId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

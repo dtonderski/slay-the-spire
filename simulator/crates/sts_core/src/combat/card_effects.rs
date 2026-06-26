@@ -11,27 +11,30 @@ use crate::{
         BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
         BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID,
-        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
-        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
-        FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID, INFERNAL_BLADE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
+        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID,
+        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
+        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID,
+        INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
-    content::shop_pool::ironclad_combat_attack_discovery_pool,
+    content::shop_pool::{
+        ironclad_combat_attack_discovery_pool, ironclad_combat_power_discovery_pool,
+        ironclad_combat_skill_discovery_pool,
+    },
     ids::{CardId, ContentId, MonsterId},
     relic::{
         strike_damage_with_relics, Relic, AKABEKO_DAMAGE, CHEMICAL_X_BONUS_X, PEN_NIB_THRESHOLD,
     },
-    MonsterIntent, SimError, SimResult,
+    CardInstance, MonsterIntent, SimError, SimResult,
 };
 use std::collections::VecDeque;
 
@@ -158,6 +161,7 @@ pub(super) fn play_card_queue(
         TRUE_GRIT_ID => true_grit_queue(state, card_id),
         BURNING_PACT_ID => burning_pact_queue(state, card_id),
         INFERNAL_BLADE_ID => infernal_blade_queue(&mut queued_state, card_id, definition),
+        DISCOVERY_ID => discovery_queue(&mut queued_state, card_id, definition),
         BANDAGE_UP_ID => bandage_up_queue(card_id, definition),
         PANACEA_ID => panacea_queue(card_id, definition),
         FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
@@ -1082,6 +1086,65 @@ fn infernal_blade_generated_attack(state: &mut CombatState) -> ContentId {
     };
     let index = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[index]
+}
+
+fn discovery_queue(
+    state: &mut CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    open_discovery_card_reward(state);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::OpenDiscoveryCardReward {
+            source_card_id: card_id,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn open_discovery_card_reward(state: &mut CombatState) {
+    let pool = discovery_modeled_card_pool();
+    let mut content_choices = Vec::with_capacity(3);
+    match state.card_random_rng.as_mut() {
+        Some(rng) => {
+            while content_choices.len() < 3 {
+                let index = rng.random_int((pool.len() - 1) as i32) as usize;
+                let content_id = pool[index];
+                if !content_choices.contains(&content_id) {
+                    content_choices.push(content_id);
+                }
+            }
+        }
+        None => content_choices.extend(pool.into_iter().take(3)),
+    }
+
+    let next_card_id = state.piles.max_card_instance_id() + 1;
+    state.discovery_card_reward = Some(
+        content_choices
+            .into_iter()
+            .enumerate()
+            .map(|(index, content_id)| {
+                CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
+            })
+            .collect(),
+    );
+}
+
+pub(crate) fn discovery_modeled_card_pool() -> Vec<ContentId> {
+    ironclad_combat_attack_discovery_pool()
+        .into_iter()
+        .chain(ironclad_combat_skill_discovery_pool())
+        .chain(ironclad_combat_power_discovery_pool().iter().copied())
+        .filter(|content_id| get_card_definition(*content_id).is_some())
+        .collect()
 }
 
 pub(crate) fn infernal_blade_modeled_attack_pool() -> Vec<ContentId> {

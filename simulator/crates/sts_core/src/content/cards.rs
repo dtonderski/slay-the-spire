@@ -59,6 +59,7 @@ pub const BANDAGE_UP_ID: ContentId = ContentId::new(1_802_661_242_803_912);
 pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
 pub const DARK_SHACKLES_ID: ContentId = ContentId::new(18_388_408_013_683_944_583);
 pub const DEEP_BREATH_ID: ContentId = ContentId::new(57_620_194_214_716_779);
+pub const DISCOVERY_ID: ContentId = ContentId::new(60_080_667_924_456);
 pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
@@ -1241,6 +1242,27 @@ pub const DEEP_BREATH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const DISCOVERY: CardDefinition = CardDefinition {
+    id: DISCOVERY_ID,
+    key: "DISCOVERY",
+    name: "Discovery",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const FLASH_OF_STEEL: CardDefinition = CardDefinition {
     id: FLASH_OF_STEEL_ID,
     key: "Flash of Steel",
@@ -2046,7 +2068,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 112] = [
+pub const ALL_CARDS: [CardDefinition; 113] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2114,6 +2136,7 @@ pub const ALL_CARDS: [CardDefinition; 112] = [
     BLIND,
     SWIFT_STRIKE,
     DEEP_BREATH,
+    DISCOVERY,
     FLASH_OF_STEEL,
     DARK_SHACKLES,
     GOOD_INSTINCTS,
@@ -2190,6 +2213,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BANDAGE_UP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DEEP_BREATH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == DISCOVERY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -2439,6 +2463,28 @@ mod tests {
         assert_eq!(GOOD_INSTINCTS.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(GOOD_INSTINCTS_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn discovery_has_expected_values_keywords_and_rarity() {
+        assert_eq!(DISCOVERY.id, DISCOVERY_ID);
+        assert_eq!(DISCOVERY.cost, 1);
+        assert_eq!(DISCOVERY.target, TargetRequirement::None);
+        assert_eq!(DISCOVERY.card_type, CardType::Skill);
+        assert_eq!(
+            DISCOVERY.keywords,
+            CardKeywords {
+                innate: false,
+                ethereal: false,
+                exhaust: true,
+                retain: false,
+                unplayable: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(DISCOVERY_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
