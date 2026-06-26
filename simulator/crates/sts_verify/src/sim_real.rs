@@ -636,38 +636,43 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(|option| option.reward == NeowRewardType::RandomCommonRelic) =>
+                    .is_some_and(seed_start_neow_option_is_supported_relic_reward) =>
             {
-                let relic = seed_start_apply_neow_relic_reward(
-                    start.numeric_seed,
-                    &deck_ids,
-                    NeowRewardType::RandomCommonRelic,
-                );
+                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .expect("matched generated Neow relic reward option");
+                let run =
+                    seed_start_apply_neow_relic_reward(start.numeric_seed, &deck_ids, &option);
+                neow_gold = run.gold;
+                neow_current_hp = run.player_hp;
+                neow_max_hp = run.player_max_hp;
+                let relic = seed_start_newest_trace_relic_name(&run);
                 if !relics.contains(&relic) {
-                    relics.push(relic);
+                    relics.push(relic.clone());
                 }
                 compare_subset(
                     report,
                     action,
-                    "Neow common relic",
+                    seed_start_neow_relic_reward_label(option.reward),
                     seed_start_observed_subset(&post.message),
                     json!({
                         "screen_type": "EVENT",
                         "ascension": start.ascension,
                         "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
                         "choices": ["leave"],
                     }),
                 );
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: "Toy Ornithopter is only carried as a captured Neow relic in this trace; no potion-use transition is observed here, so potion-triggered healing remains covered by sts_core unit tests rather than seed-start trace parity".to_owned(),
-                });
+                if relic == "Toy Ornithopter" {
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: "Toy Ornithopter is only carried as a captured Neow relic in this trace; no potion-use transition is observed here, so potion-triggered healing remains covered by sts_core unit tests rather than seed-start trace parity".to_owned(),
+                    });
+                }
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
@@ -3082,6 +3087,7 @@ fn seed_start_neow_option_is_supported_card_reward(option: GeneratedNeowOption) 
             option.reward,
             NeowRewardType::ThreeCards
                 | NeowRewardType::OneRandomRareCard
+                | NeowRewardType::RandomColorlessTwo
                 | NeowRewardType::ThreeRareCards
         )
 }
@@ -3091,6 +3097,14 @@ fn seed_start_neow_option_is_supported_grid_reward(option: GeneratedNeowOption) 
         && matches!(
             option.reward,
             NeowRewardType::RemoveCard | NeowRewardType::RemoveTwo | NeowRewardType::UpgradeCard
+        )
+}
+
+fn seed_start_neow_option_is_supported_relic_reward(option: GeneratedNeowOption) -> bool {
+    seed_start_neow_drawback_is_simple(option.drawback)
+        && matches!(
+            option.reward,
+            NeowRewardType::RandomCommonRelic | NeowRewardType::OneRareRelic
         )
 }
 
@@ -3195,6 +3209,7 @@ fn seed_start_neow_card_reward_label(reward: NeowRewardType) -> &'static str {
     match reward {
         NeowRewardType::ThreeCards => "Neow card reward choices",
         NeowRewardType::OneRandomRareCard => "Neow random rare card reward",
+        NeowRewardType::RandomColorlessTwo => "Neow rare colorless reward choices",
         NeowRewardType::ThreeRareCards => "Neow rare card reward choices",
         _ => "Neow card reward choices",
     }
@@ -3221,7 +3236,12 @@ fn seed_start_neow_card_reward_content_ids(
     numeric_seed: i64,
     reward: NeowRewardType,
 ) -> Vec<ContentId> {
-    generate_neow_card_reward(numeric_seed, reward).cards
+    match reward {
+        NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
+            generate_neow_colorless_reward(numeric_seed, reward).cards
+        }
+        _ => generate_neow_card_reward(numeric_seed, reward).cards,
+    }
 }
 
 fn seed_start_colorless_neow_choice_names(numeric_seed: i64) -> Vec<String> {
@@ -3253,13 +3273,36 @@ fn seed_start_neow_potion_names(numeric_seed: i64) -> Vec<String> {
 fn seed_start_apply_neow_relic_reward(
     numeric_seed: i64,
     deck_ids: &[String],
-    reward: NeowRewardType,
-) -> String {
+    option: &GeneratedNeowOption,
+) -> RunState {
     let mut run = RunState::map_fixture();
+    run.gold = 99;
     run.relic_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
-    let reward = apply_neow_relic_reward(&mut run, reward);
-    relic_key_trace_name(reward.relic).to_owned()
+    apply_neow_simple_drawback(&mut run, option.drawback);
+    apply_neow_relic_reward(&mut run, option.reward);
+    run
+}
+
+fn seed_start_newest_trace_relic_name(run: &RunState) -> String {
+    run.relics
+        .iter()
+        .last()
+        .map(|relic| relic_key_trace_name(relic.key()).to_owned())
+        .or_else(|| {
+            run.relic_keys
+                .last()
+                .map(|key| relic_key_trace_name(*key).to_owned())
+        })
+        .unwrap_or_else(|| "Unknown Relic".to_owned())
+}
+
+fn seed_start_neow_relic_reward_label(reward: NeowRewardType) -> &'static str {
+    match reward {
+        NeowRewardType::RandomCommonRelic => "Neow common relic",
+        NeowRewardType::OneRareRelic => "Neow rare relic",
+        _ => "Neow relic",
+    }
 }
 
 fn seed_start_colorless_pick_label(seed: &str) -> &'static str {
@@ -4421,7 +4464,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, curse drawback identity, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, curse-combo rare relics, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -4463,7 +4506,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "relicRng".to_owned(),
             save_counter: Some("relic_seed_count".to_owned()),
             status: "source_backed_pool_selection_wired".to_owned(),
-            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad relic pools initialize, pop, and filter like target; elite/chest/boss relic reward screens and shop relic offers are wired from persisted pool state. VERIFY01 Neow common relic identity is generated through the fixed-tier relic helper; rare-relic and boss-swap Neow verifier branches remain partial/caveated".to_owned(),
+            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad relic pools initialize, pop, and filter like target; elite/chest/boss relic reward screens and shop relic offers are wired from persisted pool state. VERIFY01 Neow common relic identity and simple-drawback Neow rare relic identity are generated through the fixed-tier relic helper; curse-combo rare relics and boss-swap follow-ups remain partial/caveated".to_owned(),
         },
         RngBoundary {
             stream: "merchantRng".to_owned(),
@@ -6621,17 +6664,158 @@ mod tests {
 
     #[test]
     fn seed_start_common_relic_uses_generated_neow_relic_reward() {
-        assert_eq!(
-            seed_start_apply_neow_relic_reward(
-                1_957_307_888_551,
-                &ironclad_starter_deck_keys(),
-                NeowRewardType::RandomCommonRelic
-            ),
-            "Toy Ornithopter"
+        let option = seed_start_selected_neow_option(1_957_307_888_551, "CHOOSE 1")
+            .expect("VERIFY01 common relic option");
+        let run = seed_start_apply_neow_relic_reward(
+            1_957_307_888_551,
+            &ironclad_starter_deck_keys(),
+            &option,
         );
+
+        assert_eq!(seed_start_newest_trace_relic_name(&run), "Toy Ornithopter");
         assert_eq!(
             relic_key_from_trace_name("Toy Ornithopter"),
             Some(RelicKey::ToyOrnithopter)
+        );
+    }
+
+    #[test]
+    fn seed_start_rare_relic_uses_generated_neow_relic_reward_with_simple_drawback() {
+        let (numeric_seed, option, run) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.drawback == NeowDrawback::TenPercentHpLoss
+                            && option.reward == NeowRewardType::OneRareRelic
+                    })
+                    .and_then(|option| {
+                        let run = seed_start_apply_neow_relic_reward(
+                            seed,
+                            &ironclad_starter_deck_keys(),
+                            &option,
+                        );
+                        (seed_start_newest_trace_relic_name(&run) != "Unknown Relic")
+                            .then_some((seed, option, run))
+                    })
+            })
+            .expect("synthetic seed with max-HP loss plus mapped rare relic");
+
+        assert!(seed_start_neow_option_is_supported_relic_reward(
+            option.clone()
+        ));
+
+        assert_eq!(run.gold, 99);
+        assert_eq!(run.player_hp, 72);
+        assert_eq!(run.player_max_hp, 72);
+        assert_eq!(
+            seed_start_selected_neow_option(numeric_seed, &format!("CHOOSE {}", option.slot))
+                .map(|option| option.reward),
+            Some(NeowRewardType::OneRareRelic)
+        );
+        assert_ne!(seed_start_newest_trace_relic_name(&run), "Unknown Relic");
+    }
+
+    #[test]
+    fn seed_start_rare_relic_rejects_curse_and_non_relic_identity_branches() {
+        assert!(!seed_start_neow_option_is_supported_relic_reward(
+            GeneratedNeowOption {
+                slot: 2,
+                drawback: NeowDrawback::Curse,
+                reward: NeowRewardType::OneRareRelic,
+                label: "obtain a curse obtain a random rare relic".to_owned(),
+            }
+        ));
+        assert!(!seed_start_neow_option_is_supported_relic_reward(
+            GeneratedNeowOption {
+                slot: 2,
+                drawback: NeowDrawback::TenPercentHpLoss,
+                reward: NeowRewardType::RandomColorlessTwo,
+                label: "lose 8 max hp choose a rare colorless card to obtain".to_owned(),
+            }
+        ));
+    }
+
+    #[test]
+    fn seed_start_neow_rare_relic_trace_branch_reaches_leave() {
+        let numeric_seed = 1_218_623;
+        let option = seed_start_selected_neow_option(numeric_seed, "CHOOSE 2")
+            .expect("TEST slot 2 rare relic option");
+        assert_eq!(option.drawback, NeowDrawback::TenPercentHpLoss);
+        assert_eq!(option.reward, NeowRewardType::OneRareRelic);
+        let run = seed_start_apply_neow_relic_reward(
+            numeric_seed,
+            &ironclad_starter_deck_keys(),
+            &option,
+        );
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let starting_relics = vec![json!({ "name": "Burning Blood" })];
+        let post_relics = vec![
+            json!({ "name": "Burning Blood" }),
+            json!({ "name": seed_start_newest_trace_relic_name(&run) }),
+        ];
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": "START IRONCLAD 0 TEST"}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 2"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": starting_deck,
+                "relics": post_relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow rare relic"
+        }));
+        assert_eq!(
+            report
+                .seed_start
+                .expect("seed-start")
+                .first_boundary
+                .category,
+            "missing_post_reward_boundary"
         );
     }
 
@@ -6983,6 +7167,61 @@ mod tests {
             ids.iter()
                 .map(|id| id.to_ascii_lowercase())
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn seed_start_neow_rare_colorless_reward_uses_colorless_helper() {
+        let (numeric_seed, option) = (1_i64..10_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.reward == NeowRewardType::RandomColorlessTwo
+                            && seed_start_neow_drawback_is_simple(option.drawback)
+                    })
+                    .map(|option| (seed, option))
+            })
+            .expect("synthetic seed with rare colorless option");
+
+        assert!(seed_start_neow_option_is_supported_card_reward(
+            option.clone()
+        ));
+        assert_eq!(
+            seed_start_neow_card_reward_label(option.reward),
+            "Neow rare colorless reward choices"
+        );
+
+        let generated = generate_neow_colorless_reward(numeric_seed, option.reward);
+        assert_eq!(
+            seed_start_neow_card_reward_content_ids(numeric_seed, option.reward),
+            generated.cards
+        );
+        assert_eq!(
+            seed_start_neow_card_reward_ids(numeric_seed, option.reward),
+            generated
+                .cards
+                .iter()
+                .map(|content_id| content_key(*content_id).to_owned())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn seed_start_neow_random_colorless_still_uses_colorless_helper() {
+        let generated =
+            generate_neow_colorless_reward(22_079_335_079, NeowRewardType::RandomColorless);
+
+        assert_eq!(
+            seed_start_neow_card_reward_content_ids(
+                22_079_335_079,
+                NeowRewardType::RandomColorless
+            ),
+            generated.cards
+        );
+        assert_eq!(
+            seed_start_colorless_neow_card_ids(22_079_335_079),
+            seed_start_neow_card_reward_ids(22_079_335_079, NeowRewardType::RandomColorless)
         );
     }
 
