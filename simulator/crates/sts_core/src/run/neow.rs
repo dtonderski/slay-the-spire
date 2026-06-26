@@ -8,6 +8,7 @@ use crate::{
     card::CardRarity,
     content::{reward_pool::IRONCLAD_REWARD_ENTRIES, shop_pool::random_colorless_from_pool},
     ids::ContentId,
+    potion::{Potion, IRONCLAD_POTION_POOL},
     rng::StsRng,
 };
 
@@ -89,6 +90,12 @@ pub struct NeowColorlessReward {
     pub card_rng_counter: u32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NeowPotionReward {
+    pub potions: Vec<Potion>,
+    pub potion_rng_counter: u32,
+}
+
 pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
     let mut rng = StsRng::new(numeric_seed);
     (0..4)
@@ -148,6 +155,20 @@ pub fn generate_neow_colorless_reward_with_rng(
         cards,
         neow_rng_counter: neow_rng.counter(),
         card_rng_counter: card_rng.counter(),
+    }
+}
+
+pub fn generate_neow_three_potions(numeric_seed: i64) -> NeowPotionReward {
+    let mut potion_rng = StsRng::new(numeric_seed);
+    generate_neow_three_potions_with_rng(&mut potion_rng)
+}
+
+pub fn generate_neow_three_potions_with_rng(potion_rng: &mut StsRng) -> NeowPotionReward {
+    let potions = (0..3).map(|_| neow_random_potion(potion_rng)).collect();
+
+    NeowPotionReward {
+        potions,
+        potion_rng_counter: potion_rng.counter(),
     }
 }
 
@@ -324,6 +345,11 @@ fn neow_colorless_rarity(neow_rng: &mut StsRng, force_rare: bool) -> CardRarity 
     } else {
         CardRarity::Uncommon
     }
+}
+
+fn neow_random_potion(potion_rng: &mut StsRng) -> Potion {
+    let pick = potion_rng.random_int((IRONCLAD_POTION_POOL.len() - 1) as i32) as usize;
+    IRONCLAD_POTION_POOL[pick]
 }
 
 pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
@@ -588,5 +614,13 @@ mod tests {
             reward.cards,
             vec![DEEP_BREATH_ID, SWIFT_STRIKE_ID, JACK_OF_ALL_TRADES_ID]
         );
+    }
+
+    #[test]
+    fn three_potion_reward_rolls_direct_full_potion_pool_three_times() {
+        let reward = generate_neow_three_potions(22_079_335_079);
+
+        assert_eq!(reward.potions.len(), 3);
+        assert_eq!(reward.potion_rng_counter, 3);
     }
 }
