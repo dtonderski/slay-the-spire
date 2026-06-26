@@ -13,14 +13,14 @@ use crate::{
         HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
+        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_PLUS_ID,
         BLOOD_FOR_BLOOD_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
         DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID,
         ENLIGHTENMENT_PLUS_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, IMPATIENCE_ID,
         MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_PLUS_ID,
         RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -1133,11 +1133,19 @@ fn apply_play_top_draw_card(
             });
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
-        BLIND_ID => {
+        BLIND_PLUS_ID => {
             for monster in state.monsters.iter().filter(|monster| monster.alive) {
                 follow_ups.push(InternalAction::ApplyWeak {
                     target: monster.id,
                     amount: 2,
+                });
+            }
+        }
+        TRIP_PLUS_ID => {
+            for monster in state.monsters.iter().filter(|monster| monster.alive) {
+                follow_ups.push(InternalAction::ApplyVulnerable {
+                    target: monster.id,
+                    amount: definition.values.vulnerable.unwrap_or(0),
                 });
             }
         }
@@ -1921,28 +1929,29 @@ mod tests {
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID,
-        BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID,
-        BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
-        CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
-        CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID,
-        DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID,
-        FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID,
-        FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID,
-        HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
-        INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID,
-        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID,
-        RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID,
-        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID,
-        SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
-        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLIND_PLUS_ID,
+        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
+        BURNING_PACT_ID, CARNAGE_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
+        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
+        FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID,
+        GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID,
+        JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID,
+        METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
+        PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
+        REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID,
+        TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -5179,37 +5188,51 @@ mod tests {
     }
 
     #[test]
-    fn blind_applies_two_weak_to_each_living_enemy_and_discards() {
+    fn blind_applies_two_weak_to_target_and_discards() {
         let state = two_monster_hand(BLIND_ID);
 
         let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
 
         assert_eq!(next.player.energy, state.player.energy);
         assert_eq!(next.monsters[0].powers.weak, 2);
-        assert_eq!(next.monsters[1].powers.weak, 2);
+        assert_eq!(next.monsters[1].powers.weak, 0);
         assert!(next.piles.exhaust_pile.is_empty());
         assert_eq!(next.piles.discard_pile.len(), 1);
         assert_eq!(next.piles.discard_pile[0].content_id, BLIND_ID);
     }
 
     #[test]
-    fn blind_skips_dead_enemies() {
-        let mut state = two_monster_hand(BLIND_ID);
+    fn blind_plus_applies_two_weak_to_each_living_enemy_and_discards() {
+        let state = two_monster_hand(BLIND_PLUS_ID);
+
+        let next = apply_combat_action(&state, blind_plus_action(&state)).expect("Blind+ applies");
+
+        assert_eq!(next.player.energy, state.player.energy);
+        assert_eq!(next.monsters[0].powers.weak, 2);
+        assert_eq!(next.monsters[1].powers.weak, 2);
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, BLIND_PLUS_ID);
+    }
+
+    #[test]
+    fn blind_plus_skips_dead_enemies() {
+        let mut state = two_monster_hand(BLIND_PLUS_ID);
         state.monsters[1].alive = false;
 
-        let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
+        let next = apply_combat_action(&state, blind_plus_action(&state)).expect("Blind+ applies");
 
         assert_eq!(next.monsters[0].powers.weak, 2);
         assert_eq!(next.monsters[1].powers.weak, 0);
     }
 
     #[test]
-    fn blind_event_log_records_weak_applications_then_discard() {
-        let state = two_monster_hand(BLIND_ID);
-        let blind_id = hand_card_id(&state, BLIND_ID);
+    fn blind_plus_event_log_records_weak_applications_then_discard() {
+        let state = two_monster_hand(BLIND_PLUS_ID);
+        let blind_id = hand_card_id(&state, BLIND_PLUS_ID);
 
-        let transition =
-            apply_combat_action_with_events(&state, blind_action(&state)).expect("Blind applies");
+        let transition = apply_combat_action_with_events(&state, blind_plus_action(&state))
+            .expect("Blind+ applies");
 
         assert_eq!(
             transition.event_log,
@@ -5234,9 +5257,9 @@ mod tests {
     }
 
     #[test]
-    fn havoc_top_draw_blind_applies_weak_to_all_living_enemies_and_exhausts_it() {
+    fn havoc_top_draw_blind_plus_applies_weak_to_all_living_enemies_and_exhausts_it() {
         let mut state = two_monster_hand(HAVOC_ID);
-        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), BLIND_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), BLIND_PLUS_ID)];
 
         let next = apply_combat_action(
             &state,
@@ -5245,7 +5268,7 @@ mod tests {
                 target: None,
             },
         )
-        .expect("Havoc plays Blind");
+        .expect("Havoc plays Blind+");
 
         assert_eq!(next.monsters[0].powers.weak, 2);
         assert_eq!(next.monsters[1].powers.weak, 2);
@@ -5253,7 +5276,7 @@ mod tests {
             .piles
             .exhaust_pile
             .iter()
-            .any(|card| card.content_id == BLIND_ID));
+            .any(|card| card.content_id == BLIND_PLUS_ID));
     }
 
     #[test]
@@ -5426,7 +5449,7 @@ mod tests {
     }
 
     #[test]
-    fn trip_applies_two_vulnerable_to_each_living_enemy_and_discards() {
+    fn trip_applies_two_vulnerable_to_target_and_discards() {
         let mut state = two_monster_hand(TRIP_ID);
         state.player.energy = 0;
 
@@ -5434,25 +5457,40 @@ mod tests {
 
         assert_eq!(next.player.energy, 0);
         assert_eq!(next.monsters[0].powers.vulnerable, 2);
-        assert_eq!(next.monsters[1].powers.vulnerable, 2);
+        assert_eq!(next.monsters[1].powers.vulnerable, 0);
         assert_eq!(next.piles.discard_pile.len(), 1);
         assert_eq!(next.piles.discard_pile[0].content_id, TRIP_ID);
         assert!(next.piles.exhaust_pile.is_empty());
     }
 
     #[test]
-    fn trip_skips_dead_enemies() {
-        let mut state = two_monster_hand(TRIP_ID);
+    fn trip_plus_applies_two_vulnerable_to_each_living_enemy_and_discards() {
+        let mut state = two_monster_hand(TRIP_PLUS_ID);
+        state.player.energy = 0;
+
+        let next = apply_combat_action(&state, trip_plus_action(&state)).expect("Trip+ applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+        assert_eq!(next.monsters[1].powers.vulnerable, 2);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, TRIP_PLUS_ID);
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn trip_plus_skips_dead_enemies() {
+        let mut state = two_monster_hand(TRIP_PLUS_ID);
         state.monsters[1].alive = false;
 
-        let next = apply_combat_action(&state, trip_action(&state)).expect("Trip applies");
+        let next = apply_combat_action(&state, trip_plus_action(&state)).expect("Trip+ applies");
 
         assert_eq!(next.monsters[0].powers.vulnerable, 2);
         assert_eq!(next.monsters[1].powers.vulnerable, 0);
     }
 
     #[test]
-    fn trip_rejects_target() {
+    fn trip_rejects_missing_target() {
         let state = hand_only(TRIP_ID);
 
         assert_eq!(
@@ -5460,22 +5498,20 @@ mod tests {
                 &state,
                 CombatAction::PlayCard {
                     card_id: hand_card_id(&state, TRIP_ID),
-                    target: Some(MonsterId::new(1)),
+                    target: None,
                 },
             ),
-            Err(SimError::IllegalAction(
-                "non-targeted card cannot have a target"
-            ))
+            Err(SimError::IllegalAction("targeted card requires a target"))
         );
     }
 
     #[test]
-    fn trip_event_log_records_vulnerable_applications_then_discard() {
-        let state = two_monster_hand(TRIP_ID);
-        let trip_id = hand_card_id(&state, TRIP_ID);
+    fn trip_plus_event_log_records_vulnerable_applications_then_discard() {
+        let state = two_monster_hand(TRIP_PLUS_ID);
+        let trip_id = hand_card_id(&state, TRIP_PLUS_ID);
 
-        let transition =
-            apply_combat_action_with_events(&state, trip_action(&state)).expect("Trip applies");
+        let transition = apply_combat_action_with_events(&state, trip_plus_action(&state))
+            .expect("Trip+ applies");
 
         assert_eq!(
             transition.event_log,
@@ -10087,12 +10123,12 @@ mod tests {
 
     #[test]
     fn sadistic_nature_triggers_per_living_enemy_debuffed() {
-        let mut state = two_monster_hand(BLIND_ID);
+        let mut state = two_monster_hand(BLIND_PLUS_ID);
         state.player.powers.sadistic_nature = 5;
         let first_hp = state.monsters[0].hp;
         let second_hp = state.monsters[1].hp;
 
-        let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
+        let next = apply_combat_action(&state, blind_plus_action(&state)).expect("Blind+ applies");
 
         assert_eq!(next.monsters[0].powers.weak, 2);
         assert_eq!(next.monsters[1].powers.weak, 2);
@@ -13606,6 +13642,13 @@ mod tests {
     fn blind_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BLIND_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn blind_plus_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BLIND_PLUS_ID),
             target: None,
         }
     }
@@ -14019,6 +14062,13 @@ mod tests {
     fn trip_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, TRIP_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn trip_plus_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, TRIP_PLUS_ID),
             target: None,
         }
     }

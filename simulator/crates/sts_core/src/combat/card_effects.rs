@@ -9,10 +9,10 @@ use crate::{
         get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID,
         APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID,
         BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID,
-        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID,
-        CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
-        COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID, DEEP_BREATH_ID,
-        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
+        BLIND_PLUS_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BODY_SLAM_ID, BRUTALITY_ID,
+        BURNING_PACT_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID,
+        DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
         DISCOVERY_PLUS_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, EVOLVE_ID,
         EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FINESSE_PLUS_ID,
@@ -34,9 +34,9 @@ use crate::{
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
         SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE, THE_BOMB_ID, THE_BOMB_PLUS_ID,
         THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID, THUNDERCLAP_ID,
-        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -245,8 +245,18 @@ pub(super) fn play_card_queue(
             target.expect("validated Dropkick has a target"),
             definition,
         ),
-        BLIND_ID => blind_queue(state, card_id, definition),
-        TRIP_ID => trip_queue(state, card_id, definition),
+        BLIND_ID | BLIND_PLUS_ID => blind_queue(
+            state,
+            card_id,
+            target.filter(|_| definition.target == TargetRequirement::Enemy),
+            definition,
+        ),
+        TRIP_ID | TRIP_PLUS_ID => trip_queue(
+            state,
+            card_id,
+            target.filter(|_| definition.target == TargetRequirement::Enemy),
+            definition,
+        ),
         INTIMIDATE_ID => intimidate_queue(state, card_id, definition),
         SHOCKWAVE_ID => shockwave_queue(state, card_id, definition),
         DISARM_ID => disarm_queue(
@@ -1622,6 +1632,7 @@ fn intimidate_queue(
 fn blind_queue(
     state: &CombatState,
     card_id: CardId,
+    target: Option<MonsterId>,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     let mut queue = VecDeque::from([
@@ -1631,11 +1642,18 @@ fn blind_queue(
         },
     ]);
 
-    for monster in state.monsters.iter().filter(|monster| monster.alive) {
+    if definition.target == TargetRequirement::Enemy {
         queue.push_back(InternalAction::ApplyWeak {
-            target: monster.id,
+            target: target.expect("validated Blind has a target"),
             amount: 2,
         });
+    } else {
+        for monster in state.monsters.iter().filter(|monster| monster.alive) {
+            queue.push_back(InternalAction::ApplyWeak {
+                target: monster.id,
+                amount: 2,
+            });
+        }
     }
 
     queue.push_back(InternalAction::MoveCard {
@@ -1650,6 +1668,7 @@ fn blind_queue(
 fn trip_queue(
     state: &CombatState,
     card_id: CardId,
+    target: Option<MonsterId>,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     let mut queue = VecDeque::from([
@@ -1659,11 +1678,18 @@ fn trip_queue(
         },
     ]);
 
-    for monster in state.monsters.iter().filter(|monster| monster.alive) {
+    if definition.target == TargetRequirement::Enemy {
         queue.push_back(InternalAction::ApplyVulnerable {
-            target: monster.id,
+            target: target.expect("validated Trip has a target"),
             amount: definition.values.vulnerable.unwrap_or(0),
         });
+    } else {
+        for monster in state.monsters.iter().filter(|monster| monster.alive) {
+            queue.push_back(InternalAction::ApplyVulnerable {
+                target: monster.id,
+                amount: definition.values.vulnerable.unwrap_or(0),
+            });
+        }
     }
 
     queue.push_back(InternalAction::MoveCard {
