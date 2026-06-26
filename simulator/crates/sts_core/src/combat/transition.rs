@@ -383,6 +383,10 @@ fn apply_internal_action(
             player_draw_cards(state, count);
             Ok(Vec::new())
         }
+        InternalAction::DrawRandomAttacksFromDrawPile { count } => {
+            draw_random_attacks_from_draw_pile(state, count);
+            Ok(Vec::new())
+        }
         InternalAction::GainEnergy { amount } => {
             state.player.energy += amount;
             Ok(Vec::new())
@@ -739,6 +743,36 @@ pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
     } else {
         let mut rng = SimulatorRng::new(0);
         crate::combat::draw::draw_cards(state, count, &mut rng);
+    }
+}
+
+fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
+    for _ in 0..count {
+        let attack_indices = state
+            .piles
+            .draw_pile
+            .iter()
+            .enumerate()
+            .filter_map(|(index, card)| {
+                get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == CardType::Attack)
+                    .then_some(index)
+            })
+            .collect::<Vec<_>>();
+        if attack_indices.is_empty() {
+            return;
+        }
+
+        let choice = if attack_indices.len() == 1 {
+            0
+        } else {
+            state.card_random_rng.as_mut().map_or(0, |rng| {
+                rng.random_int((attack_indices.len() - 1) as i32) as usize
+            })
+        };
+        let draw_index = attack_indices[choice];
+        let card = state.piles.draw_pile.remove(draw_index);
+        state.piles.hand.push(card);
     }
 }
 
@@ -1585,7 +1619,7 @@ mod tests {
         SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
         SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
         WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
@@ -5178,6 +5212,114 @@ mod tests {
             apply_combat_action(&state, bandage_up_action(&state)).expect("Bandage Up applies");
 
         assert_eq!(next.player.hp, 46);
+    }
+
+    #[test]
+    fn violence_draws_three_random_attacks_from_draw_pile_and_exhausts() {
+        let mut state = hand_only(VIOLENCE_ID);
+        state.player.energy = 0;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+            CardInstance::new(CardId::new(33), SHRUG_IT_OFF_ID),
+            CardInstance::new(CardId::new(34), FLASH_OF_STEEL_ID),
+            CardInstance::new(CardId::new(35), GOOD_INSTINCTS_ID),
+        ];
+        let violence_id = hand_card_id(&state, VIOLENCE_ID);
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let mut attack_ids = vec![CardId::new(31), CardId::new(32), CardId::new(34)];
+        let mut expected_drawn = Vec::new();
+        while !attack_ids.is_empty() {
+            let choice = if attack_ids.len() == 1 {
+                0
+            } else {
+                expected_rng.random_int((attack_ids.len() - 1) as i32) as usize
+            };
+            expected_drawn.push(attack_ids.remove(choice));
+        }
+
+        let next = apply_combat_action(&state, violence_action(&state)).expect("Violence applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert_eq!(
+            expected_drawn,
+            next.piles
+                .hand
+                .iter()
+                .filter(|card| card.id != violence_id)
+                .map(|card| card.id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, SHRUG_IT_OFF_ID, GOOD_INSTINCTS_ID]
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == violence_id));
+    }
+
+    #[test]
+    fn violence_without_card_random_rng_uses_deterministic_attack_order_fallback() {
+        let mut state = hand_only(VIOLENCE_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+            CardInstance::new(CardId::new(33), FLASH_OF_STEEL_ID),
+        ];
+
+        let next = apply_combat_action(&state, violence_action(&state)).expect("Violence applies");
+
+        assert!(next.card_random_rng.is_none());
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID, BASH_ID, FLASH_OF_STEEL_ID]
+        );
+    }
+
+    #[test]
+    fn violence_event_log_records_random_attack_draw_before_exhaust() {
+        let state = hand_only(VIOLENCE_ID);
+        let violence_id = hand_card_id(&state, VIOLENCE_ID);
+
+        let transition = apply_combat_action_with_events(&state, violence_action(&state))
+            .expect("Violence applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: violence_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DrawRandomAttacksFromDrawPile { count: 3 },
+                InternalAction::MoveCard {
+                    card_id: violence_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: violence_id
+                },
+            ]
+        );
     }
 
     #[test]
@@ -11931,6 +12073,13 @@ mod tests {
     fn bandage_up_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BANDAGE_UP_ID),
+            target: None,
+        }
+    }
+
+    fn violence_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, VIOLENCE_ID),
             target: None,
         }
     }

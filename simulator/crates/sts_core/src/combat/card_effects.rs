@@ -26,7 +26,7 @@ use crate::{
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
         SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE, THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
         THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
         WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::{
@@ -170,6 +170,7 @@ pub(super) fn play_card_queue(
         JACK_OF_ALL_TRADES_ID => jack_of_all_trades_queue(&mut queued_state, card_id, definition),
         MADNESS_ID => madness_queue(card_id, definition),
         BANDAGE_UP_ID => bandage_up_queue(card_id, definition),
+        VIOLENCE_ID => violence_queue(card_id, definition),
         PANACEA_ID => panacea_queue(card_id, definition),
         FORETHOUGHT_ID => forethought_queue(state, card_id, definition),
         FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
@@ -1292,6 +1293,24 @@ fn bandage_up_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::HealPlayer { amount: 4 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn violence_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DrawRandomAttacksFromDrawPile { count: 3 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,

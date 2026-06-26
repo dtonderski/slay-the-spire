@@ -108,6 +108,9 @@ pub enum InternalAction {
     DrawCards {
         count: usize,
     },
+    DrawRandomAttacksFromDrawPile {
+        count: usize,
+    },
     GainEnergy {
         amount: i32,
     },
