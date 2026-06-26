@@ -5496,6 +5496,21 @@ mod tests {
     }
 
     #[test]
+    fn blind_triggers_sadistic_nature_for_targeted_weak() {
+        let mut state = two_monster_hand(BLIND_ID);
+        state.player.powers.sadistic_nature = 5;
+        let first_hp = state.monsters[0].hp;
+        let second_hp = state.monsters[1].hp;
+
+        let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 2);
+        assert_eq!(next.monsters[0].hp, first_hp - 5);
+        assert_eq!(next.monsters[1].powers.weak, 0);
+        assert_eq!(next.monsters[1].hp, second_hp);
+    }
+
+    #[test]
     fn blind_plus_applies_two_weak_to_each_living_enemy_and_discards() {
         let state = two_monster_hand(BLIND_PLUS_ID);
 
@@ -5777,6 +5792,27 @@ mod tests {
     }
 
     #[test]
+    fn trip_champion_belt_weak_triggers_sadistic_nature_as_second_debuff() {
+        let mut state = two_monster_hand(TRIP_ID);
+        state.relics.push(Relic::ChampionBelt);
+        state.player.powers.sadistic_nature = 5;
+        let first_hp = state.monsters[0].hp;
+        let second_hp = state.monsters[1].hp;
+
+        let next = apply_combat_action(&state, trip_action(&state)).expect("Trip applies");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+        assert_eq!(
+            next.monsters[0].powers.weak,
+            crate::relic::CHAMPION_BELT_WEAK
+        );
+        assert_eq!(next.monsters[0].hp, first_hp - 10);
+        assert_eq!(next.monsters[1].powers.vulnerable, 0);
+        assert_eq!(next.monsters[1].powers.weak, 0);
+        assert_eq!(next.monsters[1].hp, second_hp);
+    }
+
+    #[test]
     fn trip_plus_applies_two_vulnerable_to_each_living_enemy_and_discards() {
         let mut state = two_monster_hand(TRIP_PLUS_ID);
         state.player.energy = 0;
@@ -6016,6 +6052,30 @@ mod tests {
     }
 
     #[test]
+    fn dark_shackles_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(DARK_SHACKLES_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let next = apply_combat_action(&state, dark_shackles_action(&state))
+            .expect("Dark Shackles applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile[0].content_id, DARK_SHACKLES_ID);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[0].content_id, DARK_SHACKLES_ID);
+        }
+    }
+
+    #[test]
     fn bash_then_strike_deals_expected_damage_with_vulnerable() {
         let state = CombatState::initial_fixture();
         let after_bash = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
@@ -6101,6 +6161,29 @@ mod tests {
     }
 
     #[test]
+    fn good_instincts_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(GOOD_INSTINCTS_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(901));
+        let good_instincts_id = hand_card_id(&state, GOOD_INSTINCTS_ID);
+
+        let next = apply_combat_action(&state, good_instincts_action(&state))
+            .expect("Good Instincts applies");
+
+        assert_eq!(next.player.block, 6);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            state.card_random_rng.as_ref().expect("card rng").counter()
+        );
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == good_instincts_id));
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert_eq!(next.piles.discard_pile[0].id, good_instincts_id);
+    }
+    #[test]
     fn good_instincts_event_log_records_generic_skill_queue() {
         let state = hand_only(GOOD_INSTINCTS_ID);
         let good_instincts_id = hand_card_id(&state, GOOD_INSTINCTS_ID);
@@ -6168,6 +6251,36 @@ mod tests {
             apply_combat_action(&state, bandage_up_action(&state)).expect("Bandage Up applies");
 
         assert_eq!(next.player.hp, 46);
+    }
+
+    #[test]
+    fn bandage_up_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(BANDAGE_UP_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 80;
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let bandage_up_id = hand_card_id(&state, BANDAGE_UP_ID);
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let next =
+            apply_combat_action(&state, bandage_up_action(&state)).expect("Bandage Up applies");
+
+        assert_eq!(next.player.hp, 44);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile.len(), 1);
+            assert_eq!(next.piles.discard_pile[0].id, bandage_up_id);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile.len(), 1);
+            assert_eq!(next.piles.exhaust_pile[0].id, bandage_up_id);
+        }
     }
 
     #[test]
@@ -6521,6 +6634,29 @@ mod tests {
     }
 
     #[test]
+    fn finesse_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(FINESSE_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(901));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let finesse_id = hand_card_id(&state, FINESSE_ID);
+
+        let next = apply_combat_action(&state, finesse_action(&state)).expect("Finesse applies");
+
+        assert_eq!(next.player.block, 2);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            state.card_random_rng.as_ref().expect("card rng").counter()
+        );
+        assert!(!next.piles.hand.iter().any(|card| card.id == finesse_id));
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == finesse_id));
+    }
+    #[test]
     fn finesse_event_log_records_block_draw_then_discard() {
         let mut state = hand_only(FINESSE_ID);
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
@@ -6597,6 +6733,29 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn deep_breath_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(DEEP_BREATH_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(576));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+        let deep_breath_id = hand_card_id(&state, DEEP_BREATH_ID);
+
+        let next =
+            apply_combat_action(&state, deep_breath_action(&state)).expect("Deep Breath applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == deep_breath_id));
     }
 
     #[test]
@@ -6864,6 +7023,28 @@ mod tests {
     }
 
     #[test]
+    fn flash_of_steel_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(FLASH_OF_STEEL_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(901));
+        let flash_of_steel_id = hand_card_id(&state, FLASH_OF_STEEL_ID);
+
+        let next = apply_combat_action(&state, flash_of_steel_action(&state))
+            .expect("Flash of Steel applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == flash_of_steel_id));
+    }
+
+    #[test]
     fn swift_strike_deals_seven_and_discards_at_zero_cost() {
         let mut state = hand_only(SWIFT_STRIKE_ID);
         state.player.energy = 0;
@@ -6885,6 +7066,28 @@ mod tests {
             .iter()
             .any(|card| card.id == swift_strike_id));
         assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn swift_strike_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(SWIFT_STRIKE_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(901));
+        let swift_strike_id = hand_card_id(&state, SWIFT_STRIKE_ID);
+
+        let next =
+            apply_combat_action(&state, swift_strike_action(&state)).expect("Swift Strike applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == swift_strike_id));
     }
 
     #[test]
@@ -7489,6 +7692,28 @@ mod tests {
     }
 
     #[test]
+    fn mind_blast_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(MIND_BLAST_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(210));
+        let mind_blast_id = hand_card_id(&state, MIND_BLAST_ID);
+
+        let next =
+            apply_combat_action(&state, mind_blast_action(&state)).expect("Mind Blast applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == mind_blast_id));
+    }
+
+    #[test]
     fn havoc_top_draw_mind_blast_counts_popped_card_and_exhausts_it() {
         let mut state = hand_only(HAVOC_ID);
         state.piles.draw_pile = vec![
@@ -7574,6 +7799,32 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn impatience_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(IMPATIENCE_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(1998));
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), GOOD_INSTINCTS_ID),
+        ];
+        let impatience_id = hand_card_id(&state, IMPATIENCE_ID);
+
+        let next =
+            apply_combat_action(&state, impatience_action(&state)).expect("Impatience applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == impatience_id));
     }
 
     #[test]
@@ -13204,6 +13455,51 @@ mod tests {
         assert_eq!(drawn.id, CardId::new(21));
         assert_eq!(drawn.content_id, BASH_ID);
         assert_eq!(drawn.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn forethought_event_log_records_hand_select_before_source_discard() {
+        let mut state = hand_only(FORETHOUGHT_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FORETHOUGHT_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+        ];
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Forethought opens hand select");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::AwaitHandSelect {
+                    source_card_id: CardId::new(20),
+                    purpose: HandSelectPurpose::ForethoughtPutOnDraw,
+                },
+            ]
+        );
+
+        let mut after_play = transition.state;
+        choose_hand_select(&mut after_play, 0).expect("choose Bash");
+        confirm_hand_select(&mut after_play).expect("confirm Forethought select");
+
+        assert_eq!(
+            after_play.piles.draw_pile.last().map(|card| card.id),
+            Some(CardId::new(21))
+        );
+        assert_eq!(
+            after_play.piles.discard_pile.last().map(|card| card.id),
+            Some(CardId::new(20))
+        );
     }
 
     #[test]
