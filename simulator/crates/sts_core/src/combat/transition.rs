@@ -1444,14 +1444,14 @@ mod tests {
         GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID,
-        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID,
+        OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, THINKING_AHEAD_ID,
+        TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -2721,6 +2721,112 @@ mod tests {
                 InternalAction::SpendEnergy { amount: 1 },
                 InternalAction::AddRandomColorlessCardToHand {
                     rarity: CardRarity::Rare,
+                },
+                InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id },
+            ]
+        );
+    }
+
+    #[test]
+    fn metamorphosis_adds_three_zero_cost_combat_only_attacks_to_hand_and_exhausts_source() {
+        let mut state = hand_only(METAMORPHOSIS_ID);
+        state.card_random_rng = Some(crate::rng::StsRng::new(456));
+        let mut expected_rng = crate::rng::StsRng::new(456);
+        let expected_pool = infernal_blade_modeled_attack_pool();
+        let expected = [
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize],
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize],
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize],
+        ];
+
+        let next = apply_combat_action(&state, metamorphosis_action(&state))
+            .expect("Metamorphosis applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == METAMORPHOSIS_ID));
+        let generated: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .collect();
+        assert_eq!(generated.len(), 3);
+        assert_eq!(
+            generated
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(generated.iter().all(|card| card.temp_cost == Some(0)));
+        assert!(generated.iter().all(|card| {
+            get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.card_type == CardType::Attack)
+        }));
+    }
+
+    #[test]
+    fn metamorphosis_without_card_random_rng_uses_deterministic_modeled_fallback() {
+        let state = hand_only(METAMORPHOSIS_ID);
+        let expected = infernal_blade_modeled_attack_pool()[0];
+
+        let next = apply_combat_action(&state, metamorphosis_action(&state))
+            .expect("Metamorphosis applies");
+
+        assert!(next.card_random_rng.is_none());
+        let generated: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .collect();
+        assert_eq!(generated.len(), 3);
+        assert!(generated
+            .iter()
+            .all(|card| card.content_id == expected && card.temp_cost == Some(0)));
+    }
+
+    #[test]
+    fn metamorphosis_event_log_records_generation_before_source_exhaust() {
+        let state = hand_only(METAMORPHOSIS_ID);
+        let card_id = hand_card_id(&state, METAMORPHOSIS_ID);
+        let expected = infernal_blade_modeled_attack_pool()[0];
+
+        let transition = apply_combat_action_with_events(&state, metamorphosis_action(&state))
+            .expect("Metamorphosis applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected,
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
+                },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected,
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
+                },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected,
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
                 },
                 InternalAction::MoveCard {
                     card_id,
@@ -11646,6 +11752,13 @@ mod tests {
     fn transmutation_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, TRANSMUTATION_ID),
+            target: None,
+        }
+    }
+
+    fn metamorphosis_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, METAMORPHOSIS_ID),
             target: None,
         }
     }

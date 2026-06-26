@@ -75,6 +75,7 @@ pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_57
 pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
 pub const THINKING_AHEAD_ID: ContentId = ContentId::new(6_777_582_279_578_789_034);
 pub const TRANSMUTATION_ID: ContentId = ContentId::new(12_962_347_838_129_665_929);
+pub const METAMORPHOSIS_ID: ContentId = ContentId::new(7_133_622_309_229_402_345);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1511,6 +1512,27 @@ pub const TRANSMUTATION: CardDefinition = CardDefinition {
     },
 };
 
+pub const METAMORPHOSIS: CardDefinition = CardDefinition {
+    id: METAMORPHOSIS_ID,
+    key: "METAMORPHOSIS",
+    name: "Metamorphosis",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const JACK_OF_ALL_TRADES: CardDefinition = CardDefinition {
     id: JACK_OF_ALL_TRADES_ID,
     key: "JACK_OF_ALL_TRADES",
@@ -2250,7 +2272,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 122] = [
+pub const ALL_CARDS: [CardDefinition; 123] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2335,6 +2357,7 @@ pub const ALL_CARDS: [CardDefinition; 122] = [
     THE_BOMB,
     THINKING_AHEAD,
     TRANSMUTATION,
+    METAMORPHOSIS,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2489,6 +2512,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == THE_BOMB_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THINKING_AHEAD_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == TRANSMUTATION_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == METAMORPHOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
         _ => None,
     }
 }
@@ -2884,6 +2908,19 @@ mod tests {
         assert!(TRANSMUTATION.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(TRANSMUTATION_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn metamorphosis_has_expected_colorless_rare_values() {
+        assert_eq!(METAMORPHOSIS.id, METAMORPHOSIS_ID);
+        assert_eq!(METAMORPHOSIS.cost, 2);
+        assert_eq!(METAMORPHOSIS.target, TargetRequirement::None);
+        assert_eq!(METAMORPHOSIS.card_type, CardType::Skill);
+        assert!(METAMORPHOSIS.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(METAMORPHOSIS_ID),
             Some((CardType::Skill, CardRarity::Rare))
         );
     }
