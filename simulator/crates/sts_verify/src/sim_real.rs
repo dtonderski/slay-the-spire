@@ -19,7 +19,8 @@ use sts_core::{
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
     enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    generate_neow_colorless_reward, generate_neow_options, initialize_combat_piles_with_relics,
+    generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
+    generate_neow_three_potions, initialize_combat_piles_with_relics,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
     leave_shop_merchant, leave_shop_room, select_grid_card, shop_action_for_choice_index,
     starter_only_deck, CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState,
@@ -330,6 +331,7 @@ fn verify_seed_start_transitions(
     let mut neow_gold = 99;
     let mut neow_current_hp = 80;
     let mut neow_max_hp = 80;
+    let mut neow_card_reward_choices: Option<Vec<String>> = None;
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
@@ -530,6 +532,8 @@ fn verify_seed_start_transitions(
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(|option| option.reward == NeowRewardType::RandomColorless) =>
             {
+                neow_card_reward_choices =
+                    Some(seed_start_colorless_neow_card_ids(start.numeric_seed));
                 compare_subset(
                     report,
                     action,
@@ -545,6 +549,46 @@ fn verify_seed_start_transitions(
                         "relic_ids": relics,
                         "choices": seed_start_colorless_neow_choice_names(start.numeric_seed),
                         "card_reward_ids": seed_start_colorless_neow_card_ids(start.numeric_seed),
+                        "unobservable": {
+                            "card_reward_rng_draws": true,
+                            "card_reward_uuids": true,
+                        },
+                    }),
+                );
+                phase = SeedStartPhase::NeowCardReward;
+            }
+            SeedStartPhase::NeowOptions
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(seed_start_neow_option_is_supported_card_reward) =>
+            {
+                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .expect("matched generated Neow card reward option");
+                if let Some((gold, current_hp, max_hp)) =
+                    seed_start_neow_stats_after_drawback(&option)
+                {
+                    neow_gold = gold;
+                    neow_current_hp = current_hp;
+                    neow_max_hp = max_hp;
+                }
+                neow_card_reward_choices = Some(seed_start_neow_card_reward_ids(
+                    start.numeric_seed,
+                    option.reward,
+                ));
+                compare_subset(
+                    report,
+                    action,
+                    seed_start_neow_card_reward_label(option.reward),
+                    seed_start_reward_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "CARD_REWARD",
+                        "floor": 0,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, option.reward),
+                        "card_reward_ids": neow_card_reward_choices.clone().unwrap_or_default(),
                         "unobservable": {
                             "card_reward_rng_draws": true,
                             "card_reward_uuids": true,
@@ -589,13 +633,42 @@ fn verify_seed_start_transitions(
                 });
                 phase = SeedStartPhase::NeowLeave;
             }
+            SeedStartPhase::NeowOptions
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions) =>
+            {
+                let potions = seed_start_neow_potion_names(start.numeric_seed);
+                compare_subset(
+                    report,
+                    action,
+                    "Neow three potion reward",
+                    seed_start_potion_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "potion_ids": potions,
+                        "choices": ["leave"],
+                        "unobservable": {
+                            "potion_reward_uuids": true,
+                        },
+                    }),
+                );
+                phase = SeedStartPhase::NeowLeave;
+            }
             SeedStartPhase::NeowCardReward
-                if seed_start_colorless_pick_card(&start.external_seed, &action.command)
+                if seed_start_pick_neow_card_reward(&neow_card_reward_choices, &action.command)
                     .is_some() =>
             {
                 let picked_card =
-                    seed_start_colorless_pick_card(&start.external_seed, &action.command).unwrap();
-                deck_ids.push(picked_card.to_owned());
+                    seed_start_pick_neow_card_reward(&neow_card_reward_choices, &action.command)
+                        .expect("matched generated Neow card reward pick");
+                deck_ids.push(picked_card);
                 compare_subset(
                     report,
                     action,
@@ -605,9 +678,9 @@ fn verify_seed_start_transitions(
                         "screen_type": "EVENT",
                         "ascension": start.ascension,
                         "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
                         "choices": ["leave"],
@@ -2217,6 +2290,27 @@ fn seed_start_observed_subset(message: &Value) -> Value {
     })
 }
 
+fn seed_start_potion_observed_subset(message: &Value) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    json!({
+        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+        "ascension": game.get("ascension_level").and_then(Value::as_u64).unwrap_or(0),
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": int(game, "gold"),
+        "current_hp": int(game, "current_hp"),
+        "max_hp": int(game, "max_hp"),
+        "deck_ids": deck_keys_from_value(game.get("deck")),
+        "relic_ids": relic_keys_from_value(game.get("relics")),
+        "potion_ids": potion_keys_from_value(game.get("potions")),
+        "choices": choice_list_from_value(game.get("choice_list")),
+        "unobservable": {
+            "potion_reward_uuids": true,
+        },
+    })
+}
+
 fn seed_start_encounter_observed_subset(message: &Value) -> Value {
     let Some(game) = message.get("game_state") else {
         return json!({});
@@ -2795,6 +2889,60 @@ fn seed_start_neow_reward_is_simple(reward: NeowRewardType) -> bool {
     )
 }
 
+fn seed_start_neow_option_is_supported_card_reward(option: GeneratedNeowOption) -> bool {
+    seed_start_neow_drawback_is_simple(option.drawback)
+        && matches!(
+            option.reward,
+            NeowRewardType::ThreeCards
+                | NeowRewardType::OneRandomRareCard
+                | NeowRewardType::ThreeRareCards
+        )
+}
+
+fn seed_start_neow_stats_after_drawback(option: &GeneratedNeowOption) -> Option<(i32, i32, i32)> {
+    if !seed_start_neow_drawback_is_simple(option.drawback) {
+        return None;
+    }
+
+    let mut run = RunState::map_fixture();
+    run.gold = 99;
+    apply_neow_simple_drawback(&mut run, option.drawback);
+    Some((run.gold, run.player_hp, run.player_max_hp))
+}
+
+fn seed_start_neow_card_reward_label(reward: NeowRewardType) -> &'static str {
+    match reward {
+        NeowRewardType::ThreeCards => "Neow card reward choices",
+        NeowRewardType::OneRandomRareCard => "Neow random rare card reward",
+        NeowRewardType::ThreeRareCards => "Neow rare card reward choices",
+        _ => "Neow card reward choices",
+    }
+}
+
+fn seed_start_neow_card_reward_choice_names(
+    numeric_seed: i64,
+    reward: NeowRewardType,
+) -> Vec<String> {
+    seed_start_neow_card_reward_content_ids(numeric_seed, reward)
+        .into_iter()
+        .map(|content_id| content_key(content_id).to_ascii_lowercase())
+        .collect()
+}
+
+fn seed_start_neow_card_reward_ids(numeric_seed: i64, reward: NeowRewardType) -> Vec<String> {
+    seed_start_neow_card_reward_content_ids(numeric_seed, reward)
+        .into_iter()
+        .map(|content_id| content_key(content_id).to_owned())
+        .collect()
+}
+
+fn seed_start_neow_card_reward_content_ids(
+    numeric_seed: i64,
+    reward: NeowRewardType,
+) -> Vec<ContentId> {
+    generate_neow_card_reward(numeric_seed, reward).cards
+}
+
 fn seed_start_colorless_neow_choice_names(numeric_seed: i64) -> Vec<String> {
     seed_start_colorless_neow_card_content_ids(numeric_seed)
         .into_iter()
@@ -2813,6 +2961,14 @@ fn seed_start_colorless_neow_card_content_ids(numeric_seed: i64) -> Vec<ContentI
     generate_neow_colorless_reward(numeric_seed, NeowRewardType::RandomColorless).cards
 }
 
+fn seed_start_neow_potion_names(numeric_seed: i64) -> Vec<String> {
+    generate_neow_three_potions(numeric_seed)
+        .potions
+        .into_iter()
+        .map(|potion| potion_trace_name(potion).to_owned())
+        .collect()
+}
+
 fn seed_start_apply_neow_relic_reward(
     numeric_seed: i64,
     deck_ids: &[String],
@@ -2825,15 +2981,18 @@ fn seed_start_apply_neow_relic_reward(
     relic_key_trace_name(reward.relic).to_owned()
 }
 
-fn seed_start_colorless_pick_card(seed: &str, command: &str) -> Option<&'static str> {
-    let reward = known_neow_colorless_reward_for_seed(seed)?;
-    command_is_choose(command, reward.pick_index).then_some(reward.picked_card_id)
-}
-
 fn seed_start_colorless_pick_label(seed: &str) -> &'static str {
     known_neow_colorless_reward_for_seed(seed)
         .map(|reward| reward.pick_label)
         .unwrap_or("Neow colorless pickup")
+}
+
+fn seed_start_pick_neow_card_reward(
+    reward_choices: &Option<Vec<String>>,
+    command: &str,
+) -> Option<String> {
+    let index = command_choose_index(command)?;
+    reward_choices.as_ref()?.get(index).cloned()
 }
 
 fn seed_start_unchosen_neow_command(seed: &str) -> String {
@@ -2963,17 +3122,44 @@ fn seed_start_shop_trace_choice_labels(run: &RunState) -> Vec<String> {
 }
 
 fn potion_trace_label(potion: Potion) -> String {
+    potion_trace_name(potion).to_ascii_lowercase()
+}
+
+fn potion_trace_name(potion: Potion) -> &'static str {
     match potion {
-        Potion::Attack => "attack potion".to_owned(),
-        Potion::Duplication => "duplication potion".to_owned(),
-        Potion::Energy => "energy potion".to_owned(),
-        Potion::EntropicBrew => "entropic brew".to_owned(),
-        Potion::Fear => "fear potion".to_owned(),
-        Potion::Fire => "fire potion".to_owned(),
-        Potion::Power => "power potion".to_owned(),
-        Potion::Regen => "regen potion".to_owned(),
-        Potion::Block => "block potion".to_owned(),
-        other => format!("{other:?}").to_ascii_lowercase(),
+        Potion::Fire => "Fire Potion",
+        Potion::Block => "Block Potion",
+        Potion::Fear => "Fear Potion",
+        Potion::Gamble => "Gamblers Brew",
+        Potion::Blood => "Blood Potion",
+        Potion::Elixir => "Elixir",
+        Potion::HeartOfIron => "Heart of Iron",
+        Potion::Dexterity => "Dexterity Potion",
+        Potion::Energy => "Energy Potion",
+        Potion::Explosive => "Explosive Potion",
+        Potion::Strength => "Strength Potion",
+        Potion::Swift => "Swift Potion",
+        Potion::Weak => "Weak Potion",
+        Potion::Attack => "Attack Potion",
+        Potion::Skill => "Skill Potion",
+        Potion::Power => "Power Potion",
+        Potion::Colorless => "Colorless Potion",
+        Potion::Flex => "Flex Potion",
+        Potion::Speed => "Speed Potion",
+        Potion::BlessingOfTheForge => "Blessing of the Forge",
+        Potion::Regen => "Regen Potion",
+        Potion::Ancient => "Ancient Potion",
+        Potion::LiquidBronze => "Liquid Bronze",
+        Potion::EssenceOfSteel => "Essence of Steel",
+        Potion::Duplication => "Duplication Potion",
+        Potion::DistilledChaos => "Distilled Chaos",
+        Potion::LiquidMemories => "Liquid Memories",
+        Potion::Cultist => "Cultist Potion",
+        Potion::FruitJuice => "Fruit Juice",
+        Potion::SneckoOil => "Snecko Oil",
+        Potion::Fairy => "Fairy in a Bottle",
+        Potion::SmokeBomb => "Smoke Bomb",
+        Potion::EntropicBrew => "Entropic Brew",
     }
 }
 
@@ -3660,11 +3846,37 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
 
 fn potion_from_trace_name(name: &str) -> Option<Potion> {
     match name {
+        "Attack Potion" => Some(Potion::Attack),
+        "Blessing of the Forge" => Some(Potion::BlessingOfTheForge),
+        "Blood Potion" => Some(Potion::Blood),
+        "Colorless Potion" => Some(Potion::Colorless),
+        "Cultist Potion" => Some(Potion::Cultist),
+        "Dexterity Potion" => Some(Potion::Dexterity),
+        "Distilled Chaos" => Some(Potion::DistilledChaos),
+        "Duplication Potion" => Some(Potion::Duplication),
+        "Elixir" => Some(Potion::Elixir),
         "Energy Potion" => Some(Potion::Energy),
         "Entropic Brew" => Some(Potion::EntropicBrew),
+        "Essence of Steel" => Some(Potion::EssenceOfSteel),
+        "Explosive Potion" => Some(Potion::Explosive),
+        "Fairy in a Bottle" => Some(Potion::Fairy),
         "Fear Potion" => Some(Potion::Fear),
         "Fire Potion" => Some(Potion::Fire),
+        "Flex Potion" => Some(Potion::Flex),
+        "Fruit Juice" => Some(Potion::FruitJuice),
+        "Gamblers Brew" => Some(Potion::Gamble),
+        "Heart of Iron" => Some(Potion::HeartOfIron),
+        "Liquid Bronze" => Some(Potion::LiquidBronze),
+        "Liquid Memories" => Some(Potion::LiquidMemories),
         "Power Potion" => Some(Potion::Power),
+        "Regen Potion" => Some(Potion::Regen),
+        "Skill Potion" => Some(Potion::Skill),
+        "Smoke Bomb" => Some(Potion::SmokeBomb),
+        "Snecko Oil" => Some(Potion::SneckoOil),
+        "Speed Potion" => Some(Potion::Speed),
+        "Strength Potion" => Some(Potion::Strength),
+        "Swift Potion" => Some(Potion::Swift),
+        "Weak Potion" => Some(Potion::Weak),
         "Block Potion" => Some(Potion::Block),
         "Ancient Potion" => Some(Potion::Ancient),
         _ => None,
@@ -3683,6 +3895,24 @@ fn potions_from_observed(game: &Value) -> Vec<Potion> {
                         return None;
                     }
                     potion_from_trace_name(name)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn potion_keys_from_value(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|potions| {
+            potions
+                .iter()
+                .filter_map(|potion| {
+                    let name = potion.get("name").and_then(Value::as_str)?;
+                    if name.eq_ignore_ascii_case("Potion Slot") {
+                        return None;
+                    }
+                    potion_from_trace_name(name).map(|potion| potion_trace_name(potion).to_owned())
                 })
                 .collect()
         })
@@ -3872,7 +4102,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options, CODEX04/TEST colorless choices and VERIFY01 common relic identity are generated, and core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, M290001/M290008 transform identity, curse drawback identity, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, and VERIFY01 common relic identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, M290001/M290008 transform identity, curse drawback identity, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -6049,6 +6279,11 @@ mod tests {
             ),
             (1_218_623, "CHOOSE 0", NeowRewardType::RandomColorless),
             (22_079_335_079, "CHOOSE 0", NeowRewardType::RandomColorless),
+            (
+                22_079_335_079,
+                "CHOOSE 1",
+                NeowRewardType::ThreeSmallPotions,
+            ),
             (40_560_393_126, "CHOOSE 1", NeowRewardType::ThreeEnemyKill),
             (40_560_393_126, "CHOOSE 0", NeowRewardType::TransformCard),
             (40_560_393_133, "CHOOSE 0", NeowRewardType::TransformCard),
@@ -6112,6 +6347,120 @@ mod tests {
 
         assert_eq!(option.reward, NeowRewardType::TransformCard);
         assert_eq!(seed_start_apply_neow_simple_option(option), None);
+    }
+
+    #[test]
+    fn seed_start_neow_card_reward_choices_use_generated_helper() {
+        let option = seed_start_selected_neow_option(1_957_307_888_551, "CHOOSE 0")
+            .expect("VERIFY01 slot 0 option");
+
+        assert_eq!(option.reward, NeowRewardType::ThreeCards);
+        assert!(seed_start_neow_option_is_supported_card_reward(
+            option.clone()
+        ));
+
+        let ids = seed_start_neow_card_reward_ids(1_957_307_888_551, option.reward);
+        let names = seed_start_neow_card_reward_choice_names(1_957_307_888_551, option.reward);
+
+        assert_eq!(ids.len(), 3);
+        assert_eq!(names.len(), 3);
+        assert_eq!(
+            names,
+            ids.iter()
+                .map(|id| id.to_ascii_lowercase())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn seed_start_neow_card_reward_pick_uses_generated_choices() {
+        let choices = Some(vec![
+            "Twin Strike".to_owned(),
+            "Heavy Blade".to_owned(),
+            "Intimidate".to_owned(),
+        ]);
+
+        assert_eq!(
+            seed_start_pick_neow_card_reward(&choices, "CHOOSE 1"),
+            Some("Heavy Blade".to_owned())
+        );
+        assert_eq!(seed_start_pick_neow_card_reward(&choices, "CHOOSE 9"), None);
+        assert_eq!(seed_start_pick_neow_card_reward(&None, "CHOOSE 0"), None);
+    }
+
+    #[test]
+    fn seed_start_codex04_neow_potion_reward_uses_generated_potions() {
+        let deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let relics = vec![json!({ "name": "Burning Blood" })];
+        let choices = seed_start_neow_choices(22_079_335_079);
+        let potions: Vec<_> = seed_start_neow_potion_names(22_079_335_079)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": "START IRONCLAD 0 CODEX04"}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": deck,
+                "relics": relics,
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": deck,
+                "relics": relics,
+                "choice_list": choices
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 1"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": deck,
+                "relics": relics,
+                "potions": potions,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow three potion reward"
+        }));
+        assert_eq!(
+            report
+                .seed_start
+                .expect("seed-start")
+                .first_boundary
+                .category,
+            "missing_post_reward_boundary"
+        );
     }
 
     #[test]
