@@ -2037,8 +2037,8 @@ mod tests {
         ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, EXHUME_PLUS_ID,
         FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID,
         FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
-        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID,
-        HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID,
+        FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID,
+        HAVOC_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID,
         IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID,
         JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID,
@@ -13611,6 +13611,52 @@ mod tests {
         assert_eq!(drawn.id, CardId::new(21));
         assert_eq!(drawn.content_id, BASH_ID);
         assert_eq!(drawn.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn forethought_plus_uses_same_hand_select_and_zero_temp_cost() {
+        let mut state = hand_only(FORETHOUGHT_PLUS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FORETHOUGHT_PLUS_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+        ];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Forethought+ opens hand select");
+
+        assert_eq!(
+            after_play.hand_select.as_ref().map(|select| select.purpose),
+            Some(HandSelectPurpose::ForethoughtPutOnDraw)
+        );
+        choose_hand_select(&mut after_play, 0).expect("choose Bash");
+        confirm_hand_select(&mut after_play).expect("confirm Forethought+ select");
+
+        assert_eq!(
+            after_play.piles.draw_pile.last().map(|card| card.id),
+            Some(CardId::new(21))
+        );
+        assert_eq!(
+            after_play
+                .piles
+                .draw_pile
+                .last()
+                .and_then(|card| card.temp_cost),
+            Some(0)
+        );
+        assert_eq!(
+            after_play
+                .piles
+                .discard_pile
+                .last()
+                .map(|card| card.content_id),
+            Some(FORETHOUGHT_PLUS_ID)
+        );
     }
 
     #[test]
