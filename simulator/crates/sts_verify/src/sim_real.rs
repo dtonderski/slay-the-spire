@@ -12,6 +12,7 @@ use sts_core::content::monsters::{
     GREMLIN_NOB_ID, GUARDIAN_ID, LAGAVULIN_ID,
 };
 use sts_core::potion::Potion;
+use sts_core::run::neow::apply_neow_curse_drawback;
 use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_boss_swap,
     apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
@@ -422,6 +423,40 @@ fn verify_seed_start_transitions(
                         "gold": gold,
                         "current_hp": current_hp,
                         "max_hp": max_hp,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowOptions
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(seed_start_neow_option_is_supported_curse_simple) =>
+            {
+                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .expect("matched generated curse/simple Neow option");
+                let run = seed_start_apply_neow_curse_simple_option(
+                    start.numeric_seed,
+                    &deck_ids,
+                    option,
+                );
+                deck_ids = deck_content_keys(&run.deck);
+                neow_gold = run.gold;
+                neow_current_hp = run.player_hp;
+                neow_max_hp = run.player_max_hp;
+                compare_subset(
+                    report,
+                    action,
+                    "Neow curse immediate reward",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
                         "choices": ["leave"],
@@ -3025,6 +3060,14 @@ fn seed_start_neow_reward_is_simple(reward: NeowRewardType) -> bool {
     )
 }
 
+fn seed_start_neow_option_is_supported_curse_simple(option: GeneratedNeowOption) -> bool {
+    option.drawback == NeowDrawback::Curse
+        && matches!(
+            option.reward,
+            NeowRewardType::TwentyPercentHpBonus | NeowRewardType::TwoFiftyGold
+        )
+}
+
 fn seed_start_neow_option_is_supported_card_reward(option: GeneratedNeowOption) -> bool {
     seed_start_neow_drawback_is_simple(option.drawback)
         && matches!(
@@ -3045,6 +3088,21 @@ fn seed_start_neow_option_is_supported_grid_reward(option: GeneratedNeowOption) 
 
 fn seed_start_neow_option_is_supported_boss_swap(option: GeneratedNeowOption) -> bool {
     option.drawback == NeowDrawback::None && option.reward == NeowRewardType::BossRelic
+}
+
+fn seed_start_apply_neow_curse_simple_option(
+    numeric_seed: i64,
+    deck_ids: &[String],
+    option: GeneratedNeowOption,
+) -> RunState {
+    let mut run = RunState::map_fixture();
+    run.gold = 99;
+    run.reward_rng_seed = numeric_seed as u64;
+    run.deck = deck_instances_from_keys(deck_ids);
+    run.relics = vec![Relic::BurningBlood];
+    apply_neow_curse_drawback(&mut run);
+    apply_neow_simple_reward(&mut run, option.reward);
+    run
 }
 
 fn seed_start_open_neow_grid_run(deck_ids: &[String], option: &GeneratedNeowOption) -> RunState {
@@ -6641,6 +6699,156 @@ mod tests {
 
         assert_eq!(option.reward, NeowRewardType::TransformCard);
         assert_eq!(seed_start_apply_neow_simple_option(option), None);
+    }
+
+    #[test]
+    fn seed_start_neow_curse_simple_helper_uses_card_rng_and_limits_rewards() {
+        let option = seed_start_selected_neow_option(40_560_393_126, "CHOOSE 2")
+            .expect("M290001 slot 2 option");
+
+        assert_eq!(option.drawback, NeowDrawback::Curse);
+        assert_eq!(option.reward, NeowRewardType::TwentyPercentHpBonus);
+        assert!(seed_start_neow_option_is_supported_curse_simple(
+            option.clone()
+        ));
+        assert!(!seed_start_neow_option_is_supported_curse_simple(
+            GeneratedNeowOption {
+                slot: 2,
+                drawback: NeowDrawback::Curse,
+                reward: NeowRewardType::ThreeRareCards,
+                label: "obtain a curse choose a rare card to obtain".to_owned(),
+            }
+        ));
+
+        let run = seed_start_apply_neow_curse_simple_option(
+            40_560_393_126,
+            &ironclad_starter_deck_keys(),
+            option,
+        );
+        let deck_ids = deck_content_keys(&run.deck);
+
+        assert_eq!(run.gold, 99);
+        assert_eq!(run.player_hp, 96);
+        assert_eq!(run.player_max_hp, 96);
+        assert_eq!(run.card_rng_counter, 1);
+        assert_eq!(run.card_random_rng_counter, 0);
+        assert_eq!(deck_ids.len(), 11);
+        assert!(matches!(
+            deck_ids.last().map(String::as_str),
+            Some("Regret" | "Doubt")
+        ));
+    }
+
+    #[test]
+    fn seed_start_neow_curse_gold_helper_uses_same_card_rng_path() {
+        let (numeric_seed, option) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.drawback == NeowDrawback::Curse
+                            && option.reward == NeowRewardType::TwoFiftyGold
+                    })
+                    .map(|option| (seed, option))
+            })
+            .expect("synthetic seed with curse plus 250 gold");
+
+        assert!(seed_start_neow_option_is_supported_curse_simple(
+            option.clone()
+        ));
+
+        let run = seed_start_apply_neow_curse_simple_option(
+            numeric_seed,
+            &ironclad_starter_deck_keys(),
+            option,
+        );
+
+        assert_eq!(run.gold, 349);
+        assert_eq!(run.player_hp, 80);
+        assert_eq!(run.player_max_hp, 80);
+        assert_eq!(run.card_rng_counter, 1);
+        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len() + 1);
+    }
+
+    #[test]
+    fn seed_start_neow_curse_simple_trace_branch_reaches_leave() {
+        let numeric_seed = 40_560_393_126;
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let relics = vec![json!({ "name": "Burning Blood" })];
+        let option = seed_start_selected_neow_option(numeric_seed, "CHOOSE 2")
+            .expect("M290001 curse max-HP option");
+        let run = seed_start_apply_neow_curse_simple_option(
+            numeric_seed,
+            &ironclad_starter_deck_keys(),
+            option,
+        );
+        let post_deck: Vec<_> = deck_content_keys(&run.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": "START IRONCLAD 0 M290001"}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": relics,
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": relics,
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 2"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 96,
+                "max_hp": 96,
+                "deck": post_deck,
+                "relics": relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow curse immediate reward"
+        }));
+        assert_eq!(
+            report
+                .seed_start
+                .expect("seed-start")
+                .first_boundary
+                .category,
+            "missing_post_reward_boundary"
+        );
     }
 
     #[test]
