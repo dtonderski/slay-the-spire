@@ -55,32 +55,54 @@ pub const SEARING_BLOW_ID: ContentId = ContentId::new(42);
 pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
 pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
+pub const SWIFT_STRIKE_PLUS_ID: ContentId = ContentId::new(46);
 pub const BANDAGE_UP_ID: ContentId = ContentId::new(1_802_661_242_803_912);
+pub const BANDAGE_UP_PLUS_ID: ContentId = ContentId::new(1_802_661_242_803_913);
 pub const APOTHEOSIS_ID: ContentId = ContentId::new(1_789_056_897_720_887);
+pub const APOTHEOSIS_PLUS_ID: ContentId = ContentId::new(1_789_056_897_720_888);
 pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
 pub const DARK_SHACKLES_ID: ContentId = ContentId::new(18_388_408_013_683_944_583);
 pub const DEEP_BREATH_ID: ContentId = ContentId::new(57_620_194_214_716_779);
+pub const DEEP_BREATH_PLUS_ID: ContentId = ContentId::new(57_620_194_214_716_780);
 pub const DISCOVERY_ID: ContentId = ContentId::new(60_080_667_924_456);
+pub const DISCOVERY_PLUS_ID: ContentId = ContentId::new(60_080_667_924_457);
 pub const ENLIGHTENMENT_ID: ContentId = ContentId::new(1_054_645_513_201_118_220);
+pub const ENLIGHTENMENT_PLUS_ID: ContentId = ContentId::new(1_054_645_513_201_118_221);
 pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
+pub const FINESSE_PLUS_ID: ContentId = ContentId::new(64_289_358_916);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
+pub const FLASH_OF_STEEL_PLUS_ID: ContentId = ContentId::new(18_371_492_448_625_970_987);
 pub const FORETHOUGHT_ID: ContentId = ContentId::new(59_534_622_361_962_517);
+pub const FORETHOUGHT_PLUS_ID: ContentId = ContentId::new(59_534_622_361_962_518);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
+pub const GOOD_INSTINCTS_PLUS_ID: ContentId = ContentId::new(8_602_552_533_669_984_654);
 pub const HAND_OF_GREED_ID: ContentId = ContentId::new(3_088_851_373_662_850_713);
+pub const HAND_OF_GREED_PLUS_ID: ContentId = ContentId::new(3_088_851_373_662_850_714);
 pub const CHRYSALIS_ID: ContentId = ContentId::new(59_200_009_685_460);
+pub const CHRYSALIS_PLUS_ID: ContentId = ContentId::new(59_200_009_685_461);
 pub const MAGNETISM_ID: ContentId = ContentId::new(67_526_241_934_097);
+pub const MAGNETISM_PLUS_ID: ContentId = ContentId::new(67_526_241_934_098);
 pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
+pub const MIND_BLAST_PLUS_ID: ContentId = ContentId::new(2_100_321_069_307_396);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
+pub const PANACEA_PLUS_ID: ContentId = ContentId::new(72_935_227_540);
 pub const PANACHE_ID: ContentId = ContentId::new(72_935_227_636);
+pub const PANACHE_PLUS_ID: ContentId = ContentId::new(72_935_227_637);
 pub const PANIC_BUTTON_ID: ContentId = ContentId::new(2_088_080_471_569_008_754);
+pub const PANIC_BUTTON_PLUS_ID: ContentId = ContentId::new(2_088_080_471_569_008_755);
 pub const PURITY_ID: ContentId = ContentId::new(2_371_347_673);
+pub const PURITY_PLUS_ID: ContentId = ContentId::new(2_371_347_674);
 pub const SADISTIC_NATURE_ID: ContentId = ContentId::new(16_049_541_496_988_266_320);
+pub const SADISTIC_NATURE_PLUS_ID: ContentId = ContentId::new(16_049_541_496_988_266_321);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
+pub const IMPATIENCE_PLUS_ID: ContentId = ContentId::new(1_998_026_198_879_086);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
 pub const JACK_OF_ALL_TRADES_PLUS_ID: ContentId = ContentId::new(13_737_426_385_707_302_254);
 pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
+pub const MADNESS_PLUS_ID: ContentId = ContentId::new(70_263_870_944);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
+pub const MASTER_OF_STRATEGY_PLUS_ID: ContentId = ContentId::new(9_350_765_816_531_572_951);
 pub const MAYHEM_ID: ContentId = ContentId::new(2_267_196_899);
 pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_713);
 pub const SECRET_TECHNIQUE_PLUS_ID: ContentId = ContentId::new(2_746_448_811_048_118_714);
@@ -89,10 +111,13 @@ pub const SECRET_WEAPON_PLUS_ID: ContentId = ContentId::new(11_846_108_130_828_2
 pub const VIOLENCE_ID: ContentId = ContentId::new(2_433_206_606_067);
 pub const VIOLENCE_PLUS_ID: ContentId = ContentId::new(2_433_206_606_068);
 pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
+pub const THE_BOMB_PLUS_ID: ContentId = ContentId::new(2_377_025_041_449);
 pub const THINKING_AHEAD_ID: ContentId = ContentId::new(6_777_582_279_578_789_034);
+pub const THINKING_AHEAD_PLUS_ID: ContentId = ContentId::new(6_777_582_279_578_789_035);
 pub const TRANSMUTATION_ID: ContentId = ContentId::new(12_962_347_838_129_665_929);
 pub const TRANSMUTATION_PLUS_ID: ContentId = ContentId::new(12_962_347_838_129_665_930);
 pub const METAMORPHOSIS_ID: ContentId = ContentId::new(7_133_622_309_229_402_345);
+pub const METAMORPHOSIS_PLUS_ID: ContentId = ContentId::new(7_133_622_309_229_402_346);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1241,6 +1266,27 @@ pub const BANDAGE_UP: CardDefinition = CardDefinition {
     },
 };
 
+pub const BANDAGE_UP_PLUS: CardDefinition = CardDefinition {
+    id: BANDAGE_UP_PLUS_ID,
+    key: "BANDAGE_UP+",
+    name: "Bandage Up+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const APOTHEOSIS: CardDefinition = CardDefinition {
     id: APOTHEOSIS_ID,
     key: "APOTHEOSIS",
@@ -1307,10 +1353,51 @@ pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const ENLIGHTENMENT_PLUS: CardDefinition = CardDefinition {
+    id: ENLIGHTENMENT_PLUS_ID,
+    key: "ENLIGHTENMENT+",
+    name: "Enlightenment+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: ENLIGHTENMENT.values,
+    keywords: ENLIGHTENMENT.keywords,
+};
+
+pub const SWIFT_STRIKE_PLUS: CardDefinition = CardDefinition {
+    id: SWIFT_STRIKE_PLUS_ID,
+    key: "Swift Strike+",
+    name: "Swift Strike+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(10),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const DEEP_BREATH: CardDefinition = CardDefinition {
     id: DEEP_BREATH_ID,
     key: "DEEP_BREATH",
     name: "Deep Breath",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const DEEP_BREATH_PLUS: CardDefinition = CardDefinition {
+    id: DEEP_BREATH_PLUS_ID,
+    key: "DEEP_BREATH+",
+    name: "Deep Breath+",
     cost: 0,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
@@ -1358,11 +1445,69 @@ pub const FLASH_OF_STEEL: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const FLASH_OF_STEEL_PLUS: CardDefinition = CardDefinition {
+    id: FLASH_OF_STEEL_PLUS_ID,
+    key: "Flash of Steel+",
+    name: "Flash of Steel+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const MIND_BLAST: CardDefinition = CardDefinition {
     id: MIND_BLAST_ID,
     key: "Mind Blast",
     name: "Mind Blast",
     cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: true,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const DISCOVERY_PLUS: CardDefinition = CardDefinition {
+    id: DISCOVERY_PLUS_ID,
+    key: "DISCOVERY+",
+    name: "Discovery+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: DISCOVERY.values,
+    keywords: DISCOVERY.keywords,
+};
+
+pub const APOTHEOSIS_PLUS: CardDefinition = CardDefinition {
+    id: APOTHEOSIS_PLUS_ID,
+    key: "APOTHEOSIS+",
+    name: "Apotheosis+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: APOTHEOSIS.values,
+    keywords: APOTHEOSIS.keywords,
+};
+
+pub const MIND_BLAST_PLUS: CardDefinition = CardDefinition {
+    id: MIND_BLAST_PLUS_ID,
+    key: "Mind Blast+",
+    name: "Mind Blast+",
+    cost: 1,
     card_type: CardType::Attack,
     target: TargetRequirement::Enemy,
     values: CardValues {
@@ -1430,6 +1575,32 @@ pub const GOOD_INSTINCTS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const FORETHOUGHT_PLUS: CardDefinition = CardDefinition {
+    id: FORETHOUGHT_PLUS_ID,
+    key: "FORETHOUGHT+",
+    name: "Forethought+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: FORETHOUGHT.values,
+    keywords: FORETHOUGHT.keywords,
+};
+
+pub const GOOD_INSTINCTS_PLUS: CardDefinition = CardDefinition {
+    id: GOOD_INSTINCTS_PLUS_ID,
+    key: "GOOD_INSTINCTS+",
+    name: "Good Instincts+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(9),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const HAND_OF_GREED: CardDefinition = CardDefinition {
     id: HAND_OF_GREED_ID,
     key: "HAND_OF_GREED",
@@ -1460,10 +1631,61 @@ pub const FINESSE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const HAND_OF_GREED_PLUS: CardDefinition = CardDefinition {
+    id: HAND_OF_GREED_PLUS_ID,
+    key: "HAND_OF_GREED+",
+    name: "Hand Of Greed+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(25),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const FINESSE_PLUS: CardDefinition = CardDefinition {
+    id: FINESSE_PLUS_ID,
+    key: "FINESSE+",
+    name: "Finesse+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(4),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const PANACEA: CardDefinition = CardDefinition {
     id: PANACEA_ID,
     key: "PANACEA",
     name: "Panacea",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const PANACEA_PLUS: CardDefinition = CardDefinition {
+    id: PANACEA_PLUS_ID,
+    key: "PANACEA+",
+    name: "Panacea+",
     cost: 0,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
@@ -1538,6 +1760,38 @@ pub const MADNESS: CardDefinition = CardDefinition {
     },
 };
 
+pub const PURITY_PLUS: CardDefinition = CardDefinition {
+    id: PURITY_PLUS_ID,
+    key: "PURITY+",
+    name: "Purity+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: PURITY.values,
+    keywords: PURITY.keywords,
+};
+
+pub const MADNESS_PLUS: CardDefinition = CardDefinition {
+    id: MADNESS_PLUS_ID,
+    key: "MADNESS+",
+    name: "Madness+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const MASTER_OF_STRATEGY: CardDefinition = CardDefinition {
     id: MASTER_OF_STRATEGY_ID,
     key: "MASTER_OF_STRATEGY",
@@ -1580,6 +1834,17 @@ pub const SECRET_TECHNIQUE: CardDefinition = CardDefinition {
     },
 };
 
+pub const MASTER_OF_STRATEGY_PLUS: CardDefinition = CardDefinition {
+    id: MASTER_OF_STRATEGY_PLUS_ID,
+    key: "MASTER_OF_STRATEGY+",
+    name: "Master of Strategy+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: MASTER_OF_STRATEGY.values,
+    keywords: MASTER_OF_STRATEGY.keywords,
+};
+
 pub const SECRET_TECHNIQUE_PLUS: CardDefinition = CardDefinition {
     id: SECRET_TECHNIQUE_PLUS_ID,
     key: "SECRET_TECHNIQUE+",
@@ -1589,6 +1854,21 @@ pub const SECRET_TECHNIQUE_PLUS: CardDefinition = CardDefinition {
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const PANACHE_PLUS: CardDefinition = CardDefinition {
+    id: PANACHE_PLUS_ID,
+    key: "PANACHE+",
+    name: "Panache+",
+    cost: 0,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(14),
         block: None,
         vulnerable: None,
     },
@@ -1891,6 +2171,144 @@ pub const MAGNETISM: CardDefinition = CardDefinition {
     key: "MAGNETISM",
     name: "Magnetism",
     cost: 2,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const THE_BOMB_PLUS: CardDefinition = CardDefinition {
+    id: THE_BOMB_PLUS_ID,
+    key: "THE_BOMB+",
+    name: "The Bomb+",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(50),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const THINKING_AHEAD_PLUS: CardDefinition = CardDefinition {
+    id: THINKING_AHEAD_PLUS_ID,
+    key: "THINKING_AHEAD+",
+    name: "Thinking Ahead+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const METAMORPHOSIS_PLUS: CardDefinition = CardDefinition {
+    id: METAMORPHOSIS_PLUS_ID,
+    key: "METAMORPHOSIS+",
+    name: "Metamorphosis+",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const IMPATIENCE_PLUS: CardDefinition = CardDefinition {
+    id: IMPATIENCE_PLUS_ID,
+    key: "IMPATIENCE+",
+    name: "Impatience+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const CHRYSALIS_PLUS: CardDefinition = CardDefinition {
+    id: CHRYSALIS_PLUS_ID,
+    key: "CHRYSALIS+",
+    name: "Chrysalis+",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const SADISTIC_NATURE_PLUS: CardDefinition = CardDefinition {
+    id: SADISTIC_NATURE_PLUS_ID,
+    key: "SADISTIC_NATURE+",
+    name: "Sadistic Nature+",
+    cost: 0,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const PANIC_BUTTON_PLUS: CardDefinition = CardDefinition {
+    id: PANIC_BUTTON_PLUS_ID,
+    key: "PANIC_BUTTON+",
+    name: "Panic Button+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(40),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const MAGNETISM_PLUS: CardDefinition = CardDefinition {
+    id: MAGNETISM_PLUS_ID,
+    key: "MAGNETISM+",
+    name: "Magnetism+",
+    cost: 1,
     card_type: CardType::Power,
     target: TargetRequirement::None,
     values: CardValues {
@@ -2604,7 +3022,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 140] = [
+pub const ALL_CARDS: [CardDefinition; 165] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2670,32 +3088,54 @@ pub const ALL_CARDS: [CardDefinition; 140] = [
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
     BANDAGE_UP,
+    BANDAGE_UP_PLUS,
     APOTHEOSIS,
+    APOTHEOSIS_PLUS,
     BLIND,
     ENLIGHTENMENT,
+    ENLIGHTENMENT_PLUS,
     SWIFT_STRIKE,
+    SWIFT_STRIKE_PLUS,
     DEEP_BREATH,
+    DEEP_BREATH_PLUS,
     DISCOVERY,
+    DISCOVERY_PLUS,
     FLASH_OF_STEEL,
+    FLASH_OF_STEEL_PLUS,
     MIND_BLAST,
+    MIND_BLAST_PLUS,
     DARK_SHACKLES,
     FORETHOUGHT,
+    FORETHOUGHT_PLUS,
     GOOD_INSTINCTS,
+    GOOD_INSTINCTS_PLUS,
     HAND_OF_GREED,
+    HAND_OF_GREED_PLUS,
     FINESSE,
+    FINESSE_PLUS,
     MAGNETISM,
+    MAGNETISM_PLUS,
     PANACEA,
+    PANACEA_PLUS,
     PANACHE,
+    PANACHE_PLUS,
     PANIC_BUTTON,
+    PANIC_BUTTON_PLUS,
     PURITY,
+    PURITY_PLUS,
     SADISTIC_NATURE,
+    SADISTIC_NATURE_PLUS,
     TRIP,
     IMPATIENCE,
+    IMPATIENCE_PLUS,
     CHRYSALIS,
+    CHRYSALIS_PLUS,
     JACK_OF_ALL_TRADES,
     JACK_OF_ALL_TRADES_PLUS,
     MADNESS,
+    MADNESS_PLUS,
     MASTER_OF_STRATEGY,
+    MASTER_OF_STRATEGY_PLUS,
     SECRET_TECHNIQUE,
     SECRET_TECHNIQUE_PLUS,
     SECRET_WEAPON,
@@ -2703,10 +3143,13 @@ pub const ALL_CARDS: [CardDefinition; 140] = [
     VIOLENCE,
     VIOLENCE_PLUS,
     THE_BOMB,
+    THE_BOMB_PLUS,
     THINKING_AHEAD,
+    THINKING_AHEAD_PLUS,
     TRANSMUTATION,
     TRANSMUTATION_PLUS,
     METAMORPHOSIS,
+    METAMORPHOSIS_PLUS,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2774,10 +3217,14 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BANDAGE_UP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == BANDAGE_UP_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DEEP_BREATH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == DEEP_BREATH_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DISCOVERY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == DISCOVERY_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == ENLIGHTENMENT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == ENLIGHTENMENT_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -2848,27 +3295,45 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == EXHUME_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == APOTHEOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == APOTHEOSIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == SWIFT_STRIKE_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == FLASH_OF_STEEL_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == MIND_BLAST_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == MIND_BLAST_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == DARK_SHACKLES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FORETHOUGHT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == FORETHOUGHT_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == GOOD_INSTINCTS_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == HAND_OF_GREED_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == HAND_OF_GREED_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == FINESSE_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MAGNETISM_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == MAGNETISM_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == PANACEA_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACHE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == PANACHE_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == PANIC_BUTTON_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == PANIC_BUTTON_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PURITY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == PURITY_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SADISTIC_NATURE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == SADISTIC_NATURE_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == IMPATIENCE_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CHRYSALIS_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == CHRYSALIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == JACK_OF_ALL_TRADES_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == MADNESS_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == MASTER_OF_STRATEGY_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SECRET_TECHNIQUE_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SECRET_TECHNIQUE_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SECRET_WEAPON_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -2876,10 +3341,13 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == VIOLENCE_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == VIOLENCE_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THE_BOMB_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == THE_BOMB_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THINKING_AHEAD_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == THINKING_AHEAD_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == TRANSMUTATION_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == TRANSMUTATION_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == METAMORPHOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == METAMORPHOSIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         _ => None,
     }
 }
@@ -2903,11 +3371,36 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         WARCRY_ID => Some(WARCRY_PLUS_ID),
         DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
         SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
+        SWIFT_STRIKE_ID => Some(SWIFT_STRIKE_PLUS_ID),
+        BANDAGE_UP_ID => Some(BANDAGE_UP_PLUS_ID),
+        DEEP_BREATH_ID => Some(DEEP_BREATH_PLUS_ID),
+        FINESSE_ID => Some(FINESSE_PLUS_ID),
+        FLASH_OF_STEEL_ID => Some(FLASH_OF_STEEL_PLUS_ID),
+        GOOD_INSTINCTS_ID => Some(GOOD_INSTINCTS_PLUS_ID),
+        MIND_BLAST_ID => Some(MIND_BLAST_PLUS_ID),
+        PANACEA_ID => Some(PANACEA_PLUS_ID),
+        APOTHEOSIS_ID => Some(APOTHEOSIS_PLUS_ID),
+        DISCOVERY_ID => Some(DISCOVERY_PLUS_ID),
+        ENLIGHTENMENT_ID => Some(ENLIGHTENMENT_PLUS_ID),
+        FORETHOUGHT_ID => Some(FORETHOUGHT_PLUS_ID),
+        HAND_OF_GREED_ID => Some(HAND_OF_GREED_PLUS_ID),
+        CHRYSALIS_ID => Some(CHRYSALIS_PLUS_ID),
+        MAGNETISM_ID => Some(MAGNETISM_PLUS_ID),
+        PANACHE_ID => Some(PANACHE_PLUS_ID),
+        PANIC_BUTTON_ID => Some(PANIC_BUTTON_PLUS_ID),
+        PURITY_ID => Some(PURITY_PLUS_ID),
+        SADISTIC_NATURE_ID => Some(SADISTIC_NATURE_PLUS_ID),
+        IMPATIENCE_ID => Some(IMPATIENCE_PLUS_ID),
         JACK_OF_ALL_TRADES_ID => Some(JACK_OF_ALL_TRADES_PLUS_ID),
+        MADNESS_ID => Some(MADNESS_PLUS_ID),
+        MASTER_OF_STRATEGY_ID => Some(MASTER_OF_STRATEGY_PLUS_ID),
         SECRET_TECHNIQUE_ID => Some(SECRET_TECHNIQUE_PLUS_ID),
         SECRET_WEAPON_ID => Some(SECRET_WEAPON_PLUS_ID),
         VIOLENCE_ID => Some(VIOLENCE_PLUS_ID),
+        THE_BOMB_ID => Some(THE_BOMB_PLUS_ID),
+        THINKING_AHEAD_ID => Some(THINKING_AHEAD_PLUS_ID),
         TRANSMUTATION_ID => Some(TRANSMUTATION_PLUS_ID),
+        METAMORPHOSIS_ID => Some(METAMORPHOSIS_PLUS_ID),
         _ => None,
     }
 }
@@ -3256,7 +3749,10 @@ mod tests {
             card_type_and_rarity(SADISTIC_NATURE_ID),
             Some((CardType::Power, CardRarity::Rare))
         );
-        assert_eq!(upgrade_content_id(SADISTIC_NATURE_ID), None);
+        assert_eq!(
+            upgrade_content_id(SADISTIC_NATURE_ID),
+            Some(SADISTIC_NATURE_PLUS_ID)
+        );
     }
 
     #[test]
@@ -3271,7 +3767,10 @@ mod tests {
             card_type_and_rarity(PANIC_BUTTON_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
-        assert_eq!(upgrade_content_id(PANIC_BUTTON_ID), None);
+        assert_eq!(
+            upgrade_content_id(PANIC_BUTTON_ID),
+            Some(PANIC_BUTTON_PLUS_ID)
+        );
     }
 
     #[test]

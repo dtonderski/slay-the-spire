@@ -39,6 +39,10 @@ pub enum InternalAction {
         card_id: CardId,
         cost: u8,
     },
+    SetHandCardCostForCombat {
+        card_id: CardId,
+        cost: u8,
+    },
     DealDamage {
         info: DamageInfo,
     },

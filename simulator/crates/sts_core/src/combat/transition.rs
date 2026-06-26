@@ -15,12 +15,12 @@ use crate::{
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
         BLOOD_FOR_BLOOD_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
-        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, EXHUME_ID, FINESSE_ID,
-        FLASH_OF_STEEL_ID, IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
-        PANACEA_ID, PANIC_BUTTON_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-        WOUND_ID,
+        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID,
+        ENLIGHTENMENT_PLUS_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, IMPATIENCE_ID,
+        MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_PLUS_ID,
+        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -161,6 +161,12 @@ fn apply_internal_action(
             let card = find_hand_card_mut(state, card_id)?;
             card.temp_cost = Some(cost);
             card.temp_cost_turn_only = true;
+            Ok(Vec::new())
+        }
+        InternalAction::SetHandCardCostForCombat { card_id, cost } => {
+            let card = find_hand_card_mut(state, card_id)?;
+            card.temp_cost = Some(cost);
+            card.temp_cost_turn_only = false;
             Ok(Vec::new())
         }
         InternalAction::DealDamage { info } => {
@@ -1135,11 +1141,20 @@ fn apply_play_top_draw_card(
                 });
             }
         }
-        DEEP_BREATH_ID => {
-            follow_ups.push(InternalAction::DrawCards { count: 1 });
+        DEEP_BREATH_ID | DEEP_BREATH_PLUS_ID => {
+            let count = if definition.id == DEEP_BREATH_PLUS_ID {
+                2
+            } else {
+                1
+            };
+            follow_ups.push(InternalAction::DrawCards { count });
         }
-        ENLIGHTENMENT_ID => {
-            follow_ups.extend(card_effects::enlightenment_cost_actions(state, card_id));
+        ENLIGHTENMENT_ID | ENLIGHTENMENT_PLUS_ID => {
+            follow_ups.extend(card_effects::enlightenment_cost_actions(
+                state,
+                card_id,
+                definition.id == ENLIGHTENMENT_PLUS_ID,
+            ));
         }
         OFFERING_ID => {
             follow_ups.push(InternalAction::LoseHp {
@@ -1566,6 +1581,17 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
 
 pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
     let pile_index = exhaust_select_ui_to_hand_index(state, ui_index)?;
+    let purity_cap = state
+        .exhaust_select
+        .as_ref()
+        .filter(|select| select.purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3)
+        .map(|select| {
+            let source_card_id = select
+                .source_card_id
+                .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+            purity_select_cap(state, source_card_id)
+        })
+        .transpose()?;
     let exhaust_select = state
         .exhaust_select
         .as_mut()
@@ -1583,9 +1609,9 @@ pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimRes
         exhaust_select.selected_hand_indices.remove(position);
     } else {
         if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3
-            && exhaust_select.selected_hand_indices.len() >= 3
+            && exhaust_select.selected_hand_indices.len() >= purity_cap.unwrap_or(3)
         {
-            return Err(SimError::IllegalAction("Purity can select at most 3 cards"));
+            return Err(purity_too_many_cards_error(purity_cap.unwrap_or(3)));
         }
         exhaust_select.selected_hand_indices.push(pile_index);
         exhaust_select.selected_hand_indices.sort_unstable();
@@ -1657,11 +1683,12 @@ fn confirm_purity_select(
     let source_card_id = exhaust_select
         .source_card_id
         .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+    let cap = purity_select_cap(state, source_card_id)?;
     let mut selected = exhaust_select.selected_hand_indices;
     selected.sort_unstable();
     selected.dedup();
-    if selected.len() > 3 {
-        return Err(SimError::IllegalAction("Purity can select at most 3 cards"));
+    if selected.len() > cap {
+        return Err(purity_too_many_cards_error(cap));
     }
     for index in selected.into_iter().rev() {
         let card = state
@@ -1680,6 +1707,28 @@ fn confirm_purity_select(
     move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
     apply_on_exhaust_effects(state, source_card_id);
     Ok(())
+}
+
+fn purity_select_cap(state: &CombatState, source_card_id: CardId) -> SimResult<usize> {
+    let source = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == source_card_id)
+        .ok_or(SimError::IllegalAction("Purity source card is not in hand"))?;
+    Ok(if source.content_id == PURITY_PLUS_ID {
+        5
+    } else {
+        3
+    })
+}
+
+fn purity_too_many_cards_error(cap: usize) -> SimError {
+    if cap == 5 {
+        SimError::IllegalAction("Purity can select at most 5 cards")
+    } else {
+        SimError::IllegalAction("Purity can select at most 3 cards")
+    }
 }
 
 fn exhumable_ui_to_exhaust_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
@@ -1871,8 +1920,8 @@ mod tests {
     use crate::card::{CardRarity, TargetRequirement};
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID,
-        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID,
+        ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID,
+        BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID,
         BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
         CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
         CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID,
@@ -12597,7 +12646,7 @@ mod tests {
         );
         assert_eq!(next.piles.discard_pile[0].content_id, BATTLE_TRANCE_PLUS_ID);
         assert_eq!(next.piles.exhaust_pile[0].content_id, SEEING_RED_PLUS_ID);
-        assert_eq!(next.piles.exhaust_pile[1].content_id, APOTHEOSIS_ID);
+        assert_eq!(next.piles.exhaust_pile[1].content_id, APOTHEOSIS_PLUS_ID);
     }
 
     #[test]
