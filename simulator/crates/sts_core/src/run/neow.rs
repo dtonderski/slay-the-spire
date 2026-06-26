@@ -4,6 +4,8 @@
 //! is the seam where Milestone 33 can replace seed-name tables with source-backed
 //! option generation one slice at a time.
 
+use crate::rng::StsRng;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KnownNeowBranch {
     CommonRelic,
@@ -27,6 +29,174 @@ pub struct KnownNeowColorlessReward {
     pub pick_index: usize,
     pub picked_card_id: &'static str,
     pub pick_label: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NeowRewardType {
+    ThreeCards,
+    OneRandomRareCard,
+    RandomColorless,
+    RandomColorlessTwo,
+    RemoveCard,
+    RemoveTwo,
+    UpgradeCard,
+    TransformCard,
+    TransformTwoCards,
+    ThreeSmallPotions,
+    RandomCommonRelic,
+    OneRareRelic,
+    TenPercentHpBonus,
+    TwentyPercentHpBonus,
+    ThreeEnemyKill,
+    HundredGold,
+    TwoFiftyGold,
+    BossRelic,
+    ThreeRareCards,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NeowDrawback {
+    None,
+    TenPercentHpLoss,
+    NoGold,
+    Curse,
+    PercentDamage,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GeneratedNeowOption {
+    pub slot: usize,
+    pub drawback: NeowDrawback,
+    pub reward: NeowRewardType,
+    pub label: String,
+}
+
+pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
+    let mut rng = StsRng::new(numeric_seed);
+    (0..4)
+        .map(|slot| generate_neow_option(slot, player_max_hp, &mut rng))
+        .collect()
+}
+
+fn generate_neow_option(slot: usize, player_max_hp: i32, rng: &mut StsRng) -> GeneratedNeowOption {
+    let (drawback, rewards) = neow_reward_options(slot, rng);
+    let reward_index = rng.random_int((rewards.len() - 1) as i32) as usize;
+    let reward = rewards[reward_index];
+    let label = format!(
+        "{}{}",
+        drawback_label(drawback, player_max_hp),
+        reward_label(reward, player_max_hp)
+    );
+
+    GeneratedNeowOption {
+        slot,
+        drawback,
+        reward,
+        label,
+    }
+}
+
+fn neow_reward_options(slot: usize, rng: &mut StsRng) -> (NeowDrawback, Vec<NeowRewardType>) {
+    match slot {
+        0 => (
+            NeowDrawback::None,
+            vec![
+                NeowRewardType::ThreeCards,
+                NeowRewardType::OneRandomRareCard,
+                NeowRewardType::RemoveCard,
+                NeowRewardType::UpgradeCard,
+                NeowRewardType::TransformCard,
+                NeowRewardType::RandomColorless,
+            ],
+        ),
+        1 => (
+            NeowDrawback::None,
+            vec![
+                NeowRewardType::ThreeSmallPotions,
+                NeowRewardType::RandomCommonRelic,
+                NeowRewardType::TenPercentHpBonus,
+                NeowRewardType::ThreeEnemyKill,
+                NeowRewardType::HundredGold,
+            ],
+        ),
+        2 => {
+            let drawback_options = [
+                NeowDrawback::TenPercentHpLoss,
+                NeowDrawback::NoGold,
+                NeowDrawback::Curse,
+                NeowDrawback::PercentDamage,
+            ];
+            let drawback = drawback_options[rng.random_int(3) as usize];
+            let mut rewards = vec![NeowRewardType::RandomColorlessTwo];
+            if drawback != NeowDrawback::Curse {
+                rewards.push(NeowRewardType::RemoveTwo);
+            }
+            rewards.push(NeowRewardType::OneRareRelic);
+            rewards.push(NeowRewardType::ThreeRareCards);
+            if drawback != NeowDrawback::NoGold {
+                rewards.push(NeowRewardType::TwoFiftyGold);
+            }
+            rewards.push(NeowRewardType::TransformTwoCards);
+            if drawback != NeowDrawback::TenPercentHpLoss {
+                rewards.push(NeowRewardType::TwentyPercentHpBonus);
+            }
+            (drawback, rewards)
+        }
+        3 => (NeowDrawback::None, vec![NeowRewardType::BossRelic]),
+        _ => panic!("Neow option slot must be 0..=3"),
+    }
+}
+
+fn drawback_label(drawback: NeowDrawback, player_max_hp: i32) -> String {
+    match drawback {
+        NeowDrawback::None => String::new(),
+        NeowDrawback::TenPercentHpLoss => format!("lose {} max hp ", ten_percent(player_max_hp)),
+        NeowDrawback::NoGold => "lose all gold ".to_owned(),
+        NeowDrawback::Curse => "obtain a curse ".to_owned(),
+        NeowDrawback::PercentDamage => format!("take {} damage ", percent_damage(player_max_hp)),
+    }
+}
+
+fn reward_label(reward: NeowRewardType, player_max_hp: i32) -> String {
+    match reward {
+        NeowRewardType::ThreeCards => "choose a card to obtain".to_owned(),
+        NeowRewardType::OneRandomRareCard => "obtain a random rare card".to_owned(),
+        NeowRewardType::RandomColorless => "choose a colorless card to obtain".to_owned(),
+        NeowRewardType::RandomColorlessTwo => "choose a rare colorless card to obtain".to_owned(),
+        NeowRewardType::RemoveCard => "remove a card".to_owned(),
+        NeowRewardType::RemoveTwo => "remove 2 cards".to_owned(),
+        NeowRewardType::UpgradeCard => "upgrade a card".to_owned(),
+        NeowRewardType::TransformCard => "transform a card".to_owned(),
+        NeowRewardType::TransformTwoCards => "transform 2 cards".to_owned(),
+        NeowRewardType::ThreeSmallPotions => "obtain 3 random potions".to_owned(),
+        NeowRewardType::RandomCommonRelic => "obtain a random common relic".to_owned(),
+        NeowRewardType::OneRareRelic => "obtain a random rare relic".to_owned(),
+        NeowRewardType::TenPercentHpBonus => {
+            format!("max hp +{}", ten_percent(player_max_hp))
+        }
+        NeowRewardType::TwentyPercentHpBonus => {
+            format!("max hp +{}", twenty_percent(player_max_hp))
+        }
+        NeowRewardType::ThreeEnemyKill => "enemies in your next three combats have 1 hp".to_owned(),
+        NeowRewardType::HundredGold => "obtain 100 gold".to_owned(),
+        NeowRewardType::TwoFiftyGold => "obtain 250 gold".to_owned(),
+        NeowRewardType::BossRelic => {
+            "lose your starting relic obtain a random boss relic".to_owned()
+        }
+        NeowRewardType::ThreeRareCards => "choose a rare card to obtain".to_owned(),
+    }
+}
+
+fn ten_percent(player_max_hp: i32) -> i32 {
+    player_max_hp / 10
+}
+
+fn twenty_percent(player_max_hp: i32) -> i32 {
+    player_max_hp / 5
+}
+
+fn percent_damage(player_max_hp: i32) -> i32 {
+    player_max_hp * 3 / 10
 }
 
 pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
@@ -179,5 +349,52 @@ mod tests {
         );
         assert_eq!(known_neow_transformed_card("M290001"), Some("Sever Soul"));
         assert_eq!(known_neow_transformed_card("M290008"), Some("Sentinel"));
+    }
+
+    #[test]
+    fn source_backed_generation_matches_verify01_captured_options() {
+        let labels: Vec<_> = generate_neow_options(1_957_307_888_551, 80)
+            .into_iter()
+            .map(|option| option.label)
+            .collect();
+
+        assert_eq!(
+            labels,
+            vec![
+                "choose a card to obtain",
+                "obtain a random common relic",
+                "lose 8 max hp remove 2 cards",
+                "lose your starting relic obtain a random boss relic",
+            ]
+        );
+    }
+
+    #[test]
+    fn source_backed_generation_matches_codex04_captured_options() {
+        let labels: Vec<_> = generate_neow_options(22_079_335_079, 80)
+            .into_iter()
+            .map(|option| option.label)
+            .collect();
+
+        assert_eq!(
+            labels,
+            vec![
+                "choose a colorless card to obtain",
+                "obtain 3 random potions",
+                "lose 8 max hp remove 2 cards",
+                "lose your starting relic obtain a random boss relic",
+            ]
+        );
+    }
+
+    #[test]
+    fn source_backed_generation_consumes_five_neow_rng_draws() {
+        let mut rng = StsRng::new(22_079_335_079);
+
+        for slot in 0..4 {
+            generate_neow_option(slot, 80, &mut rng);
+        }
+
+        assert_eq!(rng.counter(), 5);
     }
 }
