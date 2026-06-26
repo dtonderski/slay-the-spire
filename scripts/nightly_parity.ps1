@@ -31,6 +31,11 @@ try {
     & $cargo run -q -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-21T09-57-10-380Z.jsonl
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+    # Expected-failing M29 Sentries cleaned trace: zero unexpected diffs, but it ends
+    # on the final reward screen before the post-reward PROCEED boundary.
+    & $cargo run -q -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     & $cargo run -q -p sts_verify -- parity ..\verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
