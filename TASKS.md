@@ -888,7 +888,7 @@ Do not implement:
 
 ## Milestone 21: General Neow and Colorless Reward Parity
 
-Status: captured-path implementation complete for `trace-2026-06-18T16-50-50-232Z.jsonl`. Seed-start mode verifies `CODEX04` from `START IRONCLAD 0 CODEX04` through the captured Neow colorless-card branch, including the `Deep Breath` / `Dramatic Entrance` / `Jack Of All Trades` reward screen, picking `Dramatic Entrance`, and leaving to the first map-choice screen. Broad real-game Neow option RNG remains classified as captured-branch only; executing map nodes and encounters begins in Milestone 22.
+Status: originally completed as captured-path coverage for `trace-2026-06-18T16-50-50-232Z.jsonl`. Seed-start mode verifies `CODEX04` from `START IRONCLAD 0 CODEX04` through the captured Neow colorless-card branch, including the `Deep Breath` / `Dramatic Entrance` / `Jack Of All Trades` reward screen, picking `Dramatic Entrance`, and leaving to the first map-choice screen. Later Milestone 33 work replaced the old captured-only Neow wording with source-backed/generated option and reward support for selected Ironclad A0 surfaces; branch combinations and selected-trace coverage remain explicitly caveated where only helper or synthetic tests exercise them.
 
 Goal: support the Neow branches seen in controller traces, including colorless-card rewards.
 
@@ -898,7 +898,7 @@ Tasks:
 - implement colorless card reward generation for Neow
 - add mapped content for colorless cards needed by captured traces, starting with `Dramatic Entrance`
 - verify `CODEX04` through Neow card pick and leave from seed-start mode
-- keep unsupported branch classification for boss swap and remove-card branches until implemented
+- keep caveated branch classification for boss swap and remove-card branches until selected-trace parity is proven
 
 Acceptance tests:
 
