@@ -4,8 +4,8 @@ use crate::{
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        EXHUME_ID, FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, SECRET_WEAPON_ID,
-        TRANSMUTATION_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        EXHUME_ID, FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, SECRET_TECHNIQUE_ID,
+        SECRET_WEAPON_ID, TRANSMUTATION_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -82,6 +82,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         }
 
         if definition.id == SECRET_WEAPON_ID && !has_attack_in_draw_pile(state) {
+            continue;
+        }
+
+        if definition.id == SECRET_TECHNIQUE_ID && !has_skill_in_draw_pile(state) {
             continue;
         }
 
@@ -199,6 +203,12 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
             if definition.id == SECRET_WEAPON_ID && !has_attack_in_draw_pile(state) {
                 return Err(SimError::IllegalAction(
                     "Secret Weapon requires an attack in draw pile",
+                ));
+            }
+
+            if definition.id == SECRET_TECHNIQUE_ID && !has_skill_in_draw_pile(state) {
+                return Err(SimError::IllegalAction(
+                    "Secret Technique requires a skill in draw pile",
                 ));
             }
 
@@ -344,6 +354,13 @@ fn has_attack_in_draw_pile(state: &CombatState) -> bool {
     state.piles.draw_pile.iter().any(|card| {
         get_card_definition(card.content_id)
             .is_some_and(|definition| definition.card_type == CardType::Attack)
+    })
+}
+
+fn has_skill_in_draw_pile(state: &CombatState) -> bool {
+    state.piles.draw_pile.iter().any(|card| {
+        get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Skill)
     })
 }
 
