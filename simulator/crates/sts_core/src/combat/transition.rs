@@ -1753,18 +1753,18 @@ mod tests {
         DISCOVERY_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID,
         EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
         FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
-        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID,
-        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
-        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
+        INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MASTER_OF_STRATEGY_ID,
+        METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
         WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
@@ -6080,6 +6080,72 @@ mod tests {
                 },
                 InternalAction::MoveCard {
                     card_id: swift_strike_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn hand_of_greed_deals_twenty_spends_two_and_discards() {
+        let state = hand_only(HAND_OF_GREED_ID);
+        let hand_of_greed_id = hand_card_id(&state, HAND_OF_GREED_ID);
+
+        let next = apply_combat_action(&state, hand_of_greed_action(&state))
+            .expect("Hand Of Greed applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 20);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == hand_of_greed_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == hand_of_greed_id));
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn hand_of_greed_fatal_damage_wins_without_modeling_gold_payout() {
+        let mut state = hand_only(HAND_OF_GREED_ID);
+        state.monsters[0].hp = 20;
+
+        let next = apply_combat_action(&state, hand_of_greed_action(&state))
+            .expect("Hand Of Greed applies");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.phase, CombatPhase::Won);
+    }
+
+    #[test]
+    fn hand_of_greed_event_log_records_generic_attack_queue() {
+        let state = hand_only(HAND_OF_GREED_ID);
+        let hand_of_greed_id = hand_card_id(&state, HAND_OF_GREED_ID);
+
+        let transition = apply_combat_action_with_events(&state, hand_of_greed_action(&state))
+            .expect("Hand Of Greed applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: hand_of_greed_id
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(hand_of_greed_id),
+                        target: MonsterId::new(1),
+                        amount: 20,
+                    }
+                },
+                InternalAction::MoveCard {
+                    card_id: hand_of_greed_id,
                     from: CardPile::Hand,
                     to: CardPile::DiscardPile,
                 },
@@ -12675,6 +12741,13 @@ mod tests {
     fn swift_strike_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SWIFT_STRIKE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn hand_of_greed_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, HAND_OF_GREED_ID),
             target: Some(MonsterId::new(1)),
         }
     }

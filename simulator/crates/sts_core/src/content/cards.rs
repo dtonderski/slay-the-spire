@@ -66,6 +66,7 @@ pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
 pub const FORETHOUGHT_ID: ContentId = ContentId::new(59_534_622_361_962_517);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
+pub const HAND_OF_GREED_ID: ContentId = ContentId::new(3_088_851_373_662_850_713);
 pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const PANACHE_ID: ContentId = ContentId::new(72_935_227_636);
@@ -1420,6 +1421,21 @@ pub const GOOD_INSTINCTS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const HAND_OF_GREED: CardDefinition = CardDefinition {
+    id: HAND_OF_GREED_ID,
+    key: "HAND_OF_GREED",
+    name: "Hand Of Greed",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(20),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const FINESSE: CardDefinition = CardDefinition {
     id: FINESSE_ID,
     key: "FINESSE",
@@ -2414,7 +2430,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 130] = [
+pub const ALL_CARDS: [CardDefinition; 131] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2491,6 +2507,7 @@ pub const ALL_CARDS: [CardDefinition; 130] = [
     DARK_SHACKLES,
     FORETHOUGHT,
     GOOD_INSTINCTS,
+    HAND_OF_GREED,
     FINESSE,
     PANACEA,
     PANACHE,
@@ -2654,6 +2671,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DARK_SHACKLES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FORETHOUGHT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == HAND_OF_GREED_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACHE_ID => Some((CardType::Power, CardRarity::Rare)),
