@@ -428,6 +428,9 @@ pub fn known_neow_colorless_reward_for_seed(seed: &str) -> Option<KnownNeowColor
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::cards::{
+        DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID, SWIFT_STRIKE_ID,
+    };
 
     #[test]
     fn known_verify01_common_relic_branch_matches_current_verifier_scope() {
@@ -564,5 +567,26 @@ mod tests {
         assert_eq!(reward.cards.len(), 3);
         assert_eq!(reward.neow_rng_counter, 8);
         assert!(reward.card_rng_counter >= 3);
+    }
+
+    #[test]
+    fn generated_codex04_colorless_choices_match_captured_trace() {
+        let reward =
+            generate_neow_colorless_reward(22_079_335_079, NeowRewardType::RandomColorless);
+
+        assert_eq!(
+            reward.cards,
+            vec![DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID]
+        );
+    }
+
+    #[test]
+    fn generated_test_colorless_choices_match_captured_trace() {
+        let reward = generate_neow_colorless_reward(1_218_623, NeowRewardType::RandomColorless);
+
+        assert_eq!(
+            reward.cards,
+            vec![DEEP_BREATH_ID, SWIFT_STRIKE_ID, JACK_OF_ALL_TRADES_ID]
+        );
     }
 }
