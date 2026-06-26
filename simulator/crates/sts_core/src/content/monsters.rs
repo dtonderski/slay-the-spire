@@ -1215,6 +1215,7 @@ mod tests {
             temp_dexterity: 0,
             temp_thorns: 0,
             temp_rage_block: 0,
+            no_block_turns: 0,
         }
     }
 

@@ -18,14 +18,16 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
         state.player.powers.strength += state.player.powers.ritual;
     }
     if state.player.powers.metallicize > 0 {
-        let gained = state.player.powers.metallicize;
-        state.player.block += gained;
-        crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, gained);
+        crate::combat::transition::apply_player_direct_block_gain(
+            state,
+            state.player.powers.metallicize,
+        );
     }
     if state.player.powers.plated_armor > 0 {
-        let gained = state.player.powers.plated_armor;
-        state.player.block += gained;
-        crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, gained);
+        crate::combat::transition::apply_player_direct_block_gain(
+            state,
+            state.player.powers.plated_armor,
+        );
     }
     if state.player.powers.regen > 0 {
         heal_player_in_combat_with_relics(
@@ -53,10 +55,14 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
         player.powers.strength += player.powers.ritual;
     }
     if player.powers.metallicize > 0 {
-        player.block += player.powers.metallicize;
+        if player.no_block_turns == 0 {
+            player.block += player.powers.metallicize;
+        }
     }
     if player.powers.plated_armor > 0 {
-        player.block += player.powers.plated_armor;
+        if player.no_block_turns == 0 {
+            player.block += player.powers.plated_armor;
+        }
     }
     if player.powers.regen > 0 {
         heal_player_in_combat_with_relics(
