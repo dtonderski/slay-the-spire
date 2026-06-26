@@ -216,13 +216,17 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 ));
             }
 
-            if definition.id == SECRET_WEAPON_ID && !has_attack_in_draw_pile(state) {
+            if (definition.id == SECRET_WEAPON_ID || definition.id == SECRET_WEAPON_PLUS_ID)
+                && !has_attack_in_draw_pile(state)
+            {
                 return Err(SimError::IllegalAction(
                     "Secret Weapon requires an attack in draw pile",
                 ));
             }
 
-            if definition.id == SECRET_TECHNIQUE_ID && !has_skill_in_draw_pile(state) {
+            if (definition.id == SECRET_TECHNIQUE_ID || definition.id == SECRET_TECHNIQUE_PLUS_ID)
+                && !has_skill_in_draw_pile(state)
+            {
                 return Err(SimError::IllegalAction(
                     "Secret Technique requires a skill in draw pile",
                 ));
@@ -473,11 +477,11 @@ mod tests {
             METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID,
             PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
             PUMMEL_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-            SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-            SENTINEL_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
-            SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRANSMUTATION_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-            TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
-            WOUND_ID,
+            SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_PLUS_ID,
+            SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID,
+            SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+            STRIKE_R_ID, TRANSMUTATION_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+            VIOLENCE_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -4085,6 +4089,56 @@ mod tests {
             ),
             Err(SimError::IllegalAction(
                 "Forethought requires another card in hand"
+            ))
+        );
+    }
+
+    #[test]
+    fn secret_weapon_plus_rejects_without_attack_in_draw_pile() {
+        let mut state = hand_with_card(SECRET_WEAPON_PLUS_ID);
+        state.piles.draw_pile.clear();
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "Secret Weapon requires an attack in draw pile"
+            ))
+        );
+    }
+
+    #[test]
+    fn secret_technique_plus_rejects_without_skill_in_draw_pile() {
+        let mut state = hand_with_card(SECRET_TECHNIQUE_PLUS_ID);
+        state.piles.draw_pile.clear();
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "Secret Technique requires a skill in draw pile"
             ))
         );
     }
