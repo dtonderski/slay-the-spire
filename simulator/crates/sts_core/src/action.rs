@@ -177,6 +177,9 @@ pub enum InternalAction {
     GainSadisticNature {
         amount: i32,
     },
+    GainMagnetism {
+        amount: i32,
+    },
     ArmTheBomb {
         turns: i32,
         damage: i32,
