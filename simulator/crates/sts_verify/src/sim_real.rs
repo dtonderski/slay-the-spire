@@ -8976,6 +8976,140 @@ mod tests {
     }
 
     #[test]
+    fn seed_start_neow_three_rare_cards_can_pick_card_leave_and_reach_map() {
+        let (numeric_seed, option) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.reward == NeowRewardType::ThreeRareCards
+                            && seed_start_neow_drawback_is_simple(option.drawback)
+                    })
+                    .map(|option| (seed, option))
+            })
+            .expect("synthetic seed with simple ThreeRareCards option");
+        let external_seed = test_seed_string_from_long(numeric_seed);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let starting_relics = vec![json!({ "name": "Burning Blood" })];
+        let run = seed_start_apply_neow_reward_drawback(
+            numeric_seed,
+            &ironclad_starter_deck_keys(),
+            &option,
+        );
+        let neow_deck: Vec<_> = deck_content_keys(&run.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let reward_ids = seed_start_neow_card_reward_ids(numeric_seed, &option, Some(&run));
+        let reward_names =
+            seed_start_neow_card_reward_choice_names(numeric_seed, &option, Some(&run));
+        let reward_cards: Vec<_> = reward_ids
+            .iter()
+            .map(|id| json!({ "id": id, "name": id }))
+            .collect();
+        let mut picked_deck = neow_deck.clone();
+        picked_deck.push(json!({ "id": reward_ids[1] }));
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {external_seed}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": format!("CHOOSE {}", option.slot)}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "CARD_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": run.gold,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": neow_deck,
+                "relics": starting_relics,
+                "choice_list": reward_names,
+                "screen_state": {
+                    "cards": reward_cards
+                }
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 1"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": run.gold,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": picked_deck,
+                "relics": starting_relics,
+                "choice_list": ["leave"]
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "MAP",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": run.gold,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": picked_deck,
+                "relics": starting_relics,
+                "choice_list": seed_start_first_map_choices(&external_seed)
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow rare card reward choices"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 4 && transition.label == "Neow colorless pickup"
+        }));
+        assert!(report
+            .verified
+            .iter()
+            .any(|transition| transition.action_step == 5 && transition.label == "Neow leave"));
+        assert_eq!(
+            report
+                .seed_start
+                .expect("seed-start")
+                .first_boundary
+                .category,
+            "missing_post_reward_boundary"
+        );
+    }
+
+    #[test]
     fn seed_start_neow_rare_colorless_reward_uses_colorless_helper() {
         let (numeric_seed, option) = (1_i64..10_000)
             .find_map(|seed| {
