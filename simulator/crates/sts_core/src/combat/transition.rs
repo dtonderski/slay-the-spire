@@ -1314,8 +1314,7 @@ fn confirm_secret_technique_select(
     {
         return Err(SimError::IllegalAction("Secret Technique requires a Skill"));
     }
-    state.piles.draw_pile.remove(index);
-    state.piles.hand.push(card);
+    move_selected_draw_card_to_hand_or_discard(state, index);
     move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
     apply_on_exhaust_effects(state, source_card_id);
     Ok(())
@@ -1337,11 +1336,19 @@ fn confirm_secret_weapon_select(
     {
         return Err(SimError::IllegalAction("Secret Weapon requires an Attack"));
     }
-    state.piles.draw_pile.remove(index);
-    state.piles.hand.push(card);
+    move_selected_draw_card_to_hand_or_discard(state, index);
     move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
     apply_on_exhaust_effects(state, source_card_id);
     Ok(())
+}
+
+fn move_selected_draw_card_to_hand_or_discard(state: &mut CombatState, index: usize) {
+    let card = state.piles.draw_pile.remove(index);
+    if state.piles.hand.len() >= 10 {
+        state.piles.discard_pile.push(card);
+    } else {
+        state.piles.hand.push(card);
+    }
 }
 
 fn confirm_warcry_select(
@@ -1838,16 +1845,16 @@ mod tests {
         FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID,
         HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
         INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID,
-        MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID,
-        PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
-        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
+        MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID,
+        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID,
+        RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
         WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
@@ -3289,6 +3296,42 @@ mod tests {
     }
 
     #[test]
+    fn secret_technique_confirm_discards_selected_skill_when_hand_is_full() {
+        let mut state = hand_only(SECRET_TECHNIQUE_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SECRET_TECHNIQUE_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+            CardInstance::new(CardId::new(23), STRIKE_R_ID),
+            CardInstance::new(CardId::new(24), STRIKE_R_ID),
+            CardInstance::new(CardId::new(25), STRIKE_R_ID),
+            CardInstance::new(CardId::new(26), STRIKE_R_ID),
+            CardInstance::new(CardId::new(27), STRIKE_R_ID),
+            CardInstance::new(CardId::new(28), STRIKE_R_ID),
+            CardInstance::new(CardId::new(29), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), SHRUG_IT_OFF_ID),
+        ];
+
+        let mut after_play = apply_combat_action(&state, secret_technique_action(&state))
+            .expect("Secret Technique opens draw select");
+        choose_draw_select(&mut after_play, 0).expect("choose Shrug It Off");
+        confirm_draw_select(&mut after_play).expect("confirm Secret Technique select");
+
+        assert!(after_play.draw_select.is_none());
+        assert_eq!(after_play.piles.hand.len(), 9);
+        assert_eq!(after_play.piles.discard_pile.len(), 1);
+        assert_eq!(after_play.piles.discard_pile[0].content_id, SHRUG_IT_OFF_ID);
+        assert_eq!(after_play.piles.draw_pile.len(), 1);
+        assert_eq!(
+            after_play.piles.exhaust_pile[0].content_id,
+            SECRET_TECHNIQUE_ID
+        );
+    }
+
+    #[test]
     fn secret_technique_without_draw_pile_skills_is_illegal() {
         let mut state = hand_only(SECRET_TECHNIQUE_ID);
         state.piles.draw_pile = vec![
@@ -3356,6 +3399,42 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![DEFEND_R_ID, STRIKE_R_ID]
         );
+        assert_eq!(
+            after_play.piles.exhaust_pile[0].content_id,
+            SECRET_WEAPON_ID
+        );
+    }
+
+    #[test]
+    fn secret_weapon_confirm_discards_selected_attack_when_hand_is_full() {
+        let mut state = hand_only(SECRET_WEAPON_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), SECRET_WEAPON_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), DEFEND_R_ID),
+            CardInstance::new(CardId::new(23), DEFEND_R_ID),
+            CardInstance::new(CardId::new(24), DEFEND_R_ID),
+            CardInstance::new(CardId::new(25), DEFEND_R_ID),
+            CardInstance::new(CardId::new(26), DEFEND_R_ID),
+            CardInstance::new(CardId::new(27), DEFEND_R_ID),
+            CardInstance::new(CardId::new(28), DEFEND_R_ID),
+            CardInstance::new(CardId::new(29), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), BASH_ID),
+        ];
+
+        let mut after_play = apply_combat_action(&state, secret_weapon_action(&state))
+            .expect("Secret Weapon opens draw select");
+        choose_draw_select(&mut after_play, 0).expect("choose Bash");
+        confirm_draw_select(&mut after_play).expect("confirm Secret Weapon select");
+
+        assert!(after_play.draw_select.is_none());
+        assert_eq!(after_play.piles.hand.len(), 9);
+        assert_eq!(after_play.piles.discard_pile.len(), 1);
+        assert_eq!(after_play.piles.discard_pile[0].content_id, BASH_ID);
+        assert_eq!(after_play.piles.draw_pile.len(), 1);
         assert_eq!(
             after_play.piles.exhaust_pile[0].content_id,
             SECRET_WEAPON_ID
@@ -3495,6 +3574,45 @@ mod tests {
             .find(|card| card.content_id == expected && card.combat_only)
             .expect("generated colorless card");
         assert_eq!(generated.temp_cost, None);
+    }
+
+    #[test]
+    fn jack_of_all_trades_plus_adds_two_random_colorless_cards() {
+        let mut state = hand_only(JACK_OF_ALL_TRADES_PLUS_ID);
+        state.card_random_rng = Some(crate::rng::StsRng::new(456));
+        let mut expected_rng = crate::rng::StsRng::new(456);
+        let expected_pool = jack_of_all_trades_colorless_pool();
+        let first =
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize];
+        let second =
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, JACK_OF_ALL_TRADES_PLUS_ID),
+                target: None,
+            },
+        )
+        .expect("Jack of All Trades+ applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == JACK_OF_ALL_TRADES_PLUS_ID));
+        let generated: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .map(|card| (card.content_id, card.temp_cost))
+            .collect();
+        assert_eq!(generated, vec![(first, None), (second, None)]);
     }
 
     #[test]
