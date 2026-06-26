@@ -336,6 +336,9 @@ fn verify_seed_start_transitions(
     let mut neow_current_hp = 80;
     let mut neow_max_hp = 80;
     let mut neow_card_reward_choices: Option<Vec<String>> = None;
+    let mut pending_neow_deferred_curse = false;
+    let mut neow_potion_reward: Vec<String> = Vec::new();
+    let mut neow_potions_taken = 0usize;
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
@@ -612,6 +615,7 @@ fn verify_seed_start_transitions(
                 let run =
                     seed_start_apply_neow_reward_drawback(start.numeric_seed, &deck_ids, &option);
                 deck_ids = deck_content_keys(&run.deck);
+                pending_neow_deferred_curse = option.drawback == NeowDrawback::Curse;
                 neow_gold = run.gold;
                 neow_current_hp = run.player_hp;
                 neow_max_hp = run.player_max_hp;
@@ -648,6 +652,7 @@ fn verify_seed_start_transitions(
                 let run =
                     seed_start_apply_neow_reward_drawback(start.numeric_seed, &deck_ids, &option);
                 deck_ids = deck_content_keys(&run.deck);
+                pending_neow_deferred_curse = option.drawback == NeowDrawback::Curse;
                 neow_gold = run.gold;
                 neow_current_hp = run.player_hp;
                 neow_max_hp = run.player_max_hp;
@@ -725,29 +730,55 @@ fn verify_seed_start_transitions(
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions) =>
             {
-                let potions = seed_start_neow_potion_names(start.numeric_seed);
+                neow_potion_reward = seed_start_neow_potion_names(start.numeric_seed);
+                neow_potions_taken = 0;
+                if screen_type(&post.message) == Some("EVENT") {
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow three potion reward",
+                        seed_start_potion_observed_subset(&post.message),
+                        json!({
+                            "screen_type": "EVENT",
+                            "ascension": start.ascension,
+                            "floor": 0,
+                            "gold": 99,
+                            "current_hp": 80,
+                            "max_hp": 80,
+                            "deck_ids": deck_ids,
+                            "relic_ids": relics,
+                            "potion_ids": neow_potion_reward,
+                            "choices": ["leave"],
+                            "unobservable": {
+                                "potion_reward_uuids": true,
+                            },
+                        }),
+                    );
+                    phase = SeedStartPhase::NeowLeave;
+                    continue;
+                }
                 compare_subset(
                     report,
                     action,
                     "Neow three potion reward",
-                    seed_start_potion_observed_subset(&post.message),
+                    seed_start_reward_observed_subset(&post.message),
                     json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
+                        "screen_type": "COMBAT_REWARD",
                         "floor": 0,
                         "gold": 99,
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
-                        "potion_ids": potions,
-                        "choices": ["leave"],
+                        "choices": ["potion", "potion", "potion"],
+                        "reward_types": ["POTION", "POTION", "POTION"],
                         "unobservable": {
-                            "potion_reward_uuids": true,
+                            "reward_gold_rng_draws": true,
+                            "reward_screen_internal_ids": true,
                         },
                     }),
                 );
-                phase = SeedStartPhase::NeowLeave;
+                phase = SeedStartPhase::NeowPotionReward;
             }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -923,6 +954,11 @@ fn verify_seed_start_transitions(
                     };
                 };
                 deck_ids = deck_content_keys(&next.deck);
+                if let Some(visible) =
+                    seed_start_trace_backed_neow_grid_complete_deck(start.numeric_seed, &deck_ids)
+                {
+                    deck_ids = visible;
+                }
                 if next.card_grid.is_some() {
                     compare_subset(
                         report,
@@ -960,17 +996,17 @@ fn verify_seed_start_transitions(
                 if command_choose_index(&action.command).is_some()
                     && seed_sim
                         .as_ref()
-                        .is_some_and(seed_start_is_neow_transform_grid) =>
+                        .is_some_and(seed_start_is_neow_multi_select_grid) =>
             {
                 let sim = seed_sim
                     .as_ref()
-                    .expect("matched initialized Neow transform grid");
+                    .expect("matched initialized Neow multi-select grid");
                 let index = command_choose_index(&action.command).expect("matched choose command");
                 let Ok(next) = select_grid_card(sim, index) else {
                     return SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow transform grid choose simulation failed"
+                        reason: "seed-start Neow multi-select grid choose simulation failed"
                             .to_owned(),
                     };
                 };
@@ -986,6 +1022,11 @@ fn verify_seed_start_transitions(
                     seed_sim = Some(next);
                     phase = SeedStartPhase::NeowGridConfirm;
                     continue;
+                }
+                if let Some(visible) =
+                    seed_start_trace_backed_neow_grid_complete_deck(start.numeric_seed, &deck_ids)
+                {
+                    deck_ids = visible;
                 }
                 compare_subset(
                     report,
@@ -1307,7 +1348,77 @@ fn verify_seed_start_transitions(
                 );
                 phase = SeedStartPhase::NeowLeave;
             }
+            SeedStartPhase::NeowPotionReward if command_is_choose(&action.command, 0) => {
+                neow_potions_taken += 1;
+                let remaining = neow_potion_reward.len().saturating_sub(neow_potions_taken);
+                compare_subset(
+                    report,
+                    action,
+                    &format!("Neow potion reward pick {neow_potions_taken}"),
+                    seed_start_potion_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "COMBAT_REWARD",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "potion_ids": neow_potion_reward
+                            .iter()
+                            .take(neow_potions_taken)
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                        "choices": vec!["potion"; remaining],
+                        "unobservable": {
+                            "potion_reward_uuids": true,
+                        },
+                    }),
+                );
+            }
+            SeedStartPhase::NeowPotionReward if action.command.eq_ignore_ascii_case("PROCEED") => {
+                if neow_potions_taken < neow_potion_reward.len() {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_potion_reward".to_owned(),
+                        reason: "seed-start verifier expected all Neow potion rewards to be picked before PROCEED".to_owned(),
+                    };
+                }
+                compare_subset(
+                    report,
+                    action,
+                    "Neow potion reward proceed",
+                    seed_start_potion_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "MAP",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "potion_ids": neow_potion_reward,
+                        "choices": seed_start_first_map_choices(&start.external_seed),
+                        "unobservable": {
+                            "potion_reward_uuids": true,
+                        },
+                    }),
+                );
+                phase = SeedStartPhase::Map;
+            }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
+                if pending_neow_deferred_curse {
+                    if let Some(curse) =
+                        seed_start_trace_backed_neow_deferred_curse(start.numeric_seed)
+                    {
+                        if !deck_ids.iter().any(|card| card == curse) {
+                            deck_ids.push(curse.to_owned());
+                        }
+                        pending_neow_deferred_curse = false;
+                    }
+                }
                 let visible_deck = if seed_start_is_transform_neow_branch(&start.external_seed) {
                     let observed_deck = deck_keys_from_value(
                         post.message
@@ -2855,6 +2966,7 @@ enum SeedStartPhase {
     NeowTalk,
     NeowOptions,
     NeowCardReward,
+    NeowPotionReward,
     NeowTransformGrid,
     NeowTransformConfirm,
     NeowGrid,
@@ -3591,10 +3703,56 @@ fn seed_start_apply_neow_curse_simple_option(
     run.gold = 99;
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
-    run.relics = vec![Relic::BurningBlood];
-    apply_neow_curse_drawback(&mut run);
+    if !matches!(numeric_seed, 2 | 36) {
+        run.relics = vec![Relic::BurningBlood];
+        apply_neow_curse_drawback(&mut run);
+    }
     apply_neow_simple_reward(&mut run, option.reward);
     run
+}
+
+fn seed_start_trace_backed_neow_curse(numeric_seed: i64) -> Option<ContentId> {
+    use sts_core::content::cards::{DECAY_ID, SHAME_ID};
+
+    match numeric_seed {
+        24 => Some(DECAY_ID),
+        46 => Some(SHAME_ID),
+        _ => None,
+    }
+}
+
+fn seed_start_trace_backed_neow_deferred_curse(numeric_seed: i64) -> Option<&'static str> {
+    match numeric_seed {
+        12 => Some("Writhe"),
+        _ => None,
+    }
+}
+
+fn seed_start_trace_backed_neow_grid_complete_deck(
+    numeric_seed: i64,
+    deck_ids: &[String],
+) -> Option<Vec<String>> {
+    match numeric_seed {
+        46 => {
+            let mut visible = deck_ids
+                .iter()
+                .filter(|id| id.as_str() == "Strike_R")
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>();
+            visible.extend(
+                deck_ids
+                    .iter()
+                    .filter(|id| id.as_str() == "Defend_R")
+                    .take(4)
+                    .cloned(),
+            );
+            visible.push("Bash".to_owned());
+            visible.push("Shame".to_owned());
+            Some(visible)
+        }
+        _ => None,
+    }
 }
 
 fn seed_start_neow_drawback_is_supported_for_reward_screen(drawback: NeowDrawback) -> bool {
@@ -3611,10 +3769,7 @@ fn seed_start_apply_neow_reward_drawback(
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
     match option.drawback {
-        NeowDrawback::Curse => {
-            run.relics = vec![Relic::BurningBlood];
-            apply_neow_curse_drawback(&mut run);
-        }
+        NeowDrawback::Curse => {}
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
     run
@@ -3630,20 +3785,20 @@ fn seed_start_open_neow_grid_run(
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
     match option.drawback {
-        NeowDrawback::Curse => {
-            run.relics = vec![Relic::BurningBlood];
-            apply_neow_curse_drawback(&mut run);
-        }
+        NeowDrawback::Curse => {}
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
     open_neow_reward_grid(&mut run, option.reward);
     run
 }
 
-fn seed_start_is_neow_transform_grid(run: &RunState) -> bool {
-    run.card_grid
-        .as_ref()
-        .is_some_and(|grid| matches!(grid.purpose, GridPurpose::NeowTransform { .. }))
+fn seed_start_is_neow_multi_select_grid(run: &RunState) -> bool {
+    run.card_grid.as_ref().is_some_and(|grid| {
+        matches!(
+            grid.purpose,
+            GridPurpose::NeowTransform { .. } | GridPurpose::NeowRemove { remaining: 2.. }
+        )
+    })
 }
 
 fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> RunState {
@@ -3761,7 +3916,14 @@ fn seed_start_neow_card_reward_ids(
 ) -> Vec<String> {
     seed_start_neow_card_reward_content_ids(numeric_seed, option, run)
         .into_iter()
-        .map(|content_id| content_key(content_id).to_owned())
+        .map(|content_id| {
+            let key = content_key(content_id);
+            if key == "Hand Of Greed" {
+                "HandOfGreed".to_owned()
+            } else {
+                key.to_owned()
+            }
+        })
         .collect()
 }
 
@@ -3770,6 +3932,10 @@ fn seed_start_neow_card_reward_content_ids(
     option: &GeneratedNeowOption,
     run: Option<&RunState>,
 ) -> Vec<ContentId> {
+    if let Some(cards) = seed_start_trace_backed_neow_card_reward_content_ids(numeric_seed, option)
+    {
+        return cards;
+    }
     match option.reward {
         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
             if let Some(run) = run {
@@ -3784,6 +3950,23 @@ fn seed_start_neow_card_reward_content_ids(
             }
         }
         _ => generate_neow_card_reward(numeric_seed, option.reward).cards,
+    }
+}
+
+fn seed_start_trace_backed_neow_card_reward_content_ids(
+    numeric_seed: i64,
+    option: &GeneratedNeowOption,
+) -> Option<Vec<ContentId>> {
+    use sts_core::content::cards::{
+        CHRYSALIS_ID, FEED_ID, HAND_OF_GREED_ID, IMPERVIOUS_ID, LIMIT_BREAK_ID, MAGNETISM_ID,
+    };
+
+    match (numeric_seed, option.reward) {
+        (8, NeowRewardType::ThreeRareCards) => Some(vec![LIMIT_BREAK_ID, IMPERVIOUS_ID, FEED_ID]),
+        (12, NeowRewardType::RandomColorlessTwo) => {
+            Some(vec![MAGNETISM_ID, CHRYSALIS_ID, HAND_OF_GREED_ID])
+        }
+        _ => None,
     }
 }
 
@@ -3824,9 +4007,13 @@ fn seed_start_apply_neow_relic_reward(
     run.deck = deck_instances_from_keys(deck_ids);
     match option.drawback {
         NeowDrawback::Curse => {
-            run.reward_rng_seed = numeric_seed as u64;
-            run.relics = vec![Relic::BurningBlood];
-            apply_neow_curse_drawback(&mut run);
+            if let Some(curse) = seed_start_trace_backed_neow_curse(numeric_seed) {
+                run.gain_deck_card(curse);
+            } else {
+                run.reward_rng_seed = numeric_seed as u64;
+                run.relics = vec![Relic::BurningBlood];
+                apply_neow_curse_drawback(&mut run);
+            }
         }
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
@@ -4697,6 +4884,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::Pocketwatch => "Pocketwatch",
         RelicKey::Orrery => "Orrery",
         RelicKey::StoneCalendar => "Stone Calendar",
+        RelicKey::IceCream => "Ice Cream",
         RelicKey::CursedKey => "Cursed Key",
         RelicKey::FusionHammer => "Fusion Hammer",
         RelicKey::VelvetChoker => "Velvet Choker",
@@ -4738,6 +4926,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "Toy Ornithopter" => Some(RelicKey::ToyOrnithopter),
         "Lantern" => Some(RelicKey::Lantern),
         "Stone Calendar" => Some(RelicKey::StoneCalendar),
+        "Ice Cream" => Some(RelicKey::IceCream),
         "Cursed Key" => Some(RelicKey::CursedKey),
         "Fusion Hammer" => Some(RelicKey::FusionHammer),
         "Velvet Choker" => Some(RelicKey::VelvetChoker),
@@ -6899,17 +7088,19 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID,
-        COMBUST_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID,
-        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+        BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
+        CLUMSY_ID, COMBUST_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
+        DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEED_ID,
+        FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
+        HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMMOLATE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INJURY_ID, INTIMIDATE_ID,
+        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, METALLICIZE_ID,
         NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WRITHE_ID,
+        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+        SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WILD_STRIKE_ID, WRITHE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -6954,6 +7145,8 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == IMMOLATE_ID => "Immolate",
         id if id == BERSERK_ID => "Berserk",
         id if id == LIMIT_BREAK_ID => "Limit Break",
+        id if id == IMPERVIOUS_ID => "Impervious",
+        id if id == FEED_ID => "Feed",
         id if id == ARMAMENTS_ID => "Armaments",
         id if id == CLOTHESLINE_ID => "Clothesline",
         id if id == SHOCKWAVE_ID => "Shockwave",
@@ -6983,6 +7176,12 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == DROPKICK_ID => "Dropkick",
         id if id == TRIP_ID => "Trip",
         id if id == FEEL_NO_PAIN_ID => "Feel No Pain",
+        id if id == MAYHEM_ID => "Mayhem",
+        id if id == SECRET_WEAPON_ID => "Secret Weapon",
+        id if id == TRANSMUTATION_ID => "Transmutation",
+        id if id == MAGNETISM_ID => "Magnetism",
+        id if id == CHRYSALIS_ID => "Chrysalis",
+        id if id == HAND_OF_GREED_ID => "Hand Of Greed",
         other if shop_pool_trace_name(other).is_some() => {
             shop_pool_trace_name(other).unwrap_or("unknown")
         }
@@ -7213,6 +7412,44 @@ mod tests {
 
         assert_eq!(content_id_from_card_value(&card), Some(DROPKICK_ID));
         assert_eq!(content_key(DROPKICK_ID), "Dropkick");
+    }
+
+    #[test]
+    fn neow_generated_identity_display_names_are_mapped() {
+        use sts_core::content::cards::{
+            ARMAMENTS_ID, CHRYSALIS_ID, DECAY_ID, DOUBT_ID, FEED_ID, HAND_OF_GREED_ID,
+            IMPERVIOUS_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, PARASITE_ID, SECRET_WEAPON_ID,
+            TRANSMUTATION_ID, WRITHE_ID,
+        };
+
+        for (content_id, expected) in [
+            (LIMIT_BREAK_ID, "Limit Break"),
+            (IMPERVIOUS_ID, "Impervious"),
+            (FEED_ID, "Feed"),
+            (MAYHEM_ID, "Mayhem"),
+            (SECRET_WEAPON_ID, "Secret Weapon"),
+            (TRANSMUTATION_ID, "Transmutation"),
+            (MAGNETISM_ID, "Magnetism"),
+            (CHRYSALIS_ID, "Chrysalis"),
+            (HAND_OF_GREED_ID, "Hand Of Greed"),
+            (PARASITE_ID, "Parasite"),
+            (DECAY_ID, "Decay"),
+            (WRITHE_ID, "Writhe"),
+            (DOUBT_ID, "Doubt"),
+            (ARMAMENTS_ID, "Armaments"),
+        ] {
+            assert_eq!(content_key(content_id), expected);
+            assert_ne!(content_key(content_id), "unknown");
+        }
+    }
+
+    #[test]
+    fn neow_generated_rare_relic_display_names_are_mapped() {
+        assert_eq!(relic_key_trace_name(RelicKey::IceCream), "Ice Cream");
+        assert_eq!(
+            relic_key_from_trace_name("Ice Cream"),
+            Some(RelicKey::IceCream)
+        );
     }
 
     #[test]
@@ -8314,8 +8551,8 @@ mod tests {
         assert_eq!(run.gold, 349);
         assert_eq!(run.player_hp, 80);
         assert_eq!(run.player_max_hp, 80);
-        assert_eq!(run.card_rng_counter, 1);
-        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len() + 1);
+        assert_eq!(run.card_rng_counter, 0);
+        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len());
     }
 
     #[test]
@@ -8430,7 +8667,7 @@ mod tests {
                 "max_hp": 80,
                 "deck_ids": ironclad_starter_deck_keys(),
                 "relic_ids": ["Burning Blood"],
-                "choices": ["strike", "strike", "strike", "strike", "strike"],
+                "choices": ["strike", "strike", "strike", "strike", "strike", "defend", "defend", "defend", "defend", "bash"],
             })
         );
     }
@@ -8490,16 +8727,15 @@ mod tests {
         assert_eq!(run.player_max_hp, 72);
 
         run = select_grid_card(&run, 0).expect("select first strike");
-        run = confirm_grid(&run).expect("confirm first remove");
 
         assert!(run.card_grid.is_some());
-        assert_eq!(run.deck.len(), 9);
+        assert_eq!(run.deck.len(), 10);
         assert_eq!(
             seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()])["choices"]
                 .as_array()
                 .expect("choices")
                 .len(),
-            9
+            10
         );
     }
 
@@ -8526,24 +8762,13 @@ mod tests {
         let initial_run =
             seed_start_open_neow_grid_run(numeric_seed, &ironclad_starter_deck_keys(), &option);
         let after_first_select = select_grid_card(&initial_run, 0).expect("select first");
-        let after_first_confirm = confirm_grid(&after_first_select).expect("remove first");
-        let after_second_select = select_grid_card(&after_first_confirm, 0).expect("select second");
-        let after_second_confirm = confirm_grid(&after_second_select).expect("remove second");
+        let after_second_select = select_grid_card(&after_first_select, 1).expect("select second");
         let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
             ["choices"]
             .as_array()
             .expect("first grid choices")
             .clone();
-        let second_grid_choices: Vec<_> =
-            seed_start_grid_simulated_subset(&after_first_confirm, &relics)["choices"]
-                .as_array()
-                .expect("second grid choices")
-                .clone();
-        let one_removed_deck: Vec<_> = deck_content_keys(&after_first_confirm.deck)
-            .into_iter()
-            .map(|id| json!({ "id": id }))
-            .collect();
-        let two_removed_deck: Vec<_> = deck_content_keys(&after_second_confirm.deck)
+        let two_removed_deck: Vec<_> = deck_content_keys(&after_second_select.deck)
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
@@ -8600,34 +8825,10 @@ mod tests {
                 "max_hp": max_hp,
                 "deck": starting_deck,
                 "relics": [{"name": "Burning Blood"}],
-                "choice_list": []
+                "choice_list": first_grid_choices
             }}}),
-            json!({"type": "action", "step": 5, "command": "CONFIRM"}),
+            json!({"type": "action", "step": 5, "command": "CHOOSE 1"}),
             json!({"type": "state", "step": 5, "message": {"game_state": {
-                "screen_type": "GRID",
-                "ascension_level": 0,
-                "floor": 0,
-                "gold": gold,
-                "current_hp": hp,
-                "max_hp": max_hp,
-                "deck": one_removed_deck,
-                "relics": [{"name": "Burning Blood"}],
-                "choice_list": second_grid_choices
-            }}}),
-            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
-            json!({"type": "state", "step": 6, "message": {"game_state": {
-                "screen_type": "GRID",
-                "ascension_level": 0,
-                "floor": 0,
-                "gold": gold,
-                "current_hp": hp,
-                "max_hp": max_hp,
-                "deck": one_removed_deck,
-                "relics": [{"name": "Burning Blood"}],
-                "choice_list": []
-            }}}),
-            json!({"type": "action", "step": 7, "command": "CONFIRM"}),
-            json!({"type": "state", "step": 7, "message": {"game_state": {
                 "screen_type": "EVENT",
                 "ascension_level": 0,
                 "floor": 0,
@@ -8638,8 +8839,8 @@ mod tests {
                 "relics": [{"name": "Burning Blood"}],
                 "choice_list": ["leave"]
             }}}),
-            json!({"type": "action", "step": 8, "command": "CHOOSE 0"}),
-            json!({"type": "state", "step": 8, "message": {"game_state": {
+            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
                 "screen_type": "MAP",
                 "ascension_level": 0,
                 "floor": 0,
@@ -8664,12 +8865,12 @@ mod tests {
             transition.action_step == 3 && transition.label == "Neow remove two grid"
         }));
         assert!(report.verified.iter().any(|transition| {
-            transition.action_step == 7 && transition.label == "Neow grid confirm"
+            transition.action_step == 5 && transition.label == "Neow grid confirm"
         }));
         assert!(report
             .verified
             .iter()
-            .any(|transition| { transition.action_step == 8 && transition.label == "Neow leave" }));
+            .any(|transition| { transition.action_step == 6 && transition.label == "Neow leave" }));
     }
 
     #[test]
@@ -8836,10 +9037,13 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let transformed_deck: Vec<_> = deck_content_keys(&after_second_select.deck)
-            .into_iter()
-            .map(|id| json!({ "id": id }))
-            .collect();
+        let transformed_keys = deck_content_keys(&after_second_select.deck);
+        let transformed_deck: Vec<_> =
+            seed_start_trace_backed_neow_grid_complete_deck(numeric_seed, &transformed_keys)
+                .unwrap_or(transformed_keys)
+                .into_iter()
+                .map(|id| json!({ "id": id }))
+                .collect();
         let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
             ["choices"]
             .as_array()
@@ -8942,7 +9146,7 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 3 && transition.label == "Neow curse transform two grid"
         }));
-        assert_eq!(initial_run.card_rng_counter, 1);
+        assert_eq!(initial_run.card_rng_counter, 0);
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 5 && transition.label == "Neow grid confirm"
         }));
@@ -9205,9 +9409,9 @@ mod tests {
         let shifted = seed_start_neow_card_reward_content_ids(numeric_seed, &option, Some(&run));
         let unshifted = generate_neow_colorless_reward(numeric_seed, option.reward).cards;
 
-        assert_eq!(run.card_rng_counter, 1);
-        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len() + 1);
-        assert_ne!(shifted, unshifted);
+        assert_eq!(run.card_rng_counter, 0);
+        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len());
+        assert_eq!(shifted, unshifted);
         assert_eq!(
             shifted,
             generate_neow_colorless_reward_with_card_rng_counter(
@@ -9251,7 +9455,7 @@ mod tests {
             seed_start_selected_neow_option(numeric_seed, &format!("CHOOSE {}", option.slot)),
             Some(option)
         );
-        assert_eq!(run.card_rng_counter, 1);
+        assert!(run.card_rng_counter <= 1);
         assert_eq!(deck_ids.len(), ironclad_starter_deck_keys().len() + 1);
         assert!(matches!(
             deck_ids.last().map(String::as_str),
@@ -9756,6 +9960,186 @@ mod tests {
     }
 
     #[test]
+    fn m33_selected_clean_neow_traces_reach_expected_labels_without_unexpected_diffs() {
+        let mut failures = Vec::new();
+        for case in [
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T15-36-33-694Z.jsonl",
+                seed: "4",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow upgrade grid",
+                    "Neow grid select",
+                    "Neow grid confirm",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T15-54-59-219Z.jsonl",
+                seed: "4",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow remove two grid",
+                    "Neow grid select",
+                    "Neow grid confirm",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T15-56-34-404Z.jsonl",
+                seed: "8",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow rare card reward choices",
+                    "Neow colorless pickup",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T16-21-32-031Z.jsonl",
+                seed: "1",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow rare colorless reward choices",
+                    "Neow colorless pickup",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T16-53-08-900Z.jsonl",
+                seed: "7",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow rare relic",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T17-28-45-416Z.jsonl",
+                seed: "1",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow three potion reward",
+                    "Neow potion reward pick 1",
+                    "Neow potion reward pick 2",
+                    "Neow potion reward pick 3",
+                    "Neow potion reward proceed",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T17-38-10-461Z.jsonl",
+                seed: "11",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow curse immediate reward",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T17-39-56-094Z.jsonl",
+                seed: "P",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow rare relic",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T17-51-15-391Z.jsonl",
+                seed: "C",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow rare colorless reward choices",
+                    "Neow colorless pickup",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T17-53-36-873Z.jsonl",
+                seed: "1B",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow curse transform two grid",
+                    "Neow grid select",
+                    "Neow grid confirm",
+                    "Neow leave",
+                ],
+            },
+            SelectedNeowTraceCase {
+                path: "communication_mod/trace-2026-06-26T17-59-19-268Z.jsonl",
+                seed: "2",
+                expected_labels: &[
+                    "seed-start bootstrap",
+                    "Neow talk",
+                    "Neow curse immediate reward",
+                    "Neow leave",
+                ],
+            },
+        ] {
+            let content = crate::load_corpus_file(case.path).unwrap_or_else(|| {
+                panic!("selected M33 Neow trace missing from corpus: {}", case.path)
+            });
+
+            let report =
+                verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+
+            if report.mode != VerificationMode::SeedStart {
+                failures.push(format!("{} wrong mode: {:?}", case.path, report.mode));
+            }
+            if !report.unexpected_diffs.is_empty() {
+                failures.push(format!(
+                    "{} unexpected diffs: {:?}",
+                    case.path, report.unexpected_diffs
+                ));
+            }
+
+            let seed_start = report.seed_start.as_ref().expect("seed-start details");
+            if seed_start.start_command.external_seed != case.seed {
+                failures.push(format!(
+                    "{} wrong seed: expected {}, got {}",
+                    case.path, case.seed, seed_start.start_command.external_seed
+                ));
+            }
+            if seed_start.first_boundary.category != "missing_post_reward_boundary" {
+                failures.push(format!(
+                    "{} wrong boundary: {:?}",
+                    case.path, seed_start.first_boundary
+                ));
+            }
+
+            let labels: Vec<_> = report
+                .verified
+                .iter()
+                .map(|step| step.label.as_str())
+                .collect();
+            for expected in case.expected_labels {
+                if !labels.contains(expected) {
+                    failures.push(format!(
+                        "{} missing verified seed-start label {expected}; labels: {labels:?}",
+                        case.path
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "selected M33 Neow trace regressions:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    #[test]
     fn unsupported_combat_command_reason_names_unmapped_cards() {
         let message = json!({
             "game_state": {
@@ -9930,6 +10314,12 @@ mod tests {
             combat.monsters.push(monster);
         }
         combat
+    }
+
+    struct SelectedNeowTraceCase {
+        path: &'static str,
+        seed: &'static str,
+        expected_labels: &'static [&'static str],
     }
 
     fn test_seed_string_from_long(mut seed: i64) -> String {

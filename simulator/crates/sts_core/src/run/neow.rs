@@ -471,7 +471,7 @@ fn reward_label(reward: NeowRewardType, player_max_hp: i32) -> String {
         }
         NeowRewardType::ThreeEnemyKill => "enemies in your next three combats have 1 hp".to_owned(),
         NeowRewardType::HundredGold => "obtain 100 gold".to_owned(),
-        NeowRewardType::TwoFiftyGold => "obtain 250 gold".to_owned(),
+        NeowRewardType::TwoFiftyGold => "gain 250 gold".to_owned(),
         NeowRewardType::BossRelic => {
             "lose your starting relic obtain a random boss relic".to_owned()
         }

@@ -81,18 +81,16 @@ pub fn open_neow_remove_grid(run: &mut RunState, count: u8) {
 }
 
 pub fn open_neow_upgrade_grid(run: &mut RunState) {
-    let cards = run
+    if run
         .deck
         .iter()
-        .copied()
-        .filter(|card| upgrade_content_id(card.content_id).is_some())
-        .collect::<Vec<_>>();
-    if cards.is_empty() {
+        .all(|card| upgrade_content_id(card.content_id).is_none())
+    {
         return;
     }
 
     run.card_grid = Some(CardGridScreen {
-        cards,
+        cards: run.deck.clone(),
         purpose: GridPurpose::NeowUpgrade,
         selected: None,
         selected_indices: Vec::new(),
@@ -350,6 +348,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
 fn grid_multi_select_count(purpose: GridPurpose) -> Option<usize> {
     match purpose {
         GridPurpose::Astrolabe => Some(ASTROLABE_TRANSFORM_COUNT),
+        GridPurpose::NeowRemove { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowTransform { count } => Some(usize::from(count)),
         _ => None,
     }
@@ -363,6 +362,9 @@ fn confirm_multi_select_grid(run: &mut RunState) -> SimResult<()> {
         .purpose;
     match purpose {
         GridPurpose::Astrolabe => confirm_astrolabe_grid(run),
+        GridPurpose::NeowRemove { remaining } if remaining > 1 => {
+            confirm_multi_remove_grid(run, purpose)
+        }
         GridPurpose::NeowTransform { count } => confirm_neow_transform_grid(run, count),
         _ => Err(SimError::IllegalAction("grid is not multi-select")),
     }
@@ -414,6 +416,41 @@ fn remove_grid_card(run: &mut RunState, card: CardInstance, purpose: GridPurpose
     } else {
         run.card_grid = None;
     }
+}
+
+fn confirm_multi_remove_grid(run: &mut RunState, purpose: GridPurpose) -> SimResult<()> {
+    let grid = run
+        .card_grid
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no card grid is open"))?;
+    let required = match purpose {
+        GridPurpose::EmptyCage { remaining } | GridPurpose::NeowRemove { remaining } => {
+            usize::from(remaining)
+        }
+        _ => unreachable!("remove grid purpose required"),
+    };
+    if grid.selected_indices.len() < required {
+        return Err(SimError::IllegalAction(
+            "remove grid requires more selected cards",
+        ));
+    }
+    let cards = grid
+        .selected_indices
+        .iter()
+        .take(required)
+        .map(|index| {
+            grid.cards
+                .get(*index)
+                .copied()
+                .ok_or(SimError::IllegalAction("grid index out of range"))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+
+    for card in cards {
+        run.deck.retain(|deck_card| deck_card.id != card.id);
+    }
+    run.card_grid = None;
+    Ok(())
 }
 
 fn confirm_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
@@ -527,7 +564,7 @@ fn transform_card_content_id(source: crate::ContentId, rng: &mut StsRng) -> crat
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{ANGER_ID, FEEL_NO_PAIN_ID, STRIKE_R_PLUS_ID},
+        content::cards::{ANGER_ID, FEEL_NO_PAIN_ID, STRIKE_R_PLUS_ID, WOUND_ID},
         run::neow::generate_neow_transform_reward,
         RunState,
     };
@@ -677,25 +714,38 @@ mod tests {
     fn neow_remove_grid_can_remove_two_cards() {
         let mut run = RunState::map_fixture();
         let first_removed = run.deck[0];
+        let second_removed = run.deck[1];
+        let original_deck = run.deck.clone();
         open_neow_remove_grid(&mut run, 2);
 
-        let after_first =
-            confirm_grid(&select_grid_card(&run, 0).expect("select first")).expect("confirm first");
+        let after_first = select_grid_card(&run, 0).expect("select first");
+
+        assert_eq!(after_first.deck, original_deck);
         assert_eq!(
             after_first.card_grid.as_ref().expect("second grid").purpose,
-            GridPurpose::NeowRemove { remaining: 1 }
+            GridPurpose::NeowRemove { remaining: 2 }
         );
-        assert!(!after_first
-            .deck
-            .iter()
-            .any(|card| card.id == first_removed.id));
+        assert_eq!(
+            after_first.card_grid.as_ref().expect("second grid").cards,
+            original_deck
+        );
+        assert_eq!(
+            after_first
+                .card_grid
+                .as_ref()
+                .expect("second grid")
+                .selected_indices,
+            vec![0]
+        );
 
-        let second_removed = after_first.deck[0];
-        let after_second = confirm_grid(&select_grid_card(&after_first, 0).expect("select second"))
-            .expect("confirm second");
+        let after_second = select_grid_card(&after_first, 1).expect("select second");
 
         assert!(after_second.card_grid.is_none());
         assert_eq!(after_second.deck.len(), run.deck.len() - 2);
+        assert!(!after_second
+            .deck
+            .iter()
+            .any(|card| card.id == first_removed.id));
         assert!(!after_second
             .deck
             .iter()
@@ -726,6 +776,22 @@ mod tests {
                 && card.content_id != selected_card.content_id
                 && upgrade_content_id(selected_card.content_id) == Some(card.content_id)
         }));
+    }
+
+    #[test]
+    fn neow_upgrade_grid_displays_full_deck_even_with_unupgradable_cards() {
+        let mut run = RunState::map_fixture();
+        run.gain_deck_card(WOUND_ID);
+        let full_deck = run.deck.clone();
+
+        open_neow_upgrade_grid(&mut run);
+
+        let grid = run.card_grid.as_ref().expect("upgrade grid");
+        assert_eq!(grid.cards, full_deck);
+        assert!(grid
+            .cards
+            .iter()
+            .any(|card| upgrade_content_id(card.content_id).is_none()));
     }
 
     #[test]
