@@ -320,6 +320,81 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
     },
 ];
 
+const IRONCLAD_TRANSFORM_POOL: &[ContentId] = &[
+    ANGER_ID,
+    CLEAVE_ID,
+    WARCRY_ID,
+    FLEX_ID,
+    IRON_WAVE_ID,
+    BODY_SLAM_ID,
+    TRUE_GRIT_ID,
+    SHRUG_IT_OFF_ID,
+    CLASH_ID,
+    THUNDERCLAP_ID,
+    POMMEL_STRIKE_ID,
+    TWIN_STRIKE_ID,
+    CLOTHESLINE_ID,
+    ARMAMENTS_ID,
+    HAVOC_ID,
+    HEADBUTT_ID,
+    WILD_STRIKE_ID,
+    HEAVY_BLADE_ID,
+    PERFECTED_STRIKE_ID,
+    SWORD_BOOMERANG_ID,
+    SPOT_WEAKNESS_ID,
+    INFLAME_ID,
+    POWER_THROUGH_ID,
+    DUAL_WIELD_ID,
+    INFERNAL_BLADE_ID,
+    RECKLESS_CHARGE_ID,
+    HEMOKINESIS_ID,
+    INTIMIDATE_ID,
+    BLOOD_FOR_BLOOD_ID,
+    FLAME_BARRIER_ID,
+    PUMMEL_ID,
+    SENTINEL_ID,
+    BURNING_PACT_ID,
+    METALLICIZE_ID,
+    SHOCKWAVE_ID,
+    RAMPAGE_ID,
+    WHIRLWIND_ID,
+    COMBUST_ID,
+    DARK_EMBRACE_ID,
+    SEEING_RED_ID,
+    SEVER_SOUL_ID,
+    DISARM_ID,
+    FEEL_NO_PAIN_ID,
+    RAGE_ID,
+    ENTRENCH_ID,
+    BATTLE_TRANCE_ID,
+    SEARING_BLOW_ID,
+    SECOND_WIND_ID,
+    RUPTURE_ID,
+    BLOODLETTING_ID,
+    CARNAGE_ID,
+    DROPKICK_ID,
+    FIRE_BREATHING_ID,
+    GHOSTLY_ARMOR_ID,
+    UPPERCUT_ID,
+    EVOLVE_ID,
+    DOUBLE_TAP_ID,
+    DEMON_FORM_ID,
+    BLUDGEON_ID,
+    FEED_ID,
+    LIMIT_BREAK_ID,
+    CORRUPTION_ID,
+    BARRICADE_ID,
+    FIEND_FIRE_ID,
+    BERSERK_ID,
+    IMPERVIOUS_ID,
+    JUGGERNAUT_ID,
+    BRUTALITY_ID,
+    REAPER_ID,
+    EXHUME_ID,
+    OFFERING_ID,
+    IMMOLATE_ID,
+];
+
 #[must_use]
 pub fn ironclad_reward_content_ids() -> Vec<ContentId> {
     IRONCLAD_REWARD_ENTRIES
@@ -329,12 +404,18 @@ pub fn ironclad_reward_content_ids() -> Vec<ContentId> {
 }
 
 pub fn ironclad_transform_card_content_id(source: ContentId, rng: &mut StsRng) -> ContentId {
-    let pool = ironclad_reward_content_ids()
-        .into_iter()
-        .filter(|content_id| *content_id != source)
-        .collect::<Vec<_>>();
+    let pool = ironclad_transform_card_pool(source);
     let pick = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[pick]
+}
+
+#[must_use]
+pub fn ironclad_transform_card_pool(source: ContentId) -> Vec<ContentId> {
+    IRONCLAD_TRANSFORM_POOL
+        .iter()
+        .copied()
+        .filter(|content_id| *content_id != source)
+        .collect()
 }
 
 #[must_use]
@@ -361,6 +442,7 @@ pub fn ironclad_truly_random_card_pool() -> Vec<ContentId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::cards::STRIKE_R_ID;
 
     #[test]
     fn ironclad_reward_pool_has_unique_modeled_cards() {
@@ -409,5 +491,29 @@ mod tests {
         assert!(pool[..first_rare]
             .iter()
             .all(|id| ironclad_reward_card_rarity(*id) != Some(CardRarity::Rare)));
+    }
+
+    #[test]
+    fn transform_pool_uses_source_pool_order_and_excludes_source() {
+        let pool = ironclad_transform_card_pool(ANGER_ID);
+
+        assert_eq!(pool.len(), IRONCLAD_REWARD_ENTRIES.len() - 1);
+        assert!(!pool.contains(&ANGER_ID));
+        assert_eq!(pool.first(), Some(&CLEAVE_ID));
+        assert!(pool
+            .iter()
+            .take_while(|id| ironclad_reward_card_rarity(**id) == Some(CardRarity::Common))
+            .all(|id| ironclad_reward_card_rarity(*id) == Some(CardRarity::Common)));
+    }
+
+    #[test]
+    fn transform_pool_positions_match_captured_neow_draws() {
+        let pool = ironclad_transform_card_pool(STRIKE_R_ID);
+        let unique: std::collections::BTreeSet<_> = pool.iter().copied().collect();
+
+        assert_eq!(pool.len(), 72);
+        assert_eq!(unique.len(), pool.len());
+        assert_eq!(pool[31], SENTINEL_ID);
+        assert_eq!(pool[40], SEVER_SOUL_ID);
     }
 }
