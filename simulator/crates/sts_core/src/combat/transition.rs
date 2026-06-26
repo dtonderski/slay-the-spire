@@ -1190,6 +1190,8 @@ fn draw_select_allows_card(
     match draw_select.purpose {
         DrawSelectPurpose::SecretTechniqueSkillToHand => get_card_definition(card.content_id)
             .is_some_and(|definition| definition.card_type == CardType::Skill),
+        DrawSelectPurpose::SecretWeaponAttackToHand => get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Attack),
     }
 }
 
@@ -1204,6 +1206,9 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<()> {
     match draw_select.purpose {
         DrawSelectPurpose::SecretTechniqueSkillToHand => {
             confirm_secret_technique_select(state, draw_select.source_card_id, index)
+        }
+        DrawSelectPurpose::SecretWeaponAttackToHand => {
+            confirm_secret_weapon_select(state, draw_select.source_card_id, index)
         }
     }
 }
@@ -1223,6 +1228,29 @@ fn confirm_secret_technique_select(
         .is_some_and(|definition| definition.card_type == CardType::Skill)
     {
         return Err(SimError::IllegalAction("Secret Technique requires a Skill"));
+    }
+    state.piles.draw_pile.remove(index);
+    state.piles.hand.push(card);
+    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+    apply_on_exhaust_effects(state, source_card_id);
+    Ok(())
+}
+
+fn confirm_secret_weapon_select(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    index: usize,
+) -> SimResult<()> {
+    let card = state
+        .piles
+        .draw_pile
+        .get(index)
+        .copied()
+        .ok_or(SimError::IllegalAction("draw select index out of range"))?;
+    if !get_card_definition(card.content_id)
+        .is_some_and(|definition| definition.card_type == CardType::Attack)
+    {
+        return Err(SimError::IllegalAction("Secret Weapon requires an Attack"));
     }
     state.piles.draw_pile.remove(index);
     state.piles.hand.push(card);
@@ -1659,11 +1687,12 @@ mod tests {
         OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
         RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SECRET_TECHNIQUE_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THINKING_AHEAD_ID,
-        TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -3124,6 +3153,77 @@ mod tests {
         assert_eq!(next.piles.draw_pile.len(), 2);
         assert!(next.piles.hand.is_empty());
         assert_eq!(next.piles.exhaust_pile[0].content_id, SECRET_TECHNIQUE_ID);
+    }
+
+    #[test]
+    fn secret_weapon_opens_draw_select_for_draw_pile_attacks() {
+        let mut state = hand_only(SECRET_WEAPON_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+
+        let after_play = apply_combat_action(&state, secret_weapon_action(&state))
+            .expect("Secret Weapon opens draw select");
+
+        assert_eq!(after_play.player.energy, state.player.energy);
+        assert_eq!(
+            after_play.draw_select.as_ref().map(|select| select.purpose),
+            Some(DrawSelectPurpose::SecretWeaponAttackToHand)
+        );
+        assert_eq!(draw_select_ui_to_draw_index(&after_play, 0), Ok(1));
+        assert_eq!(draw_select_ui_to_draw_index(&after_play, 1), Ok(2));
+        assert_eq!(
+            draw_select_ui_to_draw_index(&after_play, 2),
+            Err(SimError::IllegalAction("draw select index out of range"))
+        );
+        assert_eq!(after_play.piles.hand[0].content_id, SECRET_WEAPON_ID);
+    }
+
+    #[test]
+    fn secret_weapon_confirm_moves_selected_attack_to_hand_and_exhausts() {
+        let mut state = hand_only(SECRET_WEAPON_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+
+        let mut after_play = apply_combat_action(&state, secret_weapon_action(&state))
+            .expect("Secret Weapon opens draw select");
+        choose_draw_select(&mut after_play, 1).expect("choose Bash");
+        confirm_draw_select(&mut after_play).expect("confirm Secret Weapon select");
+
+        assert!(after_play.draw_select.is_none());
+        assert_eq!(after_play.piles.hand.len(), 1);
+        assert_eq!(after_play.piles.hand[0].content_id, BASH_ID);
+        assert_eq!(
+            after_play
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, STRIKE_R_ID]
+        );
+        assert_eq!(
+            after_play.piles.exhaust_pile[0].content_id,
+            SECRET_WEAPON_ID
+        );
+    }
+
+    #[test]
+    fn secret_weapon_without_draw_pile_attacks_is_illegal() {
+        let mut state = hand_only(SECRET_WEAPON_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
+
+        assert_eq!(
+            apply_combat_action(&state, secret_weapon_action(&state)),
+            Err(SimError::IllegalAction(
+                "Secret Weapon requires an attack in draw pile"
+            ))
+        );
     }
 
     #[test]
@@ -12373,6 +12473,13 @@ mod tests {
     fn secret_technique_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SECRET_TECHNIQUE_ID),
+            target: None,
+        }
+    }
+
+    fn secret_weapon_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, SECRET_WEAPON_ID),
             target: None,
         }
     }

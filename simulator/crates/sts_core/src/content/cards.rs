@@ -75,6 +75,7 @@ pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
 pub const MAYHEM_ID: ContentId = ContentId::new(2_267_196_899);
 pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_713);
+pub const SECRET_WEAPON_ID: ContentId = ContentId::new(11_846_108_130_828_291_299);
 pub const VIOLENCE_ID: ContentId = ContentId::new(2_433_206_606_067);
 pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
 pub const THINKING_AHEAD_ID: ContentId = ContentId::new(6_777_582_279_578_789_034);
@@ -1510,6 +1511,27 @@ pub const SECRET_TECHNIQUE: CardDefinition = CardDefinition {
     },
 };
 
+pub const SECRET_WEAPON: CardDefinition = CardDefinition {
+    id: SECRET_WEAPON_ID,
+    key: "SECRET_WEAPON",
+    name: "Secret Weapon",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const VIOLENCE: CardDefinition = CardDefinition {
     id: VIOLENCE_ID,
     key: "VIOLENCE",
@@ -2348,7 +2370,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 127] = [
+pub const ALL_CARDS: [CardDefinition; 128] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2433,6 +2455,7 @@ pub const ALL_CARDS: [CardDefinition; 127] = [
     MADNESS,
     MASTER_OF_STRATEGY,
     SECRET_TECHNIQUE,
+    SECRET_WEAPON,
     VIOLENCE,
     THE_BOMB,
     THINKING_AHEAD,
@@ -2593,6 +2616,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SECRET_TECHNIQUE_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == SECRET_WEAPON_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == VIOLENCE_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THE_BOMB_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THINKING_AHEAD_ID => Some((CardType::Skill, CardRarity::Rare)),
