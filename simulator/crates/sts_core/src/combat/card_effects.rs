@@ -18,9 +18,9 @@ use crate::{
         FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMMOLATE_ID, IMPATIENCE_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID,
-        MASTER_OF_STRATEGY_ID, METALLICIZE_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
+        MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID,
+        PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE,
@@ -164,6 +164,7 @@ pub(super) fn play_card_queue(
         TRUE_GRIT_ID => true_grit_queue(state, card_id),
         BURNING_PACT_ID => burning_pact_queue(state, card_id),
         INFERNAL_BLADE_ID => infernal_blade_queue(&mut queued_state, card_id, definition),
+        METAMORPHOSIS_ID => metamorphosis_queue(&mut queued_state, card_id, definition),
         DISCOVERY_ID => discovery_queue(&mut queued_state, card_id, definition),
         JACK_OF_ALL_TRADES_ID => jack_of_all_trades_queue(&mut queued_state, card_id, definition),
         MADNESS_ID => madness_queue(card_id, definition),
@@ -1102,6 +1103,49 @@ fn infernal_blade_generated_attack(state: &mut CombatState) -> ContentId {
     };
     let index = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[index]
+}
+
+fn metamorphosis_queue(
+    state: &mut CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+
+    for generated in metamorphosis_generated_attacks(state) {
+        queue.push_back(InternalAction::AddGeneratedCardToPile {
+            content_id: generated,
+            to: CardPile::Hand,
+            temp_cost: Some(0),
+        });
+    }
+
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+
+    Ok(queue)
+}
+
+fn metamorphosis_generated_attacks(state: &mut CombatState) -> [ContentId; 3] {
+    let pool = infernal_blade_modeled_attack_pool();
+    let mut generated = [pool[0]; 3];
+    let Some(rng) = state.card_random_rng.as_mut() else {
+        return generated;
+    };
+
+    for content_id in &mut generated {
+        let index = rng.random_int((pool.len() - 1) as i32) as usize;
+        *content_id = pool[index];
+    }
+    generated
 }
 
 fn discovery_queue(
