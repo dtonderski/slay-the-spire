@@ -4,7 +4,9 @@
 //! is the seam where Milestone 33 can replace seed-name tables with source-backed
 //! option generation one slice at a time.
 
-use crate::rng::StsRng;
+use crate::{
+    card::CardRarity, content::reward_pool::IRONCLAD_REWARD_ENTRIES, ids::ContentId, rng::StsRng,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KnownNeowBranch {
@@ -71,11 +73,41 @@ pub struct GeneratedNeowOption {
     pub label: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NeowCardReward {
+    pub cards: Vec<ContentId>,
+    pub neow_rng_counter: u32,
+}
+
 pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
     let mut rng = StsRng::new(numeric_seed);
     (0..4)
         .map(|slot| generate_neow_option(slot, player_max_hp, &mut rng))
         .collect()
+}
+
+pub fn generate_neow_rare_card_reward(numeric_seed: i64, reward: NeowRewardType) -> NeowCardReward {
+    let mut rng = StsRng::new(numeric_seed);
+    for slot in 0..4 {
+        generate_neow_option(slot, 80, &mut rng);
+    }
+    generate_neow_rare_card_reward_with_rng(&mut rng, reward)
+}
+
+pub fn generate_neow_rare_card_reward_with_rng(
+    rng: &mut StsRng,
+    reward: NeowRewardType,
+) -> NeowCardReward {
+    let cards = match reward {
+        NeowRewardType::OneRandomRareCard => vec![neow_random_ironclad_card(rng, CardRarity::Rare)],
+        NeowRewardType::ThreeRareCards => neow_unique_ironclad_cards(rng, CardRarity::Rare, 3),
+        other => panic!("Neow reward {other:?} is not a forced-rare card reward"),
+    };
+
+    NeowCardReward {
+        cards,
+        neow_rng_counter: rng.counter(),
+    }
 }
 
 fn generate_neow_option(slot: usize, player_max_hp: i32, rng: &mut StsRng) -> GeneratedNeowOption {
@@ -197,6 +229,31 @@ fn twenty_percent(player_max_hp: i32) -> i32 {
 
 fn percent_damage(player_max_hp: i32) -> i32 {
     player_max_hp * 3 / 10
+}
+
+fn neow_unique_ironclad_cards(
+    rng: &mut StsRng,
+    rarity: CardRarity,
+    count: usize,
+) -> Vec<ContentId> {
+    let mut cards = Vec::new();
+    while cards.len() < count {
+        let candidate = neow_random_ironclad_card(rng, rarity);
+        if !cards.contains(&candidate) {
+            cards.push(candidate);
+        }
+    }
+    cards
+}
+
+fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
+    let pool: Vec<_> = IRONCLAD_REWARD_ENTRIES
+        .iter()
+        .filter(|entry| entry.rarity == rarity)
+        .collect();
+    assert!(!pool.is_empty(), "Neow card reward pool must not be empty");
+    let pick = rng.random_int((pool.len() - 1) as i32) as usize;
+    pool[pick].content_id
 }
 
 pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
@@ -396,5 +453,26 @@ mod tests {
         }
 
         assert_eq!(rng.counter(), 5);
+    }
+
+    #[test]
+    fn one_random_rare_card_consumes_one_neow_rng_draw_after_options() {
+        let reward =
+            generate_neow_rare_card_reward(1_957_307_888_551, NeowRewardType::OneRandomRareCard);
+
+        assert_eq!(reward.cards.len(), 1);
+        assert_eq!(reward.neow_rng_counter, 6);
+    }
+
+    #[test]
+    fn three_rare_cards_are_unique_and_consume_at_least_three_neow_rng_draws() {
+        let reward =
+            generate_neow_rare_card_reward(1_957_307_888_551, NeowRewardType::ThreeRareCards);
+
+        assert_eq!(reward.cards.len(), 3);
+        assert_ne!(reward.cards[0], reward.cards[1]);
+        assert_ne!(reward.cards[0], reward.cards[2]);
+        assert_ne!(reward.cards[1], reward.cards[2]);
+        assert!(reward.neow_rng_counter >= 8);
     }
 }
