@@ -137,6 +137,7 @@ pub const PERFECTED_STRIKE_ID: ContentId = ContentId::new(109);
 pub const SWORD_BOOMERANG_ID: ContentId = ContentId::new(110);
 pub const POWER_THROUGH_ID: ContentId = ContentId::new(111);
 pub const INFERNAL_BLADE_ID: ContentId = ContentId::new(112);
+pub const INFERNAL_BLADE_PLUS_ID: ContentId = ContentId::new(10_112);
 pub const RECKLESS_CHARGE_ID: ContentId = ContentId::new(113);
 pub const HEMOKINESIS_ID: ContentId = ContentId::new(114);
 pub const INTIMIDATE_ID: ContentId = ContentId::new(115);
@@ -147,6 +148,7 @@ pub const FLAME_BARRIER_PLUS_ID: ContentId = ContentId::new(10_117);
 pub const PUMMEL_ID: ContentId = ContentId::new(118);
 pub const METALLICIZE_ID: ContentId = ContentId::new(119);
 pub const SHOCKWAVE_ID: ContentId = ContentId::new(120);
+pub const SHOCKWAVE_PLUS_ID: ContentId = ContentId::new(10_120);
 pub const RAMPAGE_ID: ContentId = ContentId::new(121);
 pub const RAMPAGE_PLUS_ID: ContentId = ContentId::new(10_121);
 pub const SEVER_SOUL_ID: ContentId = ContentId::new(122);
@@ -169,6 +171,7 @@ pub const UPPERCUT_ID: ContentId = ContentId::new(135);
 pub const EVOLVE_ID: ContentId = ContentId::new(136);
 pub const EVOLVE_PLUS_ID: ContentId = ContentId::new(136_000_001);
 pub const DOUBLE_TAP_ID: ContentId = ContentId::new(137);
+pub const DOUBLE_TAP_PLUS_ID: ContentId = ContentId::new(137_000_001);
 pub const DEMON_FORM_ID: ContentId = ContentId::new(138);
 pub const BLUDGEON_ID: ContentId = ContentId::new(139);
 pub const FEED_ID: ContentId = ContentId::new(140);
@@ -180,6 +183,7 @@ pub const CORRUPTION_PLUS_ID: ContentId = ContentId::new(142_000_001);
 pub const BARRICADE_ID: ContentId = ContentId::new(143);
 pub const BARRICADE_PLUS_ID: ContentId = ContentId::new(143_000_001);
 pub const FIEND_FIRE_ID: ContentId = ContentId::new(144);
+pub const FIEND_FIRE_PLUS_ID: ContentId = ContentId::new(144_000_001);
 pub const BERSERK_ID: ContentId = ContentId::new(145);
 pub const BERSERK_PLUS_ID: ContentId = ContentId::new(145_000_001);
 pub const IMPERVIOUS_ID: ContentId = ContentId::new(146);
@@ -190,6 +194,7 @@ pub const BRUTALITY_PLUS_ID: ContentId = ContentId::new(148_000_001);
 pub const REAPER_ID: ContentId = ContentId::new(149);
 pub const REAPER_PLUS_ID: ContentId = ContentId::new(10_149);
 pub const EXHUME_ID: ContentId = ContentId::new(150);
+pub const EXHUME_PLUS_ID: ContentId = ContentId::new(150_000_001);
 pub const OFFERING_ID: ContentId = ContentId::new(151);
 pub const OFFERING_PLUS_ID: ContentId = ContentId::new(10_151);
 pub const IMMOLATE_ID: ContentId = ContentId::new(152);
@@ -899,6 +904,21 @@ pub const DOUBLE_TAP: CardDefinition = CardDefinition {
     id: DOUBLE_TAP_ID,
     key: "DOUBLE_TAP",
     name: "Double Tap",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const DOUBLE_TAP_PLUS: CardDefinition = CardDefinition {
+    id: DOUBLE_TAP_PLUS_ID,
+    key: "DOUBLE_TAP+",
+    name: "Double Tap+",
     cost: 1,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
@@ -2746,6 +2766,17 @@ pub const INFERNAL_BLADE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const INFERNAL_BLADE_PLUS: CardDefinition = CardDefinition {
+    id: INFERNAL_BLADE_PLUS_ID,
+    key: "INFERNAL_BLADE+",
+    name: "Infernal Blade+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: INFERNAL_BLADE.values,
+    keywords: INFERNAL_BLADE.keywords,
+};
+
 pub const ENTRENCH: CardDefinition = CardDefinition {
     id: ENTRENCH_ID,
     key: "ENTRENCH",
@@ -2895,6 +2926,27 @@ pub const SHOCKWAVE: CardDefinition = CardDefinition {
         damage: None,
         block: None,
         vulnerable: Some(3),
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const SHOCKWAVE_PLUS: CardDefinition = CardDefinition {
+    id: SHOCKWAVE_PLUS_ID,
+    key: "SHOCKWAVE+",
+    name: "Shockwave+",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: Some(5),
     },
     keywords: CardKeywords {
         innate: false,
@@ -3238,6 +3290,27 @@ pub const FIEND_FIRE: CardDefinition = CardDefinition {
     },
 };
 
+pub const FIEND_FIRE_PLUS: CardDefinition = CardDefinition {
+    id: FIEND_FIRE_PLUS_ID,
+    key: "FIEND_FIRE+",
+    name: "Fiend Fire+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(10),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const REAPER: CardDefinition = CardDefinition {
     id: REAPER_ID,
     key: "REAPER",
@@ -3285,6 +3358,27 @@ pub const EXHUME: CardDefinition = CardDefinition {
     key: "EXHUME",
     name: "Exhume",
     cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const EXHUME_PLUS: CardDefinition = CardDefinition {
+    id: EXHUME_PLUS_ID,
+    key: "EXHUME+",
+    name: "Exhume+",
+    cost: 0,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
     values: CardValues {
@@ -3386,7 +3480,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 186] = [
+pub const ALL_CARDS: [CardDefinition; 191] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -3431,6 +3525,7 @@ pub const ALL_CARDS: [CardDefinition; 186] = [
     BRUTALITY_PLUS,
     MAYHEM,
     DOUBLE_TAP,
+    DOUBLE_TAP_PLUS,
     FIRE_BREATHING,
     LIMIT_BREAK,
     LIMIT_BREAK_PLUS,
@@ -3539,6 +3634,7 @@ pub const ALL_CARDS: [CardDefinition; 186] = [
     RAMPAGE_PLUS,
     POWER_THROUGH,
     INFERNAL_BLADE,
+    INFERNAL_BLADE_PLUS,
     ENTRENCH,
     GHOSTLY_ARMOR,
     FLAME_BARRIER,
@@ -3548,6 +3644,7 @@ pub const ALL_CARDS: [CardDefinition; 186] = [
     CLOTHESLINE,
     INTIMIDATE,
     SHOCKWAVE,
+    SHOCKWAVE_PLUS,
     DISARM,
     RAGE,
     SEVER_SOUL,
@@ -3567,9 +3664,11 @@ pub const ALL_CARDS: [CardDefinition; 186] = [
     FEED_PLUS,
     IMPERVIOUS,
     FIEND_FIRE,
+    FIEND_FIRE_PLUS,
     REAPER,
     REAPER_PLUS,
     EXHUME,
+    EXHUME_PLUS,
     METALLICIZE,
     THUNDERCLAP,
     UPPERCUT,
@@ -3627,7 +3726,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
             Some((CardType::Attack, CardRarity::Uncommon))
         }
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == INFERNAL_BLADE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == INFERNAL_BLADE_ID || id == INFERNAL_BLADE_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == ENTRENCH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FLAME_BARRIER_ID || id == FLAME_BARRIER_PLUS_ID => {
@@ -3673,7 +3774,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BRUTALITY_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == MAYHEM_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == DOUBLE_TAP_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == DOUBLE_TAP_ID || id == DOUBLE_TAP_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Rare))
+        }
         id if id == FIRE_BREATHING_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == LIMIT_BREAK_ID || id == LIMIT_BREAK_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Rare))
@@ -3694,15 +3797,19 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         }
         id if id == SENTINEL_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == SHOCKWAVE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SHOCKWAVE_ID || id == SHOCKWAVE_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RAGE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == FEED_ID || id == FEED_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == FIEND_FIRE_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == FIEND_FIRE_ID || id == FIEND_FIRE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Rare))
+        }
         id if id == REAPER_ID || id == REAPER_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == EXHUME_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == EXHUME_ID || id == EXHUME_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == APOTHEOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == APOTHEOSIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -3773,11 +3880,15 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         BLOOD_FOR_BLOOD_ID => Some(BLOOD_FOR_BLOOD_PLUS_ID),
         FLAME_BARRIER_ID => Some(FLAME_BARRIER_PLUS_ID),
         SECOND_WIND_ID => Some(SECOND_WIND_PLUS_ID),
+        INFERNAL_BLADE_ID => Some(INFERNAL_BLADE_PLUS_ID),
+        SHOCKWAVE_ID => Some(SHOCKWAVE_PLUS_ID),
         RAMPAGE_ID => Some(RAMPAGE_PLUS_ID),
         LIMIT_BREAK_ID => Some(LIMIT_BREAK_PLUS_ID),
         FEED_ID => Some(FEED_PLUS_ID),
+        EXHUME_ID => Some(EXHUME_PLUS_ID),
         OFFERING_ID => Some(OFFERING_PLUS_ID),
         REAPER_ID => Some(REAPER_PLUS_ID),
+        FIEND_FIRE_ID => Some(FIEND_FIRE_PLUS_ID),
         STRIKE_R_ID => Some(STRIKE_R_PLUS_ID),
         ANGER_ID => Some(ANGER_PLUS_ID),
         CLEAVE_ID => Some(CLEAVE_PLUS_ID),
@@ -3796,6 +3907,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         COMBUST_ID => Some(COMBUST_PLUS_ID),
         RUPTURE_ID => Some(RUPTURE_PLUS_ID),
         EVOLVE_ID => Some(EVOLVE_PLUS_ID),
+        DOUBLE_TAP_ID => Some(DOUBLE_TAP_PLUS_ID),
         CORRUPTION_ID => Some(CORRUPTION_PLUS_ID),
         BARRICADE_ID => Some(BARRICADE_PLUS_ID),
         BERSERK_ID => Some(BERSERK_PLUS_ID),
@@ -3911,6 +4023,20 @@ mod tests {
         assert!(EXHUME.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(EXHUME_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn exhume_plus_is_rare_cost_zero_skill_with_exhaust_and_no_target() {
+        assert_eq!(EXHUME_PLUS.id, EXHUME_PLUS_ID);
+        assert_eq!(EXHUME_PLUS.cost, 0);
+        assert_eq!(EXHUME_PLUS.card_type, CardType::Skill);
+        assert_eq!(EXHUME_PLUS.target, TargetRequirement::None);
+        assert!(EXHUME_PLUS.keywords.exhaust);
+        assert_eq!(upgrade_content_id(EXHUME_ID), Some(EXHUME_PLUS_ID));
+        assert_eq!(
+            card_type_and_rarity(EXHUME_PLUS_ID),
             Some((CardType::Skill, CardRarity::Rare))
         );
     }
@@ -4667,6 +4793,18 @@ mod tests {
             card_type_and_rarity(FIEND_FIRE_ID),
             Some((CardType::Attack, CardRarity::Rare))
         );
+        assert_eq!(upgrade_content_id(FIEND_FIRE_ID), Some(FIEND_FIRE_PLUS_ID));
+        assert_eq!(upgrade_content_id(FIEND_FIRE_PLUS_ID), None);
+        assert_eq!(FIEND_FIRE_PLUS.id, FIEND_FIRE_PLUS_ID);
+        assert_eq!(FIEND_FIRE_PLUS.cost, 2);
+        assert_eq!(FIEND_FIRE_PLUS.target, TargetRequirement::Enemy);
+        assert_eq!(FIEND_FIRE_PLUS.card_type, CardType::Attack);
+        assert_eq!(FIEND_FIRE_PLUS.values.damage, Some(10));
+        assert!(FIEND_FIRE_PLUS.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(FIEND_FIRE_PLUS_ID),
+            Some((CardType::Attack, CardRarity::Rare))
+        );
     }
 
     #[test]
@@ -4714,6 +4852,22 @@ mod tests {
             card_type_and_rarity(SHOCKWAVE_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
+        assert_eq!(upgrade_content_id(SHOCKWAVE_ID), Some(SHOCKWAVE_PLUS_ID));
+    }
+
+    #[test]
+    fn shockwave_plus_has_expected_values() {
+        assert_eq!(SHOCKWAVE_PLUS.id, SHOCKWAVE_PLUS_ID);
+        assert_eq!(SHOCKWAVE_PLUS.cost, 2);
+        assert_eq!(SHOCKWAVE_PLUS.target, TargetRequirement::None);
+        assert_eq!(SHOCKWAVE_PLUS.card_type, CardType::Skill);
+        assert_eq!(SHOCKWAVE_PLUS.values.vulnerable, Some(5));
+        assert_eq!(SHOCKWAVE_PLUS.keywords, SHOCKWAVE.keywords);
+        assert_eq!(
+            card_type_and_rarity(SHOCKWAVE_PLUS_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+        assert_eq!(upgrade_content_id(SHOCKWAVE_PLUS_ID), None);
     }
 
     #[test]
@@ -4962,6 +5116,22 @@ mod tests {
         assert_eq!(INFERNAL_BLADE.card_type, CardType::Skill);
         assert_eq!(
             card_type_and_rarity(INFERNAL_BLADE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn infernal_blade_plus_is_upgrade_with_zero_cost() {
+        assert_eq!(
+            upgrade_content_id(INFERNAL_BLADE_ID),
+            Some(INFERNAL_BLADE_PLUS_ID)
+        );
+        assert_eq!(INFERNAL_BLADE_PLUS.id, INFERNAL_BLADE_PLUS_ID);
+        assert_eq!(INFERNAL_BLADE_PLUS.cost, 0);
+        assert_eq!(INFERNAL_BLADE_PLUS.target, TargetRequirement::None);
+        assert_eq!(INFERNAL_BLADE_PLUS.card_type, CardType::Skill);
+        assert_eq!(
+            card_type_and_rarity(INFERNAL_BLADE_PLUS_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
