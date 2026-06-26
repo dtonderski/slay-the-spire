@@ -61,6 +61,7 @@ pub const BANDAGE_UP_PLUS_ID: ContentId = ContentId::new(1_802_661_242_803_913);
 pub const APOTHEOSIS_ID: ContentId = ContentId::new(1_789_056_897_720_887);
 pub const APOTHEOSIS_PLUS_ID: ContentId = ContentId::new(1_789_056_897_720_888);
 pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
+pub const BLIND_PLUS_ID: ContentId = ContentId::new(63_289_742);
 pub const DARK_SHACKLES_ID: ContentId = ContentId::new(18_388_408_013_683_944_583);
 pub const DEEP_BREATH_ID: ContentId = ContentId::new(57_620_194_214_716_779);
 pub const DEEP_BREATH_PLUS_ID: ContentId = ContentId::new(57_620_194_214_716_780);
@@ -95,6 +96,7 @@ pub const PURITY_PLUS_ID: ContentId = ContentId::new(2_371_347_674);
 pub const SADISTIC_NATURE_ID: ContentId = ContentId::new(16_049_541_496_988_266_320);
 pub const SADISTIC_NATURE_PLUS_ID: ContentId = ContentId::new(16_049_541_496_988_266_321);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
+pub const TRIP_PLUS_ID: ContentId = ContentId::new(2_584_190);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const IMPATIENCE_PLUS_ID: ContentId = ContentId::new(1_998_026_198_879_086);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
@@ -1314,6 +1316,21 @@ pub const BLIND: CardDefinition = CardDefinition {
     name: "Blind",
     cost: 0,
     card_type: CardType::Skill,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BLIND_PLUS: CardDefinition = CardDefinition {
+    id: BLIND_PLUS_ID,
+    key: "BLIND+",
+    name: "Blind+",
+    cost: 0,
+    card_type: CardType::Skill,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: None,
@@ -2325,6 +2342,21 @@ pub const TRIP: CardDefinition = CardDefinition {
     name: "Trip",
     cost: 0,
     card_type: CardType::Skill,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: Some(2),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const TRIP_PLUS: CardDefinition = CardDefinition {
+    id: TRIP_PLUS_ID,
+    key: "TRIP+",
+    name: "Trip+",
+    cost: 0,
+    card_type: CardType::Skill,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3022,7 +3054,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 165] = [
+pub const ALL_CARDS: [CardDefinition; 167] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -3092,6 +3124,7 @@ pub const ALL_CARDS: [CardDefinition; 165] = [
     APOTHEOSIS,
     APOTHEOSIS_PLUS,
     BLIND,
+    BLIND_PLUS,
     ENLIGHTENMENT,
     ENLIGHTENMENT_PLUS,
     SWIFT_STRIKE,
@@ -3126,6 +3159,7 @@ pub const ALL_CARDS: [CardDefinition; 165] = [
     SADISTIC_NATURE,
     SADISTIC_NATURE_PLUS,
     TRIP,
+    TRIP_PLUS,
     IMPATIENCE,
     IMPATIENCE_PLUS,
     CHRYSALIS,
@@ -3219,6 +3253,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BANDAGE_UP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BANDAGE_UP_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == BLIND_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DEEP_BREATH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DEEP_BREATH_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DISCOVERY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -3324,6 +3359,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == SADISTIC_NATURE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == SADISTIC_NATURE_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == TRIP_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CHRYSALIS_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -3373,6 +3409,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
         SWIFT_STRIKE_ID => Some(SWIFT_STRIKE_PLUS_ID),
         BANDAGE_UP_ID => Some(BANDAGE_UP_PLUS_ID),
+        BLIND_ID => Some(BLIND_PLUS_ID),
         DEEP_BREATH_ID => Some(DEEP_BREATH_PLUS_ID),
         FINESSE_ID => Some(FINESSE_PLUS_ID),
         FLASH_OF_STEEL_ID => Some(FLASH_OF_STEEL_PLUS_ID),
@@ -3390,6 +3427,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         PANIC_BUTTON_ID => Some(PANIC_BUTTON_PLUS_ID),
         PURITY_ID => Some(PURITY_PLUS_ID),
         SADISTIC_NATURE_ID => Some(SADISTIC_NATURE_PLUS_ID),
+        TRIP_ID => Some(TRIP_PLUS_ID),
         IMPATIENCE_ID => Some(IMPATIENCE_PLUS_ID),
         JACK_OF_ALL_TRADES_ID => Some(JACK_OF_ALL_TRADES_PLUS_ID),
         MADNESS_ID => Some(MADNESS_PLUS_ID),
@@ -3533,13 +3571,16 @@ mod tests {
     fn blind_has_expected_values_and_rarity() {
         assert_eq!(BLIND.id, BLIND_ID);
         assert_eq!(BLIND.cost, 0);
-        assert_eq!(BLIND.target, TargetRequirement::AllEnemies);
+        assert_eq!(BLIND.target, TargetRequirement::Enemy);
         assert_eq!(BLIND.card_type, CardType::Skill);
         assert_eq!(BLIND.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(BLIND_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
+        assert_eq!(BLIND_PLUS.id, BLIND_PLUS_ID);
+        assert_eq!(BLIND_PLUS.target, TargetRequirement::AllEnemies);
+        assert_eq!(upgrade_content_id(BLIND_ID), Some(BLIND_PLUS_ID));
     }
 
     #[test]
@@ -3790,7 +3831,7 @@ mod tests {
     fn trip_has_expected_values_and_rarity() {
         assert_eq!(TRIP.id, TRIP_ID);
         assert_eq!(TRIP.cost, 0);
-        assert_eq!(TRIP.target, TargetRequirement::None);
+        assert_eq!(TRIP.target, TargetRequirement::Enemy);
         assert_eq!(TRIP.card_type, CardType::Skill);
         assert_eq!(TRIP.values.vulnerable, Some(2));
         assert_eq!(TRIP.keywords, CARD_KEYWORDS_NONE);
@@ -3798,6 +3839,9 @@ mod tests {
             card_type_and_rarity(TRIP_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
+        assert_eq!(TRIP_PLUS.id, TRIP_PLUS_ID);
+        assert_eq!(TRIP_PLUS.target, TargetRequirement::None);
+        assert_eq!(upgrade_content_id(TRIP_ID), Some(TRIP_PLUS_ID));
     }
 
     #[test]
