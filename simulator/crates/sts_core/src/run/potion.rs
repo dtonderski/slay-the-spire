@@ -1347,6 +1347,49 @@ mod tests {
     }
 
     #[test]
+    fn distilled_chaos_targets_actual_top_draw_card_and_skips_rng_for_unplayable() {
+        let mut run = RunState::combat_fixture();
+        run.combat = Some(crate::combat::CombatState::sentry_fixture());
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), DEFEND_R_ID),
+            CardInstance::new(CardId::new(11), WOUND_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+        ];
+        let hp_before: i32 = combat.monsters.iter().map(|monster| monster.hp).sum();
+        run.potions.push(Potion::DistilledChaos);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use distilled chaos");
+
+        let combat = after.combat.expect("combat continues");
+        let hp_after: i32 = combat.monsters.iter().map(|monster| monster.hp).sum();
+        assert_eq!(hp_after, hp_before - 6);
+        assert_eq!(combat.player.block, 5);
+        assert!(combat.piles.draw_pile.is_empty());
+        assert_eq!(
+            combat
+                .piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID, WOUND_ID, DEFEND_R_ID]
+        );
+        assert_eq!(
+            after.card_random_rng_counter,
+            run.card_random_rng_counter + 1
+        );
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
     fn liquid_memories_returns_selected_discard_card_to_hand_at_zero_cost() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat");
@@ -1635,7 +1678,21 @@ mod tests {
         .expect("use snecko oil");
 
         let combat = after.combat.expect("combat continues");
+        let mut expected_rng = run.card_random_rng();
+        let expected_randomized_card_ids = [1, 14, 13, 12, 11, 10];
+        let expected_costs = expected_randomized_card_ids
+            .map(|card_id| (CardId::new(card_id), expected_rng.random_int(3) as u8));
+
         assert_eq!(combat.piles.hand.len(), 7);
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            [1, 2, 14, 13, 12, 11, 10].map(CardId::new).to_vec()
+        );
         assert!(combat.piles.draw_pile.is_empty());
         assert_eq!(
             combat
@@ -1656,6 +1713,18 @@ mod tests {
                 .temp_cost,
             None
         );
+        for (card_id, expected_cost) in expected_costs {
+            assert_eq!(
+                combat
+                    .piles
+                    .hand
+                    .iter()
+                    .find(|card| card.id == card_id)
+                    .expect("playable hand card")
+                    .temp_cost,
+                Some(expected_cost)
+            );
+        }
         assert_eq!(
             after.card_random_rng_counter,
             run.card_random_rng_counter + 6

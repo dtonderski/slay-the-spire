@@ -216,6 +216,7 @@ mod tests {
         content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
         content::character::IRONCLAD_A0_BASE_HP,
         map::RoomKind,
+        run::grid::GridPurpose,
         RunState,
     };
 
@@ -421,6 +422,48 @@ mod tests {
             }
         }
         assert_eq!(legal_rest_actions(&run), expected);
+    }
+
+    #[test]
+    fn rest_actions_transition_to_expected_phase_reward_or_grid_destinations() {
+        let mut base = RunState::map_fixture();
+        base.phase = RunPhase::Rest;
+        base.player_hp = 20;
+        base.relics
+            .extend([Relic::PeacePipe, Relic::Girya, Relic::Shovel]);
+        let strike_id = base.deck[0].id;
+
+        let healed = apply_rest_action(&base, RestAction::Heal).expect("heal");
+        assert_eq!(healed.phase, RunPhase::Idle);
+        assert!(healed.reward.is_none());
+        assert!(healed.card_grid.is_none());
+
+        let smith_grid = apply_rest_action(&base, RestAction::OpenSmith).expect("open smith");
+        assert_eq!(smith_grid.phase, RunPhase::Rest);
+        assert_eq!(
+            smith_grid.card_grid.as_ref().map(|grid| grid.purpose),
+            Some(GridPurpose::RestSmith)
+        );
+        assert!(smith_grid.reward.is_none());
+
+        let removed = apply_rest_action(&base, RestAction::RemoveCard { card_id: strike_id })
+            .expect("peace pipe remove");
+        assert_eq!(removed.phase, RunPhase::Idle);
+        assert!(removed.reward.is_none());
+        assert!(removed.card_grid.is_none());
+
+        let lifted = apply_rest_action(&base, RestAction::Lift).expect("girya lift");
+        assert_eq!(lifted.phase, RunPhase::Idle);
+        assert_eq!(lifted.girya_lifts, base.girya_lifts + 1);
+        assert!(lifted.reward.is_none());
+        assert!(lifted.card_grid.is_none());
+
+        let dug = apply_rest_action(&base, RestAction::Dig).expect("shovel dig");
+        assert_eq!(dug.phase, RunPhase::Reward);
+        assert!(dug.card_grid.is_none());
+        assert!(dug.reward.as_ref().is_some_and(|reward| {
+            reward.relic_offer.is_some() || reward.relic_key_offer.is_some()
+        }));
     }
 
     #[test]

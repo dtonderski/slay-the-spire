@@ -2747,7 +2747,7 @@ pub fn top_draw_card_definition(state: &CombatState) -> Option<&'static CardDefi
     state
         .piles
         .draw_pile
-        .first()
+        .last()
         .and_then(|card| get_card_definition(card.content_id))
 }
 
