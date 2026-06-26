@@ -1360,7 +1360,10 @@ fn move_card(
 
 #[cfg(test)]
 mod tests {
-    use super::card_effects::{discovery_modeled_card_pool, infernal_blade_modeled_attack_pool};
+    use super::card_effects::{
+        discovery_modeled_card_pool, infernal_blade_modeled_attack_pool,
+        jack_of_all_trades_colorless_pool,
+    };
     use super::*;
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
@@ -1374,14 +1377,14 @@ mod tests {
         FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID,
         GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-        SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -2624,6 +2627,102 @@ mod tests {
                 InternalAction::SpendEnergy { amount: 1 },
                 InternalAction::OpenDiscoveryCardReward {
                     source_card_id: card_id,
+                },
+                InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id },
+            ]
+        );
+    }
+
+    #[test]
+    fn jack_of_all_trades_adds_random_colorless_card_to_hand_and_exhausts_source() {
+        let mut state = hand_only(JACK_OF_ALL_TRADES_ID);
+        state.player.energy = 0;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let expected_pool = jack_of_all_trades_colorless_pool();
+        let expected =
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize];
+
+        let next = apply_combat_action(&state, jack_of_all_trades_action(&state))
+            .expect("Jack of All Trades applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == JACK_OF_ALL_TRADES_ID));
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == expected && card.combat_only)
+            .expect("generated colorless card");
+        assert_eq!(generated.temp_cost, None);
+    }
+
+    #[test]
+    fn jack_of_all_trades_without_card_random_rng_uses_deterministic_colorless_fallback() {
+        let state = hand_only(JACK_OF_ALL_TRADES_ID);
+        let expected = jack_of_all_trades_colorless_pool()[0];
+
+        let next = apply_combat_action(&state, jack_of_all_trades_action(&state))
+            .expect("Jack of All Trades applies");
+
+        assert!(next.card_random_rng.is_none());
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.combat_only)
+            .expect("generated colorless card");
+        assert_eq!(generated.content_id, expected);
+        assert_eq!(generated.temp_cost, None);
+    }
+
+    #[test]
+    fn jack_of_all_trades_replay_is_deterministic_from_same_snapshot() {
+        let mut state = hand_only(JACK_OF_ALL_TRADES_ID);
+        state.card_random_rng = Some(crate::rng::StsRng::new(987));
+        let restored: CombatState =
+            serde_json::from_str(&serde_json::to_string(&state).expect("state serializes"))
+                .expect("state restores");
+
+        let first = apply_combat_action(&state, jack_of_all_trades_action(&state))
+            .expect("first Jack play applies");
+        let second = apply_combat_action(&restored, jack_of_all_trades_action(&restored))
+            .expect("replayed Jack play applies");
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn jack_of_all_trades_event_log_records_generation_before_source_exhaust() {
+        let state = hand_only(JACK_OF_ALL_TRADES_ID);
+        let card_id = hand_card_id(&state, JACK_OF_ALL_TRADES_ID);
+        let expected = jack_of_all_trades_colorless_pool()[0];
+
+        let transition = apply_combat_action_with_events(&state, jack_of_all_trades_action(&state))
+            .expect("Jack of All Trades applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected,
+                    to: CardPile::Hand,
+                    temp_cost: None,
                 },
                 InternalAction::MoveCard {
                     card_id,
@@ -10981,6 +11080,13 @@ mod tests {
     fn infernal_blade_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, INFERNAL_BLADE_ID),
+            target: None,
+        }
+    }
+
+    fn jack_of_all_trades_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, JACK_OF_ALL_TRADES_ID),
             target: None,
         }
     }
