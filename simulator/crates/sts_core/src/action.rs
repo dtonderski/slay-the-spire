@@ -97,6 +97,7 @@ pub enum InternalAction {
     },
     AddRandomColorlessCardToHand {
         temp_cost: Option<u8>,
+        upgrade: bool,
     },
     MoveCard {
         card_id: CardId,

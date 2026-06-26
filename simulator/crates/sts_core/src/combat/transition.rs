@@ -397,8 +397,11 @@ fn apply_internal_action(
             add_generated_card_to_pile(state, content_id, to, temp_cost);
             Ok(Vec::new())
         }
-        InternalAction::AddRandomColorlessCardToHand { temp_cost } => {
-            let content_id = random_colorless_card(state);
+        InternalAction::AddRandomColorlessCardToHand { temp_cost, upgrade } => {
+            let mut content_id = random_colorless_card(state);
+            if upgrade {
+                content_id = upgrade_content_id(content_id).unwrap_or(content_id);
+            }
             add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost);
             Ok(Vec::new())
         }
@@ -1303,6 +1306,7 @@ fn confirm_secret_technique_select(
     source_card_id: CardId,
     index: usize,
 ) -> SimResult<()> {
+    let source_definition = draw_select_source_definition(state, source_card_id)?;
     let card = state
         .piles
         .draw_pile
@@ -1315,8 +1319,7 @@ fn confirm_secret_technique_select(
         return Err(SimError::IllegalAction("Secret Technique requires a Skill"));
     }
     move_selected_draw_card_to_hand_or_discard(state, index);
-    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
-    apply_on_exhaust_effects(state, source_card_id);
+    move_draw_select_source_card(state, source_card_id, source_definition)?;
     Ok(())
 }
 
@@ -1325,6 +1328,7 @@ fn confirm_secret_weapon_select(
     source_card_id: CardId,
     index: usize,
 ) -> SimResult<()> {
+    let source_definition = draw_select_source_definition(state, source_card_id)?;
     let card = state
         .piles
         .draw_pile
@@ -1337,9 +1341,42 @@ fn confirm_secret_weapon_select(
         return Err(SimError::IllegalAction("Secret Weapon requires an Attack"));
     }
     move_selected_draw_card_to_hand_or_discard(state, index);
-    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
-    apply_on_exhaust_effects(state, source_card_id);
+    move_draw_select_source_card(state, source_card_id, source_definition)?;
     Ok(())
+}
+
+fn draw_select_source_definition(
+    state: &CombatState,
+    source_card_id: CardId,
+) -> SimResult<&'static crate::card::CardDefinition> {
+    state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == source_card_id)
+        .and_then(|card| get_card_definition(card.content_id))
+        .ok_or(SimError::IllegalAction("draw select source card missing"))
+}
+
+fn move_draw_select_source_card(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    source_definition: &'static crate::card::CardDefinition,
+) -> SimResult<()> {
+    let destination = draw_select_source_destination(source_definition);
+    move_card(state, source_card_id, CardPile::Hand, destination)?;
+    if destination == CardPile::ExhaustPile {
+        apply_on_exhaust_effects(state, source_card_id);
+    }
+    Ok(())
+}
+
+fn draw_select_source_destination(definition: &crate::card::CardDefinition) -> CardPile {
+    if definition.keywords.exhaust {
+        CardPile::ExhaustPile
+    } else {
+        CardPile::DiscardPile
+    }
 }
 
 fn move_selected_draw_card_to_hand_or_discard(state: &mut CombatState, index: usize) {
@@ -1850,12 +1887,13 @@ mod tests {
         MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID,
         RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID,
-        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID,
+        SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -3106,6 +3144,37 @@ mod tests {
     }
 
     #[test]
+    fn transmutation_plus_upgrades_generated_colorless_cards_when_possible() {
+        let mut state = hand_only(TRANSMUTATION_PLUS_ID);
+        state.player.energy = 1;
+        let expected = upgrade_content_id(colorless_discovery_pool()[0])
+            .unwrap_or_else(|| colorless_discovery_pool()[0]);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, TRANSMUTATION_PLUS_ID),
+                target: None,
+            },
+        )
+        .expect("Transmutation+ applies");
+
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.combat_only)
+            .expect("generated colorless card");
+        assert_eq!(generated.content_id, expected);
+        assert_eq!(generated.temp_cost, Some(0));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == TRANSMUTATION_PLUS_ID));
+    }
+
+    #[test]
     fn transmutation_event_log_records_random_generation_before_source_exhaust() {
         let mut state = hand_only(TRANSMUTATION_ID);
         state.player.energy = 1;
@@ -3119,7 +3188,10 @@ mod tests {
             vec![
                 InternalAction::PlayCard { card_id },
                 InternalAction::SpendEnergy { amount: 1 },
-                InternalAction::AddRandomColorlessCardToHand { temp_cost: Some(0) },
+                InternalAction::AddRandomColorlessCardToHand {
+                    temp_cost: Some(0),
+                    upgrade: false,
+                },
                 InternalAction::MoveCard {
                     card_id,
                     from: CardPile::Hand,
@@ -3296,6 +3368,35 @@ mod tests {
     }
 
     #[test]
+    fn secret_technique_plus_confirms_selection_and_discards_source() {
+        let mut state = hand_only(SECRET_TECHNIQUE_PLUS_ID);
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SECRET_TECHNIQUE_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), SHRUG_IT_OFF_ID),
+        ];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, SECRET_TECHNIQUE_PLUS_ID),
+                target: None,
+            },
+        )
+        .expect("Secret Technique+ opens draw select");
+        choose_draw_select(&mut after_play, 0).expect("choose Shrug It Off");
+        confirm_draw_select(&mut after_play).expect("confirm Secret Technique+ select");
+
+        assert!(after_play.draw_select.is_none());
+        assert_eq!(after_play.piles.hand[0].content_id, SHRUG_IT_OFF_ID);
+        assert_eq!(
+            after_play.piles.discard_pile[0].content_id,
+            SECRET_TECHNIQUE_PLUS_ID
+        );
+        assert!(after_play.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
     fn secret_technique_confirm_discards_selected_skill_when_hand_is_full() {
         let mut state = hand_only(SECRET_TECHNIQUE_ID);
         state.piles.hand = vec![
@@ -3403,6 +3504,34 @@ mod tests {
             after_play.piles.exhaust_pile[0].content_id,
             SECRET_WEAPON_ID
         );
+    }
+
+    #[test]
+    fn secret_weapon_plus_confirms_selection_and_discards_source() {
+        let mut state = hand_only(SECRET_WEAPON_PLUS_ID);
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), BASH_ID),
+        ];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, SECRET_WEAPON_PLUS_ID),
+                target: None,
+            },
+        )
+        .expect("Secret Weapon+ opens draw select");
+        choose_draw_select(&mut after_play, 0).expect("choose Bash");
+        confirm_draw_select(&mut after_play).expect("confirm Secret Weapon+ select");
+
+        assert!(after_play.draw_select.is_none());
+        assert_eq!(after_play.piles.hand[0].content_id, BASH_ID);
+        assert_eq!(
+            after_play.piles.discard_pile[0].content_id,
+            SECRET_WEAPON_PLUS_ID
+        );
+        assert!(after_play.piles.exhaust_pile.is_empty());
     }
 
     #[test]
@@ -5678,6 +5807,46 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.id == violence_id));
+    }
+
+    #[test]
+    fn violence_plus_draws_four_attacks_from_draw_pile() {
+        let mut state = hand_only(VIOLENCE_PLUS_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+            CardInstance::new(CardId::new(33), FLASH_OF_STEEL_ID),
+            CardInstance::new(CardId::new(34), ANGER_ID),
+            CardInstance::new(CardId::new(35), GOOD_INSTINCTS_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, VIOLENCE_PLUS_ID),
+                target: None,
+            },
+        )
+        .expect("Violence+ applies");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .filter(|card| {
+                    get_card_definition(card.content_id)
+                        .is_some_and(|definition| definition.card_type == CardType::Attack)
+                })
+                .count(),
+            4
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == VIOLENCE_PLUS_ID));
     }
 
     #[test]
