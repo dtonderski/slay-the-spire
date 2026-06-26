@@ -15,6 +15,7 @@ use crate::{
         SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
         WHIRLWIND_ID, WILD_STRIKE_ID,
     },
+    rng::StsRng,
     ContentId,
 };
 
@@ -325,6 +326,15 @@ pub fn ironclad_reward_content_ids() -> Vec<ContentId> {
         .iter()
         .map(|entry| entry.content_id)
         .collect()
+}
+
+pub fn ironclad_transform_card_content_id(source: ContentId, rng: &mut StsRng) -> ContentId {
+    let pool = ironclad_reward_content_ids()
+        .into_iter()
+        .filter(|content_id| *content_id != source)
+        .collect::<Vec<_>>();
+    let pick = rng.random_int((pool.len() - 1) as i32) as usize;
+    pool[pick]
 }
 
 #[must_use]

@@ -69,7 +69,8 @@ pub use run::{
     generate_neow_card_reward_with_rng, generate_neow_colorless_reward,
     generate_neow_colorless_reward_with_rng, generate_neow_options, generate_neow_rare_card_reward,
     generate_neow_rare_card_reward_with_rng, generate_neow_three_potions,
-    generate_neow_three_potions_with_rng, generate_shop_screen,
+    generate_neow_three_potions_with_rng, generate_neow_transform_reward,
+    generate_neow_transform_reward_with_rng, generate_shop_screen,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
     leave_shop_merchant, leave_shop_room, legacy_fixed_card_reward_choices,
     legacy_fixed_event_screen, legacy_fixed_shop_screen, legal_event_actions,
@@ -82,8 +83,8 @@ pub use run::{
     CardGridScreen, CombatRewardKind, Event, EventChoice, EventScreen, GeneratedNeowOption,
     GridPurpose, KnownNeowBranch, KnownNeowColorlessReward, KnownNeowScreen, NeowBossSwapReward,
     NeowCardReward, NeowColorlessReward, NeowDrawback, NeowPotionReward, NeowRewardType,
-    RewardScreen, RunAction, RunPhase, RunState, ShopCardSlot, ShopPick, ShopPotionSlot,
-    ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT,
-    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
+    NeowTransformReward, RewardScreen, RunAction, RunPhase, RunState, ShopCardSlot, ShopPick,
+    ShopPotionSlot, ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT,
+    REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
 };
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

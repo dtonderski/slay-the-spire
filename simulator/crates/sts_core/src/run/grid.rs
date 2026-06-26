@@ -5,7 +5,7 @@ use crate::{
             get_card_definition, is_pandoras_box_removed_starter, upgrade_content_id,
             CURSE_OF_THE_BELL_ID,
         },
-        reward_pool::{ironclad_reward_content_ids, ironclad_truly_random_card_pool},
+        reward_pool::{ironclad_transform_card_content_id, ironclad_truly_random_card_pool},
     },
     rng::StsRng,
     RunPhase, RunState, SimError, SimResult,
@@ -367,12 +367,8 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) {
 }
 
 fn transform_card_content_id(source: crate::ContentId, rng: &mut StsRng) -> crate::ContentId {
-    let pool = ironclad_reward_content_ids()
-        .into_iter()
-        .filter(|content_id| *content_id != source)
-        .collect::<Vec<_>>();
-    let pick = rng.random_int((pool.len() - 1) as i32) as usize;
-    upgrade_content_id(pool[pick]).unwrap_or(pool[pick])
+    let content_id = ironclad_transform_card_content_id(source, rng);
+    upgrade_content_id(content_id).unwrap_or(content_id)
 }
 
 #[cfg(test)]

@@ -6,7 +6,10 @@
 
 use crate::{
     card::CardRarity,
-    content::{reward_pool::IRONCLAD_REWARD_ENTRIES, shop_pool::random_colorless_from_pool},
+    content::{
+        reward_pool::{ironclad_transform_card_content_id, IRONCLAD_REWARD_ENTRIES},
+        shop_pool::random_colorless_from_pool,
+    },
     ids::ContentId,
     potion::{Potion, IRONCLAD_POTION_POOL},
     relic::{Relic, RelicKey, RelicTier},
@@ -102,6 +105,12 @@ pub struct NeowPotionReward {
 pub struct NeowBossSwapReward {
     pub relic: RelicKey,
     pub relic_rng_counter: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NeowTransformReward {
+    pub cards: Vec<ContentId>,
+    pub neow_rng_counter: u32,
 }
 
 pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
@@ -208,6 +217,32 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
     NeowBossSwapReward {
         relic,
         relic_rng_counter: run.relic_rng_counter,
+    }
+}
+
+pub fn generate_neow_transform_reward(
+    numeric_seed: i64,
+    sources: &[ContentId],
+) -> NeowTransformReward {
+    let mut rng = StsRng::new(numeric_seed);
+    for slot in 0..4 {
+        generate_neow_option(slot, 80, &mut rng);
+    }
+    generate_neow_transform_reward_with_rng(&mut rng, sources)
+}
+
+pub fn generate_neow_transform_reward_with_rng(
+    rng: &mut StsRng,
+    sources: &[ContentId],
+) -> NeowTransformReward {
+    let cards = sources
+        .iter()
+        .map(|source| ironclad_transform_card_content_id(*source, rng))
+        .collect();
+
+    NeowTransformReward {
+        cards,
+        neow_rng_counter: rng.counter(),
     }
 }
 
@@ -517,7 +552,7 @@ pub fn known_neow_colorless_reward_for_seed(seed: &str) -> Option<KnownNeowColor
 mod tests {
     use super::*;
     use crate::content::cards::{
-        DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID, SWIFT_STRIKE_ID,
+        DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
     use crate::relic::RelicPoolState;
 
@@ -727,5 +762,23 @@ mod tests {
         assert_eq!(run.relic_rng_counter, 5);
         assert!(!run.relics.contains(&Relic::BurningBlood));
         assert!(run.relics.iter().any(|relic| relic.key() == reward.relic));
+    }
+
+    #[test]
+    fn transform_reward_consumes_neow_rng_after_option_generation() {
+        let reward = generate_neow_transform_reward(40_560_393_126, &[STRIKE_R_ID]);
+
+        assert_eq!(reward.cards.len(), 1);
+        assert_ne!(reward.cards[0], STRIKE_R_ID);
+        assert_eq!(reward.neow_rng_counter, 6);
+    }
+
+    #[test]
+    fn transform_two_reward_consumes_one_neow_rng_draw_per_source() {
+        let reward = generate_neow_transform_reward(40_560_393_126, &[STRIKE_R_ID, STRIKE_R_ID]);
+
+        assert_eq!(reward.cards.len(), 2);
+        assert_eq!(reward.neow_rng_counter, 7);
+        assert!(reward.cards.iter().all(|card| *card != STRIKE_R_ID));
     }
 }
