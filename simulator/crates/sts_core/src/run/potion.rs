@@ -701,6 +701,7 @@ mod tests {
         content::cards::{
             DEFEND_R_ID, DISCOVERY_ID, SECRET_TECHNIQUE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, WOUND_ID,
         },
+        map::RoomKind,
         MapNodeId, MonsterId, Relic,
     };
 
@@ -1773,6 +1774,8 @@ mod tests {
     #[test]
     fn smoke_bomb_escapes_combat_without_reward() {
         let mut run = RunState::combat_fixture();
+        run.map = Some(crate::map::milestone8_fixture());
+        run.map.as_mut().expect("map").current_node = MapNodeId::new(1);
         run.potions.push(Potion::SmokeBomb);
         run.combat.as_mut().expect("combat").player.hp = 42;
 
@@ -1787,6 +1790,39 @@ mod tests {
 
         assert_eq!(after.phase, RunPhase::Idle);
         assert_eq!(after.player_hp, 42);
+        assert!(after.combat.is_none());
+        assert!(after.reward.is_none());
+        assert!(after.potions.is_empty());
+        assert_eq!(
+            after
+                .map
+                .as_ref()
+                .expect("map")
+                .map
+                .node(after.map.as_ref().expect("map").current_node)
+                .expect("current node")
+                .room_kind,
+            RoomKind::Combat
+        );
+    }
+
+    #[test]
+    fn smoke_bomb_triggers_run_level_potion_use_relics_after_escape() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::ToyOrnithopter]);
+        run.potions.push(Potion::SmokeBomb);
+        run.combat.as_mut().expect("combat").player.hp = 41;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use smoke bomb");
+
+        assert_eq!(after.phase, RunPhase::Idle);
+        assert_eq!(after.player_hp, 46);
         assert!(after.combat.is_none());
         assert!(after.reward.is_none());
         assert!(after.potions.is_empty());
@@ -1811,6 +1847,9 @@ mod tests {
                 "Smoke Bomb cannot be used in boss combat"
             ))
         );
+        assert_eq!(run.phase, RunPhase::Combat);
+        assert!(run.combat.is_some());
+        assert_eq!(run.potions, vec![Potion::SmokeBomb]);
     }
 
     #[test]

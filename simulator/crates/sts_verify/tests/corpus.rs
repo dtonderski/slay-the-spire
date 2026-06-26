@@ -511,8 +511,9 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         report
             .unsupported
             .iter()
-            .any(|entry| entry.reason.contains("Toy Ornithopter")),
-        "Toy Ornithopter inert scope should be classified"
+            .any(|entry| entry.reason.contains("Toy Ornithopter")
+                && entry.reason.contains("no potion-use transition")),
+        "Toy Ornithopter trace-only scope should be classified"
     );
 
     for stream in [

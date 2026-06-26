@@ -537,7 +537,7 @@ fn verify_seed_start_transitions(
                 report.unsupported.push(UnsupportedTransition {
                     action_step: action.step,
                     command: action.command.clone(),
-                    reason: "Toy Ornithopter is modeled as an inert captured Neow relic for this trace; potion-triggered healing is not implemented".to_owned(),
+                    reason: "Toy Ornithopter is only carried as a captured Neow relic in this trace; no potion-use transition is observed here, so potion-triggered healing remains covered by sts_core unit tests rather than seed-start trace parity".to_owned(),
                 });
                 phase = SeedStartPhase::NeowLeave;
             }
