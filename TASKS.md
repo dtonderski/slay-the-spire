@@ -1746,7 +1746,7 @@ Do not implement:
 
 ## Milestone 33: Neow Generalization
 
-Status: in progress. Initial seam extraction is complete: captured seed-start Neow branch tables now live behind a first-class `sts_core::run::neow` facade, with focused tests preserving VERIFY01/CODEX03/CODEX04/TEST/M290001/M290008 behavior. Source-backed Ironclad A0 option generation is now implemented behind that facade: target jar bytecode pins `NeowEvent.rng = Random(Settings.seed)`, the slot order, slot reward/drawback pools, and the five option-screen RNG draws. Reward application remains captured-branch scoped until the decoded potion, curse, transform, colorless, and relic helper paths are wired into seed-start verification.
+Status: in progress. Initial seam extraction is complete: captured seed-start Neow branch tables now live behind a first-class `sts_core::run::neow` facade, with focused tests preserving VERIFY01/CODEX03/CODEX04/TEST/M290001/M290008 behavior. Source-backed Ironclad A0 option generation is now implemented behind that facade: target jar bytecode pins `NeowEvent.rng = Random(Settings.seed)`, the slot order, slot reward/drawback pools, and the five option-screen RNG draws. Forced-rare card reward generation for `ONE_RANDOM_RARE_CARD` and `THREE_RARE_CARDS` is source-backed on `NeowEvent.rng` with explicit counter tests. Remaining reward application stays captured-branch scoped until the decoded potion, curse, transform, normal-card, colorless, and relic helper paths are wired into seed-start verification.
 
 Goal: replace captured-branch Neow handling with source-backed option generation and reward application for Ironclad A0.
 
