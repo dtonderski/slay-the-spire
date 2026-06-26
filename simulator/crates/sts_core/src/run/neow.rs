@@ -354,6 +354,8 @@ pub fn open_neow_reward_grid(run: &mut RunState, reward: NeowRewardType) {
         NeowRewardType::RemoveCard => super::grid::open_neow_remove_grid(run, 1),
         NeowRewardType::RemoveTwo => super::grid::open_neow_remove_grid(run, 2),
         NeowRewardType::UpgradeCard => super::grid::open_neow_upgrade_grid(run),
+        NeowRewardType::TransformCard => super::grid::open_neow_transform_grid(run, 1),
+        NeowRewardType::TransformTwoCards => super::grid::open_neow_transform_grid(run, 2),
         other => panic!("Neow reward {other:?} does not open a grid"),
     }
 }

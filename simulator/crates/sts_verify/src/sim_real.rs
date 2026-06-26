@@ -865,7 +865,7 @@ fn verify_seed_start_transitions(
             {
                 let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .expect("matched generated Neow grid option");
-                let run = seed_start_open_neow_grid_run(&deck_ids, &option);
+                let run = seed_start_open_neow_grid_run(start.numeric_seed, &deck_ids, &option);
                 neow_gold = run.gold;
                 neow_current_hp = run.player_hp;
                 neow_max_hp = run.player_max_hp;
@@ -953,6 +953,57 @@ fn verify_seed_start_transitions(
                         }),
                     );
                 }
+                seed_sim = Some(next);
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowGridConfirm
+                if command_choose_index(&action.command).is_some()
+                    && seed_sim
+                        .as_ref()
+                        .is_some_and(seed_start_is_neow_transform_grid) =>
+            {
+                let sim = seed_sim
+                    .as_ref()
+                    .expect("matched initialized Neow transform grid");
+                let index = command_choose_index(&action.command).expect("matched choose command");
+                let Ok(next) = select_grid_card(sim, index) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_grid_path".to_owned(),
+                        reason: "seed-start Neow transform grid choose simulation failed"
+                            .to_owned(),
+                    };
+                };
+                deck_ids = deck_content_keys(&next.deck);
+                if next.card_grid.is_some() {
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow grid select",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&next, &relics),
+                    );
+                    seed_sim = Some(next);
+                    phase = SeedStartPhase::NeowGridConfirm;
+                    continue;
+                }
+                compare_subset(
+                    report,
+                    action,
+                    "Neow grid confirm",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
                 seed_sim = Some(next);
                 phase = SeedStartPhase::NeowLeave;
             }
@@ -3510,11 +3561,13 @@ fn seed_start_neow_option_is_supported_card_reward(option: GeneratedNeowOption) 
 }
 
 fn seed_start_neow_option_is_supported_grid_reward(option: GeneratedNeowOption) -> bool {
-    seed_start_neow_drawback_is_simple(option.drawback)
+    (seed_start_neow_drawback_is_simple(option.drawback)
         && matches!(
             option.reward,
             NeowRewardType::RemoveCard | NeowRewardType::RemoveTwo | NeowRewardType::UpgradeCard
-        )
+        ))
+        || (option.drawback == NeowDrawback::Curse
+            && option.reward == NeowRewardType::TransformTwoCards)
 }
 
 fn seed_start_neow_option_is_supported_relic_reward(option: GeneratedNeowOption) -> bool {
@@ -3567,13 +3620,30 @@ fn seed_start_apply_neow_reward_drawback(
     run
 }
 
-fn seed_start_open_neow_grid_run(deck_ids: &[String], option: &GeneratedNeowOption) -> RunState {
+fn seed_start_open_neow_grid_run(
+    numeric_seed: i64,
+    deck_ids: &[String],
+    option: &GeneratedNeowOption,
+) -> RunState {
     let mut run = RunState::map_fixture();
     run.gold = 99;
+    run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
-    apply_neow_simple_drawback(&mut run, option.drawback);
+    match option.drawback {
+        NeowDrawback::Curse => {
+            run.relics = vec![Relic::BurningBlood];
+            apply_neow_curse_drawback(&mut run);
+        }
+        drawback => apply_neow_simple_drawback(&mut run, drawback),
+    }
     open_neow_reward_grid(&mut run, option.reward);
     run
+}
+
+fn seed_start_is_neow_transform_grid(run: &RunState) -> bool {
+    run.card_grid
+        .as_ref()
+        .is_some_and(|grid| matches!(grid.purpose, GridPurpose::NeowTransform { .. }))
 }
 
 fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> RunState {
@@ -3658,6 +3728,7 @@ fn seed_start_neow_grid_label(reward: NeowRewardType) -> &'static str {
         NeowRewardType::RemoveCard => "Neow remove card grid",
         NeowRewardType::RemoveTwo => "Neow remove two grid",
         NeowRewardType::UpgradeCard => "Neow upgrade grid",
+        NeowRewardType::TransformTwoCards => "Neow curse transform two grid",
         _ => "Neow grid",
     }
 }
@@ -8347,7 +8418,7 @@ mod tests {
             option.clone()
         ));
 
-        let run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+        let run = seed_start_open_neow_grid_run(1, &ironclad_starter_deck_keys(), &option);
 
         assert_eq!(
             seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()]),
@@ -8372,7 +8443,7 @@ mod tests {
             reward: NeowRewardType::UpgradeCard,
             label: "upgrade a card".to_owned(),
         };
-        let mut run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+        let mut run = seed_start_open_neow_grid_run(1, &ironclad_starter_deck_keys(), &option);
 
         run = select_grid_card(&run, 0).expect("select first strike");
         assert_eq!(
@@ -8413,7 +8484,7 @@ mod tests {
             reward: NeowRewardType::RemoveTwo,
             label: "lose 8 max hp remove 2 cards".to_owned(),
         };
-        let mut run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+        let mut run = seed_start_open_neow_grid_run(1, &ironclad_starter_deck_keys(), &option);
 
         assert_eq!(run.player_hp, 72);
         assert_eq!(run.player_max_hp, 72);
@@ -8452,7 +8523,8 @@ mod tests {
             .map(|id| json!({ "id": id }))
             .collect();
         let relics = vec!["Burning Blood".to_owned()];
-        let initial_run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+        let initial_run =
+            seed_start_open_neow_grid_run(numeric_seed, &ironclad_starter_deck_keys(), &option);
         let after_first_select = select_grid_card(&initial_run, 0).expect("select first");
         let after_first_confirm = confirm_grid(&after_first_select).expect("remove first");
         let after_second_select = select_grid_card(&after_first_confirm, 0).expect("select second");
@@ -8620,7 +8692,8 @@ mod tests {
             .map(|id| json!({ "id": id }))
             .collect();
         let relics = vec!["Burning Blood".to_owned()];
-        let initial_run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+        let initial_run =
+            seed_start_open_neow_grid_run(numeric_seed, &ironclad_starter_deck_keys(), &option);
         let after_select = select_grid_card(&initial_run, 0).expect("select first");
         let after_confirm = confirm_grid(&after_select).expect("confirm upgrade");
         let grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
@@ -8724,6 +8797,152 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 3 && transition.label == "Neow upgrade grid"
         }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 5 && transition.label == "Neow grid confirm"
+        }));
+        assert!(report
+            .verified
+            .iter()
+            .any(|transition| { transition.action_step == 6 && transition.label == "Neow leave" }));
+    }
+
+    #[test]
+    fn seed_start_neow_curse_transform_two_generated_trace_reaches_neow_leave() {
+        let (numeric_seed, option) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.drawback == NeowDrawback::Curse
+                            && option.reward == NeowRewardType::TransformTwoCards
+                            && seed_start_neow_option_is_supported_grid_reward(option.clone())
+                    })
+                    .map(|option| (seed, option))
+            })
+            .expect("synthetic seed with generated curse plus transform-two option");
+        let seed_string = test_seed_string_from_long(numeric_seed);
+        let choose_command = format!("CHOOSE {}", option.slot);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let relics = vec!["Burning Blood".to_owned()];
+        let initial_run =
+            seed_start_open_neow_grid_run(numeric_seed, &ironclad_starter_deck_keys(), &option);
+        let after_first_select = select_grid_card(&initial_run, 0).expect("select first");
+        let after_second_select =
+            select_grid_card(&after_first_select, 1).expect("select second and transform");
+        let cursed_deck: Vec<_> = deck_content_keys(&initial_run.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let transformed_deck: Vec<_> = deck_content_keys(&after_second_select.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
+            ["choices"]
+            .as_array()
+            .expect("first grid choices")
+            .clone();
+        let second_grid_choices: Vec<_> =
+            seed_start_grid_simulated_subset(&after_first_select, &relics)["choices"]
+                .as_array()
+                .expect("second grid choices")
+                .clone();
+        let hp = initial_run.player_hp;
+        let max_hp = initial_run.player_max_hp;
+        let gold = initial_run.gold;
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": choose_command}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": cursed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": first_grid_choices
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": cursed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": second_grid_choices
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CHOOSE 1"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": transformed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["leave"]
+            }}}),
+            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
+                "screen_type": "MAP",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": transformed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_first_map_choices(&seed_string)
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow curse transform two grid"
+        }));
+        assert_eq!(initial_run.card_rng_counter, 1);
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 5 && transition.label == "Neow grid confirm"
         }));
