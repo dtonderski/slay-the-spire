@@ -153,6 +153,9 @@ pub enum InternalAction {
     GainBrutality {
         amount: i32,
     },
+    GainMayhem {
+        amount: i32,
+    },
     GainCombust {
         amount: i32,
     },

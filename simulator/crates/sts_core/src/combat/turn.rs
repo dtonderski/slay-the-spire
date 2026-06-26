@@ -71,6 +71,7 @@ pub fn start_player_turn(state: &mut CombatState) {
         state.phase = CombatPhase::Lost;
         return;
     }
+    apply_start_of_turn_mayhem(state);
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
@@ -86,6 +87,23 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) {
             return;
         }
         crate::combat::transition::player_draw_cards(state, 1);
+    }
+}
+
+fn apply_start_of_turn_mayhem(state: &mut CombatState) {
+    for _ in 0..state.player.powers.mayhem.max(0) {
+        let Some(definition) = crate::combat::transition::top_draw_card_definition(state) else {
+            return;
+        };
+        if definition.keywords.unplayable || definition.target == crate::TargetRequirement::Enemy {
+            continue;
+        }
+        if crate::combat::transition::apply_play_top_draw_card_to_state(state, None).is_err() {
+            return;
+        }
+        if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
+            return;
+        }
     }
 }
 
@@ -270,10 +288,10 @@ mod tests {
     use crate::{
         apply_combat_action,
         combat::MonsterIntent,
-        content::cards::{BASH_ID, STRIKE_R_ID},
+        content::cards::{BASH_ID, DEFEND_R_ID, MAYHEM_ID, STRIKE_R_ID},
         content::monsters::FIXED_SIMPLE_MONSTER,
         ids::CardId,
-        CombatAction,
+        CardInstance, CombatAction,
     };
 
     #[test]
@@ -572,6 +590,61 @@ mod tests {
             state.card_random_rng.as_ref().expect("card rng").counter(),
             7
         );
+    }
+
+    #[test]
+    fn mayhem_plays_no_target_top_draw_card_before_normal_turn_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(10), DEFEND_R_ID)];
+
+        start_player_turn(&mut state);
+
+        assert_eq!(state.player.block, 5);
+        assert_eq!(state.piles.exhaust_pile.len(), 1);
+        assert_eq!(state.piles.exhaust_pile[0].content_id, DEFEND_R_ID);
+        assert!(state.piles.hand.is_empty());
+    }
+
+    #[test]
+    fn mayhem_skips_top_draw_card_that_requires_enemy_target() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(10), STRIKE_R_ID)];
+        let starting_hp = state.monsters[0].hp;
+
+        start_player_turn(&mut state);
+
+        assert_eq!(state.monsters[0].hp, starting_hp);
+        assert!(state.piles.exhaust_pile.is_empty());
+        assert_eq!(state.piles.hand.len(), 1);
+        assert_eq!(state.piles.hand[0].content_id, STRIKE_R_ID);
+    }
+
+    #[test]
+    fn played_mayhem_adds_start_turn_power_stack_and_removes_card() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(10), MAYHEM_ID));
+        state.player.energy = 2;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(10),
+                target: None,
+            },
+        )
+        .expect("Mayhem applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.mayhem, 1);
+        assert!(next.piles.hand.is_empty());
     }
 
     #[test]
