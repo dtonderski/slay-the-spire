@@ -43,6 +43,8 @@ pub struct PlayerPowers {
     pub buffer: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub intangible: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub sadistic_nature: i32,
 }
 
 fn is_zero_i32(value: &i32) -> bool {
@@ -227,6 +229,18 @@ mod tests {
     fn player_powers_with_dexterity_round_trip_through_json() {
         let powers = PlayerPowers {
             dexterity: 3,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&powers).expect("powers serialize");
+        let restored: PlayerPowers = serde_json::from_str(&json).expect("powers deserialize");
+
+        assert_eq!(restored, powers);
+    }
+
+    #[test]
+    fn player_powers_with_sadistic_nature_round_trip_through_json() {
+        let powers = PlayerPowers {
+            sadistic_nature: 5,
             ..Default::default()
         };
         let json = serde_json::to_string(&powers).expect("powers serialize");
