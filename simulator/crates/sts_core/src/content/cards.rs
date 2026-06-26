@@ -68,6 +68,7 @@ pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_65
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
+pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1382,6 +1383,27 @@ pub const PANACEA: CardDefinition = CardDefinition {
     },
 };
 
+pub const JACK_OF_ALL_TRADES: CardDefinition = CardDefinition {
+    id: JACK_OF_ALL_TRADES_ID,
+    key: "JACK_OF_ALL_TRADES",
+    name: "Jack Of All Trades",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const IMPATIENCE: CardDefinition = CardDefinition {
     id: IMPATIENCE_ID,
     key: "IMPATIENCE",
@@ -2100,7 +2122,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 115] = [
+pub const ALL_CARDS: [CardDefinition; 116] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2178,6 +2200,7 @@ pub const ALL_CARDS: [CardDefinition; 115] = [
     PANACEA,
     TRIP,
     IMPATIENCE,
+    JACK_OF_ALL_TRADES,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2325,6 +2348,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         _ => None,
     }
 }
@@ -3212,6 +3236,19 @@ mod tests {
         assert_eq!(INFERNAL_BLADE.card_type, CardType::Skill);
         assert_eq!(
             card_type_and_rarity(INFERNAL_BLADE_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn jack_of_all_trades_has_expected_values_keywords_and_rarity() {
+        assert_eq!(JACK_OF_ALL_TRADES.id, JACK_OF_ALL_TRADES_ID);
+        assert_eq!(JACK_OF_ALL_TRADES.cost, 0);
+        assert_eq!(JACK_OF_ALL_TRADES.target, TargetRequirement::None);
+        assert_eq!(JACK_OF_ALL_TRADES.card_type, CardType::Skill);
+        assert!(JACK_OF_ALL_TRADES.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(JACK_OF_ALL_TRADES_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
