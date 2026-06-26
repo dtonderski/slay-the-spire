@@ -13,10 +13,11 @@ use crate::{
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
         BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID,
-        DRAMATIC_ENTRANCE_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, IMPATIENCE_ID, OFFERING_ID,
-        PANACEA_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
+        IMPATIENCE_ID, OFFERING_ID, PANACEA_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -138,6 +139,12 @@ fn apply_internal_action(
         InternalAction::SpendCardEnergy { card_id } => {
             let cost = effective_hand_card_cost(state, card_id);
             state.player.energy -= cost;
+            Ok(Vec::new())
+        }
+        InternalAction::SetHandCardCostForTurn { card_id, cost } => {
+            let card = find_hand_card_mut(state, card_id)?;
+            card.temp_cost = Some(cost);
+            card.temp_cost_turn_only = true;
             Ok(Vec::new())
         }
         InternalAction::DealDamage { info } => {
@@ -850,6 +857,9 @@ fn apply_play_top_draw_card(
         DEEP_BREATH_ID => {
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
+        ENLIGHTENMENT_ID => {
+            follow_ups.extend(card_effects::enlightenment_cost_actions(state, card_id));
+        }
         OFFERING_ID => {
             follow_ups.push(InternalAction::LoseHp {
                 amount: 6,
@@ -1335,17 +1345,17 @@ mod tests {
         BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
         DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
-        DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
-        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
-        FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
-        INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID,
+        EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID,
+        GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID,
+        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         WILD_STRIKE_ID, WOUND_ID,
     };
@@ -4755,6 +4765,120 @@ mod tests {
     }
 
     #[test]
+    fn enlightenment_reduces_only_eligible_hand_cards_and_discards_at_zero_cost() {
+        let mut state = hand_only(ENLIGHTENMENT_ID);
+        state.player.energy = 0;
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(22), STRIKE_R_ID));
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(23), BLUDGEON_ID));
+        state.piles.hand[3].temp_cost = Some(0);
+
+        let next = apply_combat_action(&state, enlightenment_action(&state))
+            .expect("Enlightenment applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.piles.discard_pile[0].content_id, ENLIGHTENMENT_ID);
+        let bash = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == BASH_ID)
+            .expect("Bash remains in hand");
+        let strike = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == STRIKE_R_ID)
+            .expect("Strike remains in hand");
+        let bludgeon = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == BLUDGEON_ID)
+            .expect("Bludgeon remains in hand");
+
+        assert_eq!(bash.temp_cost, Some(1));
+        assert!(bash.temp_cost_turn_only);
+        assert_eq!(strike.temp_cost, None);
+        assert_eq!(bludgeon.temp_cost, Some(0));
+        assert!(!bludgeon.temp_cost_turn_only);
+    }
+
+    #[test]
+    fn enlightenment_turn_only_cost_resets_next_player_turn() {
+        let mut state = hand_only(ENLIGHTENMENT_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let after_enlightenment = apply_combat_action(&state, enlightenment_action(&state))
+            .expect("Enlightenment applies");
+        let next_turn =
+            apply_combat_action(&after_enlightenment, CombatAction::EndTurn).expect("turn ends");
+
+        let bash = next_turn
+            .piles
+            .discard_pile
+            .iter()
+            .find(|card| card.content_id == BASH_ID)
+            .expect("Bash discarded at end of turn");
+        assert_eq!(bash.temp_cost, None);
+        assert!(!bash.temp_cost_turn_only);
+    }
+
+    #[test]
+    fn enlightenment_event_log_records_cost_changes_before_discard() {
+        let mut state = hand_only(ENLIGHTENMENT_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(22), BLUDGEON_ID));
+        let enlightenment_id = hand_card_id(&state, ENLIGHTENMENT_ID);
+
+        let transition = apply_combat_action_with_events(&state, enlightenment_action(&state))
+            .expect("Enlightenment applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: enlightenment_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::SetHandCardCostForTurn {
+                    card_id: CardId::new(21),
+                    cost: 1,
+                },
+                InternalAction::SetHandCardCostForTurn {
+                    card_id: CardId::new(22),
+                    cost: 1,
+                },
+                InternalAction::MoveCard {
+                    card_id: enlightenment_id,
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn havoc_top_draw_deep_breath_draws_and_exhausts_it() {
         let mut state = hand_only(HAVOC_ID);
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(32), DEEP_BREATH_ID)];
@@ -5032,6 +5156,39 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.content_id == FLASH_OF_STEEL_ID));
+    }
+
+    #[test]
+    fn havoc_top_draw_enlightenment_reduces_current_hand_costs_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), ENLIGHTENMENT_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Enlightenment");
+
+        let bash = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == BASH_ID)
+            .expect("Bash remains in hand");
+        assert_eq!(bash.temp_cost, Some(1));
+        assert!(bash.temp_cost_turn_only);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == ENLIGHTENMENT_ID));
     }
 
     #[test]
@@ -10604,6 +10761,13 @@ mod tests {
     fn deep_breath_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DEEP_BREATH_ID),
+            target: None,
+        }
+    }
+
+    fn enlightenment_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, ENLIGHTENMENT_ID),
             target: None,
         }
     }

@@ -60,6 +60,7 @@ pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
 pub const DARK_SHACKLES_ID: ContentId = ContentId::new(18_388_408_013_683_944_583);
 pub const DEEP_BREATH_ID: ContentId = ContentId::new(57_620_194_214_716_779);
 pub const DISCOVERY_ID: ContentId = ContentId::new(60_080_667_924_456);
+pub const ENLIGHTENMENT_ID: ContentId = ContentId::new(1_054_645_513_201_118_220);
 pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
@@ -1212,6 +1213,21 @@ pub const BLIND: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const ENLIGHTENMENT: CardDefinition = CardDefinition {
+    id: ENLIGHTENMENT_ID,
+    key: "ENLIGHTENMENT",
+    name: "Enlightenment",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     id: SWIFT_STRIKE_ID,
     key: "Swift Strike",
@@ -2068,7 +2084,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 113] = [
+pub const ALL_CARDS: [CardDefinition; 114] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2134,6 +2150,7 @@ pub const ALL_CARDS: [CardDefinition; 113] = [
     DRAMATIC_ENTRANCE,
     BANDAGE_UP,
     BLIND,
+    ENLIGHTENMENT,
     SWIFT_STRIKE,
     DEEP_BREATH,
     DISCOVERY,
@@ -2214,6 +2231,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == BLIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DEEP_BREATH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DISCOVERY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == ENLIGHTENMENT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -2449,6 +2467,19 @@ mod tests {
         assert_eq!(BLIND.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(BLIND_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn enlightenment_has_expected_values_and_rarity() {
+        assert_eq!(ENLIGHTENMENT.id, ENLIGHTENMENT_ID);
+        assert_eq!(ENLIGHTENMENT.cost, 0);
+        assert_eq!(ENLIGHTENMENT.target, TargetRequirement::None);
+        assert_eq!(ENLIGHTENMENT.card_type, CardType::Skill);
+        assert_eq!(ENLIGHTENMENT.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(ENLIGHTENMENT_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }

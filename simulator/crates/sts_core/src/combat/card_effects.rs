@@ -12,8 +12,8 @@ use crate::{
         BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID,
         DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
-        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENTRENCH_ID,
-        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
+        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID,
+        ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
         FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
         HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID,
         INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID,
@@ -155,6 +155,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         DEEP_BREATH_ID => deep_breath_queue(card_id, definition),
+        ENLIGHTENMENT_ID => enlightenment_queue(state, card_id, definition),
         FINESSE_ID => finesse_queue(card_id, definition),
         IMPATIENCE_ID => impatience_queue(card_id, definition),
         SHRUG_IT_OFF_ID => shrug_it_off_queue(card_id),
@@ -2274,6 +2275,53 @@ fn impatience_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn enlightenment_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+
+    queue.extend(enlightenment_cost_actions(state, card_id));
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+
+    Ok(queue)
+}
+
+pub(super) fn enlightenment_cost_actions(
+    state: &CombatState,
+    exclude_id: CardId,
+) -> Vec<InternalAction> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != exclude_id)
+        .filter(|card| hand_card_cost_before_enlightenment(card) > 1)
+        .map(|card| InternalAction::SetHandCardCostForTurn {
+            card_id: card.id,
+            cost: 1,
+        })
+        .collect()
+}
+
+fn hand_card_cost_before_enlightenment(card: &crate::CardInstance) -> u8 {
+    card.temp_cost.unwrap_or_else(|| {
+        get_card_definition(card.content_id)
+            .map(|definition| definition.cost)
+            .unwrap_or(0)
+    })
 }
 
 fn flame_barrier_queue(
