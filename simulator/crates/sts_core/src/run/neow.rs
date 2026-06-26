@@ -181,6 +181,19 @@ pub fn generate_neow_colorless_reward(
     generate_neow_colorless_reward_with_rng(&mut neow_rng, &mut card_rng, reward)
 }
 
+pub fn generate_neow_colorless_reward_with_card_rng_counter(
+    numeric_seed: i64,
+    reward: NeowRewardType,
+    card_rng_counter: u32,
+) -> NeowColorlessReward {
+    let mut neow_rng = StsRng::new(numeric_seed);
+    for slot in 0..4 {
+        generate_neow_option(slot, 80, &mut neow_rng);
+    }
+    let mut card_rng = StsRng::with_counter(numeric_seed, card_rng_counter);
+    generate_neow_colorless_reward_with_rng(&mut neow_rng, &mut card_rng, reward)
+}
+
 pub fn generate_neow_colorless_reward_with_rng(
     neow_rng: &mut StsRng,
     card_rng: &mut StsRng,
@@ -786,6 +799,21 @@ mod tests {
         assert_eq!(reward.cards.len(), 3);
         assert_eq!(reward.neow_rng_counter, 8);
         assert!(reward.card_rng_counter >= 3);
+    }
+
+    #[test]
+    fn colorless_reward_can_start_from_existing_card_rng_counter() {
+        let unshifted =
+            generate_neow_colorless_reward(22_079_335_079, NeowRewardType::RandomColorlessTwo);
+        let shifted = generate_neow_colorless_reward_with_card_rng_counter(
+            22_079_335_079,
+            NeowRewardType::RandomColorlessTwo,
+            1,
+        );
+
+        assert_eq!(shifted.neow_rng_counter, unshifted.neow_rng_counter);
+        assert_ne!(shifted.cards, unshifted.cards);
+        assert!(shifted.card_rng_counter > unshifted.card_rng_counter);
     }
 
     #[test]

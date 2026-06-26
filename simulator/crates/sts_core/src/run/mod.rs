@@ -24,14 +24,15 @@ pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
 pub use neow::{
     apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
     apply_neow_simple_reward, generate_neow_card_reward, generate_neow_card_reward_with_rng,
-    generate_neow_colorless_reward, generate_neow_colorless_reward_with_rng, generate_neow_options,
-    generate_neow_rare_card_reward, generate_neow_rare_card_reward_with_rng,
-    generate_neow_three_potions, generate_neow_three_potions_with_rng,
-    generate_neow_transform_reward, generate_neow_transform_reward_with_rng,
-    known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, open_neow_reward_grid,
-    GeneratedNeowOption, KnownNeowBranch, KnownNeowColorlessReward, KnownNeowScreen,
-    NeowBossSwapReward, NeowCardReward, NeowColorlessReward, NeowDrawback, NeowPotionReward,
-    NeowRelicReward, NeowRewardType, NeowTransformReward,
+    generate_neow_colorless_reward, generate_neow_colorless_reward_with_card_rng_counter,
+    generate_neow_colorless_reward_with_rng, generate_neow_options, generate_neow_rare_card_reward,
+    generate_neow_rare_card_reward_with_rng, generate_neow_three_potions,
+    generate_neow_three_potions_with_rng, generate_neow_transform_reward,
+    generate_neow_transform_reward_with_rng, known_neow_colorless_reward_for_seed,
+    known_neow_screen_for_seed, open_neow_reward_grid, GeneratedNeowOption, KnownNeowBranch,
+    KnownNeowColorlessReward, KnownNeowScreen, NeowBossSwapReward, NeowCardReward,
+    NeowColorlessReward, NeowDrawback, NeowPotionReward, NeowRelicReward, NeowRewardType,
+    NeowTransformReward,
 };
 pub use potion::{apply_potion_action, validate_potion_action};
 pub use rest::{
