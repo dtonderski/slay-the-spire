@@ -16,6 +16,14 @@ pub const SLIMED_ID: ContentId = ContentId::new(7);
 pub const REGRET_ID: ContentId = ContentId::new(62);
 pub const DOUBT_ID: ContentId = ContentId::new(63);
 pub const CURSE_OF_THE_BELL_ID: ContentId = ContentId::new(64);
+pub const CLUMSY_ID: ContentId = ContentId::new(65);
+pub const DECAY_ID: ContentId = ContentId::new(66);
+pub const INJURY_ID: ContentId = ContentId::new(67);
+pub const NORMALITY_ID: ContentId = ContentId::new(68);
+pub const PAIN_ID: ContentId = ContentId::new(69);
+pub const PARASITE_ID: ContentId = ContentId::new(70);
+pub const SHAME_ID: ContentId = ContentId::new(71);
+pub const WRITHE_ID: ContentId = ContentId::new(72);
 pub const ASCENDERS_BANE_ID: ContentId = ContentId::new(61);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
 pub const RETAIN_DEFEND_ID: ContentId = ContentId::new(9);
@@ -416,6 +424,45 @@ pub const CURSE_OF_THE_BELL: CardDefinition = CardDefinition {
         unplayable: true,
     },
 };
+
+pub const CLUMSY: CardDefinition = inert_curse(CLUMSY_ID, "Clumsy", "Clumsy", true, false);
+pub const DECAY: CardDefinition = inert_curse(DECAY_ID, "Decay", "Decay", false, false);
+pub const INJURY: CardDefinition = inert_curse(INJURY_ID, "Injury", "Injury", false, false);
+pub const NORMALITY: CardDefinition =
+    inert_curse(NORMALITY_ID, "Normality", "Normality", false, false);
+pub const PAIN: CardDefinition = inert_curse(PAIN_ID, "Pain", "Pain", false, false);
+pub const PARASITE: CardDefinition = inert_curse(PARASITE_ID, "Parasite", "Parasite", false, false);
+pub const SHAME: CardDefinition = inert_curse(SHAME_ID, "Shame", "Shame", false, false);
+pub const WRITHE: CardDefinition = inert_curse(WRITHE_ID, "Writhe", "Writhe", false, true);
+
+const fn inert_curse(
+    id: ContentId,
+    key: &'static str,
+    name: &'static str,
+    ethereal: bool,
+    innate: bool,
+) -> CardDefinition {
+    CardDefinition {
+        id,
+        key,
+        name,
+        cost: 0,
+        card_type: CardType::Status,
+        target: TargetRequirement::None,
+        values: CardValues {
+            damage: None,
+            block: None,
+            vulnerable: None,
+        },
+        keywords: CardKeywords {
+            innate,
+            ethereal,
+            exhaust: false,
+            retain: false,
+            unplayable: true,
+        },
+    }
+}
 
 pub const SLIMED: CardDefinition = CardDefinition {
     id: SLIMED_ID,
@@ -3480,7 +3527,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 191] = [
+pub const ALL_CARDS: [CardDefinition; 199] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -3492,6 +3539,14 @@ pub const ALL_CARDS: [CardDefinition; 191] = [
     REGRET,
     DOUBT,
     CURSE_OF_THE_BELL,
+    CLUMSY,
+    DECAY,
+    INJURY,
+    NORMALITY,
+    PAIN,
+    PARASITE,
+    SHAME,
+    WRITHE,
     ASCENDERS_BANE,
     ETHEREAL_STRIKE,
     RETAIN_DEFEND,
@@ -3681,7 +3736,21 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
 
 #[must_use]
 pub fn is_curse_content_id(id: ContentId) -> bool {
-    matches!(id, id if id == REGRET_ID || id == DOUBT_ID || id == CURSE_OF_THE_BELL_ID || id == ASCENDERS_BANE_ID)
+    matches!(
+        id,
+        id if id == REGRET_ID
+            || id == DOUBT_ID
+            || id == CURSE_OF_THE_BELL_ID
+            || id == ASCENDERS_BANE_ID
+            || id == CLUMSY_ID
+            || id == DECAY_ID
+            || id == INJURY_ID
+            || id == NORMALITY_ID
+            || id == PAIN_ID
+            || id == PARASITE_ID
+            || id == SHAME_ID
+            || id == WRITHE_ID
+    )
 }
 
 #[must_use]
@@ -4047,7 +4116,33 @@ mod tests {
         assert!(is_curse_content_id(DOUBT_ID));
         assert!(is_curse_content_id(CURSE_OF_THE_BELL_ID));
         assert!(is_curse_content_id(ASCENDERS_BANE_ID));
+        assert!(is_curse_content_id(CLUMSY_ID));
+        assert!(is_curse_content_id(DECAY_ID));
+        assert!(is_curse_content_id(INJURY_ID));
+        assert!(is_curse_content_id(NORMALITY_ID));
+        assert!(is_curse_content_id(PAIN_ID));
+        assert!(is_curse_content_id(PARASITE_ID));
+        assert!(is_curse_content_id(SHAME_ID));
+        assert!(is_curse_content_id(WRITHE_ID));
         assert!(!is_curse_content_id(WOUND_ID));
+    }
+
+    #[test]
+    fn added_normal_curses_are_explicit_unplayable_placeholders() {
+        for curse in [
+            CLUMSY, DECAY, INJURY, NORMALITY, PAIN, PARASITE, SHAME, WRITHE,
+        ] {
+            assert_eq!(curse.card_type, CardType::Status);
+            assert_eq!(curse.target, TargetRequirement::None);
+            assert!(curse.keywords.unplayable);
+            assert!(!curse.keywords.exhaust);
+            assert!(is_curse_content_id(curse.id));
+        }
+
+        assert!(CLUMSY.keywords.ethereal);
+        assert!(WRITHE.keywords.innate);
+        assert!(!DECAY.keywords.ethereal);
+        assert!(!NORMALITY.keywords.innate);
     }
 
     #[test]

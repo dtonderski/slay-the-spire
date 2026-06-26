@@ -6346,14 +6346,15 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEEP_BREATH_ID, DEFEND_R_ID,
-        DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMMOLATE_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        BLOODLETTING_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, DECAY_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INJURY_ID, INTIMIDATE_ID,
+        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, METALLICIZE_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
+        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -6401,6 +6402,14 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Armaments" | "armaments" => Some(ARMAMENTS_ID),
         "Regret" | "regret" => Some(REGRET_ID),
         "Doubt" | "doubt" => Some(DOUBT_ID),
+        "Clumsy" | "clumsy" => Some(CLUMSY_ID),
+        "Decay" | "decay" => Some(DECAY_ID),
+        "Injury" | "injury" => Some(INJURY_ID),
+        "Normality" | "normality" => Some(NORMALITY_ID),
+        "Pain" | "pain" => Some(PAIN_ID),
+        "Parasite" | "parasite" => Some(PARASITE_ID),
+        "Shame" | "shame" => Some(SHAME_ID),
+        "Writhe" | "writhe" => Some(WRITHE_ID),
         "Offering" | "offering" => Some(OFFERING_ID),
         "Demon Form" | "demon form" => Some(DEMON_FORM_ID),
         "Barricade" | "barricade" => Some(BARRICADE_ID),
@@ -6415,16 +6424,17 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID,
-        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID,
-        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID,
+        COMBUST_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID,
+        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+        NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID,
         SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
         SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WRITHE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -6483,6 +6493,14 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == DUAL_WIELD_ID => "Dual Wield",
         id if id == REGRET_ID => "Regret",
         id if id == DOUBT_ID => "Doubt",
+        id if id == CLUMSY_ID => "Clumsy",
+        id if id == DECAY_ID => "Decay",
+        id if id == INJURY_ID => "Injury",
+        id if id == NORMALITY_ID => "Normality",
+        id if id == PAIN_ID => "Pain",
+        id if id == PARASITE_ID => "Parasite",
+        id if id == SHAME_ID => "Shame",
+        id if id == WRITHE_ID => "Writhe",
         id if id == DEMON_FORM_ID => "Demon Form",
         id if id == BARRICADE_ID => "Barricade",
         id if id == BLOODLETTING_ID => "Bloodletting",
@@ -7114,7 +7132,18 @@ mod tests {
         assert_eq!(deck_ids.len(), 11);
         assert!(matches!(
             deck_ids.last().map(String::as_str),
-            Some("Regret" | "Doubt")
+            Some(
+                "Clumsy"
+                    | "Decay"
+                    | "Doubt"
+                    | "Injury"
+                    | "Normality"
+                    | "Pain"
+                    | "Parasite"
+                    | "Regret"
+                    | "Shame"
+                    | "Writhe"
+            )
         ));
     }
 
@@ -7503,7 +7532,18 @@ mod tests {
         assert_eq!(deck_ids.len(), ironclad_starter_deck_keys().len() + 1);
         assert!(matches!(
             deck_ids.last().map(String::as_str),
-            Some("Regret" | "Doubt")
+            Some(
+                "Clumsy"
+                    | "Decay"
+                    | "Doubt"
+                    | "Injury"
+                    | "Normality"
+                    | "Pain"
+                    | "Parasite"
+                    | "Regret"
+                    | "Shame"
+                    | "Writhe"
+            )
         ));
         assert_ne!(seed_start_newest_trace_relic_name(&run), "Unknown Relic");
     }
