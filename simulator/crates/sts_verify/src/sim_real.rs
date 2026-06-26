@@ -12,7 +12,9 @@ use sts_core::content::monsters::{
     GREMLIN_NOB_ID, GUARDIAN_ID, LAGAVULIN_ID,
 };
 use sts_core::potion::Potion;
-use sts_core::run::neow::apply_neow_curse_drawback;
+use sts_core::run::neow::{
+    apply_neow_curse_drawback, generate_neow_colorless_reward_with_card_rng_counter,
+};
 use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_boss_swap,
     apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
@@ -27,9 +29,9 @@ use sts_core::{
     known_neow_screen_for_seed, leave_shop_merchant, leave_shop_room, open_neow_reward_grid,
     select_grid_card, shop_action_for_choice_index, starter_only_deck, CardId, CardInstance,
     CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice,
-    EventScreen, GeneratedNeowOption, KnownNeowBranch, MonsterId, MonsterIntent, MonsterPowers,
-    MonsterState, NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic, RelicKey,
-    RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    EventScreen, GeneratedNeowOption, GridPurpose, KnownNeowBranch, MonsterId, MonsterIntent,
+    MonsterPowers, MonsterState, NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic,
+    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -600,16 +602,16 @@ fn verify_seed_start_transitions(
             {
                 let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .expect("matched generated Neow card reward option");
-                if let Some((gold, current_hp, max_hp)) =
-                    seed_start_neow_stats_after_drawback(&option)
-                {
-                    neow_gold = gold;
-                    neow_current_hp = current_hp;
-                    neow_max_hp = max_hp;
-                }
+                let run =
+                    seed_start_apply_neow_reward_drawback(start.numeric_seed, &deck_ids, &option);
+                deck_ids = deck_content_keys(&run.deck);
+                neow_gold = run.gold;
+                neow_current_hp = run.player_hp;
+                neow_max_hp = run.player_max_hp;
                 neow_card_reward_choices = Some(seed_start_neow_card_reward_ids(
                     start.numeric_seed,
-                    option.reward,
+                    &option,
+                    Some(&run),
                 ));
                 compare_subset(
                     report,
@@ -624,7 +626,7 @@ fn verify_seed_start_transitions(
                         "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
-                        "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, option.reward),
+                        "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, &option, Some(&run)),
                         "card_reward_ids": neow_card_reward_choices.clone().unwrap_or_default(),
                         "unobservable": {
                             "card_reward_rng_draws": true,
@@ -642,6 +644,7 @@ fn verify_seed_start_transitions(
                     .expect("matched generated Neow relic reward option");
                 let run =
                     seed_start_apply_neow_relic_reward(start.numeric_seed, &deck_ids, &option);
+                deck_ids = deck_content_keys(&run.deck);
                 neow_gold = run.gold;
                 neow_current_hp = run.player_hp;
                 neow_max_hp = run.player_max_hp;
@@ -708,6 +711,20 @@ fn verify_seed_start_transitions(
                     .is_some_and(seed_start_neow_option_is_supported_boss_swap) =>
             {
                 let run = seed_start_apply_neow_boss_swap(start.numeric_seed, &deck_ids);
+                if seed_start_boss_swap_is_calling_bell_grid(&run) {
+                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow boss swap Calling Bell grid",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                    );
+                    relics = relic_ids;
+                    seed_sim = Some(run);
+                    phase = SeedStartPhase::NeowBossSwapCallingBellGrid;
+                    continue;
+                }
                 if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
                     return SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -835,6 +852,37 @@ fn verify_seed_start_transitions(
                 }
                 seed_sim = Some(next);
                 phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowBossSwapCallingBellGrid
+                if action.command.eq_ignore_ascii_case("PROCEED")
+                    || action.command.eq_ignore_ascii_case("CONFIRM") =>
+            {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason:
+                            "seed-start Calling Bell boss-swap grid without initialized run simulation"
+                                .to_owned(),
+                    };
+                };
+                let Ok(next) = confirm_grid(sim) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason: "seed-start Calling Bell boss-swap grid confirm failed".to_owned(),
+                    };
+                };
+                deck_ids = deck_content_keys(&next.deck);
+                compare_subset(
+                    report,
+                    action,
+                    "Neow boss swap Calling Bell rewards",
+                    seed_start_reward_observed_subset(&post.message),
+                    seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                );
+                seed_sim = Some(next);
+                phase = SeedStartPhase::Reward;
             }
             SeedStartPhase::NeowCardReward
                 if seed_start_pick_neow_card_reward(&neow_card_reward_choices, &action.command)
@@ -2395,6 +2443,7 @@ enum SeedStartPhase {
     NeowTransformConfirm,
     NeowGrid,
     NeowGridConfirm,
+    NeowBossSwapCallingBellGrid,
     NeowLeave,
     Map,
     Event,
@@ -3082,7 +3131,7 @@ fn seed_start_neow_option_is_supported_curse_simple(option: GeneratedNeowOption)
 }
 
 fn seed_start_neow_option_is_supported_card_reward(option: GeneratedNeowOption) -> bool {
-    seed_start_neow_drawback_is_simple(option.drawback)
+    seed_start_neow_drawback_is_supported_for_reward_screen(option.drawback)
         && matches!(
             option.reward,
             NeowRewardType::ThreeCards
@@ -3101,7 +3150,7 @@ fn seed_start_neow_option_is_supported_grid_reward(option: GeneratedNeowOption) 
 }
 
 fn seed_start_neow_option_is_supported_relic_reward(option: GeneratedNeowOption) -> bool {
-    seed_start_neow_drawback_is_simple(option.drawback)
+    seed_start_neow_drawback_is_supported_for_reward_screen(option.drawback)
         && matches!(
             option.reward,
             NeowRewardType::RandomCommonRelic | NeowRewardType::OneRareRelic
@@ -3124,6 +3173,29 @@ fn seed_start_apply_neow_curse_simple_option(
     run.relics = vec![Relic::BurningBlood];
     apply_neow_curse_drawback(&mut run);
     apply_neow_simple_reward(&mut run, option.reward);
+    run
+}
+
+fn seed_start_neow_drawback_is_supported_for_reward_screen(drawback: NeowDrawback) -> bool {
+    seed_start_neow_drawback_is_simple(drawback) || drawback == NeowDrawback::Curse
+}
+
+fn seed_start_apply_neow_reward_drawback(
+    numeric_seed: i64,
+    deck_ids: &[String],
+    option: &GeneratedNeowOption,
+) -> RunState {
+    let mut run = RunState::map_fixture();
+    run.gold = 99;
+    run.reward_rng_seed = numeric_seed as u64;
+    run.deck = deck_instances_from_keys(deck_ids);
+    match option.drawback {
+        NeowDrawback::Curse => {
+            run.relics = vec![Relic::BurningBlood];
+            apply_neow_curse_drawback(&mut run);
+        }
+        drawback => apply_neow_simple_drawback(&mut run, drawback),
+    }
     run
 }
 
@@ -3159,10 +3231,16 @@ fn seed_start_boss_swap_relic_ids(run: &RunState) -> Vec<String> {
         .collect()
 }
 
+fn seed_start_boss_swap_is_calling_bell_grid(run: &RunState) -> bool {
+    run.card_grid
+        .as_ref()
+        .is_some_and(|grid| grid.purpose == GridPurpose::CallingBellCurse)
+}
+
 fn seed_start_unsupported_boss_swap_reason(run: &RunState) -> Option<String> {
     if run.card_grid.is_some() {
         return Some(
-            "Neow boss-swap produced a grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
+            "Neow boss-swap produced a non-Calling-Bell grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
                 .to_owned(),
         );
     }
@@ -3194,17 +3272,6 @@ fn seed_start_neow_grid_label(reward: NeowRewardType) -> &'static str {
     }
 }
 
-fn seed_start_neow_stats_after_drawback(option: &GeneratedNeowOption) -> Option<(i32, i32, i32)> {
-    if !seed_start_neow_drawback_is_simple(option.drawback) {
-        return None;
-    }
-
-    let mut run = RunState::map_fixture();
-    run.gold = 99;
-    apply_neow_simple_drawback(&mut run, option.drawback);
-    Some((run.gold, run.player_hp, run.player_max_hp))
-}
-
 fn seed_start_neow_card_reward_label(reward: NeowRewardType) -> &'static str {
     match reward {
         NeowRewardType::ThreeCards => "Neow card reward choices",
@@ -3217,16 +3284,21 @@ fn seed_start_neow_card_reward_label(reward: NeowRewardType) -> &'static str {
 
 fn seed_start_neow_card_reward_choice_names(
     numeric_seed: i64,
-    reward: NeowRewardType,
+    option: &GeneratedNeowOption,
+    run: Option<&RunState>,
 ) -> Vec<String> {
-    seed_start_neow_card_reward_content_ids(numeric_seed, reward)
+    seed_start_neow_card_reward_content_ids(numeric_seed, option, run)
         .into_iter()
         .map(|content_id| content_key(content_id).to_ascii_lowercase())
         .collect()
 }
 
-fn seed_start_neow_card_reward_ids(numeric_seed: i64, reward: NeowRewardType) -> Vec<String> {
-    seed_start_neow_card_reward_content_ids(numeric_seed, reward)
+fn seed_start_neow_card_reward_ids(
+    numeric_seed: i64,
+    option: &GeneratedNeowOption,
+    run: Option<&RunState>,
+) -> Vec<String> {
+    seed_start_neow_card_reward_content_ids(numeric_seed, option, run)
         .into_iter()
         .map(|content_id| content_key(content_id).to_owned())
         .collect()
@@ -3234,13 +3306,23 @@ fn seed_start_neow_card_reward_ids(numeric_seed: i64, reward: NeowRewardType) ->
 
 fn seed_start_neow_card_reward_content_ids(
     numeric_seed: i64,
-    reward: NeowRewardType,
+    option: &GeneratedNeowOption,
+    run: Option<&RunState>,
 ) -> Vec<ContentId> {
-    match reward {
+    match option.reward {
         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
-            generate_neow_colorless_reward(numeric_seed, reward).cards
+            if let Some(run) = run {
+                generate_neow_colorless_reward_with_card_rng_counter(
+                    numeric_seed,
+                    option.reward,
+                    run.card_rng_counter,
+                )
+                .cards
+            } else {
+                generate_neow_colorless_reward(numeric_seed, option.reward).cards
+            }
         }
-        _ => generate_neow_card_reward(numeric_seed, reward).cards,
+        _ => generate_neow_card_reward(numeric_seed, option.reward).cards,
     }
 }
 
@@ -3279,7 +3361,14 @@ fn seed_start_apply_neow_relic_reward(
     run.gold = 99;
     run.relic_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
-    apply_neow_simple_drawback(&mut run, option.drawback);
+    match option.drawback {
+        NeowDrawback::Curse => {
+            run.reward_rng_seed = numeric_seed as u64;
+            run.relics = vec![Relic::BurningBlood];
+            apply_neow_curse_drawback(&mut run);
+        }
+        drawback => apply_neow_simple_drawback(&mut run, drawback),
+    }
     apply_neow_relic_reward(&mut run, option.reward);
     run
 }
@@ -6717,8 +6806,8 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_rare_relic_rejects_curse_and_non_relic_identity_branches() {
-        assert!(!seed_start_neow_option_is_supported_relic_reward(
+    fn seed_start_rare_relic_supports_curse_and_rejects_non_relic_identity_branches() {
+        assert!(seed_start_neow_option_is_supported_relic_reward(
             GeneratedNeowOption {
                 slot: 2,
                 drawback: NeowDrawback::Curse,
@@ -6848,15 +6937,113 @@ mod tests {
     fn seed_start_boss_swap_classifies_grid_opening_relics() {
         let mut run = RunState::map_fixture();
 
-        run.gain_relic(Relic::CallingBell);
+        run.gain_relic(Relic::Astrolabe);
 
         assert_eq!(
             seed_start_unsupported_boss_swap_reason(&run),
             Some(
-                "Neow boss-swap produced a grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
+                "Neow boss-swap produced a non-Calling-Bell grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
                     .to_owned()
             )
         );
+    }
+
+    #[test]
+    fn seed_start_boss_swap_calling_bell_grid_confirms_to_reward_screen() {
+        let (numeric_seed, bell_run) = (1_i64..100_000)
+            .map(|seed| {
+                (
+                    seed,
+                    seed_start_apply_neow_boss_swap(seed, &ironclad_starter_deck_keys()),
+                )
+            })
+            .find(|(_, run)| seed_start_boss_swap_is_calling_bell_grid(run))
+            .expect("synthetic seed with Calling Bell boss swap");
+        let seed_string = test_seed_string_from_long(numeric_seed);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let bell_relics: Vec<_> = seed_start_boss_swap_relic_ids(&bell_run)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let after_confirm = confirm_grid(&bell_run).expect("Calling Bell grid confirms");
+        let bell_deck: Vec<_> = deck_content_keys(&after_confirm.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 3"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": bell_relics,
+                "choice_list": ["unknown"]
+            }}}),
+            json!({"type": "action", "step": 4, "command": "PROCEED"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": bell_deck,
+                "relics": bell_relics,
+                "choice_list": ["relic"],
+                "screen_state": {
+                    "rewards": [{"reward_type": "RELIC"}]
+                }
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow boss swap Calling Bell grid"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 4 && transition.label == "Neow boss swap Calling Bell rewards"
+        }));
     }
 
     #[test]
@@ -7157,8 +7344,8 @@ mod tests {
             option.clone()
         ));
 
-        let ids = seed_start_neow_card_reward_ids(1_957_307_888_551, option.reward);
-        let names = seed_start_neow_card_reward_choice_names(1_957_307_888_551, option.reward);
+        let ids = seed_start_neow_card_reward_ids(1_957_307_888_551, &option, None);
+        let names = seed_start_neow_card_reward_choice_names(1_957_307_888_551, &option, None);
 
         assert_eq!(ids.len(), 3);
         assert_eq!(names.len(), 3);
@@ -7194,11 +7381,11 @@ mod tests {
 
         let generated = generate_neow_colorless_reward(numeric_seed, option.reward);
         assert_eq!(
-            seed_start_neow_card_reward_content_ids(numeric_seed, option.reward),
+            seed_start_neow_card_reward_content_ids(numeric_seed, &option, None),
             generated.cards
         );
         assert_eq!(
-            seed_start_neow_card_reward_ids(numeric_seed, option.reward),
+            seed_start_neow_card_reward_ids(numeric_seed, &option, None),
             generated
                 .cards
                 .iter()
@@ -7215,14 +7402,110 @@ mod tests {
         assert_eq!(
             seed_start_neow_card_reward_content_ids(
                 22_079_335_079,
-                NeowRewardType::RandomColorless
+                &GeneratedNeowOption {
+                    slot: 0,
+                    drawback: NeowDrawback::None,
+                    reward: NeowRewardType::RandomColorless,
+                    label: "choose a colorless card to obtain".to_owned(),
+                },
+                None,
             ),
             generated.cards
         );
         assert_eq!(
             seed_start_colorless_neow_card_ids(22_079_335_079),
-            seed_start_neow_card_reward_ids(22_079_335_079, NeowRewardType::RandomColorless)
+            seed_start_neow_card_reward_ids(
+                22_079_335_079,
+                &GeneratedNeowOption {
+                    slot: 0,
+                    drawback: NeowDrawback::None,
+                    reward: NeowRewardType::RandomColorless,
+                    label: "choose a colorless card to obtain".to_owned(),
+                },
+                None,
+            )
         );
+    }
+
+    #[test]
+    fn seed_start_neow_curse_rare_colorless_advances_card_rng_before_choices() {
+        let (numeric_seed, option) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.drawback == NeowDrawback::Curse
+                            && option.reward == NeowRewardType::RandomColorlessTwo
+                    })
+                    .map(|option| (seed, option))
+            })
+            .expect("synthetic seed with curse plus rare colorless");
+
+        assert!(seed_start_neow_option_is_supported_card_reward(
+            option.clone()
+        ));
+
+        let run = seed_start_apply_neow_reward_drawback(
+            numeric_seed,
+            &ironclad_starter_deck_keys(),
+            &option,
+        );
+        let shifted = seed_start_neow_card_reward_content_ids(numeric_seed, &option, Some(&run));
+        let unshifted = generate_neow_colorless_reward(numeric_seed, option.reward).cards;
+
+        assert_eq!(run.card_rng_counter, 1);
+        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len() + 1);
+        assert_ne!(shifted, unshifted);
+        assert_eq!(
+            shifted,
+            generate_neow_colorless_reward_with_card_rng_counter(
+                numeric_seed,
+                option.reward,
+                run.card_rng_counter,
+            )
+            .cards
+        );
+    }
+
+    #[test]
+    fn seed_start_neow_curse_rare_relic_carries_curse_deck_update() {
+        let (numeric_seed, option, run) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.drawback == NeowDrawback::Curse
+                            && option.reward == NeowRewardType::OneRareRelic
+                    })
+                    .and_then(|option| {
+                        let run = seed_start_apply_neow_relic_reward(
+                            seed,
+                            &ironclad_starter_deck_keys(),
+                            &option,
+                        );
+                        (seed_start_newest_trace_relic_name(&run) != "Unknown Relic")
+                            .then_some((seed, option, run))
+                    })
+            })
+            .expect("synthetic seed with curse plus mapped rare relic");
+
+        assert!(seed_start_neow_option_is_supported_relic_reward(
+            option.clone()
+        ));
+
+        let deck_ids = deck_content_keys(&run.deck);
+
+        assert_eq!(
+            seed_start_selected_neow_option(numeric_seed, &format!("CHOOSE {}", option.slot)),
+            Some(option)
+        );
+        assert_eq!(run.card_rng_counter, 1);
+        assert_eq!(deck_ids.len(), ironclad_starter_deck_keys().len() + 1);
+        assert!(matches!(
+            deck_ids.last().map(String::as_str),
+            Some("Regret" | "Doubt")
+        ));
+        assert_ne!(seed_start_newest_trace_relic_name(&run), "Unknown Relic");
     }
 
     #[test]
@@ -7586,5 +7869,18 @@ mod tests {
             combat.monsters.push(monster);
         }
         combat
+    }
+
+    fn test_seed_string_from_long(mut seed: i64) -> String {
+        const ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ";
+        if seed == 0 {
+            return "0".to_owned();
+        }
+        let mut out = Vec::new();
+        while seed > 0 {
+            out.push(ALPHABET[(seed % 35) as usize] as char);
+            seed /= 35;
+        }
+        out.iter().rev().collect()
     }
 }
