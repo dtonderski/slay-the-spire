@@ -889,6 +889,11 @@ mod tests {
         run.potion_rng_seed = 22_079_335_079;
         run.potion_rng_counter = 0;
         run.potions.push(Potion::EntropicBrew);
+        let mut expected_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let expected_potions = (0..crate::potion::MAX_POTIONS)
+            .map(|_| target_random_potion(&mut expected_rng))
+            .collect::<Vec<_>>();
 
         let after = apply_potion_action(
             &run,
@@ -900,7 +905,8 @@ mod tests {
         .expect("use entropic brew");
 
         assert_eq!(after.potions.len(), crate::potion::MAX_POTIONS);
-        assert!(after.potion_rng_counter > run.potion_rng_counter);
+        assert_eq!(after.potions, expected_potions);
+        assert_eq!(after.potion_rng_counter, expected_rng.counter());
     }
 
     #[test]
@@ -908,6 +914,9 @@ mod tests {
         let mut run = RunState::map_fixture();
         run.potion_rng_seed = 22_079_335_079;
         run.potions = vec![Potion::Fire, Potion::EntropicBrew, Potion::Block];
+        let mut expected_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let expected_refill = target_random_potion(&mut expected_rng);
 
         let after = apply_potion_action(
             &run,
@@ -921,6 +930,8 @@ mod tests {
         assert_eq!(after.potions.len(), crate::potion::MAX_POTIONS);
         assert_eq!(after.potions[0], Potion::Fire);
         assert_eq!(after.potions[1], Potion::Block);
+        assert_eq!(after.potions[2], expected_refill);
+        assert_eq!(after.potion_rng_counter, expected_rng.counter());
     }
 
     #[test]
@@ -929,6 +940,11 @@ mod tests {
         run.relics.push(crate::Relic::PotionBelt);
         run.potion_rng_seed = 22_079_335_079;
         run.potions = vec![Potion::EntropicBrew];
+        let mut expected_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let expected_potions = (0..run.potion_capacity())
+            .map(|_| target_random_potion(&mut expected_rng))
+            .collect::<Vec<_>>();
 
         let after = apply_potion_action(
             &run,
@@ -940,6 +956,8 @@ mod tests {
         .expect("use entropic brew");
 
         assert_eq!(after.potions.len(), run.potion_capacity());
+        assert_eq!(after.potions, expected_potions);
+        assert_eq!(after.potion_rng_counter, expected_rng.counter());
     }
 
     #[test]
@@ -960,6 +978,26 @@ mod tests {
 
         assert_eq!(after.potions, vec![Potion::Fire]);
         assert_eq!(after.potion_rng_counter, run.potion_rng_counter);
+    }
+
+    #[test]
+    fn entropic_brew_with_sozu_and_full_belt_only_consumes_used_slot() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(crate::Relic::Sozu);
+        run.potions = vec![Potion::Fire, Potion::EntropicBrew, Potion::Block];
+        run.potion_rng_counter = 11;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 1,
+                target: None,
+            },
+        )
+        .expect("use entropic brew");
+
+        assert_eq!(after.potions, vec![Potion::Fire, Potion::Block]);
+        assert_eq!(after.potion_rng_counter, 11);
     }
 
     #[test]
