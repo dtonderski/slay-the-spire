@@ -789,6 +789,38 @@ fn verify_seed_start_transitions(
                     phase = SeedStartPhase::NeowBossSwapPandorasBoxGrid;
                     continue;
                 }
+                if seed_start_boss_swap_is_empty_cage_grid(&run) {
+                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow boss swap Empty Cage grid",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                    );
+                    relics = relic_ids;
+                    seed_sim = Some(run);
+                    phase = SeedStartPhase::NeowBossSwapEmptyCageGrid;
+                    continue;
+                }
+                if seed_start_boss_swap_is_tiny_house_reward(&run) {
+                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow boss swap Tiny House reward",
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(&run, &post.message, &relic_ids, None),
+                    );
+                    deck_ids = deck_content_keys(&run.deck);
+                    neow_gold = run.gold;
+                    neow_current_hp = run.player_hp;
+                    neow_max_hp = run.player_max_hp;
+                    relics = relic_ids;
+                    seed_sim = Some(run);
+                    phase = SeedStartPhase::Reward;
+                    continue;
+                }
                 if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
                     return SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -946,7 +978,76 @@ fn verify_seed_start_transitions(
                     seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
                 );
                 seed_sim = Some(next);
-                phase = SeedStartPhase::Reward;
+                phase = SeedStartPhase::NeowBossSwapCallingBellReward;
+            }
+            SeedStartPhase::NeowBossSwapCallingBellReward
+                if command_choose_index(&action.command).is_some() =>
+            {
+                let Some(sim) = seed_sim.as_mut() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason:
+                            "seed-start Calling Bell boss-swap reward without initialized run simulation"
+                                .to_owned(),
+                    };
+                };
+                let label = match seed_start_apply_reward_choose(
+                    sim,
+                    &action.command,
+                    &pre.message,
+                    &post.message,
+                    &start.external_seed,
+                ) {
+                    Ok(label) => label,
+                    Err(reason) => {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_neow_boss_swap".to_owned(),
+                            reason,
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return boundary;
+                    }
+                };
+                seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
+                if seed_start_reward_sequence_complete(sim) {
+                    compare_subset(
+                        report,
+                        action,
+                        &label,
+                        seed_start_observed_subset(&post.message),
+                        json!({
+                            "screen_type": "EVENT",
+                            "ascension": start.ascension,
+                            "floor": 0,
+                            "gold": sim.gold,
+                            "current_hp": sim.player_hp,
+                            "max_hp": sim.player_max_hp,
+                            "deck_ids": deck_ids,
+                            "relic_ids": relics,
+                            "choices": ["leave"],
+                        }),
+                    );
+                    phase = SeedStartPhase::NeowLeave;
+                } else {
+                    compare_subset(
+                        report,
+                        action,
+                        &label,
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(
+                            sim,
+                            &post.message,
+                            &relics,
+                            Some(&post.message),
+                        ),
+                    );
+                }
             }
             SeedStartPhase::NeowBossSwapAstrolabeGrid
                 if command_choose_index(&action.command).is_some() =>
@@ -1025,6 +1126,86 @@ fn verify_seed_start_transitions(
                     report,
                     action,
                     "Neow boss swap Pandora's Box confirm",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
+                seed_sim = Some(next);
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowBossSwapEmptyCageGrid
+                if command_choose_index(&action.command).is_some() =>
+            {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason:
+                            "seed-start Empty Cage boss-swap grid without initialized run simulation"
+                                .to_owned(),
+                    };
+                };
+                let index = command_choose_index(&action.command).expect("matched choose command");
+                let Ok(next) = select_grid_card(sim, index) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason: "seed-start Empty Cage boss-swap grid choose failed".to_owned(),
+                    };
+                };
+                compare_subset(
+                    report,
+                    action,
+                    "Neow boss swap Empty Cage grid select",
+                    seed_start_grid_observed_subset(&post.message),
+                    seed_start_grid_simulated_subset(&next, &relics),
+                );
+                seed_sim = Some(next);
+            }
+            SeedStartPhase::NeowBossSwapEmptyCageGrid
+                if action.command.eq_ignore_ascii_case("CONFIRM") =>
+            {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason:
+                            "seed-start Empty Cage boss-swap grid without initialized run simulation"
+                                .to_owned(),
+                    };
+                };
+                let Ok(next) = confirm_grid(sim) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason: "seed-start Empty Cage boss-swap grid confirm failed".to_owned(),
+                    };
+                };
+                deck_ids = deck_content_keys(&next.deck);
+                if next.card_grid.is_some() {
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow boss swap Empty Cage grid confirm",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&next, &relics),
+                    );
+                    seed_sim = Some(next);
+                    continue;
+                }
+                compare_subset(
+                    report,
+                    action,
+                    "Neow boss swap Empty Cage confirm",
                     seed_start_observed_subset(&post.message),
                     json!({
                         "screen_type": "EVENT",
@@ -2601,8 +2782,10 @@ enum SeedStartPhase {
     NeowGrid,
     NeowGridConfirm,
     NeowBossSwapCallingBellGrid,
+    NeowBossSwapCallingBellReward,
     NeowBossSwapAstrolabeGrid,
     NeowBossSwapPandorasBoxGrid,
+    NeowBossSwapEmptyCageGrid,
     NeowLeave,
     Map,
     Event,
@@ -3405,6 +3588,16 @@ fn seed_start_boss_swap_is_pandoras_box_grid(run: &RunState) -> bool {
     run.card_grid
         .as_ref()
         .is_some_and(|grid| grid.purpose == GridPurpose::PandorasBox)
+}
+
+fn seed_start_boss_swap_is_empty_cage_grid(run: &RunState) -> bool {
+    run.card_grid
+        .as_ref()
+        .is_some_and(|grid| matches!(grid.purpose, GridPurpose::EmptyCage { .. }))
+}
+
+fn seed_start_boss_swap_is_tiny_house_reward(run: &RunState) -> bool {
+    run.relics.contains(&Relic::TinyHouse) && run.reward.is_some()
 }
 
 fn seed_start_unsupported_boss_swap_reason(run: &RunState) -> Option<String> {
@@ -4597,13 +4790,13 @@ fn seed_start_sync_carry_from_run(
     *deck_ids = deck_content_keys(&run.deck);
     for relic in &run.relics {
         let name = relic_key_trace_name(relic.key()).to_owned();
-        if !relics.contains(&name) {
+        if name != "Unknown Relic" && !relics.contains(&name) {
             relics.push(name);
         }
     }
     for key in &run.relic_keys {
         let name = relic_key_trace_name(*key).to_owned();
-        if !relics.contains(&name) {
+        if name != "Unknown Relic" && !relics.contains(&name) {
             relics.push(name);
         }
     }
@@ -4723,7 +4916,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, and Pandora's Box boss-swap grids. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and reward-screen boss-swap follow-ups remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, Pandora's Box, and Empty Cage boss-swap grids. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and reward-screen boss-swap follow-ups remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -6687,9 +6880,10 @@ fn content_key(content_id: ContentId) -> &'static str {
 
 fn deck_content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
-        FLEX_PLUS_ID, HAVOC_PLUS_ID, INFLAME_PLUS_ID, OFFERING_ID, WARCRY_PLUS_ID,
+        FLEX_PLUS_ID, HAVOC_PLUS_ID, INFLAME_PLUS_ID, OFFERING_ID, STRIKE_R_PLUS_ID, WARCRY_PLUS_ID,
     };
     match content_id {
+        id if id == STRIKE_R_PLUS_ID => "Strike_R",
         id if id == WARCRY_PLUS_ID => "Warcry",
         id if id == FLEX_PLUS_ID => "Flex",
         id if id == HAVOC_PLUS_ID => "Havoc",
@@ -7137,7 +7331,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_boss_swap_calling_bell_grid_confirms_to_reward_screen() {
+    fn seed_start_boss_swap_calling_bell_grid_rewards_are_taken_before_neow_leave() {
         let (numeric_seed, bell_run) = (1_i64..100_000)
             .map(|seed| {
                 (
@@ -7152,14 +7346,38 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let bell_relics: Vec<_> = seed_start_boss_swap_relic_ids(&bell_run)
-            .into_iter()
+        let bell_relic_names = seed_start_boss_swap_relic_ids(&bell_run);
+        let bell_relics: Vec<_> = bell_relic_names
+            .iter()
             .map(|name| json!({ "name": name }))
             .collect();
         let after_confirm = confirm_grid(&bell_run).expect("Calling Bell grid confirms");
+        let after_common =
+            apply_run_action(&after_confirm, RunAction::TakeRelicReward).expect("take common");
+        let after_uncommon =
+            apply_run_action(&after_common, RunAction::TakeRelicReward).expect("take uncommon");
+        let after_rare =
+            apply_run_action(&after_uncommon, RunAction::TakeRelicReward).expect("take rare");
         let bell_deck: Vec<_> = deck_content_keys(&after_confirm.deck)
             .into_iter()
             .map(|id| json!({ "id": id }))
+            .collect();
+        let common_relics: Vec<_> =
+            relic_ids_for_simulated_subset(&after_common, &bell_relic_names)
+                .into_iter()
+                .filter(|name| name != "Unknown Relic")
+                .map(|name| json!({ "name": name }))
+                .collect();
+        let uncommon_relics: Vec<_> =
+            relic_ids_for_simulated_subset(&after_uncommon, &bell_relic_names)
+                .into_iter()
+                .filter(|name| name != "Unknown Relic")
+                .map(|name| json!({ "name": name }))
+                .collect();
+        let rare_relics: Vec<_> = relic_ids_for_simulated_subset(&after_rare, &bell_relic_names)
+            .into_iter()
+            .filter(|name| name != "Unknown Relic")
+            .map(|name| json!({ "name": name }))
             .collect();
 
         let lines = vec![
@@ -7216,6 +7434,60 @@ mod tests {
                     "rewards": [{"reward_type": "RELIC"}]
                 }
             }}}),
+            json!({"type": "action", "step": 5, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": bell_deck,
+                "relics": common_relics,
+                "choice_list": ["relic"],
+                "screen_state": {
+                    "rewards": [{"reward_type": "RELIC"}]
+                }
+            }}}),
+            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": bell_deck,
+                "relics": uncommon_relics,
+                "choice_list": ["relic"],
+                "screen_state": {
+                    "rewards": [{"reward_type": "RELIC"}]
+                }
+            }}}),
+            json!({"type": "action", "step": 7, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 7, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": bell_deck,
+                "relics": rare_relics,
+                "choice_list": ["leave"]
+            }}}),
+            json!({"type": "action", "step": 8, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 8, "message": {"game_state": {
+                "screen_type": "MAP",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": bell_deck,
+                "relics": rare_relics,
+                "choice_list": seed_start_first_map_choices(&seed_string)
+            }}}),
         ];
         let content = lines
             .into_iter()
@@ -7232,6 +7504,18 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 4 && transition.label == "Neow boss swap Calling Bell rewards"
         }));
+        assert_eq!(
+            report
+                .verified
+                .iter()
+                .filter(|transition| transition.label == "relic reward")
+                .count(),
+            3
+        );
+        assert!(report
+            .verified
+            .iter()
+            .any(|transition| { transition.action_step == 8 && transition.label == "Neow leave" }));
     }
 
     #[test]
@@ -7468,6 +7752,160 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 4
                 && transition.label == "Neow boss swap Pandora's Box confirm"
+        }));
+    }
+
+    #[test]
+    fn seed_start_boss_swap_empty_cage_grid_removes_two_cards_to_neow_leave() {
+        let (numeric_seed, empty_cage_run) = (1_i64..100_000)
+            .map(|seed| {
+                (
+                    seed,
+                    seed_start_apply_neow_boss_swap(seed, &ironclad_starter_deck_keys()),
+                )
+            })
+            .find(|(_, run)| seed_start_boss_swap_is_empty_cage_grid(run))
+            .expect("synthetic seed with Empty Cage boss swap");
+        let seed_string = test_seed_string_from_long(numeric_seed);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let empty_cage_relics: Vec<_> = seed_start_boss_swap_relic_ids(&empty_cage_run)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let after_first_select = select_grid_card(&empty_cage_run, 0).expect("select first");
+        let after_first_confirm = confirm_grid(&after_first_select).expect("remove first");
+        let after_second_select = select_grid_card(&after_first_confirm, 0).expect("select second");
+        let after_second_confirm = confirm_grid(&after_second_select).expect("remove second");
+        let first_grid_choices: Vec<_> =
+            seed_start_grid_simulated_subset(&empty_cage_run, &["Empty Cage".to_owned()])
+                ["choices"]
+                .as_array()
+                .expect("first grid choices")
+                .clone();
+        let second_grid_choices: Vec<_> =
+            seed_start_grid_simulated_subset(&after_first_confirm, &["Empty Cage".to_owned()])
+                ["choices"]
+                .as_array()
+                .expect("second grid choices")
+                .clone();
+        let one_removed_deck: Vec<_> = deck_content_keys(&after_first_confirm.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let two_removed_deck: Vec<_> = deck_content_keys(&after_second_confirm.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+
+        assert_eq!(empty_cage_run.deck.len(), 10);
+        assert_eq!(after_first_confirm.deck.len(), 9);
+        assert_eq!(after_second_confirm.deck.len(), 8);
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 3"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": empty_cage_relics,
+                "choice_list": first_grid_choices
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": empty_cage_relics,
+                "choice_list": []
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CONFIRM"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": one_removed_deck,
+                "relics": empty_cage_relics,
+                "choice_list": second_grid_choices
+            }}}),
+            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": one_removed_deck,
+                "relics": empty_cage_relics,
+                "choice_list": []
+            }}}),
+            json!({"type": "action", "step": 7, "command": "CONFIRM"}),
+            json!({"type": "state", "step": 7, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": two_removed_deck,
+                "relics": empty_cage_relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow boss swap Empty Cage grid"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 7 && transition.label == "Neow boss swap Empty Cage confirm"
         }));
     }
 
@@ -7737,7 +8175,7 @@ mod tests {
         assert_eq!(
             deck_content_keys(&run.deck),
             vec![
-                "unknown", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
+                "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
                 "Defend_R", "Defend_R", "Bash",
             ]
         );
@@ -8064,6 +8502,154 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 3 && transition.label == "Neow boss swap"
         }));
+    }
+
+    #[test]
+    fn seed_start_boss_swap_tiny_house_reward_screen_opens_and_skips_card_reward() {
+        let (numeric_seed, tiny_house_run) = (1_i64..100_000)
+            .map(|seed| {
+                (
+                    seed,
+                    seed_start_apply_neow_boss_swap(seed, &ironclad_starter_deck_keys()),
+                )
+            })
+            .find(|(_, run)| seed_start_boss_swap_is_tiny_house_reward(run))
+            .expect("synthetic seed with Tiny House boss swap");
+        let external_seed = test_seed_string_from_long(numeric_seed);
+        let option =
+            seed_start_selected_neow_option(numeric_seed, "CHOOSE 3").expect("boss-swap slot");
+        assert_eq!(option.reward, NeowRewardType::BossRelic);
+
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let tiny_house_deck = starting_deck.clone();
+        let starting_relics = vec![json!({ "name": "Burning Blood" })];
+        let tiny_house_relics: Vec<_> = seed_start_boss_swap_relic_ids(&tiny_house_run)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let mut card_reward_run = tiny_house_run.clone();
+        card_reward_run =
+            apply_run_action(&card_reward_run, RunAction::OpenCardReward).expect("open cards");
+        let reward_cards: Vec<_> = card_reward_run
+            .reward
+            .as_ref()
+            .expect("card reward")
+            .choices
+            .iter()
+            .map(|card| {
+                json!({
+                    "id": reward_card_display_key(&card_reward_run, card.content_id),
+                    "name": reward_card_display_key(&card_reward_run, card.content_id),
+                })
+            })
+            .collect();
+        let reward_choice_names: Vec<_> = card_reward_run
+            .reward
+            .as_ref()
+            .expect("card reward")
+            .choices
+            .iter()
+            .map(|card| {
+                reward_card_display_key(&card_reward_run, card.content_id).to_ascii_lowercase()
+            })
+            .collect();
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {external_seed}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": format!("CHOOSE {}", option.slot)}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": tiny_house_run.gold,
+                "current_hp": tiny_house_run.player_hp,
+                "max_hp": tiny_house_run.player_max_hp,
+                "deck": tiny_house_deck,
+                "relics": tiny_house_relics,
+                "choice_list": ["card"],
+                "screen_state": {
+                    "rewards": [{"reward_type": "CARD"}]
+                }
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "CARD_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": tiny_house_run.gold,
+                "current_hp": tiny_house_run.player_hp,
+                "max_hp": tiny_house_run.player_max_hp,
+                "deck": tiny_house_deck,
+                "relics": tiny_house_relics,
+                "choice_list": reward_choice_names,
+                "screen_state": {
+                    "cards": reward_cards
+                }
+            }}}),
+            json!({"type": "action", "step": 5, "command": "SKIP"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": tiny_house_run.gold,
+                "current_hp": tiny_house_run.player_hp,
+                "max_hp": tiny_house_run.player_max_hp,
+                "deck": tiny_house_deck,
+                "relics": tiny_house_relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow boss swap Tiny House reward"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 4 && transition.label == "card reward"
+        }));
+        assert_eq!(
+            report
+                .seed_start
+                .expect("seed-start")
+                .first_boundary
+                .category,
+            "missing_post_reward_boundary"
+        );
     }
 
     #[test]
