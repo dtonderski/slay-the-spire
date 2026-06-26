@@ -7,7 +7,7 @@ use crate::{
     },
     content::cards::{
         get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID,
-        ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
+        APOTHEOSIS_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
         BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
         BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID,
@@ -115,6 +115,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         POWER_THROUGH_ID => power_through_queue(card_id, definition),
+        APOTHEOSIS_ID => apotheosis_queue(card_id, definition),
         ARMAMENTS_ID => armaments_queue(state, card_id, definition),
         HEADBUTT_ID => headbutt_queue(
             state,
@@ -723,6 +724,24 @@ fn armaments_queue(
     }
 
     Ok(queue)
+}
+
+fn apotheosis_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::UpgradeCombatCards,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn headbutt_queue(

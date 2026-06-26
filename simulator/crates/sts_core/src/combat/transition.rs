@@ -515,6 +515,10 @@ fn apply_internal_action(
             state.player.powers.artifact += amount;
             Ok(Vec::new())
         }
+        InternalAction::UpgradeCombatCards => {
+            upgrade_combat_cards(state);
+            Ok(Vec::new())
+        }
         InternalAction::CardExhausted { card_id } => {
             apply_on_exhaust_effects(state, card_id);
             Ok(Vec::new())
@@ -1716,6 +1720,21 @@ fn move_card(
     }
 }
 
+fn upgrade_combat_cards(state: &mut CombatState) {
+    for card in state
+        .piles
+        .hand
+        .iter_mut()
+        .chain(state.piles.draw_pile.iter_mut())
+        .chain(state.piles.discard_pile.iter_mut())
+        .chain(state.piles.exhaust_pile.iter_mut())
+    {
+        if let Some(upgraded) = upgrade_content_id(card.content_id) {
+            card.content_id = upgraded;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::card_effects::{
@@ -1726,19 +1745,19 @@ mod tests {
     use crate::card::{CardRarity, TargetRequirement};
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
-        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
-        BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
-        DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
-        DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID,
-        EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID,
-        FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID,
-        GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID,
-        OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID,
+        BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID,
+        BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
+        CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID,
+        DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
+        DISCOVERY_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID,
+        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
+        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
+        INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
+        LIMIT_BREAK_ID, MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID,
+        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID,
         REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
         SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
@@ -11609,6 +11628,90 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![ARMAMENTS_ID]
         );
+    }
+
+    #[test]
+    fn apotheosis_upgrades_all_upgradeable_combat_piles_and_exhausts() {
+        let mut state = hand_only(APOTHEOSIS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), APOTHEOSIS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_PLUS_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), POMMEL_STRIKE_ID),
+            CardInstance::new(CardId::new(31), WOUND_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(40), BATTLE_TRANCE_ID)];
+        state.piles.exhaust_pile = vec![CardInstance::new(CardId::new(50), SEEING_RED_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Apotheosis applies");
+
+        assert_eq!(next.player.energy, 1);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_PLUS_ID, STRIKE_R_PLUS_ID]
+        );
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![POMMEL_STRIKE_PLUS_ID, WOUND_ID]
+        );
+        assert_eq!(next.piles.discard_pile[0].content_id, BATTLE_TRANCE_PLUS_ID);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, SEEING_RED_PLUS_ID);
+        assert_eq!(next.piles.exhaust_pile[1].content_id, APOTHEOSIS_ID);
+    }
+
+    #[test]
+    fn apotheosis_event_log_records_upgrade_before_source_exhaust() {
+        let mut state = hand_only(APOTHEOSIS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), APOTHEOSIS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Apotheosis applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20)
+                },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::UpgradeCombatCards,
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: CardId::new(20)
+                },
+            ]
+        );
+        assert_eq!(transition.state.piles.hand[0].content_id, STRIKE_R_PLUS_ID);
     }
 
     #[test]

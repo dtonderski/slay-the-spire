@@ -194,6 +194,7 @@ pub enum InternalAction {
     GainArtifact {
         amount: i32,
     },
+    UpgradeCombatCards,
     ApplyWeak {
         target: MonsterId,
         amount: i32,

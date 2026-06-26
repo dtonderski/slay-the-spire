@@ -56,6 +56,7 @@ pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
 pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
 pub const BANDAGE_UP_ID: ContentId = ContentId::new(1_802_661_242_803_912);
+pub const APOTHEOSIS_ID: ContentId = ContentId::new(1_789_056_897_720_887);
 pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
 pub const DARK_SHACKLES_ID: ContentId = ContentId::new(18_388_408_013_683_944_583);
 pub const DEEP_BREATH_ID: ContentId = ContentId::new(57_620_194_214_716_779);
@@ -1214,6 +1215,27 @@ pub const BANDAGE_UP: CardDefinition = CardDefinition {
     key: "BANDAGE_UP",
     name: "Bandage Up",
     cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const APOTHEOSIS: CardDefinition = CardDefinition {
+    id: APOTHEOSIS_ID,
+    key: "APOTHEOSIS",
+    name: "Apotheosis",
+    cost: 2,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
     values: CardValues {
@@ -2392,7 +2414,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 129] = [
+pub const ALL_CARDS: [CardDefinition; 130] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2458,6 +2480,7 @@ pub const ALL_CARDS: [CardDefinition; 129] = [
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
     BANDAGE_UP,
+    APOTHEOSIS,
     BLIND,
     ENLIGHTENMENT,
     SWIFT_STRIKE,
@@ -2624,6 +2647,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == REAPER_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == EXHUME_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == APOTHEOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == MIND_BLAST_ID => Some((CardType::Attack, CardRarity::Uncommon)),
