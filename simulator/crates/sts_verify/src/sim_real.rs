@@ -4633,8 +4633,10 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::EmptyCage => "Empty Cage",
         RelicKey::RunicPyramid => "Runic Pyramid",
         RelicKey::CallingBell => "Calling Bell",
+        RelicKey::CoffeeDripper => "Coffee Dripper",
         RelicKey::BlackBlood => "Black Blood",
         RelicKey::MarkOfPain => "Mark of Pain",
+        RelicKey::RunicCube => "Runic Cube",
         _ => "Unknown Relic",
     }
 }
@@ -4672,8 +4674,10 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "Empty Cage" => Some(RelicKey::EmptyCage),
         "Runic Pyramid" => Some(RelicKey::RunicPyramid),
         "Calling Bell" => Some(RelicKey::CallingBell),
+        "Coffee Dripper" => Some(RelicKey::CoffeeDripper),
         "Black Blood" => Some(RelicKey::BlackBlood),
         "Mark of Pain" => Some(RelicKey::MarkOfPain),
+        "Runic Cube" => Some(RelicKey::RunicCube),
         _ => None,
     }
 }
@@ -6011,6 +6015,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         event_room_shop_chance: 3,
         event_room_treasure_chance: 2,
         wing_boots_charges: 0,
+        neow_lament_combats_remaining: 0,
         treasure_room: None,
     })
 }
@@ -6109,6 +6114,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         event_room_shop_chance: 3,
         event_room_treasure_chance: 2,
         wing_boots_charges: 0,
+        neow_lament_combats_remaining: 0,
         treasure_room: None,
     })
 }
@@ -7094,6 +7100,7 @@ fn push_sim_error(
 mod tests {
     use super::*;
     use sts_core::content::cards::{DRAMATIC_ENTRANCE_ID, DROPKICK_ID};
+    use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
 
     #[test]
     fn trace_replay_parses_unknown_exit_metadata_and_supports_empty_trace() {
@@ -7333,6 +7340,148 @@ mod tests {
         assert_eq!(relic_ids.len(), 1);
         assert!(!relic_ids.contains(&"Burning Blood".to_owned()));
         assert_ne!(relic_ids[0], "Unknown Relic");
+    }
+
+    #[test]
+    fn seed_start_boss_swap_immediate_boss_relics_route_to_neow_leave() {
+        let immediate_boss_relics: Vec<_> = IRONCLAD_BOSS_RELIC_POOL
+            .iter()
+            .copied()
+            .filter(|key| {
+                !matches!(
+                    key,
+                    RelicKey::Astrolabe
+                        | RelicKey::PandorasBox
+                        | RelicKey::EmptyCage
+                        | RelicKey::CallingBell
+                        | RelicKey::TinyHouse
+                )
+            })
+            .collect();
+        let mut covered = Vec::new();
+
+        for numeric_seed in 1_i64..2_000_000 {
+            let run = seed_start_apply_neow_boss_swap(numeric_seed, &ironclad_starter_deck_keys());
+            let Some(swapped_key) = run
+                .relics
+                .iter()
+                .map(|relic| relic.key())
+                .chain(run.relic_keys.iter().copied())
+                .find(|key| *key != RelicKey::BurningBlood)
+            else {
+                continue;
+            };
+            if !immediate_boss_relics.contains(&swapped_key)
+                || covered
+                    .iter()
+                    .any(|(covered_key, _, _)| *covered_key == swapped_key)
+            {
+                continue;
+            }
+
+            assert_eq!(seed_start_unsupported_boss_swap_reason(&run), None);
+
+            let seed_string = test_seed_string_from_long(numeric_seed);
+            let deck: Vec<_> = ironclad_starter_deck_keys()
+                .into_iter()
+                .map(|id| json!({ "id": id }))
+                .collect();
+            let post_swap_deck: Vec<_> = deck_content_keys(&run.deck)
+                .into_iter()
+                .map(|id| json!({ "id": id }))
+                .collect();
+            let swapped_relics: Vec<_> = seed_start_boss_swap_relic_ids(&run)
+                .into_iter()
+                .map(|name| json!({ "name": name }))
+                .collect();
+            let lines = vec![
+                json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+                json!({"type": "state", "step": 0, "message": {}}),
+                json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+                json!({"type": "state", "step": 1, "message": {"game_state": {
+                    "screen_type": "EVENT",
+                    "ascension_level": 0,
+                    "floor": 0,
+                    "gold": 99,
+                    "current_hp": 80,
+                    "max_hp": 80,
+                    "deck": deck,
+                    "relics": [{"name": "Burning Blood"}],
+                    "choice_list": ["talk"]
+                }}}),
+                json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+                json!({"type": "state", "step": 2, "message": {"game_state": {
+                    "screen_type": "EVENT",
+                    "ascension_level": 0,
+                    "floor": 0,
+                    "gold": 99,
+                    "current_hp": 80,
+                    "max_hp": 80,
+                    "deck": deck,
+                    "relics": [{"name": "Burning Blood"}],
+                    "choice_list": seed_start_neow_choices(numeric_seed)
+                }}}),
+                json!({"type": "action", "step": 3, "command": "CHOOSE 3"}),
+                json!({"type": "state", "step": 3, "message": {"game_state": {
+                    "screen_type": "EVENT",
+                    "ascension_level": 0,
+                    "floor": 0,
+                    "gold": 99,
+                    "current_hp": 80,
+                    "max_hp": 80,
+                    "deck": post_swap_deck,
+                    "relics": swapped_relics,
+                    "choice_list": ["leave"]
+                }}}),
+                json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+                json!({"type": "state", "step": 4, "message": {"game_state": {
+                    "screen_type": "MAP",
+                    "ascension_level": 0,
+                    "floor": 0,
+                    "gold": 99,
+                    "current_hp": 80,
+                    "max_hp": 80,
+                    "deck": post_swap_deck,
+                    "relics": swapped_relics,
+                    "choice_list": seed_start_first_map_choices(&seed_string)
+                }}}),
+            ];
+            let content = lines
+                .into_iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let report =
+                verify_seed_start_communication_mod_trace(&content).expect("seed-start verifies");
+
+            assert_eq!(report.unexpected_diffs, Vec::new());
+            assert!(
+                report
+                    .unsupported
+                    .iter()
+                    .all(|transition| transition.action_step < 3),
+                "boss-swap path produced unsupported transitions: {:?}",
+                report.unsupported
+            );
+            assert!(report.verified.iter().any(|transition| {
+                transition.action_step == 3 && transition.label == "Neow boss swap"
+            }));
+            assert!(report.verified.iter().any(|transition| {
+                transition.action_step == 4 && transition.label == "Neow leave"
+            }));
+
+            covered.push((swapped_key, numeric_seed, seed_string));
+            if covered.len() == immediate_boss_relics.len() {
+                break;
+            }
+        }
+
+        let missing: Vec<_> = immediate_boss_relics
+            .iter()
+            .copied()
+            .filter(|key| !covered.iter().any(|(covered_key, _, _)| covered_key == key))
+            .collect();
+        assert_eq!(missing, Vec::new(), "missing immediate boss relic coverage");
     }
 
     #[test]

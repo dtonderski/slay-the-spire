@@ -229,8 +229,6 @@ pub fn generate_neow_three_potions_with_rng(potion_rng: &mut StsRng) -> NeowPoti
 }
 
 pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
-    run.relics.retain(|relic| *relic != Relic::BurningBlood);
-    run.relic_keys.retain(|key| *key != RelicKey::BurningBlood);
     run.ensure_ironclad_relic_pools();
 
     let context = run.relic_spawn_context(run.current_floor, false);
@@ -239,6 +237,8 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
         .as_mut()
         .expect("relic pools initialized")
         .return_random_relic(RelicTier::Boss, &context);
+    run.relics.retain(|relic| *relic != Relic::BurningBlood);
+    run.relic_keys.retain(|key| *key != RelicKey::BurningBlood);
     if relic == RelicKey::TinyHouse && run.reward.is_none() {
         run.phase = RunPhase::Reward;
         run.reward = Some(RewardScreen {
@@ -319,6 +319,10 @@ pub fn apply_neow_simple_reward(run: &mut RunState, reward: NeowRewardType) {
         NeowRewardType::TwoFiftyGold => run.gain_gold(250),
         other => panic!("Neow reward {other:?} is not a simple immediate reward"),
     }
+}
+
+pub fn apply_neow_lament_reward(run: &mut RunState) {
+    run.neow_lament_combats_remaining = 3;
 }
 
 pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) {
@@ -860,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn boss_swap_removes_starter_relic_before_popping_boss_pool() {
+    fn boss_swap_allows_starter_upgrade_relic_then_removes_starter() {
         let mut run = RunState::map_fixture();
         run.relics = vec![Relic::BurningBlood];
         run.relic_pools = Some(RelicPoolState {
@@ -873,11 +877,9 @@ mod tests {
 
         let reward = apply_neow_boss_swap(&mut run);
 
-        assert_eq!(reward.relic, RelicKey::CoffeeDripper);
+        assert_eq!(reward.relic, RelicKey::BlackBlood);
         assert!(!run.relics.contains(&Relic::BurningBlood));
-        assert!(!run.relics.contains(&Relic::BlackBlood));
-        assert!(run.relics.contains(&Relic::CoffeeDripper));
-        assert_eq!(run.energy_per_turn, 4);
+        assert!(run.relics.contains(&Relic::BlackBlood));
     }
 
     #[test]
