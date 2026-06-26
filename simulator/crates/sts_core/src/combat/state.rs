@@ -46,6 +46,9 @@ pub struct CombatState {
     /// Awaiting player choice for Warcry, Armaments, Forethought, and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
+    /// Awaiting player choice for draw-pile search effects such as Secret Technique.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draw_select: Option<DrawSelectState>,
     /// Awaiting player choice for discard-pile effects such as Liquid Memories or Headbutt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discard_select: Option<DiscardSelectState>,
@@ -83,6 +86,20 @@ pub enum HandSelectPurpose {
     WarcryPutOnDraw,
     ArmamentsUpgrade,
     ForethoughtPutOnDraw,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DrawSelectState {
+    #[serde(default)]
+    pub purpose: DrawSelectPurpose,
+    pub source_card_id: CardId,
+    pub selected_draw_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DrawSelectPurpose {
+    #[default]
+    SecretTechniqueSkillToHand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,6 +256,7 @@ impl CombatState {
             toolbox_card_reward: None,
             discovery_card_reward: None,
             hand_select: None,
+            draw_select: None,
             discard_select: None,
             exhaust_select: None,
             duplication_potion_pending: false,

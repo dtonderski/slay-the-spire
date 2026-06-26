@@ -16,8 +16,9 @@ use crate::{
     rng::{RngStream, SimulatorRng, StsRng},
     run::potion::{
         apply_combat_card_reward_choice, apply_discard_select_choice, apply_discard_select_confirm,
-        apply_exhaust_select_choice, apply_exhaust_select_confirm, apply_hand_select_choice,
-        apply_hand_select_confirm, apply_potion_action,
+        apply_draw_select_choice, apply_draw_select_confirm, apply_exhaust_select_choice,
+        apply_exhaust_select_confirm, apply_hand_select_choice, apply_hand_select_confirm,
+        apply_potion_action,
     },
     run::shop::apply_shop_action,
     run::state::RunRngStream,
@@ -1287,6 +1288,8 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::ChooseCombatCardReward { index } => apply_combat_card_reward_choice(run, index),
         RunAction::ChooseHandSelect { index } => apply_hand_select_choice(run, index),
         RunAction::ConfirmHandSelect => apply_hand_select_confirm(run),
+        RunAction::ChooseDrawSelect { index } => apply_draw_select_choice(run, index),
+        RunAction::ConfirmDrawSelect => apply_draw_select_confirm(run),
         RunAction::ChooseDiscardSelect { index } => apply_discard_select_choice(run, index),
         RunAction::ConfirmDiscardSelect => apply_discard_select_confirm(run),
         RunAction::ChooseExhaustSelect { index } => apply_exhaust_select_choice(run, index),
@@ -1385,6 +1388,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             unreachable!("validated reward action")
         }
         RunAction::ChooseHandSelect { .. } | RunAction::ConfirmHandSelect => {
+            unreachable!("validated reward action")
+        }
+        RunAction::ChooseDrawSelect { .. } | RunAction::ConfirmDrawSelect => {
             unreachable!("validated reward action")
         }
         RunAction::ChooseDiscardSelect { .. } | RunAction::ConfirmDiscardSelect => {

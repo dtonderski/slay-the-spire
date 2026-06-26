@@ -2,9 +2,10 @@ use crate::{
     card::{CardInstance, CardType, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
-        apply_play_top_draw_card_action, choose_discard_select, choose_exhaust_select,
-        choose_hand_select, confirm_discard_select, confirm_exhaust_select, confirm_hand_select,
-        discard_select_ui_to_discard_index, exhaust_select_ui_to_hand_index,
+        apply_play_top_draw_card_action, choose_discard_select, choose_draw_select,
+        choose_exhaust_select, choose_hand_select, confirm_discard_select, confirm_draw_select,
+        confirm_exhaust_select, confirm_hand_select, discard_select_ui_to_discard_index,
+        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
         hand_select_ui_to_hand_index, open_discard_select, open_exhaust_select, player_draw_cards,
         top_draw_card_definition,
     },
@@ -84,6 +85,8 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
         }
         RunAction::ChooseHandSelect { index } => validate_hand_select_choice(run, index),
         RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
+        RunAction::ChooseDrawSelect { index } => validate_draw_select_choice(run, index),
+        RunAction::ConfirmDrawSelect => validate_draw_select_confirm(run),
         RunAction::ChooseDiscardSelect { index } => validate_discard_select_choice(run, index),
         RunAction::ConfirmDiscardSelect => validate_discard_select_confirm(run),
         RunAction::ChooseExhaustSelect { index } => validate_exhaust_select_choice(run, index),
@@ -139,6 +142,30 @@ pub fn validate_hand_select_confirm(run: &RunState) -> SimResult<()> {
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
     if hand_select.selected_hand_index.is_none() {
         return Err(SimError::IllegalAction("hand select choice is required"));
+    }
+    Ok(())
+}
+
+pub fn validate_draw_select_choice(run: &RunState, index: usize) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("draw select requires combat"))?;
+    draw_select_ui_to_draw_index(combat, index)?;
+    Ok(())
+}
+
+pub fn validate_draw_select_confirm(run: &RunState) -> SimResult<()> {
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("draw select requires combat"))?;
+    let draw_select = combat
+        .draw_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no draw select is open"))?;
+    if draw_select.selected_draw_index.is_none() {
+        return Err(SimError::IllegalAction("draw select choice is required"));
     }
     Ok(())
 }
@@ -207,6 +234,30 @@ pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
     confirm_hand_select(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+    next.combat = Some(combat);
+    Ok(next)
+}
+
+pub fn apply_draw_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
+    validate_draw_select_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    choose_draw_select(combat, index)?;
+    Ok(next)
+}
+
+pub fn apply_draw_select_confirm(run: &RunState) -> SimResult<RunState> {
+    validate_draw_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    confirm_draw_select(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
@@ -646,7 +697,9 @@ mod tests {
     use super::*;
     use crate::{
         action::CombatAction,
-        content::cards::{DEFEND_R_ID, DISCOVERY_ID, STRIKE_R_ID, WOUND_ID},
+        content::cards::{
+            DEFEND_R_ID, DISCOVERY_ID, SECRET_TECHNIQUE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, WOUND_ID,
+        },
         MapNodeId, MonsterId, Relic,
     };
 
@@ -1308,6 +1361,36 @@ mod tests {
             .expect("returned card");
         assert_eq!(returned.content_id, DEFEND_R_ID);
         assert_eq!(returned.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn draw_select_run_actions_confirm_secret_technique_choice() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![CardInstance::new(CardId::new(20), SECRET_TECHNIQUE_ID)];
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), SHRUG_IT_OFF_ID),
+        ];
+
+        let after_play = crate::run::apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("play Secret Technique");
+        let chosen =
+            crate::run::apply_run_action(&after_play, RunAction::ChooseDrawSelect { index: 0 })
+                .expect("choose draw-pile skill");
+        let after = crate::run::apply_run_action(&chosen, RunAction::ConfirmDrawSelect)
+            .expect("confirm draw select");
+        let combat = after.combat.expect("combat continues");
+
+        assert!(combat.draw_select.is_none());
+        assert_eq!(combat.piles.hand[0].content_id, SHRUG_IT_OFF_ID);
+        assert_eq!(combat.piles.exhaust_pile[0].content_id, SECRET_TECHNIQUE_ID);
     }
 
     #[test]

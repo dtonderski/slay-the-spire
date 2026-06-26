@@ -72,6 +72,7 @@ pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
 pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
+pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_713);
 pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
 pub const THINKING_AHEAD_ID: ContentId = ContentId::new(6_777_582_279_578_789_034);
 pub const TRANSMUTATION_ID: ContentId = ContentId::new(12_962_347_838_129_665_929);
@@ -1455,6 +1456,27 @@ pub const MASTER_OF_STRATEGY: CardDefinition = CardDefinition {
     },
 };
 
+pub const SECRET_TECHNIQUE: CardDefinition = CardDefinition {
+    id: SECRET_TECHNIQUE_ID,
+    key: "SECRET_TECHNIQUE",
+    name: "Secret Technique",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const THE_BOMB: CardDefinition = CardDefinition {
     id: THE_BOMB_ID,
     key: "THE_BOMB",
@@ -2272,7 +2294,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 123] = [
+pub const ALL_CARDS: [CardDefinition; 124] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2354,6 +2376,7 @@ pub const ALL_CARDS: [CardDefinition; 123] = [
     JACK_OF_ALL_TRADES,
     MADNESS,
     MASTER_OF_STRATEGY,
+    SECRET_TECHNIQUE,
     THE_BOMB,
     THINKING_AHEAD,
     TRANSMUTATION,
@@ -2509,6 +2532,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == SECRET_TECHNIQUE_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THE_BOMB_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THINKING_AHEAD_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == TRANSMUTATION_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -2895,6 +2919,28 @@ mod tests {
         assert!(MASTER_OF_STRATEGY.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(MASTER_OF_STRATEGY_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn secret_technique_has_expected_values_keywords_and_rarity() {
+        assert_eq!(SECRET_TECHNIQUE.id, SECRET_TECHNIQUE_ID);
+        assert_eq!(SECRET_TECHNIQUE.cost, 0);
+        assert_eq!(SECRET_TECHNIQUE.target, TargetRequirement::None);
+        assert_eq!(SECRET_TECHNIQUE.card_type, CardType::Skill);
+        assert_eq!(
+            SECRET_TECHNIQUE.keywords,
+            CardKeywords {
+                innate: false,
+                ethereal: false,
+                exhaust: true,
+                retain: false,
+                unplayable: false,
+            }
+        );
+        assert_eq!(
+            card_type_and_rarity(SECRET_TECHNIQUE_ID),
             Some((CardType::Skill, CardRarity::Rare))
         );
     }
