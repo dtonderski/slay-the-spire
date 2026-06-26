@@ -191,6 +191,51 @@ fn apply_internal_action(
             }
             Ok(Vec::new())
         }
+        InternalAction::DealDamageRandomEnemy { source, amount } => {
+            if let Some(target) = first_living_monster_id(state) {
+                let player_powers = state.player.powers;
+                let temp_strength = state.player.temp_strength;
+                let relics = state.relics.clone();
+                let (spikes, still_alive) = {
+                    let monster = living_monster_mut(state, target)?;
+                    let spikes = monster.powers.spikes;
+                    let damage = deal_damage_info_to_monster_with_result(
+                        monster,
+                        DamageInfo {
+                            source: DamageSource::Card(source),
+                            target,
+                            amount,
+                        },
+                        player_powers,
+                        temp_strength,
+                        &relics,
+                    );
+                    if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
+                        crate::relic::apply_monster_vulnerable_with_relics(
+                            &mut monster.powers,
+                            &relics,
+                            crate::relic::HAND_DRILL_VULNERABLE,
+                        );
+                    }
+                    wake_lagavulin_on_damage(monster, damage.hp_damage);
+                    guardian_on_hp_damage(monster, damage.hp_damage);
+                    (spikes, monster.alive)
+                };
+                check_slime_boss_split(state, target);
+                if !still_alive {
+                    crate::relic::apply_monster_death_relics(state);
+                }
+                if still_alive && spikes > 0 {
+                    let hp_before = state.player.hp;
+                    reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                    crate::combat::hp_loss::apply_player_hp_loss_hooks(
+                        state,
+                        hp_before - state.player.hp,
+                    );
+                }
+            }
+            Ok(Vec::new())
+        }
         InternalAction::DealFeedDamage { info, max_hp_gain } => {
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
@@ -1539,9 +1584,9 @@ mod tests {
         RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -9226,6 +9271,128 @@ mod tests {
     }
 
     #[test]
+    fn sword_boomerang_has_expected_base_definition_and_rarity() {
+        let definition =
+            get_card_definition(SWORD_BOOMERANG_ID).expect("Sword Boomerang definition exists");
+
+        assert_eq!(definition.cost, 1);
+        assert_eq!(definition.card_type, CardType::Attack);
+        assert_eq!(definition.target, crate::TargetRequirement::None);
+        assert_eq!(definition.values.damage, Some(3));
+        assert_eq!(
+            crate::content::cards::card_type_and_rarity(SWORD_BOOMERANG_ID),
+            Some((CardType::Attack, crate::card::CardRarity::Common))
+        );
+    }
+
+    #[test]
+    fn sword_boomerang_deals_three_hits_to_local_random_target() {
+        let state = hand_only(SWORD_BOOMERANG_ID);
+
+        let next = apply_combat_action(&state, sword_boomerang_action(&state))
+            .expect("Sword Boomerang applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, SWORD_BOOMERANG_ID);
+    }
+
+    #[test]
+    fn sword_boomerang_rejects_target() {
+        let state = hand_only(SWORD_BOOMERANG_ID);
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn sword_boomerang_is_listed_as_no_target_legal_action() {
+        let state = hand_only(SWORD_BOOMERANG_ID);
+
+        assert!(
+            crate::combat::legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn sword_boomerang_uses_lowest_living_monster_as_local_random_target() {
+        let mut state = two_monster_hand(SWORD_BOOMERANG_ID);
+        state.monsters[0].alive = false;
+        state.monsters[0].hp = 0;
+        state.monsters[1].hp = 20;
+
+        let next = apply_combat_action(&state, sword_boomerang_action(&state))
+            .expect("Sword Boomerang applies");
+
+        assert_eq!(next.monsters[0].hp, 0);
+        assert_eq!(next.monsters[1].hp, 11);
+    }
+
+    #[test]
+    fn sword_boomerang_retargets_after_local_random_hit_kills_target() {
+        let mut state = two_monster_hand(SWORD_BOOMERANG_ID);
+        state.monsters[0].hp = 3;
+        state.monsters[1].hp = 20;
+
+        let next = apply_combat_action(&state, sword_boomerang_action(&state))
+            .expect("Sword Boomerang applies");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.monsters[0].hp, 0);
+        assert_eq!(next.monsters[1].hp, 14);
+    }
+
+    #[test]
+    fn sword_boomerang_event_log_records_three_damage_hits_then_discard() {
+        let state = hand_only(SWORD_BOOMERANG_ID);
+
+        let transition = apply_combat_action_with_events(&state, sword_boomerang_action(&state))
+            .expect("Sword Boomerang applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::DealDamageRandomEnemy {
+                    source: CardId::new(20),
+                    amount: 3,
+                },
+                InternalAction::DealDamageRandomEnemy {
+                    source: CardId::new(20),
+                    amount: 3,
+                },
+                InternalAction::DealDamageRandomEnemy {
+                    source: CardId::new(20),
+                    amount: 3,
+                },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn fire_breathing_grants_power_spends_one_and_is_removed_from_hand() {
         let state = hand_only(FIRE_BREATHING_ID);
 
@@ -12079,6 +12246,13 @@ mod tests {
     fn double_tap_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DOUBLE_TAP_ID),
+            target: None,
+        }
+    }
+
+    fn sword_boomerang_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, SWORD_BOOMERANG_ID),
             target: None,
         }
     }

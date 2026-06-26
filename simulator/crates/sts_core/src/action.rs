@@ -43,6 +43,10 @@ pub enum InternalAction {
     DealDamage {
         info: DamageInfo,
     },
+    DealDamageRandomEnemy {
+        source: CardId,
+        amount: i32,
+    },
     DealFeedDamage {
         info: DamageInfo,
         max_hp_gain: i32,
