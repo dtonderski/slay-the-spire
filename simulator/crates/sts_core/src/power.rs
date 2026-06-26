@@ -60,6 +60,8 @@ pub struct MonsterPowers {
     pub vulnerable: i32,
     pub weak: i32,
     pub strength: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub artifact: i32,
     pub ritual: i32,
     pub spikes: i32,
     pub curl_up: i32,
@@ -141,6 +143,18 @@ pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) {
     apply_player_debuff(powers, |powers| powers.dexterity -= amount);
 }
 
+pub fn apply_monster_weak(powers: &mut MonsterPowers, amount: i32) -> bool {
+    apply_monster_debuff(powers, amount, |powers, amount| powers.weak += amount)
+}
+
+pub fn apply_monster_vulnerable(powers: &mut MonsterPowers, amount: i32) -> bool {
+    apply_monster_debuff(powers, amount, |powers, amount| powers.vulnerable += amount)
+}
+
+pub fn reduce_monster_strength(powers: &mut MonsterPowers, amount: i32) -> bool {
+    apply_monster_debuff(powers, amount, |powers, amount| powers.strength -= amount)
+}
+
 pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
     if powers.strength < 0 {
         powers.strength = 0;
@@ -158,6 +172,24 @@ fn apply_player_debuff(powers: &mut PlayerPowers, apply: impl FnOnce(&mut Player
         powers.artifact -= 1;
     } else {
         apply(powers);
+    }
+}
+
+fn apply_monster_debuff(
+    powers: &mut MonsterPowers,
+    amount: i32,
+    apply: impl FnOnce(&mut MonsterPowers, i32),
+) -> bool {
+    if amount <= 0 {
+        return false;
+    }
+
+    if powers.artifact > 0 {
+        powers.artifact -= 1;
+        false
+    } else {
+        apply(powers, amount);
+        true
     }
 }
 
@@ -284,6 +316,21 @@ mod tests {
 
         apply_player_weak(&mut powers, 2);
         apply_player_vulnerable(&mut powers, 3);
+
+        assert_eq!(powers.artifact, 0);
+        assert_eq!(powers.weak, 0);
+        assert_eq!(powers.vulnerable, 3);
+    }
+
+    #[test]
+    fn artifact_blocks_one_monster_debuff() {
+        let mut powers = MonsterPowers {
+            artifact: 1,
+            ..Default::default()
+        };
+
+        assert!(!apply_monster_weak(&mut powers, 2));
+        assert!(apply_monster_vulnerable(&mut powers, 3));
 
         assert_eq!(powers.artifact, 0);
         assert_eq!(powers.weak, 0);

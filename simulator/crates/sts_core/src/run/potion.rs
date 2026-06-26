@@ -23,6 +23,7 @@ use crate::{
         REGEN_POTION_REGEN, SNECKO_OIL_DRAW, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
         SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
+    power::apply_monster_weak,
     rng::{RngStream, SimulatorRng, StsRng},
     run::reward::{apply_dead_branch_for_exhaust_count, target_random_potion},
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -454,7 +455,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         .iter_mut()
                         .find(|monster| monster.id == target)
                         .expect("validated potion target");
-                    monster.powers.weak += FEAR_POTION_WEAK * multiplier;
+                    apply_monster_weak(&mut monster.powers, FEAR_POTION_WEAK * multiplier);
                 }
                 Potion::Blood => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -604,7 +605,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         .iter_mut()
                         .find(|monster| monster.id == target)
                         .expect("validated potion target");
-                    monster.powers.weak += WEAK_POTION_WEAK * multiplier;
+                    apply_monster_weak(&mut monster.powers, WEAK_POTION_WEAK * multiplier);
                 }
                 Potion::FruitJuice => {
                     let max_hp = FRUIT_JUICE_MAX_HP * multiplier;
@@ -1010,6 +1011,29 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.monsters[0].powers.weak, FEAR_POTION_WEAK);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn fear_potion_consumes_monster_artifact_instead_of_applying_weak() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Fear);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.monsters[0].powers.artifact = 1;
+        let monster_id = combat.monsters[0].id;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(monster_id),
+            },
+        )
+        .expect("use fear potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.monsters[0].powers.artifact, 0);
+        assert_eq!(combat.monsters[0].powers.weak, 0);
         assert!(after.potions.is_empty());
     }
 
@@ -1808,6 +1832,29 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.monsters[0].powers.weak, WEAK_POTION_WEAK);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn weak_potion_consumes_monster_artifact_instead_of_applying_weak() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Weak);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.monsters[0].powers.artifact = 1;
+        let monster_id = combat.monsters[0].id;
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(monster_id),
+            },
+        )
+        .expect("use weak potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.monsters[0].powers.artifact, 0);
+        assert_eq!(combat.monsters[0].powers.weak, 0);
         assert!(after.potions.is_empty());
     }
 
