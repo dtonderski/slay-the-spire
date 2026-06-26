@@ -69,6 +69,7 @@ pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
+pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
@@ -1383,6 +1384,27 @@ pub const PANACEA: CardDefinition = CardDefinition {
     },
 };
 
+pub const MADNESS: CardDefinition = CardDefinition {
+    id: MADNESS_ID,
+    key: "MADNESS",
+    name: "Madness",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const JACK_OF_ALL_TRADES: CardDefinition = CardDefinition {
     id: JACK_OF_ALL_TRADES_ID,
     key: "JACK_OF_ALL_TRADES",
@@ -2122,7 +2144,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 116] = [
+pub const ALL_CARDS: [CardDefinition; 117] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2201,6 +2223,7 @@ pub const ALL_CARDS: [CardDefinition; 116] = [
     TRIP,
     IMPATIENCE,
     JACK_OF_ALL_TRADES,
+    MADNESS,
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
@@ -2349,6 +2372,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         _ => None,
     }
 }
@@ -2691,6 +2715,19 @@ mod tests {
         assert_eq!(TRIP.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(TRIP_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn madness_has_expected_values_keywords_and_rarity() {
+        assert_eq!(MADNESS.id, MADNESS_ID);
+        assert_eq!(MADNESS.cost, 1);
+        assert_eq!(MADNESS.target, TargetRequirement::None);
+        assert_eq!(MADNESS.card_type, CardType::Skill);
+        assert!(MADNESS.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(MADNESS_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }

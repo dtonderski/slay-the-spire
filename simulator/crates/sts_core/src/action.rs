@@ -108,6 +108,9 @@ pub enum InternalAction {
     GainRage {
         amount: i32,
     },
+    SetRandomHandCardCostForCombat {
+        amount: u8,
+    },
     IncreaseRampageDamage {
         card_id: CardId,
         amount: i32,
