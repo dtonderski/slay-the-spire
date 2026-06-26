@@ -6910,6 +6910,38 @@ mod tests {
     }
 
     #[test]
+    fn panic_button_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(PANIC_BUTTON_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(901));
+        let mut expected_rng = crate::rng::StsRng::new(901);
+        let spoon_proc = expected_rng.random_bool();
+        let panic_button_id = hand_card_id(&state, PANIC_BUTTON_ID);
+
+        let next =
+            apply_combat_action(&state, panic_button_action(&state)).expect("Panic Button applies");
+
+        assert_eq!(next.player.block, 30);
+        assert_eq!(next.player.no_block_turns, 2);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == panic_button_id));
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile[0].id, panic_button_id);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[0].id, panic_button_id);
+        }
+    }
+
+    #[test]
     fn duplication_potion_duplicates_panic_button_block_before_prevention() {
         let mut state = hand_only(PANIC_BUTTON_ID);
         state.duplication_potion_pending = true;
