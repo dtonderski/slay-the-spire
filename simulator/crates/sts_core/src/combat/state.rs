@@ -86,6 +86,7 @@ pub enum HandSelectPurpose {
     WarcryPutOnDraw,
     ArmamentsUpgrade,
     ForethoughtPutOnDraw,
+    ThinkingAheadPutOnDraw,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
