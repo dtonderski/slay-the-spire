@@ -7759,6 +7759,23 @@ mod tests {
     }
 
     #[test]
+    fn mind_blast_counts_combat_only_cards_in_current_local_piles() {
+        let mut state = hand_only(MIND_BLAST_ID);
+        state.piles.hand.push(CardInstance::combat_generated(
+            CardId::new(30),
+            SWIFT_STRIKE_ID,
+            0,
+        ));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), STRIKE_R_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(32), DEFEND_R_ID)];
+
+        let next =
+            apply_combat_action(&state, mind_blast_action(&state)).expect("Mind Blast applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 4);
+    }
+
+    #[test]
     fn mind_blast_event_log_records_pile_count_damage_then_discard() {
         let mut state = hand_only(MIND_BLAST_ID);
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
