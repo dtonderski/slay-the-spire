@@ -15,8 +15,8 @@ use crate::content::cards::{
     RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID,
     SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
     SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_ID, THINKING_AHEAD_ID, THUNDERCLAP_ID,
-    TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID,
-    WILD_STRIKE_ID,
+    TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, VIOLENCE_ID, WARCRY_ID,
+    WHIRLWIND_ID, WILD_STRIKE_ID,
 };
 use crate::content::reward_pool::ironclad_reward_card_rarity;
 use crate::rng::StsRng;
@@ -269,6 +269,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "THE_BOMB" => THE_BOMB_ID,
         "THINKING_AHEAD" => THINKING_AHEAD_ID,
         "TRANSMUTATION" => TRANSMUTATION_ID,
+        "VIOLENCE" => VIOLENCE_ID,
         other => ContentId::new(600 + stable_pool_name_id(other)),
     }
 }
@@ -493,7 +494,7 @@ mod tests {
         BANDAGE_UP_ID, BLIND_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DISCOVERY_ID, ENLIGHTENMENT_ID,
         FLASH_OF_STEEL_ID, FORETHOUGHT_ID, GOOD_INSTINCTS_ID, IMPATIENCE_ID, JACK_OF_ALL_TRADES_ID,
         MASTER_OF_STRATEGY_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, PANACEA_ID, SECRET_TECHNIQUE_ID,
-        SWIFT_STRIKE_ID, THE_BOMB_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID,
+        SWIFT_STRIKE_ID, THE_BOMB_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, VIOLENCE_ID,
     };
 
     #[test]
@@ -704,5 +705,13 @@ mod tests {
             shop_card_price_rarity(SECRET_TECHNIQUE_ID),
             CardRarity::Rare
         );
+    }
+
+    #[test]
+    fn violence_pool_key_maps_to_concrete_colorless_rare_skill() {
+        assert_eq!(shop_card_content_id("VIOLENCE"), VIOLENCE_ID);
+        assert!(shop_card_is_colorless(VIOLENCE_ID));
+        assert_eq!(shop_card_type(VIOLENCE_ID), Some(CardType::Skill));
+        assert_eq!(shop_card_price_rarity(VIOLENCE_ID), CardRarity::Rare);
     }
 }
