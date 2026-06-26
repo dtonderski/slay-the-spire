@@ -18,13 +18,13 @@ use sts_core::{
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
     enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    initialize_combat_piles_with_relics, known_neow_colorless_reward_for_seed,
-    known_neow_screen_for_seed, known_neow_transformed_card, leave_shop_merchant, leave_shop_room,
-    select_grid_card, shop_action_for_choice_index, starter_only_deck, CardId, CardInstance,
-    CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice,
-    EventScreen, KnownNeowBranch, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
-    PlayerPowers, PlayerState, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
-    RunPhase, RunState, ShopPick, StsRng,
+    generate_neow_options, initialize_combat_piles_with_relics,
+    known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
+    leave_shop_merchant, leave_shop_room, select_grid_card, shop_action_for_choice_index,
+    starter_only_deck, CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState,
+    ContentId, Event, EventAction, EventChoice, EventScreen, KnownNeowBranch, MonsterId,
+    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, Relic, RelicKey,
+    RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -379,7 +379,7 @@ fn verify_seed_start_transitions(
                         "max_hp": 80,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
-                        "choices": seed_start_neow_choices(&start.external_seed),
+                        "choices": seed_start_neow_choices(start.numeric_seed),
                     }),
                 );
                 report.unsupported.push(UnsupportedTransition {
@@ -2694,8 +2694,11 @@ fn seed_start_deck_after_transform(seed: &str) -> Vec<String> {
     deck
 }
 
-fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
-    known_neow_screen_for_seed(seed).options
+fn seed_start_neow_choices(numeric_seed: i64) -> Vec<String> {
+    generate_neow_options(numeric_seed, 80)
+        .into_iter()
+        .map(|option| option.label)
+        .collect()
 }
 
 fn seed_start_is_colorless_neow_branch(seed: &str) -> bool {
