@@ -4783,9 +4783,10 @@ fn unsupported_seed_start_combat_command(combat: &CombatState, command: &str) ->
     let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
     let card = combat.piles.hand.get(index)?;
     let key = content_key(card.content_id);
-    if card.content_id == SWORD_BOOMERANG_ID {
+    if card.content_id == SWORD_BOOMERANG_ID && living_monster_count(combat) > 1 {
         return Some(
-            "Sword Boomerang random target parity is unsupported in seed-start combat".to_owned(),
+            "Sword Boomerang multi-enemy random target parity is unsupported in seed-start combat"
+                .to_owned(),
         );
     }
     if key != "unknown" {
@@ -4795,6 +4796,14 @@ fn unsupported_seed_start_combat_command(combat: &CombatState, command: &str) ->
         "card at hand index {} is not mapped in the verifier, so this combat command is unsupported",
         index + 1
     ))
+}
+
+fn living_monster_count(combat: &CombatState) -> usize {
+    combat
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .count()
 }
 
 fn run_from_observed_combat(message: &Value) -> Option<RunState> {
@@ -5982,6 +5991,25 @@ mod tests {
     }
 
     #[test]
+    fn seed_start_allows_sword_boomerang_with_one_living_enemy() {
+        let combat = sword_boomerang_combat(1);
+
+        assert_eq!(
+            unsupported_seed_start_combat_command(&combat, "PLAY 1"),
+            None
+        );
+    }
+
+    #[test]
+    fn seed_start_keeps_multi_enemy_sword_boomerang_unsupported() {
+        let combat = sword_boomerang_combat(2);
+        let reason = unsupported_seed_start_combat_command(&combat, "PLAY 1")
+            .expect("multi-enemy Sword Boomerang remains unsupported");
+
+        assert!(reason.contains("multi-enemy random target parity"));
+    }
+
+    #[test]
     fn observed_combat_subset_uses_first_living_monster() {
         let message = json!({
             "game_state": {
@@ -6111,5 +6139,16 @@ mod tests {
             report.unsupported
         );
         assert!(report.unexpected_diffs.is_empty());
+    }
+
+    fn sword_boomerang_combat(living_monsters: usize) -> CombatState {
+        let mut combat = CombatState::initial_fixture();
+        combat.piles.hand = vec![CardInstance::new(CardId::new(1), SWORD_BOOMERANG_ID)];
+        while combat.monsters.len() < living_monsters {
+            let mut monster = combat.monsters[0].clone();
+            monster.id = MonsterId::new(combat.monsters.len() as u64 + 1);
+            combat.monsters.push(monster);
+        }
+        combat
     }
 }
