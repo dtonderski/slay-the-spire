@@ -1453,6 +1453,11 @@ pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimRes
     {
         exhaust_select.selected_hand_indices.remove(position);
     } else {
+        if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3
+            && exhaust_select.selected_hand_indices.len() >= 3
+        {
+            return Err(SimError::IllegalAction("Purity can select at most 3 cards"));
+        }
         exhaust_select.selected_hand_indices.push(pile_index);
         exhaust_select.selected_hand_indices.sort_unstable();
     }
@@ -1466,6 +1471,20 @@ pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> 
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
     if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
         return exhumable_ui_to_exhaust_index(state, ui_index);
+    }
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
+        let source_card_id = exhaust_select
+            .source_card_id
+            .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+        return state
+            .piles
+            .hand
+            .iter()
+            .enumerate()
+            .filter(|(_, card)| card.id != source_card_id)
+            .map(|(index, _)| index)
+            .nth(ui_index)
+            .ok_or(SimError::IllegalAction("exhaust select index out of range"));
     }
     if ui_index >= state.piles.hand.len() {
         return Err(SimError::IllegalAction("exhaust select index out of range"));
@@ -1484,6 +1503,9 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
         return confirm_exhume_select(state, exhaust_select);
     }
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
+        return confirm_purity_select(state, exhaust_select);
+    }
     let mut selected = exhaust_select.selected_hand_indices;
     selected.sort_unstable();
     selected.dedup();
@@ -1496,6 +1518,38 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
         state.piles.exhaust_pile.push(card);
         apply_on_exhaust_effects(state, card_id);
     }
+    Ok(())
+}
+
+fn confirm_purity_select(
+    state: &mut CombatState,
+    exhaust_select: crate::combat::ExhaustSelectState,
+) -> SimResult<()> {
+    let source_card_id = exhaust_select
+        .source_card_id
+        .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+    let mut selected = exhaust_select.selected_hand_indices;
+    selected.sort_unstable();
+    selected.dedup();
+    if selected.len() > 3 {
+        return Err(SimError::IllegalAction("Purity can select at most 3 cards"));
+    }
+    for index in selected.into_iter().rev() {
+        let card = state
+            .piles
+            .hand
+            .get(index)
+            .copied()
+            .ok_or(SimError::IllegalAction("exhaust select index out of range"))?;
+        if card.id == source_card_id {
+            return Err(SimError::IllegalAction("Purity cannot select itself"));
+        }
+        state.piles.hand.remove(index);
+        state.piles.exhaust_pile.push(card);
+        apply_on_exhaust_effects(state, card.id);
+    }
+    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+    apply_on_exhaust_effects(state, source_card_id);
     Ok(())
 }
 
@@ -1685,8 +1739,8 @@ mod tests {
         INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
         MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID,
         OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
         SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
         SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
@@ -10047,6 +10101,149 @@ mod tests {
     }
 
     #[test]
+    fn purity_with_no_other_hand_cards_exhausts_source_without_select() {
+        let state = hand_only(PURITY_ID);
+
+        let next = apply_combat_action(&state, purity_action(&state)).expect("Purity applies");
+
+        assert!(next.exhaust_select.is_none());
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![PURITY_ID]
+        );
+        assert_eq!(next.player.energy, 3);
+    }
+
+    #[test]
+    fn purity_opens_exhaust_select_for_other_hand_cards_and_skips_source() {
+        let mut state = hand_only(PURITY_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(19), DEFEND_R_ID),
+            CardInstance::new(CardId::new(20), PURITY_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let next = apply_combat_action(&state, purity_action(&state)).expect("Purity opens select");
+
+        assert_eq!(next.player.energy, 3);
+        assert_eq!(
+            next.exhaust_select.as_ref().map(|select| select.purpose),
+            Some(crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3)
+        );
+        assert_eq!(exhaust_select_ui_to_hand_index(&next, 0), Ok(0));
+        assert_eq!(exhaust_select_ui_to_hand_index(&next, 1), Ok(2));
+        assert_eq!(
+            exhaust_select_ui_to_hand_index(&next, 2),
+            Err(SimError::IllegalAction("exhaust select index out of range"))
+        );
+    }
+
+    #[test]
+    fn purity_confirm_can_select_zero_and_exhausts_source() {
+        let mut state = hand_only(PURITY_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), STRIKE_R_ID));
+
+        let mut next =
+            apply_combat_action(&state, purity_action(&state)).expect("Purity opens select");
+        confirm_exhaust_select(&mut next).expect("confirm Purity select");
+
+        assert!(next.exhaust_select.is_none());
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID]
+        );
+        assert_eq!(next.piles.exhaust_pile[0].content_id, PURITY_ID);
+    }
+
+    #[test]
+    fn purity_confirm_exhausts_up_to_three_selected_cards_and_source() {
+        let mut state = hand_only(PURITY_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), PURITY_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+            CardInstance::new(CardId::new(23), BATTLE_TRANCE_ID),
+            CardInstance::new(CardId::new(24), ANGER_ID),
+        ];
+
+        let mut next =
+            apply_combat_action(&state, purity_action(&state)).expect("Purity opens select");
+        choose_exhaust_select(&mut next, 0).expect("choose Defend");
+        choose_exhaust_select(&mut next, 1).expect("choose Strike");
+        choose_exhaust_select(&mut next, 2).expect("choose Battle Trance");
+        confirm_exhaust_select(&mut next).expect("confirm Purity select");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![ANGER_ID]
+        );
+        for content_id in [PURITY_ID, DEFEND_R_ID, STRIKE_R_ID, BATTLE_TRANCE_ID] {
+            assert!(next
+                .piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == content_id));
+        }
+    }
+
+    #[test]
+    fn purity_rejects_more_than_three_selected_cards() {
+        let mut state = hand_only(PURITY_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), PURITY_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+            CardInstance::new(CardId::new(23), BATTLE_TRANCE_ID),
+            CardInstance::new(CardId::new(24), ANGER_ID),
+        ];
+
+        let mut next =
+            apply_combat_action(&state, purity_action(&state)).expect("Purity opens select");
+        choose_exhaust_select(&mut next, 0).expect("choose Defend");
+        choose_exhaust_select(&mut next, 1).expect("choose Strike");
+        choose_exhaust_select(&mut next, 2).expect("choose Battle Trance");
+
+        assert_eq!(
+            choose_exhaust_select(&mut next, 3),
+            Err(SimError::IllegalAction("Purity can select at most 3 cards"))
+        );
+    }
+
+    #[test]
+    fn purity_exhaust_hooks_apply_to_selected_cards_and_source() {
+        let mut state = hand_only(PURITY_ID);
+        state.player.powers.feel_no_pain = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), PURITY_ID),
+            CardInstance::new(CardId::new(21), SENTINEL_ID),
+        ];
+
+        let mut next =
+            apply_combat_action(&state, purity_action(&state)).expect("Purity opens select");
+        choose_exhaust_select(&mut next, 0).expect("choose Sentinel");
+        confirm_exhaust_select(&mut next).expect("confirm Purity select");
+
+        assert_eq!(next.player.energy, 5);
+        assert_eq!(next.player.block, 6);
+    }
+
+    #[test]
     fn card_exhausted_event_log_records_on_exhaust_hook() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -12312,6 +12509,13 @@ mod tests {
     fn panacea_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, PANACEA_ID),
+            target: None,
+        }
+    }
+
+    fn purity_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, PURITY_ID),
             target: None,
         }
     }

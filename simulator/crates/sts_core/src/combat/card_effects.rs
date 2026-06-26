@@ -20,14 +20,15 @@ use crate::{
         IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID,
         MASTER_OF_STRATEGY_ID, MAYHEM_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID,
         OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
-        RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
-        SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE,
-        THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THE_BOMB_DAMAGE, THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THUNDERCLAP_ID,
+        TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID,
+        VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
+        WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -174,6 +175,7 @@ pub(super) fn play_card_queue(
         PANACEA_ID => panacea_queue(card_id, definition),
         PANACHE_ID => panache_queue(card_id, definition),
         FORETHOUGHT_ID => forethought_queue(state, card_id, definition),
+        PURITY_ID => purity_queue(state, card_id),
         FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
         DARK_EMBRACE_ID => dark_embrace_queue(card_id),
         COMBUST_ID => combust_queue(card_id),
@@ -1852,6 +1854,26 @@ fn exhume_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<Inte
             purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
         },
     ]))
+}
+
+fn purity_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+    ]);
+    if state.piles.hand.iter().any(|card| card.id != card_id) {
+        queue.push_back(InternalAction::AwaitExhaustSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3,
+        });
+    } else {
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        });
+    }
+    Ok(queue)
 }
 
 fn has_exhumable_card(state: &CombatState) -> bool {
