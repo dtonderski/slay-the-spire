@@ -854,11 +854,17 @@ fn test_seed_start_m29_m290001_sentries_prefix_zero_diffs() {
         "unexpected diffs: {:?}",
         report.unexpected_diffs
     );
+    assert_eq!(
+        report.verified.len(),
+        225,
+        "the cleaned M29 Sentries trace should verify every retained action"
+    );
 
     let seed_start = report.seed_start.expect("seed-start details");
     assert!(seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "M290001");
     assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_126);
+    assert_eq!(seed_start.first_boundary.path, "$.actions");
     assert_eq!(
         seed_start.first_boundary.category,
         "missing_post_reward_boundary"
