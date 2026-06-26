@@ -78,6 +78,7 @@ pub const SADISTIC_NATURE_ID: ContentId = ContentId::new(16_049_541_496_988_266_
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
+pub const JACK_OF_ALL_TRADES_PLUS_ID: ContentId = ContentId::new(13_737_426_385_707_302_254);
 pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
 pub const MAYHEM_ID: ContentId = ContentId::new(2_267_196_899);
@@ -1788,6 +1789,27 @@ pub const PANIC_BUTTON: CardDefinition = CardDefinition {
     },
 };
 
+pub const JACK_OF_ALL_TRADES_PLUS: CardDefinition = CardDefinition {
+    id: JACK_OF_ALL_TRADES_PLUS_ID,
+    key: "JACK_OF_ALL_TRADES+",
+    name: "Jack Of All Trades+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const MAGNETISM: CardDefinition = CardDefinition {
     id: MAGNETISM_ID,
     key: "MAGNETISM",
@@ -2506,7 +2528,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 135] = [
+pub const ALL_CARDS: [CardDefinition; 136] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2595,6 +2617,7 @@ pub const ALL_CARDS: [CardDefinition; 135] = [
     IMPATIENCE,
     CHRYSALIS,
     JACK_OF_ALL_TRADES,
+    JACK_OF_ALL_TRADES_PLUS,
     MADNESS,
     MASTER_OF_STRATEGY,
     SECRET_TECHNIQUE,
@@ -2763,6 +2786,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CHRYSALIS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == JACK_OF_ALL_TRADES_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SECRET_TECHNIQUE_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -2795,6 +2819,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         WARCRY_ID => Some(WARCRY_PLUS_ID),
         DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
         SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
+        JACK_OF_ALL_TRADES_ID => Some(JACK_OF_ALL_TRADES_PLUS_ID),
         _ => None,
     }
 }
@@ -3838,6 +3863,22 @@ mod tests {
         assert!(JACK_OF_ALL_TRADES.keywords.exhaust);
         assert_eq!(
             card_type_and_rarity(JACK_OF_ALL_TRADES_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn jack_of_all_trades_plus_is_upgrade_with_same_cost_and_exhaust() {
+        assert_eq!(
+            upgrade_content_id(JACK_OF_ALL_TRADES_ID),
+            Some(JACK_OF_ALL_TRADES_PLUS_ID)
+        );
+        assert_eq!(JACK_OF_ALL_TRADES_PLUS.cost, 0);
+        assert_eq!(JACK_OF_ALL_TRADES_PLUS.target, TargetRequirement::None);
+        assert_eq!(JACK_OF_ALL_TRADES_PLUS.card_type, CardType::Skill);
+        assert!(JACK_OF_ALL_TRADES_PLUS.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(JACK_OF_ALL_TRADES_PLUS_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }

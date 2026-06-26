@@ -95,6 +95,10 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) {
 }
 
 fn apply_start_of_turn_magnetism(state: &mut CombatState) {
+    if state.monsters.iter().all(|monster| !monster.alive) {
+        return;
+    }
+
     for _ in 0..state.player.powers.magnetism.max(0) {
         let content_id = crate::combat::card_effects::magnetism_generated_colorless_card(state);
         let next_id = crate::CardId::new(state.piles.max_card_instance_id() + 1);
@@ -702,6 +706,25 @@ mod tests {
             .iter()
             .all(|card| modeled_pool.contains(&card.content_id)));
         assert!(state.piles.hand.iter().all(|card| card.combat_only));
+    }
+
+    #[test]
+    fn magnetism_skips_generation_when_all_monsters_are_dead() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.magnetism = 1;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        state.monsters[0].alive = false;
+        let starting_card_rng_counter = state.card_random_rng.as_ref().expect("card rng").counter();
+
+        start_player_turn(&mut state);
+
+        assert!(state.piles.hand.is_empty());
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            starting_card_rng_counter
+        );
     }
 
     #[test]
