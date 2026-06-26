@@ -16,7 +16,7 @@ use crate::{
     potion::{Potion, IRONCLAD_POTION_POOL},
     relic::{Relic, RelicKey, RelicTier},
     rng::StsRng,
-    run::state::{RunRngStream, RunState},
+    run::state::{RewardScreen, RunPhase, RunRngStream, RunState},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -239,6 +239,22 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
         .as_mut()
         .expect("relic pools initialized")
         .return_random_relic(RelicTier::Boss, &context);
+    if relic == RelicKey::TinyHouse && run.reward.is_none() {
+        run.phase = RunPhase::Reward;
+        run.reward = Some(RewardScreen {
+            choices: Vec::new(),
+            gold_offer: 0,
+            potion_offer: None,
+            relic_offer: None,
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
+            card_reward_active: false,
+            card_reward_pending: false,
+            pending_card_reward_count: 0,
+        });
+    }
     run.gain_relic_key(relic);
 
     NeowBossSwapReward {
@@ -876,6 +892,43 @@ mod tests {
         assert_eq!(run.relic_rng_counter, 5);
         assert!(!run.relics.contains(&Relic::BurningBlood));
         assert!(run.relics.iter().any(|relic| relic.key() == reward.relic));
+    }
+
+    #[test]
+    fn boss_swap_tiny_house_opens_reward_screen_before_pickup_bundle() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood];
+        run.relic_pools = Some(RelicPoolState {
+            common: Vec::new(),
+            uncommon: Vec::new(),
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: vec![RelicKey::TinyHouse],
+        });
+        run.gold = 99;
+        run.player_hp = 60;
+        run.misc_rng_seed = 1_218_623;
+
+        let reward = apply_neow_boss_swap(&mut run);
+
+        assert_eq!(reward.relic, RelicKey::TinyHouse);
+        assert!(!run.relics.contains(&Relic::BurningBlood));
+        assert!(run.relics.contains(&Relic::TinyHouse));
+        assert_eq!(run.phase, RunPhase::Reward);
+        assert_eq!(run.player_max_hp, 85);
+        assert_eq!(run.player_hp, 72);
+        assert_eq!(run.gold, 149);
+        assert_eq!(
+            run.reward
+                .as_ref()
+                .expect("tiny house reward")
+                .pending_card_reward_count(),
+            1
+        );
+        assert!(run
+            .deck
+            .iter()
+            .any(|card| card.content_id == crate::content::cards::STRIKE_R_PLUS_ID));
     }
 
     #[test]
