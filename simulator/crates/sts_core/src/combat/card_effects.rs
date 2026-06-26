@@ -2627,7 +2627,7 @@ fn thinking_ahead_queue(
         InternalAction::DrawCards { count: 2 },
         InternalAction::AwaitHandSelect {
             source_card_id: card_id,
-            purpose: HandSelectPurpose::WarcryPutOnDraw,
+            purpose: HandSelectPurpose::ThinkingAheadPutOnDraw,
         },
     ]))
 }

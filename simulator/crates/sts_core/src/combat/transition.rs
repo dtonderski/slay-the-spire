@@ -1255,7 +1255,7 @@ fn hand_select_allows_card(
     }
 
     match hand_select.purpose {
-        HandSelectPurpose::WarcryPutOnDraw => true,
+        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => true,
         HandSelectPurpose::ArmamentsUpgrade => upgrade_content_id(card.content_id).is_some(),
         HandSelectPurpose::ForethoughtPutOnDraw => true,
     }
@@ -1272,6 +1272,9 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw => {
             confirm_warcry_select(state, hand_select.source_card_id, index)
+        }
+        HandSelectPurpose::ThinkingAheadPutOnDraw => {
+            confirm_thinking_ahead_select(state, hand_select.source_card_id, index)
         }
         HandSelectPurpose::ArmamentsUpgrade => {
             confirm_armaments_select(state, hand_select.source_card_id, index)
@@ -1446,6 +1449,58 @@ fn confirm_warcry_select(
         state.piles.discard_pile.push(source);
     }
     Ok(())
+}
+
+fn confirm_thinking_ahead_select(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    index: usize,
+) -> SimResult<()> {
+    let put_back = state.piles.hand[index].id;
+    let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
+    state.piles.draw_pile.push(card);
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)
+}
+
+fn move_delayed_played_source_with_strange_spoon(
+    state: &mut CombatState,
+    source_card_id: CardId,
+) -> SimResult<()> {
+    let source = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == source_card_id)
+        .copied()
+        .ok_or(SimError::IllegalAction(
+            "delayed source card is not in hand",
+        ))?;
+    let definition = get_card_definition(source.content_id)
+        .ok_or(SimError::UnknownContent(source.content_id))?;
+    let destination = if definition.keywords.exhaust {
+        delayed_source_exhaust_destination(state)
+    } else {
+        CardPile::DiscardPile
+    };
+    move_card(state, source_card_id, CardPile::Hand, destination)?;
+    if destination == CardPile::ExhaustPile {
+        apply_on_exhaust_effects(state, source_card_id);
+    }
+    Ok(())
+}
+
+fn delayed_source_exhaust_destination(state: &mut CombatState) -> CardPile {
+    if !state.relics.contains(&Relic::StrangeSpoon) {
+        return CardPile::ExhaustPile;
+    }
+    let Some(rng) = state.card_random_rng.as_mut() else {
+        return CardPile::ExhaustPile;
+    };
+    if rng.random_bool() {
+        CardPile::DiscardPile
+    } else {
+        CardPile::ExhaustPile
+    }
 }
 
 fn confirm_armaments_select(
@@ -12653,7 +12708,11 @@ mod tests {
         )
         .expect("Thinking Ahead opens hand select");
 
-        assert!(after_play.hand_select.is_some());
+        assert_eq!(
+            after_play.hand_select.as_ref().map(|select| select.purpose),
+            Some(HandSelectPurpose::ThinkingAheadPutOnDraw)
+        );
+        assert_eq!(hand_select_ui_to_hand_index(&after_play, 0), Ok(1));
         choose_hand_select(&mut after_play, 0).expect("choose Defend");
         confirm_hand_select(&mut after_play).expect("confirm Thinking Ahead select");
 
@@ -12670,6 +12729,57 @@ mod tests {
         );
         assert!(after_play.piles.discard_pile.is_empty());
         assert!(after_play.hand_select.is_none());
+    }
+
+    #[test]
+    fn thinking_ahead_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(THINKING_AHEAD_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), THINKING_AHEAD_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Thinking Ahead opens hand select");
+        choose_hand_select(&mut after_play, 0).expect("choose Defend");
+        confirm_hand_select(&mut after_play).expect("confirm Thinking Ahead select");
+
+        assert_eq!(
+            after_play
+                .card_random_rng
+                .as_ref()
+                .expect("card rng")
+                .counter(),
+            expected_rng.counter()
+        );
+        assert_eq!(
+            after_play.piles.draw_pile.last().unwrap().content_id,
+            DEFEND_R_ID
+        );
+        if spoon_proc {
+            assert!(after_play.piles.exhaust_pile.is_empty());
+            assert_eq!(
+                after_play.piles.discard_pile[0].content_id,
+                THINKING_AHEAD_ID
+            );
+        } else {
+            assert!(after_play.piles.discard_pile.is_empty());
+            assert_eq!(
+                after_play.piles.exhaust_pile[0].content_id,
+                THINKING_AHEAD_ID
+            );
+        }
     }
 
     #[test]
