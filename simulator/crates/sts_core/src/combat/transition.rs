@@ -144,10 +144,10 @@ fn apply_internal_action(
                 .ok_or(SimError::UnknownContent(card.content_id))?;
             apply_enrage_on_card_type(state, definition.card_type);
             apply_rage_on_card_type(state, definition.card_type);
-            Ok(crate::relic::apply_on_card_play_relics(
-                state,
-                definition.card_type,
-            ))
+            let mut follow_ups =
+                crate::relic::apply_on_card_play_relics(state, definition.card_type);
+            follow_ups.extend(apply_on_card_play_powers(state));
+            Ok(follow_ups)
         }
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;
@@ -464,6 +464,10 @@ fn apply_internal_action(
             state.player.powers.mayhem += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainPanache { amount } => {
+            state.player.powers.panache += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainCombust { amount } => {
             state.player.powers.combust += amount;
             Ok(Vec::new())
@@ -590,6 +594,29 @@ fn apply_rupture_after_hp_loss(state: &mut CombatState, source: HpLossSource, ac
     }
 
     state.player.powers.strength += state.player.powers.rupture;
+}
+
+fn apply_on_card_play_powers(state: &mut CombatState) -> Vec<InternalAction> {
+    if state.player.powers.panache <= 0 {
+        return Vec::new();
+    }
+
+    state.player.powers.panache_cards_played += 1;
+    if state.player.powers.panache_cards_played < 5 {
+        return Vec::new();
+    }
+
+    state.player.powers.panache_cards_played = 0;
+    let amount = state.player.powers.panache;
+    state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| InternalAction::DealUnmodifiedDamage {
+            target: monster.id,
+            amount,
+        })
+        .collect()
 }
 
 fn deal_attack_damage_to_all_living(
@@ -1629,14 +1656,14 @@ mod tests {
         IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
         MADNESS_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID,
-        OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
+        SECRET_TECHNIQUE_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THINKING_AHEAD_ID,
+        TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -9119,6 +9146,88 @@ mod tests {
     }
 
     #[test]
+    fn panache_grants_power_and_is_removed_from_hand() {
+        let mut state = hand_only(PANACHE_ID);
+        state.player.energy = 0;
+
+        let next = apply_combat_action(&state, panache_action(&state)).expect("Panache applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.panache, 10);
+        assert_eq!(next.player.powers.panache_cards_played, 0);
+        assert!(next.piles.hand.is_empty());
+        assert!(next.piles.discard_pile.is_empty());
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn panache_does_not_damage_before_fifth_card_played() {
+        let mut state = hand_only(DEFEND_R_ID);
+        state.player.powers.panache = 10;
+        state.player.powers.panache_cards_played = 3;
+        let starting_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.monsters[0].hp, starting_hp);
+        assert_eq!(next.player.powers.panache_cards_played, 4);
+    }
+
+    #[test]
+    fn panache_deals_damage_to_all_living_enemies_every_fifth_card_played() {
+        let mut state = hand_only(DEFEND_R_ID);
+        state.player.powers.panache = 10;
+        state.player.powers.panache_cards_played = 4;
+        let mut second_monster = state.monsters[0].clone();
+        second_monster.id = MonsterId::new(2);
+        second_monster.hp = 25;
+        state.monsters.push(second_monster);
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 10);
+        assert_eq!(next.monsters[1].hp, 15);
+        assert_eq!(next.player.powers.panache_cards_played, 0);
+    }
+
+    #[test]
+    fn panache_stacks_damage_amount() {
+        let mut state = hand_only(DEFEND_R_ID);
+        state.player.powers.panache = 20;
+        state.player.powers.panache_cards_played = 4;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 20);
+        assert_eq!(next.player.powers.panache_cards_played, 0);
+    }
+
+    #[test]
+    fn panache_event_log_records_power_gain_and_removal() {
+        let state = hand_only(PANACHE_ID);
+
+        let transition = apply_combat_action_with_events(&state, panache_action(&state))
+            .expect("Panache applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainPanache { amount: 10 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn brutality_loses_hp_and_draws_before_normal_refill_at_start_of_later_player_turn() {
         let mut state = hand_only(BRUTALITY_ID);
         state.player.hp = 40;
@@ -12404,6 +12513,13 @@ mod tests {
     fn brutality_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, BRUTALITY_ID),
+            target: None,
+        }
+    }
+
+    fn panache_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, PANACHE_ID),
             target: None,
         }
     }
