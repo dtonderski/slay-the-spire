@@ -1,7 +1,7 @@
 use super::card_effects;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
-    card::{CardRarity, CardType},
+    card::CardType,
     combat::{
         apply_burning_blood,
         damage::{
@@ -26,9 +26,7 @@ use crate::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
         wake_lagavulin_on_damage,
     },
-    content::shop_pool::{
-        colorless_pool_for_rarity, random_colorless_from_pool, shop_card_content_id,
-    },
+    content::shop_pool::colorless_discovery_pool,
     ids::{CardId, ContentId, MonsterId},
     power::calculate_block,
     relic::Relic,
@@ -399,9 +397,9 @@ fn apply_internal_action(
             add_generated_card_to_pile(state, content_id, to, temp_cost);
             Ok(Vec::new())
         }
-        InternalAction::AddRandomColorlessCardToHand { rarity } => {
-            let content_id = random_colorless_card(state, rarity);
-            add_generated_card_to_pile(state, content_id, CardPile::Hand, None);
+        InternalAction::AddRandomColorlessCardToHand { temp_cost } => {
+            let content_id = random_colorless_card(state);
+            add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost);
             Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
@@ -899,13 +897,13 @@ fn add_generated_card_to_pile(
     push_card_to_pile(state, card, to);
 }
 
-fn random_colorless_card(state: &mut CombatState, rarity: CardRarity) -> ContentId {
+fn random_colorless_card(state: &mut CombatState) -> ContentId {
+    let pool = colorless_discovery_pool();
     if let Some(rng) = state.card_random_rng.as_mut() {
-        return random_colorless_from_pool(rng, rarity);
+        let idx = rng.random_int((pool.len() - 1) as i32) as usize;
+        return pool[idx];
     }
-
-    let pool = colorless_pool_for_rarity(rarity);
-    shop_card_content_id(pool[0])
+    pool[0]
 }
 
 fn push_card_to_pile(state: &mut CombatState, card: CardInstance, to: CardPile) {
@@ -2995,18 +2993,14 @@ mod tests {
     }
 
     #[test]
-    fn transmutation_adds_x_random_colorless_rare_cards_to_hand_and_exhausts_source() {
+    fn transmutation_adds_x_zero_cost_random_colorless_cards_to_hand_and_exhausts_source() {
         let mut state = hand_only(TRANSMUTATION_ID);
         state.player.energy = 2;
         state.card_random_rng = Some(crate::rng::StsRng::new(123));
         let mut expected_rng = crate::rng::StsRng::new(123);
-        let rare_pool = colorless_pool_for_rarity(CardRarity::Rare);
+        let pool = colorless_discovery_pool();
         let expected = (0..2)
-            .map(|_| {
-                shop_card_content_id(
-                    rare_pool[expected_rng.random_int((rare_pool.len() - 1) as i32) as usize],
-                )
-            })
+            .map(|_| pool[expected_rng.random_int((pool.len() - 1) as i32) as usize])
             .collect::<Vec<_>>();
 
         let next = apply_combat_action(&state, transmutation_action(&state))
@@ -3036,7 +3030,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             expected
         );
-        assert!(generated.iter().all(|card| card.temp_cost.is_none()));
+        assert!(generated.iter().all(|card| card.temp_cost == Some(0)));
     }
 
     #[test]
@@ -3065,10 +3059,10 @@ mod tests {
     }
 
     #[test]
-    fn transmutation_without_card_random_rng_uses_deterministic_rare_fallback() {
+    fn transmutation_without_card_random_rng_uses_deterministic_colorless_fallback() {
         let mut state = hand_only(TRANSMUTATION_ID);
         state.player.energy = 1;
-        let expected = shop_card_content_id(colorless_pool_for_rarity(CardRarity::Rare)[0]);
+        let expected = colorless_discovery_pool()[0];
 
         let next = apply_combat_action(&state, transmutation_action(&state))
             .expect("Transmutation applies");
@@ -3081,7 +3075,7 @@ mod tests {
             .find(|card| card.combat_only)
             .expect("generated colorless card");
         assert_eq!(generated.content_id, expected);
-        assert_eq!(generated.temp_cost, None);
+        assert_eq!(generated.temp_cost, Some(0));
     }
 
     #[test]
@@ -3098,9 +3092,7 @@ mod tests {
             vec![
                 InternalAction::PlayCard { card_id },
                 InternalAction::SpendEnergy { amount: 1 },
-                InternalAction::AddRandomColorlessCardToHand {
-                    rarity: CardRarity::Rare,
-                },
+                InternalAction::AddRandomColorlessCardToHand { temp_cost: Some(0) },
                 InternalAction::MoveCard {
                     card_id,
                     from: CardPile::Hand,
