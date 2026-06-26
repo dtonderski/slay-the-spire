@@ -72,6 +72,7 @@ pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const PANACHE_ID: ContentId = ContentId::new(72_935_227_636);
 pub const PURITY_ID: ContentId = ContentId::new(2_371_347_673);
+pub const SADISTIC_NATURE_ID: ContentId = ContentId::new(16_049_541_496_988_266_320);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
@@ -1749,6 +1750,21 @@ pub const CHRYSALIS: CardDefinition = CardDefinition {
     },
 };
 
+pub const SADISTIC_NATURE: CardDefinition = CardDefinition {
+    id: SADISTIC_NATURE_ID,
+    key: "SADISTIC_NATURE",
+    name: "Sadistic Nature",
+    cost: 0,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(5),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const TRIP: CardDefinition = CardDefinition {
     id: TRIP_ID,
     key: "TRIP",
@@ -2452,7 +2468,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 132] = [
+pub const ALL_CARDS: [CardDefinition; 133] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2534,6 +2550,7 @@ pub const ALL_CARDS: [CardDefinition; 132] = [
     PANACEA,
     PANACHE,
     PURITY,
+    SADISTIC_NATURE,
     TRIP,
     IMPATIENCE,
     CHRYSALIS,
@@ -2699,6 +2716,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACHE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == PURITY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SADISTIC_NATURE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CHRYSALIS_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -3069,6 +3087,21 @@ mod tests {
             card_type_and_rarity(CHRYSALIS_ID),
             Some((CardType::Skill, CardRarity::Rare))
         );
+    }
+
+    #[test]
+    fn sadistic_nature_has_expected_values_and_rarity() {
+        assert_eq!(SADISTIC_NATURE.id, SADISTIC_NATURE_ID);
+        assert_eq!(SADISTIC_NATURE.cost, 0);
+        assert_eq!(SADISTIC_NATURE.target, TargetRequirement::None);
+        assert_eq!(SADISTIC_NATURE.card_type, CardType::Power);
+        assert_eq!(SADISTIC_NATURE.values.damage, Some(5));
+        assert_eq!(SADISTIC_NATURE.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(SADISTIC_NATURE_ID),
+            Some((CardType::Power, CardRarity::Rare))
+        );
+        assert_eq!(upgrade_content_id(SADISTIC_NATURE_ID), None);
     }
 
     #[test]

@@ -324,13 +324,16 @@ fn apply_internal_action(
         }
         InternalAction::ApplyVulnerable { target, amount } => {
             let relics = state.relics.clone();
+            let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
                 crate::relic::apply_monster_vulnerable_with_relics(
                     &mut monster.powers,
                     &relics,
                     amount,
                 );
+                applied = amount > 0;
             }
+            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
         }
         InternalAction::ApplyPlayerVulnerable { amount } => {
@@ -338,22 +341,31 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::ApplyWeak { target, amount } => {
+            let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
                 monster.powers.weak += amount;
+                applied = amount > 0;
             }
+            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
         }
         InternalAction::ReduceMonsterStrength { target, amount } => {
+            let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
                 monster.powers.strength -= amount;
+                applied = amount > 0;
             }
+            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
         }
         InternalAction::ReduceMonsterStrengthThisTurn { target, amount } => {
+            let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
                 monster.powers.strength -= amount;
                 monster.temp_strength_down += amount;
+                applied = amount > 0;
             }
+            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
         }
         InternalAction::MoveCard { card_id, from, to } => {
@@ -482,6 +494,10 @@ fn apply_internal_action(
         }
         InternalAction::GainCorruption { amount } => {
             state.player.powers.corruption += amount;
+            Ok(Vec::new())
+        }
+        InternalAction::GainSadisticNature { amount } => {
+            state.player.powers.sadistic_nature += amount;
             Ok(Vec::new())
         }
         InternalAction::ArmTheBomb { turns, damage } => {
@@ -696,6 +712,18 @@ fn deal_unmodified_damage_to_living_monster(
         crate::relic::apply_monster_death_relics(state);
     }
     Ok(())
+}
+
+fn apply_sadistic_nature_after_monster_debuff(
+    state: &mut CombatState,
+    target: MonsterId,
+    applied: bool,
+) -> SimResult<()> {
+    if !applied || state.player.powers.sadistic_nature <= 0 {
+        return Ok(());
+    }
+
+    deal_unmodified_damage_to_living_monster(state, target, state.player.powers.sadistic_nature)
 }
 
 fn juggernaut_follow_up_for_positive_block_gain(
@@ -1769,12 +1797,12 @@ mod tests {
         METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
         PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -9438,6 +9466,103 @@ mod tests {
     }
 
     #[test]
+    fn sadistic_nature_grants_power_spends_zero_and_is_removed_from_hand() {
+        let mut state = hand_only(SADISTIC_NATURE_ID);
+        state.player.energy = 0;
+
+        let next = apply_combat_action(&state, sadistic_nature_action(&state))
+            .expect("Sadistic Nature applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.sadistic_nature, 5);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn sadistic_nature_event_log_records_power_gain_and_removal() {
+        let state = hand_only(SADISTIC_NATURE_ID);
+
+        let transition = apply_combat_action_with_events(&state, sadistic_nature_action(&state))
+            .expect("Sadistic Nature applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainSadisticNature { amount: 5 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn sadistic_nature_triggers_for_weak_vulnerable_and_strength_down_actions() {
+        let mut state = hand_only(SHOCKWAVE_ID);
+        state.player.powers.sadistic_nature = 5;
+        state.player.energy = 2;
+        let monster_hp = state.monsters[0].hp;
+
+        let next =
+            apply_combat_action(&state, shockwave_action(&state)).expect("Shockwave applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 3);
+        assert_eq!(next.monsters[0].powers.vulnerable, 3);
+        assert_eq!(next.monsters[0].powers.strength, -3);
+        assert_eq!(next.monsters[0].hp, monster_hp - 15);
+    }
+
+    #[test]
+    fn sadistic_nature_triggers_for_temporary_strength_down() {
+        let mut state = hand_only(DARK_SHACKLES_ID);
+        state.player.powers.sadistic_nature = 5;
+        let monster_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(&state, dark_shackles_action(&state))
+            .expect("Dark Shackles applies");
+
+        assert_eq!(next.monsters[0].powers.strength, -9);
+        assert_eq!(next.monsters[0].temp_strength_down, 9);
+        assert_eq!(next.monsters[0].hp, monster_hp - 5);
+    }
+
+    #[test]
+    fn sadistic_nature_triggers_per_living_enemy_debuffed() {
+        let mut state = two_monster_hand(BLIND_ID);
+        state.player.powers.sadistic_nature = 5;
+        let first_hp = state.monsters[0].hp;
+        let second_hp = state.monsters[1].hp;
+
+        let next = apply_combat_action(&state, blind_action(&state)).expect("Blind applies");
+
+        assert_eq!(next.monsters[0].powers.weak, 2);
+        assert_eq!(next.monsters[1].powers.weak, 2);
+        assert_eq!(next.monsters[0].hp, first_hp - 5);
+        assert_eq!(next.monsters[1].hp, second_hp - 5);
+    }
+
+    #[test]
     fn brutality_grants_power_and_is_removed_from_hand() {
         let mut state = hand_only(BRUTALITY_ID);
         state.player.energy = 0;
@@ -13128,6 +13253,13 @@ mod tests {
     fn juggernaut_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, JUGGERNAUT_ID),
+            target: None,
+        }
+    }
+
+    fn sadistic_nature_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, SADISTIC_NATURE_ID),
             target: None,
         }
     }

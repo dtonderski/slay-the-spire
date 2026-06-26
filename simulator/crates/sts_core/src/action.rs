@@ -171,6 +171,9 @@ pub enum InternalAction {
     GainCorruption {
         amount: i32,
     },
+    GainSadisticNature {
+        amount: i32,
+    },
     ArmTheBomb {
         turns: i32,
         damage: i32,
