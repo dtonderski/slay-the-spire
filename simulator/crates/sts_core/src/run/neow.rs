@@ -7,8 +7,9 @@
 use crate::{
     card::CardRarity,
     content::{
-        cards::{DOUBT_ID, REGRET_ID},
-        reward_pool::{ironclad_transform_card_content_id, IRONCLAD_REWARD_ENTRIES},
+        reward_pool::{
+            ironclad_transform_card_content_id, random_normal_curse, IRONCLAD_REWARD_ENTRIES,
+        },
         shop_pool::random_colorless_from_pool,
     },
     ids::ContentId,
@@ -551,11 +552,7 @@ fn neow_random_potion(potion_rng: &mut StsRng) -> Potion {
 }
 
 fn neow_modeled_random_curse(card_rng: &mut StsRng) -> ContentId {
-    // Local boundary: only normal curses with implemented deck/combat behavior are in this
-    // temporary pool. Full target curse pool/order is still a separate parity blocker.
-    const MODELED_NEOW_CURSES: &[ContentId] = &[REGRET_ID, DOUBT_ID];
-    let pick = card_rng.random_int((MODELED_NEOW_CURSES.len() - 1) as i32) as usize;
-    MODELED_NEOW_CURSES[pick]
+    random_normal_curse(card_rng)
 }
 
 pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
@@ -656,6 +653,7 @@ mod tests {
         is_curse_content_id, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID,
         SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
+    use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
     use crate::run::GridPurpose;
 
@@ -1045,7 +1043,7 @@ mod tests {
         let drawback = apply_neow_curse_drawback(&mut run);
 
         assert!(is_curse_content_id(drawback.curse));
-        assert!(drawback.curse == REGRET_ID || drawback.curse == DOUBT_ID);
+        assert!(NORMAL_CURSE_POOL.contains(&drawback.curse));
         assert_eq!(drawback.card_rng_counter, 6);
         assert_eq!(run.card_rng_counter, 6);
         assert_eq!(run.card_random_rng_counter, 11);

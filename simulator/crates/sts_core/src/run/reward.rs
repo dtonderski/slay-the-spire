@@ -2,10 +2,12 @@ use crate::{
     card::{CardInstance, CardRarity},
     combat::{apply_combat_action_with_events, CombatPhase},
     content::cards::{
-        get_card_definition, upgrade_content_id, ANGER_ID, CLEAVE_ID, DOUBT_ID, FEED_ID, REAPER_ID,
-        REGRET_ID, SHRUG_IT_OFF_ID,
+        get_card_definition, upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID,
+        SHRUG_IT_OFF_ID,
     },
-    content::reward_pool::{ironclad_reward_card_rarity, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
+    content::reward_pool::{
+        ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
+    },
     content::shop_pool::shop_card_content_id,
     ids::{CardId, ContentId},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
@@ -1089,11 +1091,10 @@ fn apply_cursed_key_chest_curse(run: &mut RunState) {
         return;
     }
 
-    let modeled_curses = [REGRET_ID, DOUBT_ID];
     let mut rng = run.card_random_rng();
-    let index = rng.random_int_range(0, (modeled_curses.len() - 1) as i32) as usize;
+    let curse = random_normal_curse(&mut rng);
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
-    run.gain_deck_card(modeled_curses[index]);
+    run.gain_deck_card(curse);
 }
 
 pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimResult<RunState> {
@@ -1446,6 +1447,7 @@ mod tests {
         SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID,
     };
+    use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::Relic;
 
     fn offered_relic_key(reward: &RewardScreen) -> Option<RelicKey> {
@@ -3123,7 +3125,7 @@ mod tests {
 
         assert_eq!(run.deck.len(), deck_len + 1);
         let curse = run.deck.last().expect("cursed key curse").content_id;
-        assert!([REGRET_ID, DOUBT_ID].contains(&curse));
+        assert!(NORMAL_CURSE_POOL.contains(&curse));
         assert_eq!(run.card_random_rng_counter, 1);
         assert!(run.reward.is_some());
     }

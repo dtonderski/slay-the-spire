@@ -3,17 +3,18 @@ use crate::{
     content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
         BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
-        CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
-        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
-        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID,
-        FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMMOLATE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
-        WHIRLWIND_ID, WILD_STRIKE_ID,
+        CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
+        DECAY_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DOUBT_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
+        INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
+        NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID,
+        WILD_STRIKE_ID, WRITHE_ID,
     },
     rng::StsRng,
     ContentId,
@@ -23,6 +24,30 @@ use crate::{
 pub struct RewardCardEntry {
     pub content_id: ContentId,
     pub rarity: CardRarity,
+}
+
+/// Target normal curse pool/order used by `AbstractDungeon.returnRandomCurse`.
+///
+/// Source evidence from the target jar links `CardLibrary` curse classes to this class order,
+/// while `AbstractDungeon` removes special curses (`Ascender's Bane`, `Curse of the Bell`,
+/// `Necronomicurse`, and `Pride`) from the random curse pool. Several entries are currently
+/// inert/unplayable placeholders in combat; this pool only claims identity/RNG parity.
+pub const NORMAL_CURSE_POOL: &[ContentId] = &[
+    CLUMSY_ID,
+    DECAY_ID,
+    DOUBT_ID,
+    INJURY_ID,
+    NORMALITY_ID,
+    PAIN_ID,
+    PARASITE_ID,
+    REGRET_ID,
+    SHAME_ID,
+    WRITHE_ID,
+];
+
+pub fn random_normal_curse(rng: &mut StsRng) -> ContentId {
+    let pick = rng.random_int((NORMAL_CURSE_POOL.len() - 1) as i32) as usize;
+    NORMAL_CURSE_POOL[pick]
 }
 
 /// Target Ironclad combat-reward pool grouped by the observed target rarity pools.
@@ -515,5 +540,33 @@ mod tests {
         assert_eq!(unique.len(), pool.len());
         assert_eq!(pool[31], SENTINEL_ID);
         assert_eq!(pool[40], SEVER_SOUL_ID);
+    }
+
+    #[test]
+    fn normal_curse_pool_preserves_target_order_without_special_curses() {
+        assert_eq!(
+            NORMAL_CURSE_POOL,
+            &[
+                CLUMSY_ID,
+                DECAY_ID,
+                DOUBT_ID,
+                INJURY_ID,
+                NORMALITY_ID,
+                PAIN_ID,
+                PARASITE_ID,
+                REGRET_ID,
+                SHAME_ID,
+                WRITHE_ID,
+            ]
+        );
+    }
+
+    #[test]
+    fn random_normal_curse_consumes_one_inclusive_index_draw() {
+        let mut rng = StsRng::new(22_079_335_079);
+        let curse = random_normal_curse(&mut rng);
+
+        assert!(NORMAL_CURSE_POOL.contains(&curse));
+        assert_eq!(rng.counter(), 1);
     }
 }
