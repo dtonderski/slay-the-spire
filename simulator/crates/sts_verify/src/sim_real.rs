@@ -4829,6 +4829,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         discovery_card_reward: None,
         toolbox_card_reward: None,
         hand_select: None,
+        draw_select: None,
         discard_select: None,
         exhaust_select: None,
         duplication_potion_pending: false,

@@ -1,6 +1,9 @@
 use crate::{
     card::CardRarity,
-    combat::{damage::DamageInfo, DiscardSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose},
+    combat::{
+        damage::DamageInfo, DiscardSelectPurpose, DrawSelectPurpose, ExhaustSelectPurpose,
+        HandSelectPurpose,
+    },
     ids::{CardId, MonsterId},
 };
 use serde::{Deserialize, Serialize};
@@ -197,6 +200,10 @@ pub enum InternalAction {
     AwaitHandSelect {
         source_card_id: CardId,
         purpose: HandSelectPurpose,
+    },
+    AwaitDrawSelect {
+        source_card_id: CardId,
+        purpose: DrawSelectPurpose,
     },
     AwaitDiscardSelect {
         source_card_id: CardId,

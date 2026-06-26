@@ -15,6 +15,7 @@ use crate::{
 #[must_use]
 pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
     if state.hand_select.is_some()
+        || state.draw_select.is_some()
         || state.discard_select.is_some()
         || state.exhaust_select.is_some()
         || state.potion_card_reward.is_some()
@@ -113,6 +114,9 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
 pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimResult<()> {
     if state.hand_select.is_some() {
         return Err(SimError::IllegalAction("hand select is open"));
+    }
+    if state.draw_select.is_some() {
+        return Err(SimError::IllegalAction("draw select is open"));
     }
     if state.discard_select.is_some() {
         return Err(SimError::IllegalAction("discard select is open"));
