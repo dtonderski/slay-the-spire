@@ -174,7 +174,7 @@ fn apply_internal_action(
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
-            let (spikes, still_alive) = {
+            let (spikes, still_alive, hand_drill_applies) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
                 let damage = deal_damage_info_to_monster_with_result(
@@ -184,17 +184,21 @@ fn apply_internal_action(
                     temp_strength,
                     &relics,
                 );
-                if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
-                    crate::relic::apply_monster_vulnerable_with_relics(
-                        &mut monster.powers,
-                        &relics,
-                        crate::relic::HAND_DRILL_VULNERABLE,
-                    );
-                }
                 wake_lagavulin_on_damage(monster, damage.hp_damage);
                 guardian_on_hp_damage(monster, damage.hp_damage);
-                (spikes, monster.alive)
+                (
+                    spikes,
+                    monster.alive,
+                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                )
             };
+            if still_alive && hand_drill_applies {
+                apply_player_vulnerable_debuff(
+                    state,
+                    info.target,
+                    crate::relic::HAND_DRILL_VULNERABLE,
+                )?;
+            }
             check_slime_boss_split(state, info.target);
             if !still_alive {
                 crate::relic::apply_monster_death_relics(state);
@@ -214,7 +218,7 @@ fn apply_internal_action(
                 let player_powers = state.player.powers;
                 let temp_strength = state.player.temp_strength;
                 let relics = state.relics.clone();
-                let (spikes, still_alive) = {
+                let (spikes, still_alive, hand_drill_applies) = {
                     let monster = living_monster_mut(state, target)?;
                     let spikes = monster.powers.spikes;
                     let damage = deal_damage_info_to_monster_with_result(
@@ -228,17 +232,21 @@ fn apply_internal_action(
                         temp_strength,
                         &relics,
                     );
-                    if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
-                        crate::relic::apply_monster_vulnerable_with_relics(
-                            &mut monster.powers,
-                            &relics,
-                            crate::relic::HAND_DRILL_VULNERABLE,
-                        );
-                    }
                     wake_lagavulin_on_damage(monster, damage.hp_damage);
                     guardian_on_hp_damage(monster, damage.hp_damage);
-                    (spikes, monster.alive)
+                    (
+                        spikes,
+                        monster.alive,
+                        relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                    )
                 };
+                if still_alive && hand_drill_applies {
+                    apply_player_vulnerable_debuff(
+                        state,
+                        target,
+                        crate::relic::HAND_DRILL_VULNERABLE,
+                    )?;
+                }
                 check_slime_boss_split(state, target);
                 if !still_alive {
                     crate::relic::apply_monster_death_relics(state);
@@ -258,7 +266,7 @@ fn apply_internal_action(
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
-            let (spikes, still_alive) = {
+            let (spikes, still_alive, hand_drill_applies) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
                 let damage = deal_damage_info_to_monster_with_result(
@@ -268,17 +276,21 @@ fn apply_internal_action(
                     temp_strength,
                     &relics,
                 );
-                if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
-                    crate::relic::apply_monster_vulnerable_with_relics(
-                        &mut monster.powers,
-                        &relics,
-                        crate::relic::HAND_DRILL_VULNERABLE,
-                    );
-                }
                 wake_lagavulin_on_damage(monster, damage.hp_damage);
                 guardian_on_hp_damage(monster, damage.hp_damage);
-                (spikes, monster.alive)
+                (
+                    spikes,
+                    monster.alive,
+                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                )
             };
+            if still_alive && hand_drill_applies {
+                apply_player_vulnerable_debuff(
+                    state,
+                    info.target,
+                    crate::relic::HAND_DRILL_VULNERABLE,
+                )?;
+            }
             check_slime_boss_split(state, info.target);
             if !still_alive {
                 state.player.max_hp += max_hp_gain;
@@ -329,17 +341,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::ApplyVulnerable { target, amount } => {
-            let relics = state.relics.clone();
-            let mut applied = false;
-            if let Some(monster) = living_monster_mut_opt(state, target) {
-                crate::relic::apply_monster_vulnerable_with_relics(
-                    &mut monster.powers,
-                    &relics,
-                    amount,
-                );
-                applied = amount > 0;
-            }
-            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
+            apply_player_vulnerable_debuff(state, target, amount)?;
             Ok(Vec::new())
         }
         InternalAction::ApplyPlayerVulnerable { amount } => {
@@ -674,7 +676,7 @@ fn deal_attack_damage_to_all_living(
     let mut total_hp_damage = 0;
 
     for (target, spikes) in targets {
-        let (hp_damage, still_alive) = {
+        let (hp_damage, still_alive, hand_drill_applies) = {
             let monster = living_monster_mut(state, target)?;
             let damage = deal_damage_info_to_monster_with_result(
                 monster,
@@ -687,17 +689,17 @@ fn deal_attack_damage_to_all_living(
                 temp_strength,
                 &relics,
             );
-            if relics.contains(&crate::Relic::HandDrill) && damage.broke_block {
-                crate::relic::apply_monster_vulnerable_with_relics(
-                    &mut monster.powers,
-                    &relics,
-                    crate::relic::HAND_DRILL_VULNERABLE,
-                );
-            }
             wake_lagavulin_on_damage(monster, damage.hp_damage);
             guardian_on_hp_damage(monster, damage.hp_damage);
-            (damage.hp_damage, monster.alive)
+            (
+                damage.hp_damage,
+                monster.alive,
+                relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            )
         };
+        if still_alive && hand_drill_applies {
+            apply_player_vulnerable_debuff(state, target, crate::relic::HAND_DRILL_VULNERABLE)?;
+        }
         total_hp_damage += hp_damage;
         check_slime_boss_split(state, target);
         if !still_alive {
@@ -742,6 +744,29 @@ fn apply_sadistic_nature_after_monster_debuff(
     }
 
     deal_unmodified_damage_to_living_monster(state, target, state.player.powers.sadistic_nature)
+}
+
+fn apply_player_vulnerable_debuff(
+    state: &mut CombatState,
+    target: MonsterId,
+    amount: i32,
+) -> SimResult<()> {
+    let applies_champion_belt = state.relics.contains(&crate::Relic::ChampionBelt);
+    let mut vulnerable_applied = false;
+    let mut champion_belt_weak_applied = false;
+    if let Some(monster) = living_monster_mut_opt(state, target) {
+        if amount > 0 {
+            monster.powers.vulnerable += amount;
+            vulnerable_applied = true;
+        }
+        if vulnerable_applied && applies_champion_belt {
+            monster.powers.weak += crate::relic::CHAMPION_BELT_WEAK;
+            champion_belt_weak_applied = true;
+        }
+    }
+
+    apply_sadistic_nature_after_monster_debuff(state, target, vulnerable_applied)?;
+    apply_sadistic_nature_after_monster_debuff(state, target, champion_belt_weak_applied)
 }
 
 fn juggernaut_follow_up_for_positive_block_gain(
@@ -1404,22 +1429,9 @@ fn draw_select_source_definition(
 fn move_draw_select_source_card(
     state: &mut CombatState,
     source_card_id: CardId,
-    source_definition: &'static crate::card::CardDefinition,
+    _source_definition: &'static crate::card::CardDefinition,
 ) -> SimResult<()> {
-    let destination = draw_select_source_destination(source_definition);
-    move_card(state, source_card_id, CardPile::Hand, destination)?;
-    if destination == CardPile::ExhaustPile {
-        apply_on_exhaust_effects(state, source_card_id);
-    }
-    Ok(())
-}
-
-fn draw_select_source_destination(definition: &crate::card::CardDefinition) -> CardPile {
-    if definition.keywords.exhaust {
-        CardPile::ExhaustPile
-    } else {
-        CardPile::DiscardPile
-    }
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)
 }
 
 fn move_selected_draw_card_to_hand_or_discard(state: &mut CombatState, index: usize) {
@@ -3565,6 +3577,48 @@ mod tests {
     }
 
     #[test]
+    fn secret_technique_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(SECRET_TECHNIQUE_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SECRET_TECHNIQUE_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), SHRUG_IT_OFF_ID),
+        ];
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let mut after_play = apply_combat_action(&state, secret_technique_action(&state))
+            .expect("Secret Technique opens draw select");
+        choose_draw_select(&mut after_play, 0).expect("choose Shrug It Off");
+        confirm_draw_select(&mut after_play).expect("confirm Secret Technique select");
+
+        assert_eq!(
+            after_play
+                .card_random_rng
+                .as_ref()
+                .expect("card rng")
+                .counter(),
+            expected_rng.counter()
+        );
+        assert_eq!(after_play.piles.hand[0].content_id, SHRUG_IT_OFF_ID);
+        if spoon_proc {
+            assert!(after_play.piles.exhaust_pile.is_empty());
+            assert_eq!(
+                after_play.piles.discard_pile[0].content_id,
+                SECRET_TECHNIQUE_ID
+            );
+        } else {
+            assert!(after_play.piles.discard_pile.is_empty());
+            assert_eq!(
+                after_play.piles.exhaust_pile[0].content_id,
+                SECRET_TECHNIQUE_ID
+            );
+        }
+    }
+
+    #[test]
     fn secret_technique_plus_confirms_selection_and_discards_source() {
         let mut state = hand_only(SECRET_TECHNIQUE_PLUS_ID);
         state.piles.hand = vec![CardInstance::new(CardId::new(20), SECRET_TECHNIQUE_PLUS_ID)];
@@ -3701,6 +3755,47 @@ mod tests {
             after_play.piles.exhaust_pile[0].content_id,
             SECRET_WEAPON_ID
         );
+    }
+
+    #[test]
+    fn secret_weapon_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(SECRET_WEAPON_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), BASH_ID),
+        ];
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let spoon_proc = expected_rng.random_bool();
+
+        let mut after_play = apply_combat_action(&state, secret_weapon_action(&state))
+            .expect("Secret Weapon opens draw select");
+        choose_draw_select(&mut after_play, 0).expect("choose Bash");
+        confirm_draw_select(&mut after_play).expect("confirm Secret Weapon select");
+
+        assert_eq!(
+            after_play
+                .card_random_rng
+                .as_ref()
+                .expect("card rng")
+                .counter(),
+            expected_rng.counter()
+        );
+        assert_eq!(after_play.piles.hand[0].content_id, BASH_ID);
+        if spoon_proc {
+            assert!(after_play.piles.exhaust_pile.is_empty());
+            assert_eq!(
+                after_play.piles.discard_pile[0].content_id,
+                SECRET_WEAPON_ID
+            );
+        } else {
+            assert!(after_play.piles.discard_pile.is_empty());
+            assert_eq!(
+                after_play.piles.exhaust_pile[0].content_id,
+                SECRET_WEAPON_ID
+            );
+        }
     }
 
     #[test]
@@ -6327,6 +6422,32 @@ mod tests {
     }
 
     #[test]
+    fn panacea_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(PANACEA_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(901));
+        let mut expected_rng = crate::rng::StsRng::new(901);
+        let spoon_proc = expected_rng.random_bool();
+        let panacea_id = hand_card_id(&state, PANACEA_ID);
+
+        let next = apply_combat_action(&state, panacea_action(&state)).expect("Panacea applies");
+
+        assert_eq!(next.player.powers.artifact, 1);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(!next.piles.hand.iter().any(|card| card.id == panacea_id));
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile[0].id, panacea_id);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[0].id, panacea_id);
+        }
+    }
+
+    #[test]
     fn panacea_event_log_records_artifact_before_exhaust() {
         let state = hand_only(PANACEA_ID);
         let panacea_id = hand_card_id(&state, PANACEA_ID);
@@ -6886,6 +7007,28 @@ mod tests {
     }
 
     #[test]
+    fn hand_of_greed_strange_spoon_does_not_roll_for_non_exhausting_source() {
+        let mut state = hand_only(HAND_OF_GREED_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(901));
+        let hand_of_greed_id = hand_card_id(&state, HAND_OF_GREED_ID);
+
+        let next = apply_combat_action(&state, hand_of_greed_action(&state))
+            .expect("Hand Of Greed applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == hand_of_greed_id));
+    }
+
+    #[test]
     fn panic_button_gains_thirty_block_at_zero_cost_prevents_block_and_exhausts() {
         let mut state = hand_only(PANIC_BUTTON_ID);
         state.player.energy = 0;
@@ -7229,6 +7372,43 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn master_of_strategy_strange_spoon_roll_controls_source_exhaust() {
+        let mut state = hand_only(MASTER_OF_STRATEGY_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(935));
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+        ];
+        let mut expected_rng = crate::rng::StsRng::new(935);
+        let spoon_proc = expected_rng.random_bool();
+        let master_of_strategy_id = hand_card_id(&state, MASTER_OF_STRATEGY_ID);
+
+        let next = apply_combat_action(&state, master_of_strategy_action(&state))
+            .expect("Master of Strategy applies");
+
+        assert_eq!(next.piles.hand.len(), 3);
+        assert!(next.piles.draw_pile.is_empty());
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == master_of_strategy_id));
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile[0].id, master_of_strategy_id);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[0].id, master_of_strategy_id);
+        }
     }
 
     #[test]
@@ -7797,6 +7977,23 @@ mod tests {
             crate::relic::HAND_DRILL_VULNERABLE
         );
         assert_eq!(next.monsters[0].block, 0);
+    }
+
+    #[test]
+    fn hand_drill_vulnerable_triggers_sadistic_nature() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::HandDrill);
+        state.player.powers.sadistic_nature = 5;
+        state.monsters[0].block = 5;
+        let monster_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(
+            next.monsters[0].powers.vulnerable,
+            crate::relic::HAND_DRILL_VULNERABLE
+        );
+        assert_eq!(next.monsters[0].hp, monster_hp - 1 - 5);
     }
 
     #[test]
@@ -10398,6 +10595,24 @@ mod tests {
     }
 
     #[test]
+    fn champion_belt_weak_triggers_sadistic_nature_as_second_debuff() {
+        let mut state = hand_only(BASH_ID);
+        state.relics.push(Relic::ChampionBelt);
+        state.player.powers.sadistic_nature = 5;
+        state.player.energy = 2;
+        let monster_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(&state, bash_action(&state)).expect("Bash applies");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+        assert_eq!(
+            next.monsters[0].powers.weak,
+            crate::relic::CHAMPION_BELT_WEAK
+        );
+        assert_eq!(next.monsters[0].hp, monster_hp - 8 - 10);
+    }
+
+    #[test]
     fn sadistic_nature_triggers_for_temporary_strength_down() {
         let mut state = hand_only(DARK_SHACKLES_ID);
         state.player.powers.sadistic_nature = 5;
@@ -10660,6 +10875,36 @@ mod tests {
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 10);
         assert_eq!(next.monsters[1].hp, 15);
         assert_eq!(next.player.powers.panache_cards_played, 0);
+    }
+
+    #[test]
+    fn panache_damage_is_logged_after_current_card_effects_locally() {
+        let mut state = hand_only(DEFEND_R_ID);
+        state.player.powers.panache = 10;
+        state.player.powers.panache_cards_played = 4;
+
+        let transition =
+            apply_combat_action_with_events(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::GainBlock { amount: 5 },
+                InternalAction::MoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                    to: CardPile::DiscardPile,
+                },
+                InternalAction::DealUnmodifiedDamage {
+                    target: MonsterId::new(1),
+                    amount: 10,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -13208,6 +13453,45 @@ mod tests {
             ]
         );
         assert_eq!(transition.state.piles.hand[0].content_id, STRIKE_R_PLUS_ID);
+    }
+
+    #[test]
+    fn apotheosis_strange_spoon_roll_controls_source_exhaust_after_upgrades() {
+        let mut state = hand_only(APOTHEOSIS_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(902));
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), APOTHEOSIS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), POMMEL_STRIKE_ID)];
+        let mut expected_rng = crate::rng::StsRng::new(902);
+        let spoon_proc = expected_rng.random_bool();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Apotheosis applies");
+
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_PLUS_ID);
+        assert_eq!(next.piles.draw_pile[0].content_id, POMMEL_STRIKE_PLUS_ID);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        if spoon_proc {
+            assert!(next.piles.exhaust_pile.is_empty());
+            assert_eq!(next.piles.discard_pile[0].id, CardId::new(20));
+            assert_eq!(next.piles.discard_pile[0].content_id, APOTHEOSIS_PLUS_ID);
+        } else {
+            assert!(next.piles.discard_pile.is_empty());
+            assert_eq!(next.piles.exhaust_pile[0].id, CardId::new(20));
+            assert_eq!(next.piles.exhaust_pile[0].content_id, APOTHEOSIS_PLUS_ID);
+        }
     }
 
     #[test]
