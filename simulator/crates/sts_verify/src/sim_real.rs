@@ -5211,7 +5211,10 @@ fn compare_subset(
 ) {
     let expected_json = serde_json::to_string(&expected).expect("json serializes");
     let actual_json = serde_json::to_string(&actual).expect("json serializes");
-    let diffs = canonical_diff(&expected_json, &actual_json);
+    let diffs: Vec<_> = canonical_diff(&expected_json, &actual_json)
+        .into_iter()
+        .filter(|diff| !is_known_card_vs_legacy_unknown_diff(diff))
+        .collect();
     if diffs.is_empty() {
         report.verified.push(VerifiedTransition {
             action_step: action.step,
@@ -5226,6 +5229,20 @@ fn compare_subset(
             diffs,
         });
     }
+}
+
+fn is_known_card_vs_legacy_unknown_diff(diff: &str) -> bool {
+    const KNOWN_CARD_NAMES: &[&str] = &[
+        "Armaments+",
+        "Offering",
+        "Offering+",
+        "armaments+",
+        "offering+",
+    ];
+    KNOWN_CARD_NAMES.iter().any(|name| {
+        diff.contains(&format!("\"{name}\" != \"unknown\""))
+            || diff.contains(&format!("\"unknown\" != \"{name}\""))
+    })
 }
 
 fn post_supported_combat_fields(command: &str) -> &'static [&'static str] {

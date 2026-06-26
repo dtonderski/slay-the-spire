@@ -132,6 +132,9 @@ pub enum InternalAction {
     SetRandomHandCardCostForCombat {
         amount: u8,
     },
+    UpgradeHandCardsExcept {
+        card_id: CardId,
+    },
     IncreaseRampageDamage {
         card_id: CardId,
         amount: i32,

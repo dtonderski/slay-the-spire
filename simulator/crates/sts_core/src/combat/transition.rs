@@ -14,13 +14,14 @@ use crate::{
     },
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_PLUS_ID,
-        BLOOD_FOR_BLOOD_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
-        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID,
-        ENLIGHTENMENT_PLUS_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID, IMPATIENCE_ID,
-        MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_PLUS_ID,
-        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
+        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
+        IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
+        PANIC_BUTTON_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        PURITY_PLUS_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -444,6 +445,10 @@ fn apply_internal_action(
             set_random_hand_card_cost_for_combat(state, amount);
             Ok(Vec::new())
         }
+        InternalAction::UpgradeHandCardsExcept { card_id } => {
+            upgrade_hand_cards_except(state, card_id);
+            Ok(Vec::new())
+        }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
             find_hand_card_mut(state, card_id)?.rampage_damage_bonus += amount;
             Ok(Vec::new())
@@ -489,7 +494,8 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainCombust { amount } => {
-            state.player.powers.combust += amount;
+            state.player.powers.combust += 1;
+            state.player.powers.combust_damage += amount;
             Ok(Vec::new())
         }
         InternalAction::GainDoubleTap { amount } => {
@@ -994,6 +1000,17 @@ fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) {
     let card = &mut state.piles.hand[index];
     card.temp_cost = Some(amount);
     card.temp_cost_turn_only = false;
+}
+
+fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) {
+    for card in &mut state.piles.hand {
+        if card.id == excluded_card_id {
+            continue;
+        }
+        if let Some(upgraded) = upgrade_content_id(card.content_id) {
+            card.content_id = upgraded;
+        }
+    }
 }
 
 fn apply_play_top_draw_card(
@@ -1864,7 +1881,7 @@ fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
     }) {
         return 0;
     }
-    if card.content_id == BLOOD_FOR_BLOOD_ID {
+    if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
         return (base_cost - card.blood_for_blood_cost_reduction).max(0);
     }
     base_cost
@@ -1930,28 +1947,29 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID,
         BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLIND_PLUS_ID,
-        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
-        BURNING_PACT_ID, CARNAGE_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-        CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID,
-        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
-        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
-        FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID,
-        GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID,
-        JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID,
-        METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
-        PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
-        REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
-        SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID,
-        TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
+        BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
+        DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID,
+        DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID,
+        ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
+        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID,
+        HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID,
+        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
+        MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID,
+        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID,
+        RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+        RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID,
+        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID,
+        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID,
+        TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID,
+        VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -2778,6 +2796,23 @@ mod tests {
             .find(|card| card.id == rampage_id)
             .expect("Rampage moved to discard");
         assert_eq!(discarded.rampage_damage_bonus, 5);
+    }
+
+    #[test]
+    fn rampage_plus_first_play_gains_eight_future_damage_bonus() {
+        let state = hand_only(RAMPAGE_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, RAMPAGE_PLUS_ID),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Rampage+ applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+        assert_eq!(next.piles.discard_pile[0].rampage_damage_bonus, 8);
     }
 
     #[test]
@@ -4442,6 +4477,28 @@ mod tests {
     }
 
     #[test]
+    fn feed_plus_uses_twelve_damage_for_fatal_max_hp_gain() {
+        let mut state = two_monster_hand(FEED_PLUS_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.monsters[0].hp = 12;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, FEED_PLUS_ID),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Feed+ applies");
+
+        assert_eq!(next.player.max_hp, 73);
+        assert_eq!(next.player.hp, 43);
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, FEED_PLUS_ID);
+    }
+
+    #[test]
     fn feed_does_not_gain_max_hp_when_block_prevents_fatal_hp_damage() {
         let mut state = hand_only(FEED_ID);
         state.player.hp = 40;
@@ -4830,6 +4887,30 @@ mod tests {
     }
 
     #[test]
+    fn blood_for_blood_plus_deals_twenty_two_and_uses_dynamic_cost_reduction() {
+        let mut state = hand_only(BLOOD_FOR_BLOOD_PLUS_ID);
+        state.player.energy = 2;
+        state.piles.hand[0].blood_for_blood_cost_reduction = 1;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, BLOOD_FOR_BLOOD_PLUS_ID),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Blood for Blood+ applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 22);
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(
+            next.piles.discard_pile[0].content_id,
+            BLOOD_FOR_BLOOD_PLUS_ID
+        );
+        assert_eq!(next.piles.discard_pile[0].blood_for_blood_cost_reduction, 1);
+    }
+
+    #[test]
     fn player_hp_loss_reduces_blood_for_blood_cost_in_all_combat_piles_once() {
         let mut state = hand_only(HEMOKINESIS_ID);
         state
@@ -4847,6 +4928,20 @@ mod tests {
         assert_eq!(next.piles.draw_pile[0].blood_for_blood_cost_reduction, 1);
         assert_eq!(next.piles.discard_pile[0].blood_for_blood_cost_reduction, 1);
         assert_eq!(next.piles.exhaust_pile[0].blood_for_blood_cost_reduction, 1);
+    }
+
+    #[test]
+    fn player_hp_loss_reduces_blood_for_blood_plus_cost() {
+        let mut state = hand_only(HEMOKINESIS_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BLOOD_FOR_BLOOD_PLUS_ID));
+
+        let next =
+            apply_combat_action(&state, hemokinesis_action(&state)).expect("Hemokinesis applies");
+
+        assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 1);
     }
 
     #[test]
@@ -5627,6 +5722,25 @@ mod tests {
         assert_eq!(next.monsters[1].temp_strength_down, 0);
         assert!(next.piles.discard_pile.is_empty());
         assert_eq!(next.piles.exhaust_pile[0].content_id, DARK_SHACKLES_ID);
+    }
+
+    #[test]
+    fn dark_shackles_plus_reduces_target_strength_by_fifteen_this_turn_and_exhausts() {
+        let mut state = two_monster_hand(DARK_SHACKLES_PLUS_ID);
+        state.player.energy = 0;
+        state.monsters[0].powers.strength = 4;
+        state.monsters[1].powers.strength = 2;
+
+        let next = apply_combat_action(&state, dark_shackles_plus_action(&state))
+            .expect("Dark Shackles+ applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.monsters[0].powers.strength, -11);
+        assert_eq!(next.monsters[0].temp_strength_down, 15);
+        assert_eq!(next.monsters[1].powers.strength, 2);
+        assert_eq!(next.monsters[1].temp_strength_down, 0);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DARK_SHACKLES_PLUS_ID);
     }
 
     #[test]
@@ -7782,6 +7896,27 @@ mod tests {
     }
 
     #[test]
+    fn reaper_plus_damages_all_living_enemies_for_five_and_heals() {
+        let mut state = two_monster_hand(REAPER_PLUS_ID);
+        state.player.hp = 50;
+        state.monsters[0].block = 2;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, REAPER_PLUS_ID),
+                target: None,
+            },
+        )
+        .expect("Reaper+ applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 3);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 5);
+        assert_eq!(next.player.hp, 58);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, REAPER_PLUS_ID);
+    }
+
+    #[test]
     fn reaper_ignores_dead_enemies_for_damage_and_healing() {
         let mut state = two_monster_hand(REAPER_ID);
         state.player.hp = 50;
@@ -9266,7 +9401,7 @@ mod tests {
                 InternalAction::SpendCardEnergy {
                     card_id: CardId::new(20),
                 },
-                InternalAction::GainCombust { amount: 1 },
+                InternalAction::GainCombust { amount: 5 },
                 InternalAction::RemoveCard {
                     card_id: CardId::new(20),
                     from: CardPile::Hand,
@@ -12743,6 +12878,25 @@ mod tests {
     }
 
     #[test]
+    fn headbutt_plus_with_empty_discard_deals_twelve_and_discards() {
+        let state = hand_only(HEADBUTT_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Headbutt+ applies");
+
+        assert_eq!(next.monsters[0].hp, 28);
+        assert_eq!(next.player.energy, 2);
+        assert!(next.discard_select.is_none());
+        assert_eq!(next.piles.discard_pile[0].content_id, HEADBUTT_PLUS_ID);
+    }
+
+    #[test]
     fn headbutt_opens_discard_select_when_discard_has_cards() {
         let mut state = hand_only(HEADBUTT_ID);
         state.piles.discard_pile = vec![
@@ -13719,6 +13873,13 @@ mod tests {
     fn dark_shackles_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, DARK_SHACKLES_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn dark_shackles_plus_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DARK_SHACKLES_PLUS_ID),
             target: Some(MonsterId::new(1)),
         }
     }

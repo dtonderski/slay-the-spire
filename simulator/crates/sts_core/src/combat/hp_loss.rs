@@ -1,4 +1,7 @@
-use crate::{combat::CombatState, content::cards::BLOOD_FOR_BLOOD_ID};
+use crate::{
+    combat::CombatState,
+    content::cards::{BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID},
+};
 
 pub(crate) fn apply_player_hp_loss_hooks(state: &mut CombatState, hp_loss: i32) {
     if hp_loss <= 0 {
@@ -17,7 +20,7 @@ fn reduce_blood_for_blood_costs(state: &mut CombatState) {
         &mut state.piles.exhaust_pile,
     ] {
         for card in pile {
-            if card.content_id == BLOOD_FOR_BLOOD_ID {
+            if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
                 card.blood_for_blood_cost_reduction += 1;
             }
         }
