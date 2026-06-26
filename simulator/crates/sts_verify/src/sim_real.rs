@@ -2321,6 +2321,26 @@ fn verify_seed_start_transitions(
                                 command: action.command.clone(),
                                 label,
                             });
+                        } else if seed_start_reward_sequence_complete(sim)
+                            && screen_type(&post.message) == Some("EVENT")
+                        {
+                            compare_subset(
+                                report,
+                                action,
+                                &label,
+                                seed_start_observed_subset(&post.message),
+                                json!({
+                                    "screen_type": "EVENT",
+                                    "ascension": start.ascension,
+                                    "floor": 0,
+                                    "gold": sim.gold,
+                                    "current_hp": sim.player_hp,
+                                    "max_hp": sim.player_max_hp,
+                                    "deck_ids": deck_content_keys(&sim.deck),
+                                    "relic_ids": relics,
+                                    "choices": ["leave"],
+                                }),
+                            );
                         } else {
                             let (observed, simulated) =
                                 if screen_type(&post.message) == Some("REST") {
@@ -4916,7 +4936,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, Pandora's Box, and Empty Cage boss-swap grids. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and reward-screen boss-swap follow-ups remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, Pandora's Box, Empty Cage, and Tiny House boss-swap paths. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and broad boss-swap selected-trace evidence remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -8641,6 +8661,156 @@ mod tests {
         }));
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 4 && transition.label == "card reward"
+        }));
+        assert_eq!(
+            report
+                .seed_start
+                .expect("seed-start")
+                .first_boundary
+                .category,
+            "missing_post_reward_boundary"
+        );
+    }
+
+    #[test]
+    fn seed_start_boss_swap_tiny_house_reward_screen_can_pick_card_reward() {
+        let (numeric_seed, tiny_house_run) = (1_i64..100_000)
+            .map(|seed| {
+                (
+                    seed,
+                    seed_start_apply_neow_boss_swap(seed, &ironclad_starter_deck_keys()),
+                )
+            })
+            .find(|(_, run)| seed_start_boss_swap_is_tiny_house_reward(run))
+            .expect("synthetic seed with Tiny House boss swap");
+        let external_seed = test_seed_string_from_long(numeric_seed);
+        let option =
+            seed_start_selected_neow_option(numeric_seed, "CHOOSE 3").expect("boss-swap slot");
+        assert_eq!(option.reward, NeowRewardType::BossRelic);
+
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let tiny_house_deck = starting_deck.clone();
+        let starting_relics = vec![json!({ "name": "Burning Blood" })];
+        let tiny_house_relics: Vec<_> = seed_start_boss_swap_relic_ids(&tiny_house_run)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let mut card_reward_run = tiny_house_run.clone();
+        card_reward_run =
+            apply_run_action(&card_reward_run, RunAction::OpenCardReward).expect("open cards");
+        let reward = card_reward_run.reward.as_ref().expect("card reward");
+        let reward_cards: Vec<_> = reward
+            .choices
+            .iter()
+            .map(|card| {
+                json!({
+                    "id": reward_card_display_key(&card_reward_run, card.content_id),
+                    "name": reward_card_display_key(&card_reward_run, card.content_id),
+                })
+            })
+            .collect();
+        let reward_choice_names: Vec<_> = reward
+            .choices
+            .iter()
+            .map(|card| {
+                reward_card_display_key(&card_reward_run, card.content_id).to_ascii_lowercase()
+            })
+            .collect();
+        let picked_card_key =
+            reward_card_display_key(&card_reward_run, reward.choices[1].content_id).to_owned();
+        let mut picked_deck = tiny_house_deck.clone();
+        picked_deck.push(json!({ "id": picked_card_key }));
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {external_seed}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": starting_relics,
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": format!("CHOOSE {}", option.slot)}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": tiny_house_run.gold,
+                "current_hp": tiny_house_run.player_hp,
+                "max_hp": tiny_house_run.player_max_hp,
+                "deck": tiny_house_deck,
+                "relics": tiny_house_relics,
+                "choice_list": ["card"],
+                "screen_state": {
+                    "rewards": [{"reward_type": "CARD"}]
+                }
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "CARD_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": tiny_house_run.gold,
+                "current_hp": tiny_house_run.player_hp,
+                "max_hp": tiny_house_run.player_max_hp,
+                "deck": tiny_house_deck,
+                "relics": tiny_house_relics,
+                "choice_list": reward_choice_names,
+                "screen_state": {
+                    "cards": reward_cards
+                }
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CHOOSE 1"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": tiny_house_run.gold,
+                "current_hp": tiny_house_run.player_hp,
+                "max_hp": tiny_house_run.player_max_hp,
+                "deck": picked_deck,
+                "relics": tiny_house_relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow boss swap Tiny House reward"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 4 && transition.label == "card reward"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 5 && transition.label == "card reward pick 1"
         }));
         assert_eq!(
             report
