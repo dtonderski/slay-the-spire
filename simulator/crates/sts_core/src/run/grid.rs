@@ -23,6 +23,7 @@ pub enum GridPurpose {
     CallingBellCurse,
     PandorasBox,
     Astrolabe,
+    NeowTransform { count: u8 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -93,6 +94,19 @@ pub fn open_neow_upgrade_grid(run: &mut RunState) {
     run.card_grid = Some(CardGridScreen {
         cards,
         purpose: GridPurpose::NeowUpgrade,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_neow_transform_grid(run: &mut RunState, count: u8) {
+    if run.deck.is_empty() || count == 0 {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards: run.deck.clone(),
+        purpose: GridPurpose::NeowTransform { count },
         selected: None,
         selected_indices: Vec::new(),
     });
@@ -210,7 +224,7 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
         return Err(SimError::IllegalAction("grid index out of range"));
     }
 
-    if grid.purpose == GridPurpose::Astrolabe {
+    if let Some(required_count) = grid_multi_select_count(grid.purpose) {
         let mut next = run.clone();
         let selected_count = {
             let grid = next.card_grid.as_mut().expect("grid present");
@@ -220,8 +234,8 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
             grid.selected_indices.push(index);
             grid.selected_indices.len()
         };
-        if selected_count >= ASTROLABE_TRANSFORM_COUNT {
-            confirm_astrolabe_grid(&mut next)?;
+        if selected_count >= required_count {
+            confirm_multi_select_grid(&mut next)?;
         }
         return Ok(next);
     }
@@ -267,6 +281,9 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         }
         GridPurpose::Astrolabe => {
             confirm_astrolabe_grid(&mut next)?;
+        }
+        GridPurpose::NeowTransform { count } => {
+            confirm_neow_transform_grid(&mut next, count)?;
         }
         GridPurpose::RestSmith => {
             let card = selected_grid_card(grid)?;
@@ -328,6 +345,27 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
     }
 
     Ok(next)
+}
+
+fn grid_multi_select_count(purpose: GridPurpose) -> Option<usize> {
+    match purpose {
+        GridPurpose::Astrolabe => Some(ASTROLABE_TRANSFORM_COUNT),
+        GridPurpose::NeowTransform { count } => Some(usize::from(count)),
+        _ => None,
+    }
+}
+
+fn confirm_multi_select_grid(run: &mut RunState) -> SimResult<()> {
+    let purpose = run
+        .card_grid
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no card grid is open"))?
+        .purpose;
+    match purpose {
+        GridPurpose::Astrolabe => confirm_astrolabe_grid(run),
+        GridPurpose::NeowTransform { count } => confirm_neow_transform_grid(run, count),
+        _ => Err(SimError::IllegalAction("grid is not multi-select")),
+    }
 }
 
 fn selected_grid_card(grid: &CardGridScreen) -> SimResult<CardInstance> {
@@ -404,6 +442,58 @@ fn confirm_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
     Ok(())
 }
 
+fn confirm_neow_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
+    let grid = run
+        .card_grid
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no card grid is open"))?;
+    let required = usize::from(count);
+    if grid.selected_indices.len() < required {
+        return Err(SimError::IllegalAction(
+            "Neow transform requires more selected cards",
+        ));
+    }
+    let cards = grid
+        .selected_indices
+        .iter()
+        .take(required)
+        .map(|index| {
+            grid.cards
+                .get(*index)
+                .copied()
+                .ok_or(SimError::IllegalAction("grid index out of range"))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    transform_neow_cards(run, &cards);
+    run.card_grid = None;
+    Ok(())
+}
+
+fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) {
+    let sources = cards.iter().map(|card| card.content_id).collect::<Vec<_>>();
+    let reward =
+        crate::run::neow::generate_neow_transform_reward(run.reward_rng_seed as i64, &sources);
+    let next_card_id = run.next_card_instance_id();
+    let transformed = reward
+        .cards
+        .into_iter()
+        .enumerate()
+        .map(|(index, content_id)| {
+            CardInstance::new(
+                crate::ids::CardId::new(next_card_id + index as u64),
+                run.content_id_after_card_add_relics(content_id),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    for card in cards {
+        run.deck.retain(|deck_card| deck_card.id != card.id);
+    }
+    for card in transformed {
+        run.add_deck_card(card);
+    }
+}
+
 fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) {
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
     let next_card_id = run.next_card_instance_id();
@@ -438,6 +528,7 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{ANGER_ID, FEEL_NO_PAIN_ID, STRIKE_R_PLUS_ID},
+        run::neow::generate_neow_transform_reward,
         RunState,
     };
 
@@ -635,6 +726,96 @@ mod tests {
                 && card.content_id != selected_card.content_id
                 && upgrade_content_id(selected_card.content_id) == Some(card.content_id)
         }));
+    }
+
+    #[test]
+    fn neow_transform_grid_selects_two_then_transforms_without_upgrade() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 1_218_623;
+        let removed = [run.deck[0], run.deck[1]];
+        let expected = generate_neow_transform_reward(
+            run.reward_rng_seed as i64,
+            &[removed[0].content_id, removed[1].content_id],
+        )
+        .cards;
+
+        open_neow_transform_grid(&mut run, 2);
+
+        assert_eq!(
+            run.card_grid.as_ref().expect("transform grid").purpose,
+            GridPurpose::NeowTransform { count: 2 }
+        );
+        let after_first = select_grid_card(&run, 0).expect("select first");
+        assert!(after_first.card_grid.is_some());
+        assert_eq!(after_first.deck, run.deck);
+
+        let after_second = select_grid_card(&after_first, 1).expect("select second");
+
+        assert!(after_second.card_grid.is_none());
+        for card in removed {
+            assert!(!after_second
+                .deck
+                .iter()
+                .any(|deck_card| deck_card.id == card.id));
+        }
+        assert_eq!(after_second.deck.len(), run.deck.len());
+        assert_eq!(
+            after_second.deck[after_second.deck.len() - 2].content_id,
+            expected[0]
+        );
+        assert_eq!(
+            after_second.deck[after_second.deck.len() - 1].content_id,
+            expected[1]
+        );
+        assert_eq!(after_second.card_rng_counter, 0);
+    }
+
+    #[test]
+    fn neow_transform_requires_unique_selected_cards() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 1_218_623;
+        let removed = [run.deck[0], run.deck[1]];
+        let expected = generate_neow_transform_reward(
+            run.reward_rng_seed as i64,
+            &[removed[0].content_id, removed[1].content_id],
+        )
+        .cards;
+
+        open_neow_transform_grid(&mut run, 2);
+        let after_first = select_grid_card(&run, 0).expect("select first");
+        let after_duplicate = select_grid_card(&after_first, 0).expect("repeat first");
+
+        assert!(after_duplicate.card_grid.is_some());
+        assert_eq!(after_duplicate.deck, run.deck);
+        assert_eq!(
+            after_duplicate
+                .card_grid
+                .as_ref()
+                .expect("grid")
+                .selected_indices,
+            vec![0]
+        );
+
+        let after_second = select_grid_card(&after_duplicate, 1).expect("select second");
+
+        assert!(after_second.card_grid.is_none());
+        assert_eq!(after_second.deck.len(), run.deck.len());
+        assert!(!after_second
+            .deck
+            .iter()
+            .any(|deck_card| deck_card.id == removed[0].id));
+        assert!(!after_second
+            .deck
+            .iter()
+            .any(|deck_card| deck_card.id == removed[1].id));
+        assert_eq!(
+            after_second.deck[after_second.deck.len() - 2].content_id,
+            expected[0]
+        );
+        assert_eq!(
+            after_second.deck[after_second.deck.len() - 1].content_id,
+            expected[1]
+        );
     }
 
     #[test]
