@@ -3277,20 +3277,19 @@ mod tests {
     }
 
     #[test]
-    fn secret_technique_without_draw_pile_skills_exhausts_without_selection() {
+    fn secret_technique_without_draw_pile_skills_is_illegal() {
         let mut state = hand_only(SECRET_TECHNIQUE_ID);
         state.piles.draw_pile = vec![
             CardInstance::new(CardId::new(30), STRIKE_R_ID),
             CardInstance::new(CardId::new(31), BASH_ID),
         ];
 
-        let next = apply_combat_action(&state, secret_technique_action(&state))
-            .expect("Secret Technique resolves");
-
-        assert!(next.draw_select.is_none());
-        assert_eq!(next.piles.draw_pile.len(), 2);
-        assert!(next.piles.hand.is_empty());
-        assert_eq!(next.piles.exhaust_pile[0].content_id, SECRET_TECHNIQUE_ID);
+        assert_eq!(
+            apply_combat_action(&state, secret_technique_action(&state)),
+            Err(SimError::IllegalAction(
+                "Secret Technique requires a skill in draw pile"
+            ))
+        );
     }
 
     #[test]
