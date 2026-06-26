@@ -67,6 +67,7 @@ pub const FORETHOUGHT_ID: ContentId = ContentId::new(59_534_622_361_962_517);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
 pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
+pub const PANACHE_ID: ContentId = ContentId::new(72_935_227_636);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
 pub const IMPATIENCE_ID: ContentId = ContentId::new(1_998_026_198_879_085);
 pub const JACK_OF_ALL_TRADES_ID: ContentId = ContentId::new(13_737_426_385_707_302_253);
@@ -1431,6 +1432,21 @@ pub const PANACEA: CardDefinition = CardDefinition {
     },
 };
 
+pub const PANACHE: CardDefinition = CardDefinition {
+    id: PANACHE_ID,
+    key: "PANACHE",
+    name: "Panache",
+    cost: 0,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(10),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const MADNESS: CardDefinition = CardDefinition {
     id: MADNESS_ID,
     key: "MADNESS",
@@ -2332,7 +2348,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 126] = [
+pub const ALL_CARDS: [CardDefinition; 127] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2410,6 +2426,7 @@ pub const ALL_CARDS: [CardDefinition; 126] = [
     GOOD_INSTINCTS,
     FINESSE,
     PANACEA,
+    PANACHE,
     TRIP,
     IMPATIENCE,
     JACK_OF_ALL_TRADES,
@@ -2569,6 +2586,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == PANACHE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
