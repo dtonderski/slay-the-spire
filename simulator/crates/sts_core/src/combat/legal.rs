@@ -5,7 +5,8 @@ use crate::{
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
         EXHUME_ID, FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, SECRET_TECHNIQUE_ID,
-        SECRET_WEAPON_ID, TRANSMUTATION_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -81,11 +82,15 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         }
 
-        if definition.id == SECRET_WEAPON_ID && !has_attack_in_draw_pile(state) {
+        if (definition.id == SECRET_WEAPON_ID || definition.id == SECRET_WEAPON_PLUS_ID)
+            && !has_attack_in_draw_pile(state)
+        {
             continue;
         }
 
-        if definition.id == SECRET_TECHNIQUE_ID && !has_skill_in_draw_pile(state) {
+        if (definition.id == SECRET_TECHNIQUE_ID || definition.id == SECRET_TECHNIQUE_PLUS_ID)
+            && !has_skill_in_draw_pile(state)
+        {
             continue;
         }
 

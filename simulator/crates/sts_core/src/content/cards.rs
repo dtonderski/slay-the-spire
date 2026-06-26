@@ -83,11 +83,15 @@ pub const MADNESS_ID: ContentId = ContentId::new(70_263_870_943);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
 pub const MAYHEM_ID: ContentId = ContentId::new(2_267_196_899);
 pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_713);
+pub const SECRET_TECHNIQUE_PLUS_ID: ContentId = ContentId::new(2_746_448_811_048_118_714);
 pub const SECRET_WEAPON_ID: ContentId = ContentId::new(11_846_108_130_828_291_299);
+pub const SECRET_WEAPON_PLUS_ID: ContentId = ContentId::new(11_846_108_130_828_291_300);
 pub const VIOLENCE_ID: ContentId = ContentId::new(2_433_206_606_067);
+pub const VIOLENCE_PLUS_ID: ContentId = ContentId::new(2_433_206_606_068);
 pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
 pub const THINKING_AHEAD_ID: ContentId = ContentId::new(6_777_582_279_578_789_034);
 pub const TRANSMUTATION_ID: ContentId = ContentId::new(12_962_347_838_129_665_929);
+pub const TRANSMUTATION_PLUS_ID: ContentId = ContentId::new(12_962_347_838_129_665_930);
 pub const METAMORPHOSIS_ID: ContentId = ContentId::new(7_133_622_309_229_402_345);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
@@ -1576,6 +1580,21 @@ pub const SECRET_TECHNIQUE: CardDefinition = CardDefinition {
     },
 };
 
+pub const SECRET_TECHNIQUE_PLUS: CardDefinition = CardDefinition {
+    id: SECRET_TECHNIQUE_PLUS_ID,
+    key: "SECRET_TECHNIQUE+",
+    name: "Secret Technique+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SECRET_WEAPON: CardDefinition = CardDefinition {
     id: SECRET_WEAPON_ID,
     key: "SECRET_WEAPON",
@@ -1597,10 +1616,46 @@ pub const SECRET_WEAPON: CardDefinition = CardDefinition {
     },
 };
 
+pub const SECRET_WEAPON_PLUS: CardDefinition = CardDefinition {
+    id: SECRET_WEAPON_PLUS_ID,
+    key: "SECRET_WEAPON+",
+    name: "Secret Weapon+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const VIOLENCE: CardDefinition = CardDefinition {
     id: VIOLENCE_ID,
     key: "VIOLENCE",
     name: "Violence",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const VIOLENCE_PLUS: CardDefinition = CardDefinition {
+    id: VIOLENCE_PLUS_ID,
+    key: "VIOLENCE+",
+    name: "Violence+",
     cost: 0,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
@@ -1658,6 +1713,27 @@ pub const TRANSMUTATION: CardDefinition = CardDefinition {
     id: TRANSMUTATION_ID,
     key: "TRANSMUTATION",
     name: "Transmutation",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const TRANSMUTATION_PLUS: CardDefinition = CardDefinition {
+    id: TRANSMUTATION_PLUS_ID,
+    key: "TRANSMUTATION+",
+    name: "Transmutation+",
     cost: 0,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
@@ -2528,7 +2604,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 136] = [
+pub const ALL_CARDS: [CardDefinition; 140] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2621,11 +2697,15 @@ pub const ALL_CARDS: [CardDefinition; 136] = [
     MADNESS,
     MASTER_OF_STRATEGY,
     SECRET_TECHNIQUE,
+    SECRET_TECHNIQUE_PLUS,
     SECRET_WEAPON,
+    SECRET_WEAPON_PLUS,
     VIOLENCE,
+    VIOLENCE_PLUS,
     THE_BOMB,
     THINKING_AHEAD,
     TRANSMUTATION,
+    TRANSMUTATION_PLUS,
     METAMORPHOSIS,
     IRON_WAVE,
     BODY_SLAM,
@@ -2790,11 +2870,15 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SECRET_TECHNIQUE_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == SECRET_TECHNIQUE_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SECRET_WEAPON_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == SECRET_WEAPON_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == VIOLENCE_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == VIOLENCE_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THE_BOMB_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == THINKING_AHEAD_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == TRANSMUTATION_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == TRANSMUTATION_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == METAMORPHOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
         _ => None,
     }
@@ -2820,6 +2904,10 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
         SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
         JACK_OF_ALL_TRADES_ID => Some(JACK_OF_ALL_TRADES_PLUS_ID),
+        SECRET_TECHNIQUE_ID => Some(SECRET_TECHNIQUE_PLUS_ID),
+        SECRET_WEAPON_ID => Some(SECRET_WEAPON_PLUS_ID),
+        VIOLENCE_ID => Some(VIOLENCE_PLUS_ID),
+        TRANSMUTATION_ID => Some(TRANSMUTATION_PLUS_ID),
         _ => None,
     }
 }
