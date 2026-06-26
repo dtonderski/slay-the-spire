@@ -1,6 +1,6 @@
 use crate::{
     action::{CardPile, HpLossSource, InternalAction},
-    card::{CardDefinition, CardRarity, CardType, TargetRequirement},
+    card::{CardDefinition, CardType, TargetRequirement},
     combat::{
         damage::{DamageInfo, DamageSource},
         CombatState, HandSelectPurpose,
@@ -2408,9 +2408,7 @@ fn transmutation_queue(
     ]);
 
     for _ in 0..uses {
-        queue.push_back(InternalAction::AddRandomColorlessCardToHand {
-            rarity: CardRarity::Rare,
-        });
+        queue.push_back(InternalAction::AddRandomColorlessCardToHand { temp_cost: Some(0) });
     }
 
     queue.push_back(InternalAction::MoveCard {
