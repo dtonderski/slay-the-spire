@@ -16,11 +16,11 @@ use crate::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_PLUS_ID,
         BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
         DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
-        IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
-        PANIC_BUTTON_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        PURITY_PLUS_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
+        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FINESSE_ID,
+        FLASH_OF_STEEL_ID, IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
+        PANACEA_ID, PANIC_BUTTON_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        PUMMEL_ID, PURITY_PLUS_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
@@ -135,7 +135,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::ConsumeDoubleTap => {
-            state.double_tap_pending = 0;
+            state.double_tap_pending = state.double_tap_pending.saturating_sub(1);
             Ok(Vec::new())
         }
         InternalAction::PlayCard { card_id } => {
@@ -1762,7 +1762,7 @@ fn exhumable_ui_to_exhaust_index(state: &CombatState, ui_index: usize) -> SimRes
         .exhaust_pile
         .iter()
         .enumerate()
-        .filter(|(_, card)| card.content_id != EXHUME_ID)
+        .filter(|(_, card)| card.content_id != EXHUME_ID && card.content_id != EXHUME_PLUS_ID)
         .map(|(index, _)| index)
         .nth(ui_index)
         .ok_or(SimError::IllegalAction("exhaust select index out of range"))
@@ -1786,7 +1786,7 @@ fn confirm_exhume_select(
         .get(index)
         .copied()
         .ok_or(SimError::IllegalAction("exhaust select index out of range"))?;
-    if card.content_id == EXHUME_ID {
+    if card.content_id == EXHUME_ID || card.content_id == EXHUME_PLUS_ID {
         return Err(SimError::IllegalAction("Exhume cannot return Exhume"));
     }
     state.piles.exhaust_pile.remove(index);
@@ -1951,25 +1951,26 @@ mod tests {
         BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
         DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID,
-        DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID,
-        ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
-        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID,
-        HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID,
-        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID,
-        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID,
-        RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID,
-        TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID,
-        VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID,
+        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID,
+        GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID, HEADBUTT_ID,
+        HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
+        INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JUGGERNAUT_ID,
+        LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID,
+        METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        PURITY_ID, RAGE_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
+        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -3112,6 +3113,37 @@ mod tests {
             .expect("Infernal Blade applies");
 
         assert!(next.card_random_rng.is_none());
+        let generated = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.combat_only)
+            .expect("generated attack");
+        assert_eq!(generated.content_id, expected);
+        assert_eq!(generated.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn infernal_blade_plus_adds_zero_cost_attack_without_spending_energy() {
+        let state = hand_only(INFERNAL_BLADE_PLUS_ID);
+        let expected = infernal_blade_modeled_attack_pool()[0];
+        let card_id = hand_card_id(&state, INFERNAL_BLADE_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id,
+                target: None,
+            },
+        )
+        .expect("Infernal Blade+ applies");
+
+        assert_eq!(next.player.energy, state.player.energy);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == INFERNAL_BLADE_PLUS_ID));
         let generated = next
             .piles
             .hand
@@ -5438,6 +5470,25 @@ mod tests {
         assert!(next.piles.discard_pile.is_empty());
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, SHOCKWAVE_ID);
+    }
+
+    #[test]
+    fn shockwave_plus_applies_five_debuffs_to_each_living_enemy_and_exhausts() {
+        let state = two_monster_hand(SHOCKWAVE_PLUS_ID);
+
+        let next =
+            apply_combat_action(&state, shockwave_plus_action(&state)).expect("Shockwave+ applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert_eq!(next.monsters[0].powers.weak, 5);
+        assert_eq!(next.monsters[0].powers.vulnerable, 5);
+        assert_eq!(next.monsters[0].powers.strength, -5);
+        assert_eq!(next.monsters[1].powers.weak, 5);
+        assert_eq!(next.monsters[1].powers.vulnerable, 5);
+        assert_eq!(next.monsters[1].powers.strength, -5);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, SHOCKWAVE_PLUS_ID);
     }
 
     #[test]
@@ -10667,6 +10718,22 @@ mod tests {
     }
 
     #[test]
+    fn double_tap_plus_has_expected_definition_rarity_and_upgrade_mapping() {
+        let definition =
+            get_card_definition(DOUBLE_TAP_PLUS_ID).expect("Double Tap+ definition exists");
+
+        assert_eq!(upgrade_content_id(DOUBLE_TAP_ID), Some(DOUBLE_TAP_PLUS_ID));
+        assert_eq!(upgrade_content_id(DOUBLE_TAP_PLUS_ID), None);
+        assert_eq!(definition.cost, 1);
+        assert_eq!(definition.card_type, CardType::Skill);
+        assert_eq!(definition.target, crate::TargetRequirement::None);
+        assert_eq!(
+            crate::content::cards::card_type_and_rarity(DOUBLE_TAP_PLUS_ID),
+            Some((CardType::Skill, crate::card::CardRarity::Rare))
+        );
+    }
+
+    #[test]
     fn double_tap_gains_pending_next_attack_replay_and_discards() {
         let state = hand_only(DOUBLE_TAP_ID);
 
@@ -10678,6 +10745,20 @@ mod tests {
         assert!(next.piles.hand.is_empty());
         assert_eq!(next.piles.discard_pile.len(), 1);
         assert_eq!(next.piles.discard_pile[0].content_id, DOUBLE_TAP_ID);
+    }
+
+    #[test]
+    fn double_tap_plus_gains_two_pending_next_attack_replays() {
+        let state = hand_only(DOUBLE_TAP_PLUS_ID);
+
+        let next = apply_combat_action(&state, double_tap_plus_action(&state))
+            .expect("Double Tap+ applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.double_tap_pending, 2);
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, DOUBLE_TAP_PLUS_ID);
     }
 
     #[test]
@@ -10794,6 +10875,35 @@ mod tests {
     }
 
     #[test]
+    fn double_tap_plus_replays_the_next_two_attacks_once_each() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DOUBLE_TAP_PLUS_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+        ];
+
+        let after_double_tap = apply_combat_action(&state, double_tap_plus_action(&state))
+            .expect("Double Tap+ applies");
+        let after_first_strike =
+            apply_combat_action(&after_double_tap, strike_action(&after_double_tap))
+                .expect("first Strike applies");
+        let after_second_strike =
+            apply_combat_action(&after_first_strike, strike_action(&after_first_strike))
+                .expect("second Strike applies");
+
+        assert_eq!(after_first_strike.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(after_first_strike.double_tap_pending, 1);
+        assert_eq!(
+            after_second_strike.monsters[0].hp,
+            state.monsters[0].hp - 24
+        );
+        assert_eq!(after_second_strike.player.energy, state.player.energy - 3);
+        assert_eq!(after_second_strike.double_tap_pending, 0);
+        assert_eq!(after_second_strike.piles.discard_pile.len(), 3);
+    }
+
+    #[test]
     fn double_tap_pending_does_not_consume_on_non_attack() {
         let mut state = hand_only(DEFEND_R_ID);
         state.double_tap_pending = 1;
@@ -10811,8 +10921,8 @@ mod tests {
 
         let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
 
-        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 18);
-        assert_eq!(next.double_tap_pending, 0);
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(next.double_tap_pending, 1);
     }
 
     #[test]
@@ -11195,6 +11305,40 @@ mod tests {
                 .and_then(|select| select.source_card_id),
             Some(CardId::new(20))
         );
+    }
+
+    #[test]
+    fn exhume_plus_costs_zero_and_uses_base_selection_behavior() {
+        let mut state = hand_only(EXHUME_PLUS_ID);
+        state.player.energy = 0;
+        state.piles.exhaust_pile = vec![
+            CardInstance::new(CardId::new(30), EXHUME_ID),
+            CardInstance::new(CardId::new(31), EXHUME_PLUS_ID),
+            CardInstance::new(CardId::new(32), STRIKE_R_ID),
+        ];
+        let action = CombatAction::PlayCard {
+            card_id: hand_card_id(&state, EXHUME_PLUS_ID),
+            target: None,
+        };
+
+        assert!(crate::combat::legal_combat_actions(&state).contains(&action));
+        let mut next = apply_combat_action(&state, action).expect("Exhume+ opens select");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(exhaust_select_ui_to_hand_index(&next, 0), Ok(2));
+        choose_exhaust_select(&mut next, 0).expect("choose Strike");
+        confirm_exhaust_select(&mut next).expect("confirm Exhume+ select");
+
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(32) && card.content_id == STRIKE_R_ID));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20) && card.content_id == EXHUME_PLUS_ID));
     }
 
     #[test]
@@ -13307,6 +13451,32 @@ mod tests {
     }
 
     #[test]
+    fn fiend_fire_plus_deals_ten_per_other_card_then_exhausts_others_and_source() {
+        let mut state = hand_only(FIEND_FIRE_PLUS_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FIEND_FIRE_PLUS_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), ANGER_ID),
+            CardInstance::new(CardId::new(23), BATTLE_TRANCE_ID),
+        ];
+
+        let next = apply_combat_action(&state, fiend_fire_plus_action(&state))
+            .expect("Fiend Fire+ applies");
+
+        assert_eq!(next.player.energy, 1);
+        assert_eq!(next.monsters[0].hp, 10);
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, ANGER_ID, BATTLE_TRANCE_ID, FIEND_FIRE_PLUS_ID]
+        );
+        assert!(next.piles.hand.is_empty());
+    }
+
+    #[test]
     fn fiend_fire_with_no_other_cards_exhausts_source_without_damage() {
         let state = hand_only(FIEND_FIRE_ID);
 
@@ -14157,6 +14327,13 @@ mod tests {
         }
     }
 
+    fn double_tap_plus_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, DOUBLE_TAP_PLUS_ID),
+            target: None,
+        }
+    }
+
     fn sword_boomerang_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SWORD_BOOMERANG_ID),
@@ -14220,6 +14397,13 @@ mod tests {
         }
     }
 
+    fn shockwave_plus_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, SHOCKWAVE_PLUS_ID),
+            target: None,
+        }
+    }
+
     fn trip_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, TRIP_ID),
@@ -14263,8 +14447,16 @@ mod tests {
     }
 
     fn fiend_fire_action(state: &CombatState) -> CombatAction {
+        fiend_fire_action_for(state, FIEND_FIRE_ID)
+    }
+
+    fn fiend_fire_plus_action(state: &CombatState) -> CombatAction {
+        fiend_fire_action_for(state, FIEND_FIRE_PLUS_ID)
+    }
+
+    fn fiend_fire_action_for(state: &CombatState, content_id: crate::ContentId) -> CombatAction {
         CombatAction::PlayCard {
-            card_id: hand_card_id(state, FIEND_FIRE_ID),
+            card_id: hand_card_id(state, content_id),
             target: Some(MonsterId::new(1)),
         }
     }
