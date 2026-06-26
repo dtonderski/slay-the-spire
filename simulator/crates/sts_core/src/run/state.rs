@@ -174,6 +174,58 @@ mod tests {
     }
 
     #[test]
+    fn neow_lament_reward_applies_to_next_three_combats_only() {
+        let mut run = RunState::map_fixture();
+        crate::run::neow::apply_neow_lament_reward(&mut run);
+
+        for expected_remaining in [2, 1, 0] {
+            let combat = run.init_combat_consuming_relics(CombatState::initial_fixture());
+
+            assert_eq!(combat.monsters[0].hp, 1);
+            assert_eq!(run.neow_lament_combats_remaining, expected_remaining);
+        }
+
+        let combat = run.init_combat_consuming_relics(CombatState::initial_fixture());
+
+        assert_eq!(combat.monsters[0].hp, 40);
+        assert_eq!(run.neow_lament_combats_remaining, 0);
+    }
+
+    #[test]
+    fn neow_lament_sets_all_current_monster_hp_to_one() {
+        let mut run = RunState::map_fixture();
+        crate::run::neow::apply_neow_lament_reward(&mut run);
+
+        let combat = run.init_combat_consuming_relics(CombatState::sentry_fixture());
+
+        assert_eq!(combat.monsters.len(), 3);
+        assert!(combat.monsters.iter().all(|monster| monster.hp == 1));
+        assert_eq!(run.neow_lament_combats_remaining, 2);
+    }
+
+    #[test]
+    fn neow_lament_counter_round_trips_through_json_and_skips_zero() {
+        let mut run = RunState::map_fixture();
+        let value = serde_json::to_value(&run).expect("serialize default run state");
+
+        assert!(value.get("neow_lament_combats_remaining").is_none());
+
+        run.neow_lament_combats_remaining = 2;
+        let json = serde_json::to_string(&run).expect("serialize run state");
+        let restored: RunState = serde_json::from_str(&json).expect("deserialize run state");
+
+        assert_eq!(restored.neow_lament_combats_remaining, 2);
+    }
+
+    #[test]
+    fn neow_lament_counter_defaults_when_missing_from_json() {
+        let value = serde_json::to_value(RunState::map_fixture()).expect("serialize run state");
+        let run: RunState = serde_json::from_value(value).expect("deserialize run state");
+
+        assert_eq!(run.neow_lament_combats_remaining, 0);
+    }
+
+    #[test]
     fn relic_spawn_context_uses_deck_and_owned_relics() {
         let mut run = RunState::map_fixture();
         run.relics = vec![Relic::CoffeeDripper];
@@ -1532,6 +1584,8 @@ pub struct RunState {
     pub event_room_treasure_chance: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub wing_boots_charges: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub neow_lament_combats_remaining: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1614,6 +1668,12 @@ fn is_zero_u32(value: &u32) -> bool {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn apply_neow_lament_to_combat(combat: &mut CombatState) {
+    for monster in &mut combat.monsters {
+        monster.hp = 1;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1874,7 +1934,11 @@ impl RunState {
 
     #[must_use]
     pub fn init_combat_consuming_relics(&mut self, base: CombatState) -> CombatState {
-        let combat = self.init_combat(base);
+        let mut combat = self.init_combat(base);
+        if self.neow_lament_combats_remaining > 0 {
+            apply_neow_lament_to_combat(&mut combat);
+            self.neow_lament_combats_remaining -= 1;
+        }
         if self.ancient_tea_set_armed {
             self.ancient_tea_set_armed = false;
         }
@@ -1976,6 +2040,7 @@ impl RunState {
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
             event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
             wing_boots_charges: 0,
+            neow_lament_combats_remaining: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
@@ -2040,6 +2105,7 @@ impl RunState {
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
             event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
             wing_boots_charges: 0,
+            neow_lament_combats_remaining: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
