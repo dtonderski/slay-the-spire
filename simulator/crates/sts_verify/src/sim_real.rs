@@ -3348,7 +3348,7 @@ fn seed_start_boss_swap_is_astrolabe_grid(run: &RunState) -> bool {
 fn seed_start_unsupported_boss_swap_reason(run: &RunState) -> Option<String> {
     if run.card_grid.is_some() {
         return Some(
-            "Neow boss-swap produced a non-Calling-Bell grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
+            "Neow boss-swap produced a grid-opening boss relic without a dedicated seed-start follow-up; downstream parity remains classified"
                 .to_owned(),
         );
     }
@@ -4661,7 +4661,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, curse-combo rare relics, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and Pandora's Box/reward-screen boss-swap follow-ups remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -7068,7 +7068,7 @@ mod tests {
         assert_eq!(
             seed_start_unsupported_boss_swap_reason(&run),
             Some(
-                "Neow boss-swap produced a non-Calling-Bell grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
+                "Neow boss-swap produced a grid-opening boss relic without a dedicated seed-start follow-up; downstream parity remains classified"
                     .to_owned()
             )
         );
