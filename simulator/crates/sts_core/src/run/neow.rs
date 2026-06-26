@@ -5,7 +5,10 @@
 //! option generation one slice at a time.
 
 use crate::{
-    card::CardRarity, content::reward_pool::IRONCLAD_REWARD_ENTRIES, ids::ContentId, rng::StsRng,
+    card::CardRarity,
+    content::{reward_pool::IRONCLAD_REWARD_ENTRIES, shop_pool::random_colorless_from_pool},
+    ids::ContentId,
+    rng::StsRng,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,6 +82,13 @@ pub struct NeowCardReward {
     pub neow_rng_counter: u32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NeowColorlessReward {
+    pub cards: Vec<ContentId>,
+    pub neow_rng_counter: u32,
+    pub card_rng_counter: u32,
+}
+
 pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
     let mut rng = StsRng::new(numeric_seed);
     (0..4)
@@ -107,6 +117,37 @@ pub fn generate_neow_rare_card_reward_with_rng(
     NeowCardReward {
         cards,
         neow_rng_counter: rng.counter(),
+    }
+}
+
+pub fn generate_neow_colorless_reward(
+    numeric_seed: i64,
+    reward: NeowRewardType,
+) -> NeowColorlessReward {
+    let mut neow_rng = StsRng::new(numeric_seed);
+    for slot in 0..4 {
+        generate_neow_option(slot, 80, &mut neow_rng);
+    }
+    let mut card_rng = StsRng::new(numeric_seed);
+    generate_neow_colorless_reward_with_rng(&mut neow_rng, &mut card_rng, reward)
+}
+
+pub fn generate_neow_colorless_reward_with_rng(
+    neow_rng: &mut StsRng,
+    card_rng: &mut StsRng,
+    reward: NeowRewardType,
+) -> NeowColorlessReward {
+    let force_rare = match reward {
+        NeowRewardType::RandomColorless => false,
+        NeowRewardType::RandomColorlessTwo => true,
+        other => panic!("Neow reward {other:?} is not a colorless reward"),
+    };
+    let cards = neow_unique_colorless_cards(neow_rng, card_rng, force_rare, 3);
+
+    NeowColorlessReward {
+        cards,
+        neow_rng_counter: neow_rng.counter(),
+        card_rng_counter: card_rng.counter(),
     }
 }
 
@@ -254,6 +295,35 @@ fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId 
     assert!(!pool.is_empty(), "Neow card reward pool must not be empty");
     let pick = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[pick].content_id
+}
+
+fn neow_unique_colorless_cards(
+    neow_rng: &mut StsRng,
+    card_rng: &mut StsRng,
+    force_rare: bool,
+    count: usize,
+) -> Vec<ContentId> {
+    let mut cards = Vec::new();
+    while cards.len() < count {
+        let rarity = neow_colorless_rarity(neow_rng, force_rare);
+        loop {
+            let candidate = random_colorless_from_pool(card_rng, rarity);
+            if !cards.contains(&candidate) {
+                cards.push(candidate);
+                break;
+            }
+        }
+    }
+    cards
+}
+
+fn neow_colorless_rarity(neow_rng: &mut StsRng, force_rare: bool) -> CardRarity {
+    let _rolled_uncommon = neow_rng.random_float() < 0.333_333_34;
+    if force_rare {
+        CardRarity::Rare
+    } else {
+        CardRarity::Uncommon
+    }
 }
 
 pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
@@ -474,5 +544,25 @@ mod tests {
         assert_ne!(reward.cards[0], reward.cards[2]);
         assert_ne!(reward.cards[1], reward.cards[2]);
         assert!(reward.neow_rng_counter >= 8);
+    }
+
+    #[test]
+    fn colorless_reward_burns_neow_rarity_rolls_and_card_rng_identity_draws() {
+        let reward =
+            generate_neow_colorless_reward(22_079_335_079, NeowRewardType::RandomColorless);
+
+        assert_eq!(reward.cards.len(), 3);
+        assert_eq!(reward.neow_rng_counter, 8);
+        assert!(reward.card_rng_counter >= 3);
+    }
+
+    #[test]
+    fn rare_colorless_reward_still_burns_neow_rarity_rolls() {
+        let reward =
+            generate_neow_colorless_reward(22_079_335_079, NeowRewardType::RandomColorlessTwo);
+
+        assert_eq!(reward.cards.len(), 3);
+        assert_eq!(reward.neow_rng_counter, 8);
+        assert!(reward.card_rng_counter >= 3);
     }
 }
