@@ -32,6 +32,10 @@ pub enum InternalAction {
     SpendCardEnergy {
         card_id: CardId,
     },
+    SetHandCardCostForTurn {
+        card_id: CardId,
+        cost: u8,
+    },
     DealDamage {
         info: DamageInfo,
     },
