@@ -25,10 +25,11 @@ pub use neow::{
     generate_neow_colorless_reward, generate_neow_colorless_reward_with_rng, generate_neow_options,
     generate_neow_rare_card_reward, generate_neow_rare_card_reward_with_rng,
     generate_neow_three_potions, generate_neow_three_potions_with_rng,
+    generate_neow_transform_reward, generate_neow_transform_reward_with_rng,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
     GeneratedNeowOption, KnownNeowBranch, KnownNeowColorlessReward, KnownNeowScreen,
     NeowBossSwapReward, NeowCardReward, NeowColorlessReward, NeowDrawback, NeowPotionReward,
-    NeowRewardType,
+    NeowRewardType, NeowTransformReward,
 };
 pub use potion::{apply_potion_action, validate_potion_action};
 pub use rest::{
