@@ -63,6 +63,7 @@ pub const APOTHEOSIS_PLUS_ID: ContentId = ContentId::new(1_789_056_897_720_888);
 pub const BLIND_ID: ContentId = ContentId::new(63_289_741);
 pub const BLIND_PLUS_ID: ContentId = ContentId::new(63_289_742);
 pub const DARK_SHACKLES_ID: ContentId = ContentId::new(18_388_408_013_683_944_583);
+pub const DARK_SHACKLES_PLUS_ID: ContentId = ContentId::new(18_388_408_013_683_944_584);
 pub const DEEP_BREATH_ID: ContentId = ContentId::new(57_620_194_214_716_779);
 pub const DEEP_BREATH_PLUS_ID: ContentId = ContentId::new(57_620_194_214_716_780);
 pub const DISCOVERY_ID: ContentId = ContentId::new(60_080_667_924_456);
@@ -127,7 +128,9 @@ pub const CLASH_ID: ContentId = ContentId::new(102);
 pub const THUNDERCLAP_ID: ContentId = ContentId::new(103);
 pub const CLOTHESLINE_ID: ContentId = ContentId::new(104);
 pub const ARMAMENTS_ID: ContentId = ContentId::new(105);
+pub const ARMAMENTS_PLUS_ID: ContentId = ContentId::new(10_105);
 pub const HEADBUTT_ID: ContentId = ContentId::new(106);
+pub const HEADBUTT_PLUS_ID: ContentId = ContentId::new(10_106);
 pub const WILD_STRIKE_ID: ContentId = ContentId::new(107);
 pub const HEAVY_BLADE_ID: ContentId = ContentId::new(108);
 pub const PERFECTED_STRIKE_ID: ContentId = ContentId::new(109);
@@ -138,19 +141,25 @@ pub const RECKLESS_CHARGE_ID: ContentId = ContentId::new(113);
 pub const HEMOKINESIS_ID: ContentId = ContentId::new(114);
 pub const INTIMIDATE_ID: ContentId = ContentId::new(115);
 pub const BLOOD_FOR_BLOOD_ID: ContentId = ContentId::new(116);
+pub const BLOOD_FOR_BLOOD_PLUS_ID: ContentId = ContentId::new(10_116);
 pub const FLAME_BARRIER_ID: ContentId = ContentId::new(117);
+pub const FLAME_BARRIER_PLUS_ID: ContentId = ContentId::new(10_117);
 pub const PUMMEL_ID: ContentId = ContentId::new(118);
 pub const METALLICIZE_ID: ContentId = ContentId::new(119);
 pub const SHOCKWAVE_ID: ContentId = ContentId::new(120);
 pub const RAMPAGE_ID: ContentId = ContentId::new(121);
+pub const RAMPAGE_PLUS_ID: ContentId = ContentId::new(10_121);
 pub const SEVER_SOUL_ID: ContentId = ContentId::new(122);
 pub const COMBUST_ID: ContentId = ContentId::new(123);
+pub const COMBUST_PLUS_ID: ContentId = ContentId::new(123_000_001);
 pub const DISARM_ID: ContentId = ContentId::new(124);
 pub const RAGE_ID: ContentId = ContentId::new(125);
 pub const ENTRENCH_ID: ContentId = ContentId::new(126);
 pub const SENTINEL_ID: ContentId = ContentId::new(127);
 pub const SECOND_WIND_ID: ContentId = ContentId::new(128);
+pub const SECOND_WIND_PLUS_ID: ContentId = ContentId::new(10_128);
 pub const RUPTURE_ID: ContentId = ContentId::new(129);
+pub const RUPTURE_PLUS_ID: ContentId = ContentId::new(129_000_001);
 pub const BLOODLETTING_ID: ContentId = ContentId::new(130);
 pub const CARNAGE_ID: ContentId = ContentId::new(131);
 pub const DROPKICK_ID: ContentId = ContentId::new(132);
@@ -158,21 +167,31 @@ pub const FIRE_BREATHING_ID: ContentId = ContentId::new(133);
 pub const GHOSTLY_ARMOR_ID: ContentId = ContentId::new(134);
 pub const UPPERCUT_ID: ContentId = ContentId::new(135);
 pub const EVOLVE_ID: ContentId = ContentId::new(136);
+pub const EVOLVE_PLUS_ID: ContentId = ContentId::new(136_000_001);
 pub const DOUBLE_TAP_ID: ContentId = ContentId::new(137);
 pub const DEMON_FORM_ID: ContentId = ContentId::new(138);
 pub const BLUDGEON_ID: ContentId = ContentId::new(139);
 pub const FEED_ID: ContentId = ContentId::new(140);
+pub const FEED_PLUS_ID: ContentId = ContentId::new(10_140);
 pub const LIMIT_BREAK_ID: ContentId = ContentId::new(141);
+pub const LIMIT_BREAK_PLUS_ID: ContentId = ContentId::new(10_141);
 pub const CORRUPTION_ID: ContentId = ContentId::new(142);
+pub const CORRUPTION_PLUS_ID: ContentId = ContentId::new(142_000_001);
 pub const BARRICADE_ID: ContentId = ContentId::new(143);
+pub const BARRICADE_PLUS_ID: ContentId = ContentId::new(143_000_001);
 pub const FIEND_FIRE_ID: ContentId = ContentId::new(144);
 pub const BERSERK_ID: ContentId = ContentId::new(145);
+pub const BERSERK_PLUS_ID: ContentId = ContentId::new(145_000_001);
 pub const IMPERVIOUS_ID: ContentId = ContentId::new(146);
 pub const JUGGERNAUT_ID: ContentId = ContentId::new(147);
+pub const JUGGERNAUT_PLUS_ID: ContentId = ContentId::new(147_000_001);
 pub const BRUTALITY_ID: ContentId = ContentId::new(148);
+pub const BRUTALITY_PLUS_ID: ContentId = ContentId::new(148_000_001);
 pub const REAPER_ID: ContentId = ContentId::new(149);
+pub const REAPER_PLUS_ID: ContentId = ContentId::new(10_149);
 pub const EXHUME_ID: ContentId = ContentId::new(150);
 pub const OFFERING_ID: ContentId = ContentId::new(151);
+pub const OFFERING_PLUS_ID: ContentId = ContentId::new(10_151);
 pub const IMMOLATE_ID: ContentId = ContentId::new(152);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
@@ -305,6 +324,7 @@ pub const BURN_END_TURN_DAMAGE: i32 = 2;
 pub const COMBUST_HP_LOSS: i32 = 1;
 /// Combust deals this much damage to all living enemies per stack at end of turn.
 pub const COMBUST_DAMAGE: i32 = 5;
+pub const COMBUST_PLUS_DAMAGE: i32 = 7;
 pub const THE_BOMB_DAMAGE: i32 = 40;
 pub const THE_BOMB_TURNS: i32 = 3;
 
@@ -635,6 +655,21 @@ pub const COMBUST: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const COMBUST_PLUS: CardDefinition = CardDefinition {
+    id: COMBUST_PLUS_ID,
+    key: "COMBUST+",
+    name: "Combust+",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(COMBUST_PLUS_DAMAGE),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const DEMON_FORM: CardDefinition = CardDefinition {
     id: DEMON_FORM_ID,
     key: "Demon Form",
@@ -665,11 +700,41 @@ pub const EVOLVE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const EVOLVE_PLUS: CardDefinition = CardDefinition {
+    id: EVOLVE_PLUS_ID,
+    key: "EVOLVE+",
+    name: "Evolve+",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const CORRUPTION: CardDefinition = CardDefinition {
     id: CORRUPTION_ID,
     key: "CORRUPTION",
     name: "Corruption",
     cost: 3,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const CORRUPTION_PLUS: CardDefinition = CardDefinition {
+    id: CORRUPTION_PLUS_ID,
+    key: "CORRUPTION+",
+    name: "Corruption+",
+    cost: 2,
     card_type: CardType::Power,
     target: TargetRequirement::None,
     values: CardValues {
@@ -695,6 +760,21 @@ pub const BARRICADE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const BARRICADE_PLUS: CardDefinition = CardDefinition {
+    id: BARRICADE_PLUS_ID,
+    key: "BARRICADE+",
+    name: "Barricade+",
+    cost: 2,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BERSERK: CardDefinition = CardDefinition {
     id: BERSERK_ID,
     key: "BERSERK",
@@ -710,10 +790,40 @@ pub const BERSERK: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const BERSERK_PLUS: CardDefinition = CardDefinition {
+    id: BERSERK_PLUS_ID,
+    key: "BERSERK+",
+    name: "Berserk+",
+    cost: 0,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: Some(1),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const RUPTURE: CardDefinition = CardDefinition {
     id: RUPTURE_ID,
     key: "RUPTURE",
     name: "Rupture",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const RUPTURE_PLUS: CardDefinition = CardDefinition {
+    id: RUPTURE_PLUS_ID,
+    key: "RUPTURE+",
+    name: "Rupture+",
     cost: 1,
     card_type: CardType::Power,
     target: TargetRequirement::None,
@@ -734,6 +844,21 @@ pub const JUGGERNAUT: CardDefinition = CardDefinition {
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(5),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const JUGGERNAUT_PLUS: CardDefinition = CardDefinition {
+    id: JUGGERNAUT_PLUS_ID,
+    key: "JUGGERNAUT+",
+    name: "Juggernaut+",
+    cost: 2,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(7),
         block: None,
         vulnerable: None,
     },
@@ -821,6 +946,21 @@ pub const LIMIT_BREAK: CardDefinition = CardDefinition {
     },
 };
 
+pub const LIMIT_BREAK_PLUS: CardDefinition = CardDefinition {
+    id: LIMIT_BREAK_PLUS_ID,
+    key: "Limit Break+",
+    name: "Limit Break+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const OFFERING: CardDefinition = CardDefinition {
     id: OFFERING_ID,
     key: "Offering",
@@ -842,10 +982,46 @@ pub const OFFERING: CardDefinition = CardDefinition {
     },
 };
 
+pub const OFFERING_PLUS: CardDefinition = CardDefinition {
+    id: OFFERING_PLUS_ID,
+    key: "Offering+",
+    name: "Offering+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        unplayable: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+    },
+};
+
 pub const ARMAMENTS: CardDefinition = CardDefinition {
     id: ARMAMENTS_ID,
     key: "Armaments",
     name: "Armaments",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(5),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const ARMAMENTS_PLUS: CardDefinition = CardDefinition {
+    id: ARMAMENTS_PLUS_ID,
+    key: "Armaments+",
+    name: "Armaments+",
     cost: 1,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
@@ -1268,6 +1444,39 @@ pub const BANDAGE_UP: CardDefinition = CardDefinition {
     },
 };
 
+pub const HEADBUTT_PLUS: CardDefinition = CardDefinition {
+    id: HEADBUTT_PLUS_ID,
+    key: "Headbutt+",
+    name: "Headbutt+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(12),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BRUTALITY_PLUS: CardDefinition = CardDefinition {
+    id: BRUTALITY_PLUS_ID,
+    key: "BRUTALITY+",
+    name: "Brutality+",
+    cost: 0,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: true,
+        ..CARD_KEYWORDS_NONE
+    },
+};
+
 pub const BANDAGE_UP_PLUS: CardDefinition = CardDefinition {
     id: BANDAGE_UP_PLUS_ID,
     key: "BANDAGE_UP+",
@@ -1545,6 +1754,27 @@ pub const DARK_SHACKLES: CardDefinition = CardDefinition {
     id: DARK_SHACKLES_ID,
     key: "DARK_SHACKLES",
     name: "Dark Shackles",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        unplayable: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+    },
+};
+
+pub const DARK_SHACKLES_PLUS: CardDefinition = CardDefinition {
+    id: DARK_SHACKLES_PLUS_ID,
+    key: "DARK_SHACKLES+",
+    name: "Dark Shackles+",
     cost: 0,
     card_type: CardType::Skill,
     target: TargetRequirement::Enemy,
@@ -2471,6 +2701,21 @@ pub const RAMPAGE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const RAMPAGE_PLUS: CardDefinition = CardDefinition {
+    id: RAMPAGE_PLUS_ID,
+    key: "RAMPAGE+",
+    name: "Rampage+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const POWER_THROUGH: CardDefinition = CardDefinition {
     id: POWER_THROUGH_ID,
     key: "POWER_THROUGH",
@@ -2547,6 +2792,21 @@ pub const FLAME_BARRIER: CardDefinition = CardDefinition {
     values: CardValues {
         damage: None,
         block: Some(12),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const FLAME_BARRIER_PLUS: CardDefinition = CardDefinition {
+    id: FLAME_BARRIER_PLUS_ID,
+    key: "FLAME_BARRIER+",
+    name: "Flame Barrier+",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(16),
         vulnerable: None,
     },
     keywords: CARD_KEYWORDS_NONE,
@@ -2717,6 +2977,21 @@ pub const SECOND_WIND: CardDefinition = CardDefinition {
     },
 };
 
+pub const SECOND_WIND_PLUS: CardDefinition = CardDefinition {
+    id: SECOND_WIND_PLUS_ID,
+    key: "SECOND_WIND+",
+    name: "Second Wind+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(7),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SENTINEL: CardDefinition = CardDefinition {
     id: SENTINEL_ID,
     key: "Sentinel",
@@ -2828,6 +3103,21 @@ pub const BLOOD_FOR_BLOOD: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const BLOOD_FOR_BLOOD_PLUS: CardDefinition = CardDefinition {
+    id: BLOOD_FOR_BLOOD_PLUS_ID,
+    key: "BLOOD_FOR_BLOOD+",
+    name: "Blood for Blood+",
+    cost: 3,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(22),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IMMOLATE: CardDefinition = CardDefinition {
     id: IMMOLATE_ID,
     key: "Immolate",
@@ -2873,6 +3163,27 @@ pub const FEED: CardDefinition = CardDefinition {
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(10),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const FEED_PLUS: CardDefinition = CardDefinition {
+    id: FEED_PLUS_ID,
+    key: "FEED+",
+    name: "Feed+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(12),
         block: None,
         vulnerable: None,
     },
@@ -2936,6 +3247,27 @@ pub const REAPER: CardDefinition = CardDefinition {
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(4),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const REAPER_PLUS: CardDefinition = CardDefinition {
+    id: REAPER_PLUS_ID,
+    key: "REAPER+",
+    name: "Reaper+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(5),
         block: None,
         vulnerable: None,
     },
@@ -3054,7 +3386,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 167] = [
+pub const ALL_CARDS: [CardDefinition; 186] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -3081,21 +3413,33 @@ pub const ALL_CARDS: [CardDefinition; 167] = [
     FEEL_NO_PAIN,
     DARK_EMBRACE,
     COMBUST,
+    COMBUST_PLUS,
     DEMON_FORM,
     EVOLVE,
+    EVOLVE_PLUS,
     CORRUPTION,
+    CORRUPTION_PLUS,
     BARRICADE,
+    BARRICADE_PLUS,
     BERSERK,
+    BERSERK_PLUS,
     RUPTURE,
+    RUPTURE_PLUS,
     JUGGERNAUT,
+    JUGGERNAUT_PLUS,
     BRUTALITY,
+    BRUTALITY_PLUS,
     MAYHEM,
     DOUBLE_TAP,
     FIRE_BREATHING,
     LIMIT_BREAK,
+    LIMIT_BREAK_PLUS,
     OFFERING,
+    OFFERING_PLUS,
     ARMAMENTS,
+    ARMAMENTS_PLUS,
     HEADBUTT,
+    HEADBUTT_PLUS,
     POMMEL_STRIKE,
     BATTLE_TRANCE,
     SEEING_RED,
@@ -3138,6 +3482,7 @@ pub const ALL_CARDS: [CardDefinition; 167] = [
     MIND_BLAST,
     MIND_BLAST_PLUS,
     DARK_SHACKLES,
+    DARK_SHACKLES_PLUS,
     FORETHOUGHT,
     FORETHOUGHT_PLUS,
     GOOD_INSTINCTS,
@@ -3191,11 +3536,13 @@ pub const ALL_CARDS: [CardDefinition; 167] = [
     HEAVY_BLADE,
     PERFECTED_STRIKE,
     RAMPAGE,
+    RAMPAGE_PLUS,
     POWER_THROUGH,
     INFERNAL_BLADE,
     ENTRENCH,
     GHOSTLY_ARMOR,
     FLAME_BARRIER,
+    FLAME_BARRIER_PLUS,
     RECKLESS_CHARGE,
     PUMMEL,
     CLOTHESLINE,
@@ -3205,6 +3552,7 @@ pub const ALL_CARDS: [CardDefinition; 167] = [
     RAGE,
     SEVER_SOUL,
     SECOND_WIND,
+    SECOND_WIND_PLUS,
     SENTINEL,
     BLOODLETTING,
     CARNAGE,
@@ -3212,12 +3560,15 @@ pub const ALL_CARDS: [CardDefinition; 167] = [
     SWORD_BOOMERANG,
     HEMOKINESIS,
     BLOOD_FOR_BLOOD,
+    BLOOD_FOR_BLOOD_PLUS,
     IMMOLATE,
     BLUDGEON,
     FEED,
+    FEED_PLUS,
     IMPERVIOUS,
     FIEND_FIRE,
     REAPER,
+    REAPER_PLUS,
     EXHUME,
     METALLICIZE,
     THUNDERCLAP,
@@ -3263,24 +3614,34 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == ARMAMENTS_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == HEADBUTT_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == ARMAMENTS_ID || id == ARMAMENTS_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Common))
+        }
+        id if id == HEADBUTT_ID || id == HEADBUTT_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
         id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == RAMPAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == RAMPAGE_ID || id == RAMPAGE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == INFERNAL_BLADE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == ENTRENCH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == FLAME_BARRIER_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == FLAME_BARRIER_ID || id == FLAME_BARRIER_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CARNAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == DROPKICK_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == HEMOKINESIS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == BLOOD_FOR_BLOOD_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == BLOOD_FOR_BLOOD_ID || id == BLOOD_FOR_BLOOD_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -3295,19 +3656,31 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == COMBUST_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == EVOLVE_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == CORRUPTION_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == CORRUPTION_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == BARRICADE_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == BERSERK_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == RUPTURE_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == JUGGERNAUT_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == JUGGERNAUT_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == BRUTALITY_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == MAYHEM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DOUBLE_TAP_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FIRE_BREATHING_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == LIMIT_BREAK_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == OFFERING_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == LIMIT_BREAK_ID || id == LIMIT_BREAK_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Rare))
+        }
+        id if id == OFFERING_ID || id == OFFERING_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Rare))
+        }
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -3316,17 +3689,19 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == WARCRY_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == SECOND_WIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SECOND_WIND_ID || id == SECOND_WIND_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == SENTINEL_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SHOCKWAVE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RAGE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == FEED_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == FEED_ID || id == FEED_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FIEND_FIRE_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == REAPER_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == REAPER_ID || id == REAPER_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == EXHUME_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == APOTHEOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -3338,6 +3713,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == MIND_BLAST_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == MIND_BLAST_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == DARK_SHACKLES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == DARK_SHACKLES_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FORETHOUGHT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FORETHOUGHT_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -3392,6 +3768,16 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
 #[must_use]
 pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
     match id {
+        ARMAMENTS_ID => Some(ARMAMENTS_PLUS_ID),
+        HEADBUTT_ID => Some(HEADBUTT_PLUS_ID),
+        BLOOD_FOR_BLOOD_ID => Some(BLOOD_FOR_BLOOD_PLUS_ID),
+        FLAME_BARRIER_ID => Some(FLAME_BARRIER_PLUS_ID),
+        SECOND_WIND_ID => Some(SECOND_WIND_PLUS_ID),
+        RAMPAGE_ID => Some(RAMPAGE_PLUS_ID),
+        LIMIT_BREAK_ID => Some(LIMIT_BREAK_PLUS_ID),
+        FEED_ID => Some(FEED_PLUS_ID),
+        OFFERING_ID => Some(OFFERING_PLUS_ID),
+        REAPER_ID => Some(REAPER_PLUS_ID),
         STRIKE_R_ID => Some(STRIKE_R_PLUS_ID),
         ANGER_ID => Some(ANGER_PLUS_ID),
         CLEAVE_ID => Some(CLEAVE_PLUS_ID),
@@ -3407,9 +3793,18 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         WARCRY_ID => Some(WARCRY_PLUS_ID),
         DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
         SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
+        COMBUST_ID => Some(COMBUST_PLUS_ID),
+        RUPTURE_ID => Some(RUPTURE_PLUS_ID),
+        EVOLVE_ID => Some(EVOLVE_PLUS_ID),
+        CORRUPTION_ID => Some(CORRUPTION_PLUS_ID),
+        BARRICADE_ID => Some(BARRICADE_PLUS_ID),
+        BERSERK_ID => Some(BERSERK_PLUS_ID),
+        JUGGERNAUT_ID => Some(JUGGERNAUT_PLUS_ID),
+        BRUTALITY_ID => Some(BRUTALITY_PLUS_ID),
         SWIFT_STRIKE_ID => Some(SWIFT_STRIKE_PLUS_ID),
         BANDAGE_UP_ID => Some(BANDAGE_UP_PLUS_ID),
         BLIND_ID => Some(BLIND_PLUS_ID),
+        DARK_SHACKLES_ID => Some(DARK_SHACKLES_PLUS_ID),
         DEEP_BREATH_ID => Some(DEEP_BREATH_PLUS_ID),
         FINESSE_ID => Some(FINESSE_PLUS_ID),
         FLASH_OF_STEEL_ID => Some(FLASH_OF_STEEL_PLUS_ID),
@@ -3675,6 +4070,76 @@ mod tests {
     }
 
     #[test]
+    fn upgraded_ironclad_attack_variants_have_expected_values_and_upgrade_mapping() {
+        let cases = [
+            (
+                HEADBUTT_ID,
+                HEADBUTT_PLUS_ID,
+                HEADBUTT_PLUS,
+                1,
+                TargetRequirement::Enemy,
+                Some(12),
+                CardRarity::Common,
+                false,
+            ),
+            (
+                BLOOD_FOR_BLOOD_ID,
+                BLOOD_FOR_BLOOD_PLUS_ID,
+                BLOOD_FOR_BLOOD_PLUS,
+                3,
+                TargetRequirement::Enemy,
+                Some(22),
+                CardRarity::Uncommon,
+                false,
+            ),
+            (
+                RAMPAGE_ID,
+                RAMPAGE_PLUS_ID,
+                RAMPAGE_PLUS,
+                1,
+                TargetRequirement::Enemy,
+                Some(8),
+                CardRarity::Uncommon,
+                false,
+            ),
+            (
+                FEED_ID,
+                FEED_PLUS_ID,
+                FEED_PLUS,
+                1,
+                TargetRequirement::Enemy,
+                Some(12),
+                CardRarity::Rare,
+                true,
+            ),
+            (
+                REAPER_ID,
+                REAPER_PLUS_ID,
+                REAPER_PLUS,
+                2,
+                TargetRequirement::AllEnemies,
+                Some(5),
+                CardRarity::Rare,
+                true,
+            ),
+        ];
+
+        for (base_id, plus_id, definition, cost, target, damage, rarity, exhaust) in cases {
+            assert_eq!(upgrade_content_id(base_id), Some(plus_id));
+            assert_eq!(get_card_definition(plus_id), Some(&definition));
+            assert_eq!(definition.cost, cost);
+            assert_eq!(definition.card_type, CardType::Attack);
+            assert_eq!(definition.target, target);
+            assert_eq!(definition.values.damage, damage);
+            assert_eq!(definition.keywords.exhaust, exhaust);
+            assert_eq!(
+                card_type_and_rarity(plus_id),
+                Some((CardType::Attack, rarity))
+            );
+        }
+    }
+
+    #[test]
     fn dark_shackles_has_expected_values_keywords_and_rarity() {
         assert_eq!(DARK_SHACKLES.id, DARK_SHACKLES_ID);
         assert_eq!(DARK_SHACKLES.cost, 0);
@@ -3696,7 +4161,23 @@ mod tests {
             card_type_and_rarity(DARK_SHACKLES_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
-        assert_eq!(upgrade_content_id(DARK_SHACKLES_ID), None);
+        assert_eq!(
+            upgrade_content_id(DARK_SHACKLES_ID),
+            Some(DARK_SHACKLES_PLUS_ID)
+        );
+        assert_eq!(upgrade_content_id(DARK_SHACKLES_PLUS_ID), None);
+
+        assert_eq!(DARK_SHACKLES_PLUS.id, DARK_SHACKLES_PLUS_ID);
+        assert_eq!(DARK_SHACKLES_PLUS.cost, 0);
+        assert_eq!(DARK_SHACKLES_PLUS.target, TargetRequirement::Enemy);
+        assert_eq!(DARK_SHACKLES_PLUS.card_type, CardType::Skill);
+        assert_eq!(DARK_SHACKLES_PLUS.values.damage, None);
+        assert_eq!(DARK_SHACKLES_PLUS.values.block, None);
+        assert_eq!(DARK_SHACKLES_PLUS.keywords, DARK_SHACKLES.keywords);
+        assert_eq!(
+            card_type_and_rarity(DARK_SHACKLES_PLUS_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
     }
 
     #[test]

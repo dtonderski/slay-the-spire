@@ -85,11 +85,11 @@ fn apply_end_of_turn_combust(state: &mut CombatState) {
     for _ in 0..state.player.powers.combust.max(0) {
         let hp_loss = lose_player_hp(state, COMBUST_HP_LOSS);
         crate::relic::apply_player_hp_loss_relics(state, hp_loss);
-        deal_combust_damage_to_living_monsters(state);
-        if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
+        if state.player.hp <= 0 {
             return;
         }
     }
+    deal_combust_damage_to_living_monsters(state);
 }
 
 fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
@@ -100,7 +100,9 @@ fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
 }
 
 fn deal_combust_damage_to_living_monsters(state: &mut CombatState) {
-    deal_unmodified_damage_to_living_monsters(state, COMBUST_DAMAGE);
+    let legacy_base_damage = state.player.powers.combust * COMBUST_DAMAGE;
+    let damage = state.player.powers.combust_damage.max(legacy_base_damage);
+    deal_unmodified_damage_to_living_monsters(state, damage);
 }
 
 fn apply_end_of_turn_bomb_timers(state: &mut CombatState) {

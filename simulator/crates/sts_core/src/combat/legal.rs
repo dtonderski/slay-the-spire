@@ -3,10 +3,11 @@ use crate::{
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
-        get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        EXHUME_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID,
-        IMPATIENCE_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
-        SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, DUAL_WIELD_ID,
+        DUAL_WIELD_PLUS_ID, EXHUME_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, HAVOC_ID,
+        HAVOC_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, SECRET_TECHNIQUE_ID,
+        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -311,7 +312,7 @@ fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
     }) {
         return 0;
     }
-    if card.content_id == BLOOD_FOR_BLOOD_ID {
+    if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
         return (base_cost - card.blood_for_blood_cost_reduction).max(0);
     }
     base_cost
@@ -457,20 +458,21 @@ mod tests {
             BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
             BURNING_PACT_ID, CARNAGE_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
             CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID,
-            DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID,
-            ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-            FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID,
-            FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID,
-            HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
-            INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-            JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID,
-            METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID,
-            PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-            PUMMEL_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-            SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-            SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-            STRIKE_R_ID, TRANSMUTATION_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
-            VIOLENCE_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+            DARK_SHACKLES_PLUS_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
+            DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, FEED_ID,
+            FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
+            FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID,
+            GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+            IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
+            INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID,
+            MASTER_OF_STRATEGY_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
+            PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+            POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
+            RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
+            SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID,
+            SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, TRANSMUTATION_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+            TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
+            WOUND_ID,
         },
         CardInstance, Relic,
     };
@@ -2299,6 +2301,29 @@ mod tests {
     #[test]
     fn dark_shackles_is_legal_with_living_target_at_zero_energy() {
         let mut state = hand_with_card(DARK_SHACKLES_ID);
+        state.player.energy = 0;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn dark_shackles_plus_is_legal_with_living_target_at_zero_energy() {
+        let mut state = hand_with_card(DARK_SHACKLES_PLUS_ID);
         state.player.energy = 0;
 
         assert!(
