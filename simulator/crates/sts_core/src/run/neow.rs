@@ -7,6 +7,7 @@
 use crate::{
     card::CardRarity,
     content::{
+        cards::{DOUBT_ID, REGRET_ID},
         reward_pool::{ironclad_transform_card_content_id, IRONCLAD_REWARD_ENTRIES},
         shop_pool::random_colorless_from_pool,
     },
@@ -14,7 +15,7 @@ use crate::{
     potion::{Potion, IRONCLAD_POTION_POOL},
     relic::{Relic, RelicKey, RelicTier},
     rng::StsRng,
-    run::state::RunState,
+    run::state::{RunRngStream, RunState},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -117,6 +118,12 @@ pub struct NeowTransformReward {
 pub struct NeowRelicReward {
     pub relic: RelicKey,
     pub relic_rng_counter: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NeowCurseDrawback {
+    pub curse: ContentId,
+    pub card_rng_counter: u32,
 }
 
 pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
@@ -293,6 +300,18 @@ pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) {
             run.player_hp = (run.player_hp - percent_damage(run.player_max_hp)).max(1);
         }
         NeowDrawback::Curse => panic!("Neow curse drawback needs cardRng curse identity"),
+    }
+}
+
+pub fn apply_neow_curse_drawback(run: &mut RunState) -> NeowCurseDrawback {
+    let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
+    let curse = neow_modeled_random_curse(&mut card_rng);
+    run.store_rng_counter(RunRngStream::CardReward, &card_rng);
+    run.gain_deck_card(curse);
+
+    NeowCurseDrawback {
+        curse,
+        card_rng_counter: run.card_rng_counter,
     }
 }
 
@@ -518,6 +537,14 @@ fn neow_random_potion(potion_rng: &mut StsRng) -> Potion {
     IRONCLAD_POTION_POOL[pick]
 }
 
+fn neow_modeled_random_curse(card_rng: &mut StsRng) -> ContentId {
+    // Local boundary: only normal curses with implemented deck/combat behavior are in this
+    // temporary pool. Full target curse pool/order is still a separate parity blocker.
+    const MODELED_NEOW_CURSES: &[ContentId] = &[REGRET_ID, DOUBT_ID];
+    let pick = card_rng.random_int((MODELED_NEOW_CURSES.len() - 1) as i32) as usize;
+    MODELED_NEOW_CURSES[pick]
+}
+
 pub fn known_neow_screen_for_seed(seed: &str) -> KnownNeowScreen {
     match seed {
         "M290001" => KnownNeowScreen {
@@ -621,9 +648,10 @@ pub fn known_neow_colorless_reward_for_seed(seed: &str) -> Option<KnownNeowColor
 mod tests {
     use super::*;
     use crate::content::cards::{
-        DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        is_curse_content_id, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
-    use crate::relic::RelicPoolState;
+    use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
     use crate::run::GridPurpose;
 
     #[test]
@@ -968,6 +996,59 @@ mod tests {
         apply_neow_simple_drawback(&mut run, NeowDrawback::NoGold);
 
         assert_eq!(run.gold, 0);
+    }
+
+    #[test]
+    fn curse_drawback_uses_card_rng_not_neow_or_card_random_rng() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 40_560_393_126;
+        run.card_rng_counter = 5;
+        run.card_random_rng_counter = 11;
+        let starting_len = run.deck.len();
+
+        let drawback = apply_neow_curse_drawback(&mut run);
+
+        assert!(is_curse_content_id(drawback.curse));
+        assert!(drawback.curse == REGRET_ID || drawback.curse == DOUBT_ID);
+        assert_eq!(drawback.card_rng_counter, 6);
+        assert_eq!(run.card_rng_counter, 6);
+        assert_eq!(run.card_random_rng_counter, 11);
+        assert_eq!(run.deck.len(), starting_len + 1);
+        assert_eq!(run.deck.last().expect("curse").content_id, drawback.curse);
+    }
+
+    #[test]
+    fn curse_drawback_consumes_card_rng_even_when_omamori_prevents_card() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 1_218_623;
+        run.relics.push(Relic::Omamori);
+        let starting_len = run.deck.len();
+
+        let drawback = apply_neow_curse_drawback(&mut run);
+
+        assert!(is_curse_content_id(drawback.curse));
+        assert_eq!(drawback.card_rng_counter, 1);
+        assert_eq!(run.card_rng_counter, 1);
+        assert_eq!(run.omamori_charges_used, 1);
+        assert_eq!(run.deck.len(), starting_len);
+    }
+
+    #[test]
+    fn curse_drawback_runs_card_added_relic_hooks() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 1_218_623;
+        run.relics.push(Relic::DarkstonePeriapt);
+        let starting_max_hp = run.player_max_hp;
+        let starting_hp = run.player_hp;
+
+        let drawback = apply_neow_curse_drawback(&mut run);
+
+        assert!(is_curse_content_id(drawback.curse));
+        assert_eq!(
+            run.player_max_hp,
+            starting_max_hp + DARKSTONE_PERIAPT_MAX_HP
+        );
+        assert_eq!(run.player_hp, starting_hp + DARKSTONE_PERIAPT_MAX_HP);
     }
 
     #[test]

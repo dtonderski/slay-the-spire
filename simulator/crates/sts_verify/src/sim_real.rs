@@ -14,19 +14,19 @@ use sts_core::content::monsters::{
 use sts_core::potion::Potion;
 use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_relic_reward,
-    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, confirm_grid,
-    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
-    enter_elite_combat_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
-    enter_shop_room, event_screen, exordium_room_kinds_on_path,
+    apply_neow_simple_drawback, apply_neow_simple_reward, apply_rest_action, apply_run_action,
+    apply_shop_action, cancel_grid, confirm_grid, enter_boss_relic_reward_screen,
+    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
+    enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     generate_neow_colorless_reward, generate_neow_options, initialize_combat_piles_with_relics,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
     leave_shop_merchant, leave_shop_room, select_grid_card, shop_action_for_choice_index,
     starter_only_deck, CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState,
     ContentId, Event, EventAction, EventChoice, EventScreen, GeneratedNeowOption, KnownNeowBranch,
-    MonsterId, MonsterIntent, MonsterPowers, MonsterState, NeowRewardType, PlayerPowers,
-    PlayerState, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase,
-    RunState, ShopPick, StsRng,
+    MonsterId, MonsterIntent, MonsterPowers, MonsterState, NeowDrawback, NeowRewardType,
+    PlayerPowers, PlayerState, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
+    RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -327,6 +327,9 @@ fn verify_seed_start_transitions(
     let mut in_elite_boss_combat = false;
     let mut map_path_xs: Vec<i32> = Vec::new();
     let mut neow_lament = false;
+    let mut neow_gold = 99;
+    let mut neow_current_hp = 80;
+    let mut neow_max_hp = 80;
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
@@ -390,6 +393,38 @@ fn verify_seed_start_transitions(
                     reason: seed_start_unchosen_neow_reason(&start.external_seed),
                 });
                 phase = SeedStartPhase::NeowOptions;
+            }
+            SeedStartPhase::NeowOptions
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .and_then(seed_start_apply_neow_simple_option)
+                    .is_some() =>
+            {
+                let (gold, current_hp, max_hp) = seed_start_apply_neow_simple_option(
+                    seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                        .expect("matched generated simple Neow option"),
+                )
+                .expect("matched generated simple Neow option");
+                neow_gold = gold;
+                neow_current_hp = current_hp;
+                neow_max_hp = max_hp;
+                compare_subset(
+                    report,
+                    action,
+                    "Neow simple immediate reward",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": gold,
+                        "current_hp": current_hp,
+                        "max_hp": max_hp,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
+                phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -606,9 +641,9 @@ fn verify_seed_start_transitions(
                         "screen_type": "MAP",
                         "ascension": start.ascension,
                         "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
+                        "gold": neow_gold,
+                        "current_hp": neow_current_hp,
+                        "max_hp": neow_max_hp,
                         "deck_ids": visible_deck,
                         "relic_ids": relics,
                         "choices": seed_start_first_map_choices(&start.external_seed),
@@ -2724,6 +2759,40 @@ fn seed_start_selected_neow_option(
     generate_neow_options(numeric_seed, 80)
         .into_iter()
         .nth(index)
+}
+
+fn seed_start_apply_neow_simple_option(option: GeneratedNeowOption) -> Option<(i32, i32, i32)> {
+    if !seed_start_neow_drawback_is_simple(option.drawback)
+        || !seed_start_neow_reward_is_simple(option.reward)
+    {
+        return None;
+    }
+
+    let mut run = RunState::map_fixture();
+    run.gold = 99;
+    apply_neow_simple_drawback(&mut run, option.drawback);
+    apply_neow_simple_reward(&mut run, option.reward);
+    Some((run.gold, run.player_hp, run.player_max_hp))
+}
+
+fn seed_start_neow_drawback_is_simple(drawback: NeowDrawback) -> bool {
+    matches!(
+        drawback,
+        NeowDrawback::None
+            | NeowDrawback::TenPercentHpLoss
+            | NeowDrawback::NoGold
+            | NeowDrawback::PercentDamage
+    )
+}
+
+fn seed_start_neow_reward_is_simple(reward: NeowRewardType) -> bool {
+    matches!(
+        reward,
+        NeowRewardType::TenPercentHpBonus
+            | NeowRewardType::TwentyPercentHpBonus
+            | NeowRewardType::HundredGold
+            | NeowRewardType::TwoFiftyGold
+    )
 }
 
 fn seed_start_colorless_neow_choice_names(numeric_seed: i64) -> Vec<String> {
@@ -6009,6 +6078,40 @@ mod tests {
             relic_key_from_trace_name("Toy Ornithopter"),
             Some(RelicKey::ToyOrnithopter)
         );
+    }
+
+    #[test]
+    fn seed_start_simple_neow_reward_uses_core_helper() {
+        let option = seed_start_selected_neow_option(40_560_393_133, "CHOOSE 1")
+            .expect("M290008 slot 1 option");
+
+        assert_eq!(option.reward, NeowRewardType::HundredGold);
+        assert_eq!(
+            seed_start_apply_neow_simple_option(option),
+            Some((199, 80, 80))
+        );
+    }
+
+    #[test]
+    fn seed_start_simple_neow_drawback_and_reward_use_core_helpers() {
+        let option = seed_start_selected_neow_option(40_560_393_133, "CHOOSE 2")
+            .expect("M290008 slot 2 option");
+
+        assert_eq!(option.drawback, NeowDrawback::NoGold);
+        assert_eq!(option.reward, NeowRewardType::TwentyPercentHpBonus);
+        assert_eq!(
+            seed_start_apply_neow_simple_option(option),
+            Some((0, 96, 96))
+        );
+    }
+
+    #[test]
+    fn seed_start_simple_neow_helper_rejects_identity_branches() {
+        let option = seed_start_selected_neow_option(40_560_393_133, "CHOOSE 0")
+            .expect("M290008 slot 0 option");
+
+        assert_eq!(option.reward, NeowRewardType::TransformCard);
+        assert_eq!(seed_start_apply_neow_simple_option(option), None);
     }
 
     #[test]
