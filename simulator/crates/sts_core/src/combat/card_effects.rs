@@ -22,12 +22,12 @@ use crate::{
         OFFERING_ID, PANACEA_ID, PANACHE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
         RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
-        SECRET_TECHNIQUE_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE, THE_BOMB_ID,
-        THE_BOMB_TURNS, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE,
+        THE_BOMB_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -252,6 +252,7 @@ pub(super) fn play_card_queue(
         WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
         TRANSMUTATION_ID => transmutation_queue(state, card_id),
         SECRET_TECHNIQUE_ID => secret_technique_queue(state, card_id, definition),
+        SECRET_WEAPON_ID => secret_weapon_queue(state, card_id, definition),
         HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
         WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
         THINKING_AHEAD_ID => thinking_ahead_queue(state, card_id, definition),
@@ -2359,6 +2360,13 @@ fn draw_pile_has_skill(state: &CombatState) -> bool {
     })
 }
 
+fn draw_pile_has_attack(state: &CombatState) -> bool {
+    state.piles.draw_pile.iter().any(|card| {
+        get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Attack)
+    })
+}
+
 fn secret_technique_queue(
     state: &CombatState,
     card_id: CardId,
@@ -2375,6 +2383,34 @@ fn secret_technique_queue(
         queue.push_back(InternalAction::AwaitDrawSelect {
             source_card_id: card_id,
             purpose: crate::combat::DrawSelectPurpose::SecretTechniqueSkillToHand,
+        });
+    } else {
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        });
+    }
+
+    Ok(queue)
+}
+
+fn secret_weapon_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+
+    if draw_pile_has_attack(state) {
+        queue.push_back(InternalAction::AwaitDrawSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::DrawSelectPurpose::SecretWeaponAttackToHand,
         });
     } else {
         queue.push_back(InternalAction::MoveCard {

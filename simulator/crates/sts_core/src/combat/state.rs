@@ -100,6 +100,7 @@ pub struct DrawSelectState {
 pub enum DrawSelectPurpose {
     #[default]
     SecretTechniqueSkillToHand,
+    SecretWeaponAttackToHand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
