@@ -13,7 +13,8 @@ use sts_core::content::monsters::{
 };
 use sts_core::potion::Potion;
 use sts_core::run::neow::{
-    apply_neow_curse_drawback, generate_neow_colorless_reward_with_card_rng_counter,
+    apply_neow_curse_drawback, apply_neow_lament_reward,
+    generate_neow_colorless_reward_with_card_rng_counter,
 };
 use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_boss_swap,
@@ -331,7 +332,6 @@ fn verify_seed_start_transitions(
     let mut combat_elite_boss_observed_sync = false;
     let mut in_elite_boss_combat = false;
     let mut map_path_xs: Vec<i32> = Vec::new();
-    let mut neow_lament = false;
     let mut neow_gold = 99;
     let mut neow_current_hp = 80;
     let mut neow_max_hp = 80;
@@ -546,7 +546,14 @@ fn verify_seed_start_transitions(
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(|option| option.reward == NeowRewardType::ThreeEnemyKill) =>
             {
-                neow_lament = true;
+                let mut run = seed_start_carried_run(
+                    seed_sim.as_ref(),
+                    start.numeric_seed,
+                    &start.external_seed,
+                    &deck_ids,
+                );
+                apply_neow_lament_reward(&mut run);
+                seed_sim = Some(run);
                 relics.push("Neow's Lament".to_owned());
                 compare_subset(
                     report,
@@ -1348,7 +1355,7 @@ fn verify_seed_start_transitions(
                                 start.ascension,
                                 &deck_ids,
                                 &relics,
-                                neow_lament,
+                                seed_start_core_neow_lament_active(seed_sim.as_ref()),
                                 &post.message,
                             )
                         };
@@ -4437,6 +4444,10 @@ fn seed_start_encounter_expected_at_index(
     expected
 }
 
+fn seed_start_core_neow_lament_active(run: Option<&RunState>) -> bool {
+    run.is_some_and(|run| run.neow_lament_combats_remaining > 0)
+}
+
 fn seed_start_monster_from_spawn(
     seed: i64,
     floor: u32,
@@ -4940,7 +4951,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, Pandora's Box, Empty Cage, and Tiny House boss-swap paths. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and broad boss-swap selected-trace evidence remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, Neow's Lament combat carry state, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, Pandora's Box, Empty Cage, and Tiny House boss-swap paths. Selected-trace coverage for many branch combinations and broad boss-swap selected-trace evidence remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -5268,12 +5279,16 @@ fn seed_start_run_from_combat_entry(
             run.event_rng_counter = prev.event_rng_counter;
             run.act1_event_list = prev.act1_event_list.clone();
             run.act1_shrine_list = prev.act1_shrine_list.clone();
+            run.neow_lament_combats_remaining = prev.neow_lament_combats_remaining;
         }
     } else {
         seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
     }
     if external_seed == "CODEX04" {
         seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
+    }
+    if run.neow_lament_combats_remaining > 0 {
+        run.neow_lament_combats_remaining -= 1;
     }
     let game = message.get("game_state")?;
     let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as u32;
@@ -8113,6 +8128,46 @@ mod tests {
     }
 
     #[test]
+    fn seed_start_neow_lament_uses_core_run_counter_on_combat_entry() {
+        let Some(content) =
+            crate::load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
+        else {
+            return;
+        };
+        let trace = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&trace.lines).expect("trace transitions");
+        let (_, _, post) = transitions
+            .iter()
+            .find(|(_, _, post)| {
+                post.message
+                    .get("game_state")
+                    .and_then(|game| game.get("combat_state"))
+                    .is_some()
+            })
+            .expect("first CODEX03 combat entry");
+        let mut carried = seed_start_carried_run(
+            None,
+            22_079_335_078,
+            "CODEX03",
+            &ironclad_starter_deck_keys(),
+        );
+        apply_neow_lament_reward(&mut carried);
+
+        let entered = seed_start_run_from_combat_entry(
+            &post.message,
+            22_079_335_078,
+            "CODEX03",
+            0,
+            Some(&carried),
+        )
+        .expect("combat entry run");
+
+        assert_eq!(carried.neow_lament_combats_remaining, 3);
+        assert_eq!(entered.neow_lament_combats_remaining, 2);
+        assert!(seed_start_core_neow_lament_active(Some(&entered)));
+    }
+
+    #[test]
     fn seed_start_neow_curse_simple_helper_uses_card_rng_and_limits_rewards() {
         let option = seed_start_selected_neow_option(40_560_393_126, "CHOOSE 2")
             .expect("M290001 slot 2 option");
@@ -8375,6 +8430,307 @@ mod tests {
                 .len(),
             9
         );
+    }
+
+    #[test]
+    fn seed_start_neow_remove_two_generated_grid_trace_reaches_neow_leave() {
+        let (numeric_seed, option) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.reward == NeowRewardType::RemoveTwo
+                            && seed_start_neow_option_is_supported_grid_reward(option.clone())
+                    })
+                    .map(|option| (seed, option))
+            })
+            .expect("synthetic seed with generated remove-two option");
+        let seed_string = test_seed_string_from_long(numeric_seed);
+        let choose_command = format!("CHOOSE {}", option.slot);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let relics = vec!["Burning Blood".to_owned()];
+        let initial_run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+        let after_first_select = select_grid_card(&initial_run, 0).expect("select first");
+        let after_first_confirm = confirm_grid(&after_first_select).expect("remove first");
+        let after_second_select = select_grid_card(&after_first_confirm, 0).expect("select second");
+        let after_second_confirm = confirm_grid(&after_second_select).expect("remove second");
+        let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
+            ["choices"]
+            .as_array()
+            .expect("first grid choices")
+            .clone();
+        let second_grid_choices: Vec<_> =
+            seed_start_grid_simulated_subset(&after_first_confirm, &relics)["choices"]
+                .as_array()
+                .expect("second grid choices")
+                .clone();
+        let one_removed_deck: Vec<_> = deck_content_keys(&after_first_confirm.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let two_removed_deck: Vec<_> = deck_content_keys(&after_second_confirm.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let hp = initial_run.player_hp;
+        let max_hp = initial_run.player_max_hp;
+        let gold = initial_run.gold;
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": choose_command}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": first_grid_choices
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": []
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CONFIRM"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": one_removed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": second_grid_choices
+            }}}),
+            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": one_removed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": []
+            }}}),
+            json!({"type": "action", "step": 7, "command": "CONFIRM"}),
+            json!({"type": "state", "step": 7, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": two_removed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["leave"]
+            }}}),
+            json!({"type": "action", "step": 8, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 8, "message": {"game_state": {
+                "screen_type": "MAP",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": two_removed_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_first_map_choices(&seed_string)
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow remove two grid"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 7 && transition.label == "Neow grid confirm"
+        }));
+        assert!(report
+            .verified
+            .iter()
+            .any(|transition| { transition.action_step == 8 && transition.label == "Neow leave" }));
+    }
+
+    #[test]
+    fn seed_start_neow_upgrade_generated_grid_trace_reaches_neow_leave() {
+        let (numeric_seed, option) = (1_i64..100_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| {
+                        option.reward == NeowRewardType::UpgradeCard
+                            && seed_start_neow_option_is_supported_grid_reward(option.clone())
+                    })
+                    .map(|option| (seed, option))
+            })
+            .expect("synthetic seed with generated upgrade-card option");
+        let seed_string = test_seed_string_from_long(numeric_seed);
+        let choose_command = format!("CHOOSE {}", option.slot);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let relics = vec!["Burning Blood".to_owned()];
+        let initial_run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+        let after_select = select_grid_card(&initial_run, 0).expect("select first");
+        let after_confirm = confirm_grid(&after_select).expect("confirm upgrade");
+        let grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
+            ["choices"]
+            .as_array()
+            .expect("grid choices")
+            .clone();
+        let upgraded_deck: Vec<_> = deck_content_keys(&after_confirm.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let hp = initial_run.player_hp;
+        let max_hp = initial_run.player_max_hp;
+        let gold = initial_run.gold;
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": choose_command}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": grid_choices
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": []
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CONFIRM"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": upgraded_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["leave"]
+            }}}),
+            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
+                "screen_type": "MAP",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": hp,
+                "max_hp": max_hp,
+                "deck": upgraded_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_first_map_choices(&seed_string)
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow upgrade grid"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 5 && transition.label == "Neow grid confirm"
+        }));
+        assert!(report
+            .verified
+            .iter()
+            .any(|transition| { transition.action_step == 6 && transition.label == "Neow leave" }));
     }
 
     #[test]
