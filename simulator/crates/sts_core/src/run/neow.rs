@@ -274,6 +274,38 @@ pub fn apply_neow_relic_reward(run: &mut RunState, reward: NeowRewardType) -> Ne
     }
 }
 
+pub fn apply_neow_simple_reward(run: &mut RunState, reward: NeowRewardType) {
+    match reward {
+        NeowRewardType::TenPercentHpBonus => gain_max_hp(run, ten_percent(run.player_max_hp)),
+        NeowRewardType::TwentyPercentHpBonus => gain_max_hp(run, twenty_percent(run.player_max_hp)),
+        NeowRewardType::HundredGold => run.gain_gold(100),
+        NeowRewardType::TwoFiftyGold => run.gain_gold(250),
+        other => panic!("Neow reward {other:?} is not a simple immediate reward"),
+    }
+}
+
+pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) {
+    match drawback {
+        NeowDrawback::None => {}
+        NeowDrawback::TenPercentHpLoss => lose_max_hp(run, ten_percent(run.player_max_hp)),
+        NeowDrawback::NoGold => run.gold = 0,
+        NeowDrawback::PercentDamage => {
+            run.player_hp = (run.player_hp - percent_damage(run.player_max_hp)).max(1);
+        }
+        NeowDrawback::Curse => panic!("Neow curse drawback needs cardRng curse identity"),
+    }
+}
+
+fn gain_max_hp(run: &mut RunState, amount: i32) {
+    run.player_max_hp += amount;
+    run.player_hp += amount;
+}
+
+fn lose_max_hp(run: &mut RunState, amount: i32) {
+    run.player_max_hp = (run.player_max_hp - amount).max(1);
+    run.player_hp = run.player_hp.min(run.player_max_hp);
+}
+
 fn generate_neow_option(slot: usize, player_max_hp: i32, rng: &mut StsRng) -> GeneratedNeowOption {
     let (drawback, rewards) = neow_reward_options(slot, rng);
     let reward_index = rng.random_int((rewards.len() - 1) as i32) as usize;
@@ -859,5 +891,72 @@ mod tests {
         assert_eq!(reward.relic, RelicKey::ToyOrnithopter);
         assert_eq!(reward.relic_rng_counter, 23);
         assert_eq!(run.relic_rng_counter, 23);
+    }
+
+    #[test]
+    fn simple_gold_rewards_use_run_gold_gain() {
+        let mut run = RunState::map_fixture();
+        apply_neow_simple_reward(&mut run, NeowRewardType::HundredGold);
+        assert_eq!(run.gold, 199);
+
+        apply_neow_simple_reward(&mut run, NeowRewardType::TwoFiftyGold);
+        assert_eq!(run.gold, 449);
+    }
+
+    #[test]
+    fn simple_gold_rewards_respect_ectoplasm() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::Ectoplasm];
+
+        apply_neow_simple_reward(&mut run, NeowRewardType::HundredGold);
+
+        assert_eq!(run.gold, 99);
+    }
+
+    #[test]
+    fn hp_bonus_rewards_increase_current_and_max_hp() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 50;
+
+        apply_neow_simple_reward(&mut run, NeowRewardType::TenPercentHpBonus);
+        assert_eq!(run.player_max_hp, 88);
+        assert_eq!(run.player_hp, 58);
+
+        apply_neow_simple_reward(&mut run, NeowRewardType::TwentyPercentHpBonus);
+        assert_eq!(run.player_max_hp, 105);
+        assert_eq!(run.player_hp, 75);
+    }
+
+    #[test]
+    fn hp_loss_drawback_caps_current_hp_to_new_max() {
+        let mut run = RunState::map_fixture();
+
+        apply_neow_simple_drawback(&mut run, NeowDrawback::TenPercentHpLoss);
+
+        assert_eq!(run.player_max_hp, 72);
+        assert_eq!(run.player_hp, 72);
+    }
+
+    #[test]
+    fn percent_damage_drawback_uses_thirty_percent_of_max_hp_and_keeps_one_hp() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 80;
+
+        apply_neow_simple_drawback(&mut run, NeowDrawback::PercentDamage);
+        assert_eq!(run.player_hp, 56);
+
+        apply_neow_simple_drawback(&mut run, NeowDrawback::PercentDamage);
+        apply_neow_simple_drawback(&mut run, NeowDrawback::PercentDamage);
+        apply_neow_simple_drawback(&mut run, NeowDrawback::PercentDamage);
+        assert_eq!(run.player_hp, 1);
+    }
+
+    #[test]
+    fn no_gold_drawback_sets_gold_to_zero() {
+        let mut run = RunState::map_fixture();
+
+        apply_neow_simple_drawback(&mut run, NeowDrawback::NoGold);
+
+        assert_eq!(run.gold, 0);
     }
 }
