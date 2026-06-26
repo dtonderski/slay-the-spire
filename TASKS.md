@@ -1660,6 +1660,7 @@ Tasks:
   - [x] Move Feed from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Second Wind from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
   - [x] Move Fiend Fire from `inventory_only` to `implemented` in `simulator/docs/m32a_cards_matrix.md`.
+  - [x] Complete the remaining deterministic colorless-card sweep entries in `simulator/docs/m32a_cards_matrix.md`: Discovery, Enlightenment, Forethought, Jack Of All Trades, Madness, Mind Blast, Master of Strategy, The Bomb, Thinking Ahead, Transmutation, Metamorphosis, Secret Technique, Sword Boomerang, Violence, Mayhem, Panache, Secret Weapon, Panic Button, Purity, Apotheosis, Chrysalis, Hand Of Greed, Magnetism, and Sadistic Nature.
 - leave explicit expected-failing parity notes for surfaces whose behavior is implemented locally but not yet proven against real-game traces
   - [x] Iron Wave matrix caveat names the missing real-game trace parity evidence.
   - [x] Body Slam matrix caveat names the missing real-game trace parity evidence.
