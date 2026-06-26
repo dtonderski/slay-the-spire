@@ -11,7 +11,9 @@ use crate::{
     content::monsters::{
         apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent,
     },
+    ids::MonsterId,
     rng::JavaRng,
+    TargetRequirement,
 };
 
 const HAND_SIZE: usize = 5;
@@ -75,8 +77,16 @@ pub fn start_player_turn(state: &mut CombatState) {
         return;
     }
     apply_start_of_turn_magnetism(state);
-    apply_start_of_turn_mayhem(state);
     draw_next_hand_without_shuffle(state);
+    apply_start_of_turn_mayhem(state);
+    if state.player.hp <= 0 {
+        state.phase = CombatPhase::Lost;
+        return;
+    }
+    if state.monsters.iter().all(|monster| !monster.alive) {
+        state.phase = CombatPhase::Won;
+        return;
+    }
     prepare_next_intents(state);
     state.phase = CombatPhase::WaitingForPlayer;
 }
@@ -111,19 +121,48 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) {
 
 fn apply_start_of_turn_mayhem(state: &mut CombatState) {
     for _ in 0..state.player.powers.mayhem.max(0) {
-        let Some(definition) = crate::combat::transition::top_draw_card_definition(state) else {
+        let random_target = mayhem_random_living_target(state);
+        let Some(definition) = state
+            .piles
+            .draw_pile
+            .last()
+            .and_then(|card| crate::content::cards::get_card_definition(card.content_id))
+        else {
             return;
         };
-        if definition.keywords.unplayable || definition.target == crate::TargetRequirement::Enemy {
+        if definition.keywords.unplayable {
             continue;
         }
-        if crate::combat::transition::apply_play_top_draw_card_to_state(state, None).is_err() {
+        let target = if definition.target == TargetRequirement::Enemy {
+            random_target
+        } else {
+            None
+        };
+        if crate::combat::transition::apply_play_top_draw_card_to_state(state, target).is_err() {
             return;
         }
         if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
             return;
         }
     }
+}
+
+fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
+    let living = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| monster.id)
+        .collect::<Vec<_>>();
+    if living.is_empty() {
+        return None;
+    }
+    let index = if let Some(rng) = state.card_random_rng.as_mut() {
+        rng.random_int((living.len() - 1) as i32) as usize
+    } else {
+        0
+    };
+    living.get(index).copied()
 }
 
 fn finish_combat_if_over(state: &mut CombatState, started_with_living_monster: bool) -> bool {
@@ -612,34 +651,72 @@ mod tests {
     }
 
     #[test]
-    fn mayhem_plays_no_target_top_draw_card_before_normal_turn_draw() {
+    fn mayhem_plays_no_target_top_draw_card_after_normal_turn_draw() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.mayhem = 1;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
         state.piles.hand.clear();
-        state.piles.draw_pile = vec![CardInstance::new(CardId::new(10), DEFEND_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), DEFEND_R_ID),
+            CardInstance::new(CardId::new(11), STRIKE_R_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+            CardInstance::new(CardId::new(13), STRIKE_R_ID),
+            CardInstance::new(CardId::new(14), STRIKE_R_ID),
+            CardInstance::new(CardId::new(15), STRIKE_R_ID),
+        ];
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        expected_rng.random_int(0);
 
         start_player_turn(&mut state);
 
         assert_eq!(state.player.block, 5);
         assert_eq!(state.piles.exhaust_pile.len(), 1);
         assert_eq!(state.piles.exhaust_pile[0].content_id, DEFEND_R_ID);
-        assert!(state.piles.hand.is_empty());
+        assert_eq!(state.piles.hand.len(), 5);
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id == STRIKE_R_ID));
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
     }
 
     #[test]
-    fn mayhem_skips_top_draw_card_that_requires_enemy_target() {
+    fn mayhem_plays_enemy_target_top_draw_card_with_random_target() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.mayhem = 1;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
         state.piles.hand.clear();
-        state.piles.draw_pile = vec![CardInstance::new(CardId::new(10), STRIKE_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+            CardInstance::new(CardId::new(12), DEFEND_R_ID),
+            CardInstance::new(CardId::new(13), DEFEND_R_ID),
+            CardInstance::new(CardId::new(14), DEFEND_R_ID),
+            CardInstance::new(CardId::new(15), DEFEND_R_ID),
+        ];
         let starting_hp = state.monsters[0].hp;
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        expected_rng.random_int(0);
 
         start_player_turn(&mut state);
 
-        assert_eq!(state.monsters[0].hp, starting_hp);
-        assert!(state.piles.exhaust_pile.is_empty());
-        assert_eq!(state.piles.hand.len(), 1);
-        assert_eq!(state.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(state.monsters[0].hp, starting_hp - 6);
+        assert_eq!(state.piles.exhaust_pile.len(), 1);
+        assert_eq!(state.piles.exhaust_pile[0].content_id, STRIKE_R_ID);
+        assert_eq!(state.piles.hand.len(), 5);
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id == DEFEND_R_ID));
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
     }
 
     #[test]
