@@ -2036,25 +2036,26 @@ mod tests {
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
         DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID,
         DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID,
-        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID, FIRE_BREATHING_ID,
-        FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID,
-        GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID, HEADBUTT_ID,
-        HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
-        INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
-        IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID,
-        METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        PURITY_ID, RAGE_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
-        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
-        THINKING_AHEAD_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, EXHUME_PLUS_ID,
+        FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
+        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID,
+        HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID,
+        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID,
+        JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID,
+        METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
+        PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID,
+        SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID,
+        TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, VIOLENCE_ID,
+        VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -6833,6 +6834,59 @@ mod tests {
     }
 
     #[test]
+    fn enlightenment_plus_cost_reduction_persists_next_player_turn() {
+        let mut state = hand_only(ENLIGHTENMENT_PLUS_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let after_enlightenment = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, ENLIGHTENMENT_PLUS_ID),
+                target: None,
+            },
+        )
+        .expect("Enlightenment+ applies");
+        let next_turn =
+            apply_combat_action(&after_enlightenment, CombatAction::EndTurn).expect("turn ends");
+
+        let bash = next_turn
+            .piles
+            .discard_pile
+            .iter()
+            .find(|card| card.content_id == BASH_ID)
+            .expect("Bash discarded at end of turn");
+        assert_eq!(bash.temp_cost, Some(1));
+        assert!(!bash.temp_cost_turn_only);
+    }
+
+    #[test]
+    fn enlightenment_with_strange_spoon_discards_without_exhaust_roll() {
+        let mut state = hand_only(ENLIGHTENMENT_ID);
+        state.relics = vec![Relic::StrangeSpoon];
+        state.card_random_rng = Some(crate::rng::StsRng::new(576));
+        let enlightenment_id = hand_card_id(&state, ENLIGHTENMENT_ID);
+
+        let next = apply_combat_action(&state, enlightenment_action(&state))
+            .expect("Enlightenment applies");
+
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == enlightenment_id));
+    }
+
+    #[test]
     fn enlightenment_event_log_records_cost_changes_before_discard() {
         let mut state = hand_only(ENLIGHTENMENT_ID);
         state
@@ -8609,7 +8663,46 @@ mod tests {
     }
 
     #[test]
-    fn strange_spoon_roll_controls_played_card_exhaust_destination() {
+    fn dramatic_entrance_event_log_records_all_enemy_damage_source_then_exhaust() {
+        use crate::content::cards::DRAMATIC_ENTRANCE_ID;
+
+        let state = two_monster_hand(DRAMATIC_ENTRANCE_ID);
+        let dramatic_entrance_id = hand_card_id(&state, DRAMATIC_ENTRANCE_ID);
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: dramatic_entrance_id,
+                target: None,
+            },
+        )
+        .expect("Dramatic Entrance applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: dramatic_entrance_id
+                },
+                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::DealDamageAll {
+                    source: dramatic_entrance_id,
+                    amount: 8,
+                },
+                InternalAction::MoveCard {
+                    card_id: dramatic_entrance_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted {
+                    card_id: dramatic_entrance_id
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dramatic_entrance_strange_spoon_roll_controls_source_exhaust_destination() {
         use crate::content::cards::DRAMATIC_ENTRANCE_ID;
 
         let mut state = two_monster_hand(DRAMATIC_ENTRANCE_ID);
