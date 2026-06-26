@@ -501,6 +501,10 @@ fn apply_internal_action(
             state.player.powers.sadistic_nature += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainMagnetism { amount } => {
+            state.player.powers.magnetism += amount;
+            Ok(Vec::new())
+        }
         InternalAction::ArmTheBomb { turns, damage } => {
             state.bomb_timers.push(BombTimer {
                 turns_remaining: turns,
@@ -1799,6 +1803,7 @@ mod tests {
     use super::card_effects::{
         chrysalis_modeled_skill_pool, discovery_modeled_card_pool,
         infernal_blade_modeled_attack_pool, jack_of_all_trades_colorless_pool,
+        magnetism_modeled_colorless_pool,
     };
     use super::*;
     use crate::card::{CardRarity, TargetRequirement};
@@ -1815,13 +1820,13 @@ mod tests {
         FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID,
         HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
         INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MASTER_OF_STRATEGY_ID,
-        METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
-        PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID,
-        REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID,
-        SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID,
+        MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID,
+        PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID,
+        REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
         THINKING_AHEAD_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, VIOLENCE_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
@@ -9702,6 +9707,101 @@ mod tests {
     }
 
     #[test]
+    fn magnetism_grants_power_spends_two_and_is_removed_from_hand() {
+        let mut state = hand_only(MAGNETISM_ID);
+        state.player.energy = 2;
+
+        let next =
+            apply_combat_action(&state, magnetism_action(&state)).expect("Magnetism applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(next.player.powers.magnetism, 1);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn magnetism_round_trips_through_combat_state_json() {
+        let mut state = hand_only(MAGNETISM_ID);
+        state.player.energy = 2;
+
+        let next =
+            apply_combat_action(&state, magnetism_action(&state)).expect("Magnetism applies");
+        let json = serde_json::to_string(&next).expect("combat state serializes");
+        let restored: CombatState = serde_json::from_str(&json).expect("combat state restores");
+
+        assert_eq!(restored.player.powers.magnetism, 1);
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn magnetism_event_log_records_power_gain_and_removal() {
+        let mut state = hand_only(MAGNETISM_ID);
+        state.player.energy = 2;
+
+        let transition = apply_combat_action_with_events(&state, magnetism_action(&state))
+            .expect("Magnetism applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
+                InternalAction::GainMagnetism { amount: 1 },
+                InternalAction::RemoveCard {
+                    card_id: CardId::new(20),
+                    from: CardPile::Hand,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn magnetism_generated_colorless_uses_card_random_rng_when_present() {
+        let mut state = CombatState::initial_fixture();
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let expected_pool = magnetism_modeled_colorless_pool();
+        let expected =
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize];
+
+        let generated = card_effects::magnetism_generated_colorless_card(&mut state);
+
+        assert_eq!(generated, expected);
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+    }
+
+    #[test]
+    fn magnetism_generated_colorless_without_card_random_rng_uses_deterministic_fallback() {
+        let mut state = CombatState::initial_fixture();
+
+        let generated = card_effects::magnetism_generated_colorless_card(&mut state);
+
+        assert_eq!(generated, magnetism_modeled_colorless_pool()[0]);
+        assert!(state.card_random_rng.is_none());
+    }
+
+    #[test]
     fn brutality_grants_power_and_is_removed_from_hand() {
         let mut state = hand_only(BRUTALITY_ID);
         state.player.energy = 0;
@@ -13406,6 +13506,13 @@ mod tests {
     fn sadistic_nature_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SADISTIC_NATURE_ID),
+            target: None,
+        }
+    }
+
+    fn magnetism_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, MAGNETISM_ID),
             target: None,
         }
     }

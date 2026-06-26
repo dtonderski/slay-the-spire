@@ -74,6 +74,7 @@ pub fn start_player_turn(state: &mut CombatState) {
         state.phase = CombatPhase::Lost;
         return;
     }
+    apply_start_of_turn_magnetism(state);
     apply_start_of_turn_mayhem(state);
     draw_next_hand_without_shuffle(state);
     prepare_next_intents(state);
@@ -90,6 +91,17 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) {
             return;
         }
         crate::combat::transition::player_draw_cards(state, 1);
+    }
+}
+
+fn apply_start_of_turn_magnetism(state: &mut CombatState) {
+    for _ in 0..state.player.powers.magnetism.max(0) {
+        let content_id = crate::combat::card_effects::magnetism_generated_colorless_card(state);
+        let next_id = crate::CardId::new(state.piles.max_card_instance_id() + 1);
+        state.piles.hand.push(crate::CardInstance {
+            combat_only: true,
+            ..crate::CardInstance::new(next_id, content_id)
+        });
     }
 }
 
@@ -648,6 +660,48 @@ mod tests {
         assert_eq!(next.player.energy, 0);
         assert_eq!(next.player.powers.mayhem, 1);
         assert!(next.piles.hand.is_empty());
+    }
+
+    #[test]
+    fn magnetism_adds_deterministic_colorless_card_before_normal_turn_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.magnetism = 1;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let expected_pool = crate::combat::card_effects::magnetism_modeled_colorless_pool();
+        let expected =
+            expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize];
+
+        start_player_turn(&mut state);
+
+        assert_eq!(state.piles.hand.len(), 1);
+        assert_eq!(state.piles.hand[0].content_id, expected);
+        assert!(state.piles.hand[0].combat_only);
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+    }
+
+    #[test]
+    fn magnetism_stacks_add_one_colorless_card_each() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.magnetism = 2;
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+
+        start_player_turn(&mut state);
+
+        assert_eq!(state.piles.hand.len(), 2);
+        let modeled_pool = crate::combat::card_effects::magnetism_modeled_colorless_pool();
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .all(|card| modeled_pool.contains(&card.content_id)));
+        assert!(state.piles.hand.iter().all(|card| card.combat_only));
     }
 
     #[test]

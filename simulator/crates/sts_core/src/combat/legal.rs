@@ -433,8 +433,8 @@ mod tests {
             FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID,
             HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID,
             INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID,
-            LIMIT_BREAK_ID, MASTER_OF_STRATEGY_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID,
-            PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+            LIMIT_BREAK_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METAMORPHOSIS_ID, MIND_BLAST_ID,
+            OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
             POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID, REAPER_ID,
             RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID,
             SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SHOCKWAVE_ID,
@@ -3507,6 +3507,51 @@ mod tests {
             Err(SimError::IllegalAction(
                 "non-targeted card cannot have a target"
             ))
+        );
+    }
+
+    #[test]
+    fn magnetism_is_legal_without_target_at_two_energy() {
+        let mut state = hand_with_card(MAGNETISM_ID);
+        state.player.energy = 2;
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn magnetism_rejects_target() {
+        let mut state = hand_with_card(MAGNETISM_ID);
+        state.player.energy = 2;
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn magnetism_is_illegal_below_two_energy() {
+        let mut state = hand_with_card(MAGNETISM_ID);
+        state.player.energy = 1;
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
         );
     }
 

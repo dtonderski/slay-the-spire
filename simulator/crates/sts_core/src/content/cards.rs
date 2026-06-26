@@ -68,6 +68,7 @@ pub const FORETHOUGHT_ID: ContentId = ContentId::new(59_534_622_361_962_517);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
 pub const HAND_OF_GREED_ID: ContentId = ContentId::new(3_088_851_373_662_850_713);
 pub const CHRYSALIS_ID: ContentId = ContentId::new(59_200_009_685_460);
+pub const MAGNETISM_ID: ContentId = ContentId::new(67_526_241_934_097);
 pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const PANACHE_ID: ContentId = ContentId::new(72_935_227_636);
@@ -1787,6 +1788,21 @@ pub const PANIC_BUTTON: CardDefinition = CardDefinition {
     },
 };
 
+pub const MAGNETISM: CardDefinition = CardDefinition {
+    id: MAGNETISM_ID,
+    key: "MAGNETISM",
+    name: "Magnetism",
+    cost: 2,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const TRIP: CardDefinition = CardDefinition {
     id: TRIP_ID,
     key: "TRIP",
@@ -2490,7 +2506,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 134] = [
+pub const ALL_CARDS: [CardDefinition; 135] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2569,6 +2585,7 @@ pub const ALL_CARDS: [CardDefinition; 134] = [
     GOOD_INSTINCTS,
     HAND_OF_GREED,
     FINESSE,
+    MAGNETISM,
     PANACEA,
     PANACHE,
     PANIC_BUTTON,
@@ -2736,6 +2753,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == HAND_OF_GREED_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == MAGNETISM_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACHE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == PANIC_BUTTON_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -3141,6 +3159,19 @@ mod tests {
             Some((CardType::Skill, CardRarity::Uncommon))
         );
         assert_eq!(upgrade_content_id(PANIC_BUTTON_ID), None);
+    }
+
+    #[test]
+    fn magnetism_has_expected_values_and_rarity() {
+        assert_eq!(MAGNETISM.id, MAGNETISM_ID);
+        assert_eq!(MAGNETISM.cost, 2);
+        assert_eq!(MAGNETISM.target, TargetRequirement::None);
+        assert_eq!(MAGNETISM.card_type, CardType::Power);
+        assert_eq!(MAGNETISM.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(MAGNETISM_ID),
+            Some((CardType::Power, CardRarity::Rare))
+        );
     }
 
     #[test]
