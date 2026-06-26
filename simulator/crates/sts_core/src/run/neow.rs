@@ -103,28 +103,40 @@ pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<Gener
         .collect()
 }
 
-pub fn generate_neow_rare_card_reward(numeric_seed: i64, reward: NeowRewardType) -> NeowCardReward {
+pub fn generate_neow_card_reward(numeric_seed: i64, reward: NeowRewardType) -> NeowCardReward {
     let mut rng = StsRng::new(numeric_seed);
     for slot in 0..4 {
         generate_neow_option(slot, 80, &mut rng);
     }
-    generate_neow_rare_card_reward_with_rng(&mut rng, reward)
+    generate_neow_card_reward_with_rng(&mut rng, reward)
 }
 
-pub fn generate_neow_rare_card_reward_with_rng(
+pub fn generate_neow_card_reward_with_rng(
     rng: &mut StsRng,
     reward: NeowRewardType,
 ) -> NeowCardReward {
     let cards = match reward {
+        NeowRewardType::ThreeCards => neow_unique_ironclad_cards_with_rolled_rarity(rng, 3),
         NeowRewardType::OneRandomRareCard => vec![neow_random_ironclad_card(rng, CardRarity::Rare)],
         NeowRewardType::ThreeRareCards => neow_unique_ironclad_cards(rng, CardRarity::Rare, 3),
-        other => panic!("Neow reward {other:?} is not a forced-rare card reward"),
+        other => panic!("Neow reward {other:?} is not a card reward"),
     };
 
     NeowCardReward {
         cards,
         neow_rng_counter: rng.counter(),
     }
+}
+
+pub fn generate_neow_rare_card_reward(numeric_seed: i64, reward: NeowRewardType) -> NeowCardReward {
+    generate_neow_card_reward(numeric_seed, reward)
+}
+
+pub fn generate_neow_rare_card_reward_with_rng(
+    rng: &mut StsRng,
+    reward: NeowRewardType,
+) -> NeowCardReward {
+    generate_neow_card_reward_with_rng(rng, reward)
 }
 
 pub fn generate_neow_colorless_reward(
@@ -316,6 +328,29 @@ fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId 
     assert!(!pool.is_empty(), "Neow card reward pool must not be empty");
     let pick = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[pick].content_id
+}
+
+fn neow_unique_ironclad_cards_with_rolled_rarity(rng: &mut StsRng, count: usize) -> Vec<ContentId> {
+    let mut cards = Vec::new();
+    while cards.len() < count {
+        let rarity = neow_normal_card_rarity(rng);
+        loop {
+            let candidate = neow_random_ironclad_card(rng, rarity);
+            if !cards.contains(&candidate) {
+                cards.push(candidate);
+                break;
+            }
+        }
+    }
+    cards
+}
+
+fn neow_normal_card_rarity(rng: &mut StsRng) -> CardRarity {
+    if rng.random_float() < 0.33 {
+        CardRarity::Uncommon
+    } else {
+        CardRarity::Common
+    }
 }
 
 fn neow_unique_colorless_cards(
@@ -557,7 +592,7 @@ mod tests {
     #[test]
     fn one_random_rare_card_consumes_one_neow_rng_draw_after_options() {
         let reward =
-            generate_neow_rare_card_reward(1_957_307_888_551, NeowRewardType::OneRandomRareCard);
+            generate_neow_card_reward(1_957_307_888_551, NeowRewardType::OneRandomRareCard);
 
         assert_eq!(reward.cards.len(), 1);
         assert_eq!(reward.neow_rng_counter, 6);
@@ -565,14 +600,21 @@ mod tests {
 
     #[test]
     fn three_rare_cards_are_unique_and_consume_at_least_three_neow_rng_draws() {
-        let reward =
-            generate_neow_rare_card_reward(1_957_307_888_551, NeowRewardType::ThreeRareCards);
+        let reward = generate_neow_card_reward(1_957_307_888_551, NeowRewardType::ThreeRareCards);
 
         assert_eq!(reward.cards.len(), 3);
         assert_ne!(reward.cards[0], reward.cards[1]);
         assert_ne!(reward.cards[0], reward.cards[2]);
         assert_ne!(reward.cards[1], reward.cards[2]);
         assert!(reward.neow_rng_counter >= 8);
+    }
+
+    #[test]
+    fn three_card_reward_rolls_common_or_uncommon_for_each_card() {
+        let reward = generate_neow_card_reward(1_957_307_888_551, NeowRewardType::ThreeCards);
+
+        assert_eq!(reward.cards.len(), 3);
+        assert!(reward.neow_rng_counter >= 11);
     }
 
     #[test]
