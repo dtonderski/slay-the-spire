@@ -13,11 +13,12 @@ use sts_core::content::monsters::{
 };
 use sts_core::potion::Potion;
 use sts_core::{
-    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_relic_reward,
-    apply_neow_simple_drawback, apply_neow_simple_reward, apply_rest_action, apply_run_action,
-    apply_shop_action, cancel_grid, confirm_grid, enter_boss_relic_reward_screen,
-    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
-    enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
+    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_boss_swap,
+    apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
+    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, confirm_grid,
+    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
+    enter_elite_combat_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
+    enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
     generate_neow_three_potions, initialize_combat_piles_with_relics,
@@ -659,6 +660,42 @@ fn verify_seed_start_transitions(
                         },
                     }),
                 );
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowOptions
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(seed_start_neow_option_is_supported_boss_swap) =>
+            {
+                let run = seed_start_apply_neow_boss_swap(start.numeric_seed, &deck_ids);
+                if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason,
+                    };
+                }
+                let relic_ids = seed_start_boss_swap_relic_ids(&run);
+                let post_deck_ids = deck_content_keys(&run.deck);
+                compare_subset(
+                    report,
+                    action,
+                    "Neow boss swap",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": post_deck_ids,
+                        "relic_ids": relic_ids,
+                        "choices": ["leave"],
+                    }),
+                );
+                deck_ids = post_deck_ids;
+                relics = relic_ids;
+                seed_sim = Some(run);
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
@@ -3006,6 +3043,10 @@ fn seed_start_neow_option_is_supported_grid_reward(option: GeneratedNeowOption) 
         )
 }
 
+fn seed_start_neow_option_is_supported_boss_swap(option: GeneratedNeowOption) -> bool {
+    option.drawback == NeowDrawback::None && option.reward == NeowRewardType::BossRelic
+}
+
 fn seed_start_open_neow_grid_run(deck_ids: &[String], option: &GeneratedNeowOption) -> RunState {
     let mut run = RunState::map_fixture();
     run.gold = 99;
@@ -3013,6 +3054,55 @@ fn seed_start_open_neow_grid_run(deck_ids: &[String], option: &GeneratedNeowOpti
     apply_neow_simple_drawback(&mut run, option.drawback);
     open_neow_reward_grid(&mut run, option.reward);
     run
+}
+
+fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> RunState {
+    let mut run = RunState::map_fixture();
+    run.gold = 99;
+    run.relic_rng_seed = numeric_seed as u64;
+    run.deck = deck_instances_from_keys(deck_ids);
+    run.relics = vec![Relic::BurningBlood];
+    apply_neow_boss_swap(&mut run);
+    run
+}
+
+fn seed_start_boss_swap_relic_ids(run: &RunState) -> Vec<String> {
+    run.relics
+        .iter()
+        .map(|relic| relic.key())
+        .chain(run.relic_keys.iter().copied())
+        .filter(|key| *key != RelicKey::BurningBlood)
+        .filter_map(|key| {
+            let name = relic_key_trace_name(key);
+            (name != "Unknown Relic").then(|| name.to_owned())
+        })
+        .collect()
+}
+
+fn seed_start_unsupported_boss_swap_reason(run: &RunState) -> Option<String> {
+    if run.card_grid.is_some() {
+        return Some(
+            "Neow boss-swap produced a grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
+                .to_owned(),
+        );
+    }
+    if run.reward.is_some() {
+        return Some(
+            "Neow boss-swap produced a reward-screen boss relic; reward follow-up is classified outside this narrow verifier slice"
+                .to_owned(),
+        );
+    }
+    let unmapped = run
+        .relics
+        .iter()
+        .map(|relic| relic.key())
+        .chain(run.relic_keys.iter().copied())
+        .find(|key| relic_key_trace_name(*key) == "Unknown Relic");
+    unmapped.map(|key| {
+        format!(
+            "Neow boss-swap relic {key:?} is not trace-name mapped in sts_verify, so downstream parity remains classified"
+        )
+    })
 }
 
 fn seed_start_neow_grid_label(reward: NeowRewardType) -> &'static str {
@@ -3945,6 +4035,25 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::Orrery => "Orrery",
         RelicKey::StoneCalendar => "Stone Calendar",
         RelicKey::CursedKey => "Cursed Key",
+        RelicKey::FusionHammer => "Fusion Hammer",
+        RelicKey::VelvetChoker => "Velvet Choker",
+        RelicKey::RunicDome => "Runic Dome",
+        RelicKey::SlaversCollar => "Slaver's Collar",
+        RelicKey::SneckoEye => "Snecko Eye",
+        RelicKey::PandorasBox => "Pandora's Box",
+        RelicKey::BustedCrown => "Busted Crown",
+        RelicKey::Ectoplasm => "Ectoplasm",
+        RelicKey::TinyHouse => "Tiny House",
+        RelicKey::Sozu => "Sozu",
+        RelicKey::PhilosophersStone => "Philosopher's Stone",
+        RelicKey::Astrolabe => "Astrolabe",
+        RelicKey::BlackStar => "Black Star",
+        RelicKey::SacredBark => "Sacred Bark",
+        RelicKey::EmptyCage => "Empty Cage",
+        RelicKey::RunicPyramid => "Runic Pyramid",
+        RelicKey::CallingBell => "Calling Bell",
+        RelicKey::BlackBlood => "Black Blood",
+        RelicKey::MarkOfPain => "Mark of Pain",
         _ => "Unknown Relic",
     }
 }
@@ -3965,6 +4074,25 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "Lantern" => Some(RelicKey::Lantern),
         "Stone Calendar" => Some(RelicKey::StoneCalendar),
         "Cursed Key" => Some(RelicKey::CursedKey),
+        "Fusion Hammer" => Some(RelicKey::FusionHammer),
+        "Velvet Choker" => Some(RelicKey::VelvetChoker),
+        "Runic Dome" => Some(RelicKey::RunicDome),
+        "Slaver's Collar" => Some(RelicKey::SlaversCollar),
+        "Snecko Eye" => Some(RelicKey::SneckoEye),
+        "Pandora's Box" => Some(RelicKey::PandorasBox),
+        "Busted Crown" => Some(RelicKey::BustedCrown),
+        "Ectoplasm" => Some(RelicKey::Ectoplasm),
+        "Tiny House" => Some(RelicKey::TinyHouse),
+        "Sozu" => Some(RelicKey::Sozu),
+        "Philosopher's Stone" => Some(RelicKey::PhilosophersStone),
+        "Astrolabe" => Some(RelicKey::Astrolabe),
+        "Black Star" => Some(RelicKey::BlackStar),
+        "Sacred Bark" => Some(RelicKey::SacredBark),
+        "Empty Cage" => Some(RelicKey::EmptyCage),
+        "Runic Pyramid" => Some(RelicKey::RunicPyramid),
+        "Calling Bell" => Some(RelicKey::CallingBell),
+        "Black Blood" => Some(RelicKey::BlackBlood),
+        "Mark of Pain" => Some(RelicKey::MarkOfPain),
         _ => None,
     }
 }
@@ -6412,6 +6540,7 @@ mod tests {
             (40_560_393_126, "CHOOSE 1", NeowRewardType::ThreeEnemyKill),
             (40_560_393_126, "CHOOSE 0", NeowRewardType::TransformCard),
             (40_560_393_133, "CHOOSE 0", NeowRewardType::TransformCard),
+            (1_957_307_888_551, "CHOOSE 3", NeowRewardType::BossRelic),
         ] {
             assert_eq!(
                 seed_start_selected_neow_option(numeric_seed, command).map(|option| option.reward),
@@ -6437,6 +6566,46 @@ mod tests {
         assert_eq!(
             relic_key_from_trace_name("Toy Ornithopter"),
             Some(RelicKey::ToyOrnithopter)
+        );
+    }
+
+    #[test]
+    fn seed_start_boss_swap_uses_generated_boss_relic_reward() {
+        let (numeric_seed, run) = (1_i64..10_000)
+            .map(|seed| {
+                (
+                    seed,
+                    seed_start_apply_neow_boss_swap(seed, &ironclad_starter_deck_keys()),
+                )
+            })
+            .find(|(_, run)| seed_start_unsupported_boss_swap_reason(run).is_none())
+            .expect("synthetic seed with non-grid boss-swap relic");
+
+        let option =
+            seed_start_selected_neow_option(numeric_seed, "CHOOSE 3").expect("boss-swap slot");
+
+        assert!(seed_start_neow_option_is_supported_boss_swap(option));
+        assert!(!run.relics.contains(&Relic::BurningBlood));
+        assert_eq!(run.relics.len() + run.relic_keys.len(), 1);
+
+        let relic_ids = seed_start_boss_swap_relic_ids(&run);
+        assert_eq!(relic_ids.len(), 1);
+        assert!(!relic_ids.contains(&"Burning Blood".to_owned()));
+        assert_ne!(relic_ids[0], "Unknown Relic");
+    }
+
+    #[test]
+    fn seed_start_boss_swap_classifies_grid_opening_relics() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::CallingBell);
+
+        assert_eq!(
+            seed_start_unsupported_boss_swap_reason(&run),
+            Some(
+                "Neow boss-swap produced a grid-opening boss relic; grid follow-up is classified outside this narrow verifier slice"
+                    .to_owned()
+            )
         );
     }
 
@@ -6615,6 +6784,101 @@ mod tests {
         );
         assert_eq!(seed_start_pick_neow_card_reward(&choices, "CHOOSE 9"), None);
         assert_eq!(seed_start_pick_neow_card_reward(&None, "CHOOSE 0"), None);
+    }
+
+    #[test]
+    fn seed_start_neow_boss_swap_uses_core_helper_and_removes_burning_blood() {
+        let option = seed_start_selected_neow_option(1_957_307_888_551, "CHOOSE 3")
+            .expect("boss swap option");
+
+        assert!(seed_start_neow_option_is_supported_boss_swap(option));
+
+        let run = seed_start_apply_neow_boss_swap(1_957_307_888_551, &ironclad_starter_deck_keys());
+        let relic_ids = seed_start_boss_swap_relic_ids(&run);
+
+        assert!(!relic_ids.contains(&"Burning Blood".to_owned()));
+        assert_eq!(relic_ids.len(), 1);
+        assert_ne!(relic_ids[0], "Unknown Relic");
+        assert!(seed_start_unsupported_boss_swap_reason(&run).is_none());
+    }
+
+    #[test]
+    fn seed_start_neow_boss_swap_classifies_grid_opening_relics() {
+        let mut run = RunState::map_fixture();
+        open_neow_reward_grid(&mut run, NeowRewardType::RemoveCard);
+
+        let reason = seed_start_unsupported_boss_swap_reason(&run)
+            .expect("grid-opening boss relics are caveated");
+
+        assert!(reason.contains("grid-opening boss relic"));
+    }
+
+    #[test]
+    fn seed_start_neow_boss_swap_trace_branch_reaches_leave() {
+        let numeric_seed = 1_957_307_888_551;
+        let deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let starting_relics = vec![json!({ "name": "Burning Blood" })];
+        let swapped_run =
+            seed_start_apply_neow_boss_swap(numeric_seed, &ironclad_starter_deck_keys());
+        let swapped_relics: Vec<_> = seed_start_boss_swap_relic_ids(&swapped_run)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": "START IRONCLAD 0 VERIFY01"}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": deck,
+                "relics": starting_relics,
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": deck,
+                "relics": starting_relics,
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 3"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": deck,
+                "relics": swapped_relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow boss swap"
+        }));
     }
 
     #[test]
