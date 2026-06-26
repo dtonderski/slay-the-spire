@@ -13,10 +13,11 @@ use sts_core::content::monsters::{
 };
 use sts_core::potion::Potion;
 use sts_core::{
-    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_rest_action,
-    apply_run_action, apply_shop_action, cancel_grid, confirm_grid, enter_boss_relic_reward_screen,
-    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
-    enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
+    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_relic_reward,
+    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, confirm_grid,
+    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
+    enter_elite_combat_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
+    enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     generate_neow_colorless_reward, generate_neow_options, initialize_combat_piles_with_relics,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
@@ -521,7 +522,14 @@ fn verify_seed_start_transitions(
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(|option| option.reward == NeowRewardType::RandomCommonRelic) =>
             {
-                relics.push("Toy Ornithopter".to_owned());
+                let relic = seed_start_apply_neow_relic_reward(
+                    start.numeric_seed,
+                    &deck_ids,
+                    NeowRewardType::RandomCommonRelic,
+                );
+                if !relics.contains(&relic) {
+                    relics.push(relic);
+                }
                 compare_subset(
                     report,
                     action,
@@ -2736,6 +2744,18 @@ fn seed_start_colorless_neow_card_content_ids(numeric_seed: i64) -> Vec<ContentI
     generate_neow_colorless_reward(numeric_seed, NeowRewardType::RandomColorless).cards
 }
 
+fn seed_start_apply_neow_relic_reward(
+    numeric_seed: i64,
+    deck_ids: &[String],
+    reward: NeowRewardType,
+) -> String {
+    let mut run = RunState::map_fixture();
+    run.relic_rng_seed = numeric_seed as u64;
+    run.deck = deck_instances_from_keys(deck_ids);
+    let reward = apply_neow_relic_reward(&mut run, reward);
+    relic_key_trace_name(reward.relic).to_owned()
+}
+
 fn seed_start_colorless_pick_card(seed: &str, command: &str) -> Option<&'static str> {
     let reward = known_neow_colorless_reward_for_seed(seed)?;
     command_is_choose(command, reward.pick_index).then_some(reward.picked_card_id)
@@ -3538,6 +3558,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::MembershipCard => "Membership Card",
         RelicKey::Whetstone => "Whetstone",
         RelicKey::Orichalcum => "Orichalcum",
+        RelicKey::ToyOrnithopter => "Toy Ornithopter",
         RelicKey::JuzuBracelet => "Juzu Bracelet",
         RelicKey::Lantern => "Lantern",
         RelicKey::Pocketwatch => "Pocketwatch",
@@ -3560,6 +3581,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "Membership Card" => Some(RelicKey::MembershipCard),
         "Whetstone" => Some(RelicKey::Whetstone),
         "Orichalcum" => Some(RelicKey::Orichalcum),
+        "Toy Ornithopter" => Some(RelicKey::ToyOrnithopter),
         "Lantern" => Some(RelicKey::Lantern),
         "Stone Calendar" => Some(RelicKey::StoneCalendar),
         "Cursed Key" => Some(RelicKey::CursedKey),
@@ -5971,6 +5993,22 @@ mod tests {
 
         assert!(seed_start_selected_neow_option(1_957_307_888_551, "PROCEED").is_none());
         assert!(seed_start_selected_neow_option(1_957_307_888_551, "CHOOSE 9").is_none());
+    }
+
+    #[test]
+    fn seed_start_common_relic_uses_generated_neow_relic_reward() {
+        assert_eq!(
+            seed_start_apply_neow_relic_reward(
+                1_957_307_888_551,
+                &ironclad_starter_deck_keys(),
+                NeowRewardType::RandomCommonRelic
+            ),
+            "Toy Ornithopter"
+        );
+        assert_eq!(
+            relic_key_from_trace_name("Toy Ornithopter"),
+            Some(RelicKey::ToyOrnithopter)
+        );
     }
 
     #[test]
