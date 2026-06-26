@@ -775,6 +775,20 @@ fn verify_seed_start_transitions(
                     phase = SeedStartPhase::NeowBossSwapAstrolabeGrid;
                     continue;
                 }
+                if seed_start_boss_swap_is_pandoras_box_grid(&run) {
+                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow boss swap Pandora's Box grid",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                    );
+                    relics = relic_ids;
+                    seed_sim = Some(run);
+                    phase = SeedStartPhase::NeowBossSwapPandorasBoxGrid;
+                    continue;
+                }
                 if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
                     return SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -970,6 +984,47 @@ fn verify_seed_start_transitions(
                     report,
                     action,
                     "Neow boss swap Astrolabe transformed",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": relics,
+                        "choices": ["leave"],
+                    }),
+                );
+                seed_sim = Some(next);
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowBossSwapPandorasBoxGrid
+                if action.command.eq_ignore_ascii_case("PROCEED")
+                    || action.command.eq_ignore_ascii_case("CONFIRM") =>
+            {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason:
+                            "seed-start Pandora's Box boss-swap grid without initialized run simulation"
+                                .to_owned(),
+                    };
+                };
+                let Ok(next) = confirm_grid(sim) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_neow_boss_swap".to_owned(),
+                        reason: "seed-start Pandora's Box boss-swap grid confirm failed".to_owned(),
+                    };
+                };
+                deck_ids = deck_content_keys(&next.deck);
+                compare_subset(
+                    report,
+                    action,
+                    "Neow boss swap Pandora's Box confirm",
                     seed_start_observed_subset(&post.message),
                     json!({
                         "screen_type": "EVENT",
@@ -2547,6 +2602,7 @@ enum SeedStartPhase {
     NeowGridConfirm,
     NeowBossSwapCallingBellGrid,
     NeowBossSwapAstrolabeGrid,
+    NeowBossSwapPandorasBoxGrid,
     NeowLeave,
     Map,
     Event,
@@ -3343,6 +3399,12 @@ fn seed_start_boss_swap_is_astrolabe_grid(run: &RunState) -> bool {
     run.card_grid
         .as_ref()
         .is_some_and(|grid| grid.purpose == GridPurpose::Astrolabe)
+}
+
+fn seed_start_boss_swap_is_pandoras_box_grid(run: &RunState) -> bool {
+    run.card_grid
+        .as_ref()
+        .is_some_and(|grid| grid.purpose == GridPurpose::PandorasBox)
 }
 
 fn seed_start_unsupported_boss_swap_reason(run: &RunState) -> Option<String> {
@@ -4661,7 +4723,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "neowRng".to_owned(),
             save_counter: None,
             status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and Pandora's Box/reward-screen boss-swap follow-ups remain partial/caveated.".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, and Pandora's Box boss-swap grids. CODEX03 Neow's Lament side effects, selected-trace coverage for many branch combinations, and reward-screen boss-swap follow-ups remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -7296,6 +7358,116 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 6
                 && transition.label == "Neow boss swap Astrolabe transformed"
+        }));
+    }
+
+    #[test]
+    fn seed_start_boss_swap_pandoras_box_grid_confirms_to_neow_leave() {
+        let (numeric_seed, pandora_run) = (1_i64..100_000)
+            .map(|seed| {
+                (
+                    seed,
+                    seed_start_apply_neow_boss_swap(seed, &ironclad_starter_deck_keys()),
+                )
+            })
+            .find(|(_, run)| seed_start_boss_swap_is_pandoras_box_grid(run))
+            .expect("synthetic seed with Pandora's Box boss swap");
+        let seed_string = test_seed_string_from_long(numeric_seed);
+        let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let pandora_relics: Vec<_> = seed_start_boss_swap_relic_ids(&pandora_run)
+            .into_iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let after_confirm = confirm_grid(&pandora_run).expect("Pandora's Box grid confirms");
+        let grid_deck: Vec<_> = deck_content_keys(&pandora_run.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let transformed_deck: Vec<_> = deck_content_keys(&after_confirm.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let grid_choices: Vec<_> =
+            seed_start_grid_simulated_subset(&pandora_run, &["Pandora's Box".to_owned()])
+                ["choices"]
+                .as_array()
+                .expect("grid choices")
+                .clone();
+
+        assert_eq!(pandora_run.card_grid.as_ref().expect("grid").cards.len(), 9);
+        assert_eq!(pandora_run.deck.len(), 1);
+        assert_eq!(after_confirm.deck.len(), 10);
+
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": "CHOOSE 3"}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "GRID",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": grid_deck,
+                "relics": pandora_relics,
+                "choice_list": grid_choices
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CONFIRM"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": transformed_deck,
+                "relics": pandora_relics,
+                "choice_list": ["leave"]
+            }}}),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 3 && transition.label == "Neow boss swap Pandora's Box grid"
+        }));
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 4
+                && transition.label == "Neow boss swap Pandora's Box confirm"
         }));
     }
 
