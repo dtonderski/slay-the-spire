@@ -21,8 +21,9 @@ pub use grid::{
 };
 pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
 pub use neow::{
-    known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
-    KnownNeowBranch, KnownNeowColorlessReward, KnownNeowScreen,
+    generate_neow_options, known_neow_colorless_reward_for_seed, known_neow_screen_for_seed,
+    known_neow_transformed_card, GeneratedNeowOption, KnownNeowBranch, KnownNeowColorlessReward,
+    KnownNeowScreen, NeowDrawback, NeowRewardType,
 };
 pub use potion::{apply_potion_action, validate_potion_action};
 pub use rest::{
