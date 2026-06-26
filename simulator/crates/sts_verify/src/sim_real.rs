@@ -22,9 +22,10 @@ use sts_core::{
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
     leave_shop_merchant, leave_shop_room, select_grid_card, shop_action_for_choice_index,
     starter_only_deck, CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState,
-    ContentId, Event, EventAction, EventChoice, EventScreen, KnownNeowBranch, MonsterId,
-    MonsterIntent, MonsterPowers, MonsterState, NeowRewardType, PlayerPowers, PlayerState, Relic,
-    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    ContentId, Event, EventAction, EventChoice, EventScreen, GeneratedNeowOption, KnownNeowBranch,
+    MonsterId, MonsterIntent, MonsterPowers, MonsterState, NeowRewardType, PlayerPowers,
+    PlayerState, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase,
+    RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,8 +391,8 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowOptions;
             }
             SeedStartPhase::NeowOptions
-                if seed_start_is_transform_neow_branch(&start.external_seed)
-                    && command_is_choose(&action.command, 0) =>
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(|option| option.reward == NeowRewardType::TransformCard) =>
             {
                 compare_subset(
                     report,
@@ -465,7 +466,8 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
-                if start.external_seed == "CODEX03" && command_is_choose(&action.command, 1) =>
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(|option| option.reward == NeowRewardType::ThreeEnemyKill) =>
             {
                 neow_lament = true;
                 relics.push("Neow's Lament".to_owned());
@@ -489,8 +491,8 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
-                if seed_start_is_colorless_neow_branch(&start.external_seed)
-                    && command_is_choose(&action.command, 0) =>
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(|option| option.reward == NeowRewardType::RandomColorless) =>
             {
                 compare_subset(
                     report,
@@ -516,7 +518,8 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowCardReward;
             }
             SeedStartPhase::NeowOptions
-                if command_is_choose(&action.command, 1) && start.external_seed != "CODEX03" =>
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(|option| option.reward == NeowRewardType::RandomCommonRelic) =>
             {
                 relics.push("Toy Ornithopter".to_owned());
                 compare_subset(
@@ -2142,12 +2145,16 @@ fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, S
 }
 
 fn command_is_choose(command: &str, index: usize) -> bool {
+    command_choose_index(command).is_some_and(|parsed| parsed == index)
+}
+
+fn command_choose_index(command: &str) -> Option<usize> {
     let parts: Vec<_> = command.split_whitespace().collect();
-    parts.len() == 2
-        && parts[0].eq_ignore_ascii_case("CHOOSE")
-        && parts[1]
-            .parse::<usize>()
-            .is_ok_and(|parsed| parsed == index)
+    if parts.len() == 2 && parts[0].eq_ignore_ascii_case("CHOOSE") {
+        parts[1].parse::<usize>().ok()
+    } else {
+        None
+    }
 }
 
 fn seed_start_observed_subset(message: &Value) -> Value {
@@ -2701,8 +2708,14 @@ fn seed_start_neow_choices(numeric_seed: i64) -> Vec<String> {
         .collect()
 }
 
-fn seed_start_is_colorless_neow_branch(seed: &str) -> bool {
-    known_neow_screen_for_seed(seed).branch == Some(KnownNeowBranch::ColorlessCardReward)
+fn seed_start_selected_neow_option(
+    numeric_seed: i64,
+    command: &str,
+) -> Option<GeneratedNeowOption> {
+    let index = command_choose_index(command)?;
+    generate_neow_options(numeric_seed, 80)
+        .into_iter()
+        .nth(index)
 }
 
 fn seed_start_colorless_neow_choice_names(numeric_seed: i64) -> Vec<String> {
@@ -5933,6 +5946,31 @@ mod tests {
 
         assert_eq!(content_id_from_card_value(&card), Some(DROPKICK_ID));
         assert_eq!(content_key(DROPKICK_ID), "Dropkick");
+    }
+
+    #[test]
+    fn seed_start_neow_branch_routing_uses_generated_selected_options() {
+        for (numeric_seed, command, reward) in [
+            (
+                1_957_307_888_551,
+                "CHOOSE 1",
+                NeowRewardType::RandomCommonRelic,
+            ),
+            (1_218_623, "CHOOSE 0", NeowRewardType::RandomColorless),
+            (22_079_335_079, "CHOOSE 0", NeowRewardType::RandomColorless),
+            (40_560_393_126, "CHOOSE 1", NeowRewardType::ThreeEnemyKill),
+            (40_560_393_126, "CHOOSE 0", NeowRewardType::TransformCard),
+            (40_560_393_133, "CHOOSE 0", NeowRewardType::TransformCard),
+        ] {
+            assert_eq!(
+                seed_start_selected_neow_option(numeric_seed, command).map(|option| option.reward),
+                Some(reward),
+                "{numeric_seed} {command}"
+            );
+        }
+
+        assert!(seed_start_selected_neow_option(1_957_307_888_551, "PROCEED").is_none());
+        assert!(seed_start_selected_neow_option(1_957_307_888_551, "CHOOSE 9").is_none());
     }
 
     #[test]
