@@ -898,18 +898,64 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
         seed_start.first_boundary.category,
         "unsupported_combat_path"
     );
+    assert!(
+        report.unsupported.iter().any(|entry| {
+            entry.action_step == 73
+                && entry
+                    .reason
+                    .contains("Sword Boomerang multi-enemy random target parity")
+        }),
+        "expected precise Sword Boomerang unsupported reason: {:?}",
+        report.unsupported
+    );
 
     let labels: Vec<_> = report
         .verified
         .iter()
         .map(|step| step.label.as_str())
         .collect();
-    for expected in ["Neow transform confirm", "captured Scrap Ooze success"] {
+    for expected in [
+        "Neow transform confirm",
+        "captured Scrap Ooze success",
+        "card reward",
+        "card reward pick 0",
+    ] {
         assert!(
             labels.contains(&expected),
             "missing verified label {expected}; labels: {labels:?}"
         );
     }
+}
+
+#[test]
+fn test_m32c_20260625_clean_prefix_records_32b_shop_reward_deck_evidence() {
+    let Some(content) = load_corpus_file(
+        "communication_mod/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
+    ) else {
+        return;
+    };
+
+    let trace = sts_verify::import_communication_mod_trace(&content).expect("prefix imports");
+    assert_eq!(raw_trace_count(&content, "action"), 548);
+    assert_eq!(raw_trace_count(&content, "state"), 533);
+    assert_eq!(raw_trace_count(&content, "error"), 16);
+    assert!(trace.lines.iter().all(|line| match line {
+        sts_verify::TraceLine::State(state) => state.step <= 548,
+        sts_verify::TraceLine::Action(action) => action.step <= 548,
+        sts_verify::TraceLine::Metadata(_) => true,
+    }));
+
+    let last = state_message_at_step(&content, 548).expect("step 548 state");
+    assert_eq!(game_i64(&last, "floor"), Some(37));
+    assert_eq!(game_str(&last, "screen_type"), Some("MAP"));
+
+    assert_screen_cards_include(&content, 21, &["Discovery", "Secret Technique"]);
+    assert_screen_cards_include(&content, 43, &["Sword Boomerang"]);
+    assert_deck_includes(&content, 44, "Sword Boomerang");
+    assert_deck_includes(&content, 46, "Sword Boomerang");
+    assert_screen_cards_include(&content, 227, &["Forethought", "Chrysalis"]);
+    assert_screen_cards_include(&content, 541, &["Panache+"]);
+    assert_deck_includes(&content, 548, "Sword Boomerang");
 }
 
 #[test]
@@ -1016,6 +1062,78 @@ fn room_symbol(room_kind: RoomKind) -> &'static str {
         RoomKind::Treasure => "T",
         RoomKind::Boss => "B",
     }
+}
+
+fn state_message_at_step(content: &str, step: u32) -> Option<serde_json::Value> {
+    content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| {
+            value.get("type").and_then(serde_json::Value::as_str) == Some("state")
+                && value.get("step").and_then(serde_json::Value::as_u64) == Some(u64::from(step))
+        })
+        .and_then(|value| value.get("message").cloned())
+}
+
+fn raw_trace_count(content: &str, type_name: &str) -> usize {
+    content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|value| value.get("type").and_then(serde_json::Value::as_str) == Some(type_name))
+        .count()
+}
+
+fn game_str<'a>(message: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    message
+        .get("game_state")
+        .and_then(|game| game.get(key))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn game_i64(message: &serde_json::Value, key: &str) -> Option<i64> {
+    message
+        .get("game_state")
+        .and_then(|game| game.get(key))
+        .and_then(serde_json::Value::as_i64)
+}
+
+fn assert_screen_cards_include(content: &str, step: u32, expected_names: &[&str]) {
+    let message = state_message_at_step(content, step).expect("state exists");
+    let cards: Vec<_> = message
+        .get("game_state")
+        .and_then(|game| game.get("screen_state"))
+        .and_then(|screen| screen.get("cards"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|card| card.get("name").and_then(serde_json::Value::as_str))
+        .collect();
+
+    for expected in expected_names {
+        assert!(
+            cards.contains(expected),
+            "step {step} missing screen card {expected}; cards: {cards:?}"
+        );
+    }
+}
+
+fn assert_deck_includes(content: &str, step: u32, expected_name: &str) {
+    let message = state_message_at_step(content, step).expect("state exists");
+    let deck: Vec<_> = message
+        .get("game_state")
+        .and_then(|game| game.get("deck"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|card| card.get("name").and_then(serde_json::Value::as_str))
+        .collect();
+
+    assert!(
+        deck.contains(&expected_name),
+        "step {step} missing deck card {expected_name}; deck: {deck:?}"
+    );
 }
 
 fn assert_sequence_eq<T>(label: &str, actual: Vec<T>, expected: Vec<T>)
