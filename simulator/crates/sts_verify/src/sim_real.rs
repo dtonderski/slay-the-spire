@@ -4816,6 +4816,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
             temp_dexterity: 0,
             temp_thorns: 0,
             temp_rage_block: 0,
+            no_block_turns: 0,
         },
         monsters: monsters_from_observed(combat.get("monsters"), player),
         piles: CardPiles {
