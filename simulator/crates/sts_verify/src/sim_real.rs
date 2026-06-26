@@ -3802,8 +3802,8 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
         RngBoundary {
             stream: "neowRng".to_owned(),
             save_counter: None,
-            status: "captured_branch".to_owned(),
-            reason: "captured VERIFY01 Toy Ornithopter, CODEX04 colorless-card, and CODEX03 Neow's Lament branches are modeled; broad Neow RNG remains unimplemented".to_owned(),
+            status: "source_backed_options_with_partial_application".to_owned(),
+            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options, CODEX04/TEST colorless choices and VERIFY01 common relic identity are generated, and core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, and simple no-RNG reward/drawback surfaces. CODEX03 Neow's Lament side effects, M290001/M290008 transform identity, curse drawback identity, grid-selection branches, and broad verifier application remain partial/caveated.".to_owned(),
         },
         RngBoundary {
             stream: "mapRng".to_owned(),
@@ -3845,7 +3845,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "relicRng".to_owned(),
             save_counter: Some("relic_seed_count".to_owned()),
             status: "source_backed_pool_selection_wired".to_owned(),
-            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad relic pools initialize, pop, and filter like target; elite/chest/boss relic reward screens and shop relic offers are wired from persisted pool state. Neow relic results remain captured-branch only".to_owned(),
+            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad relic pools initialize, pop, and filter like target; elite/chest/boss relic reward screens and shop relic offers are wired from persisted pool state. VERIFY01 Neow common relic identity is generated through the fixed-tier relic helper; rare-relic and boss-swap Neow verifier branches remain partial/caveated".to_owned(),
         },
         RngBoundary {
             stream: "merchantRng".to_owned(),
