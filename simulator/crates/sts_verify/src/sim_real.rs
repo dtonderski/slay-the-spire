@@ -18,13 +18,13 @@ use sts_core::{
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
     enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    generate_neow_options, initialize_combat_piles_with_relics,
+    generate_neow_colorless_reward, generate_neow_options, initialize_combat_piles_with_relics,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
     leave_shop_merchant, leave_shop_room, select_grid_card, shop_action_for_choice_index,
     starter_only_deck, CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState,
     ContentId, Event, EventAction, EventChoice, EventScreen, KnownNeowBranch, MonsterId,
-    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, Relic, RelicKey,
-    RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    MonsterIntent, MonsterPowers, MonsterState, NeowRewardType, PlayerPowers, PlayerState, Relic,
+    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -505,8 +505,8 @@ fn verify_seed_start_transitions(
                         "max_hp": 80,
                         "deck_ids": deck_ids,
                         "relic_ids": relics,
-                        "choices": seed_start_colorless_neow_choice_names(&start.external_seed),
-                        "card_reward_ids": seed_start_colorless_neow_card_ids(&start.external_seed),
+                        "choices": seed_start_colorless_neow_choice_names(start.numeric_seed),
+                        "card_reward_ids": seed_start_colorless_neow_card_ids(start.numeric_seed),
                         "unobservable": {
                             "card_reward_rng_draws": true,
                             "card_reward_uuids": true,
@@ -2705,16 +2705,22 @@ fn seed_start_is_colorless_neow_branch(seed: &str) -> bool {
     known_neow_screen_for_seed(seed).branch == Some(KnownNeowBranch::ColorlessCardReward)
 }
 
-fn seed_start_colorless_neow_choice_names(seed: &str) -> Vec<&'static str> {
-    known_neow_colorless_reward_for_seed(seed)
-        .map(|reward| reward.choice_names)
-        .unwrap_or_default()
+fn seed_start_colorless_neow_choice_names(numeric_seed: i64) -> Vec<String> {
+    seed_start_colorless_neow_card_content_ids(numeric_seed)
+        .into_iter()
+        .map(|content_id| content_key(content_id).to_ascii_lowercase())
+        .collect()
 }
 
-fn seed_start_colorless_neow_card_ids(seed: &str) -> Vec<&'static str> {
-    known_neow_colorless_reward_for_seed(seed)
-        .map(|reward| reward.card_ids)
-        .unwrap_or_default()
+fn seed_start_colorless_neow_card_ids(numeric_seed: i64) -> Vec<String> {
+    seed_start_colorless_neow_card_content_ids(numeric_seed)
+        .into_iter()
+        .map(|content_id| content_key(content_id).to_owned())
+        .collect()
+}
+
+fn seed_start_colorless_neow_card_content_ids(numeric_seed: i64) -> Vec<ContentId> {
+    generate_neow_colorless_reward(numeric_seed, NeowRewardType::RandomColorless).cards
 }
 
 fn seed_start_colorless_pick_card(seed: &str, command: &str) -> Option<&'static str> {
@@ -5555,14 +5561,14 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEFEND_R_ID, DEMON_FORM_ID,
-        DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMMOLATE_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        BLOODLETTING_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, DEEP_BREATH_ID, DEFEND_R_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMMOLATE_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -5579,8 +5585,10 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
         "Body Slam" | "body slam" => Some(BODY_SLAM_ID),
         "Cleave" | "cleave" => Some(CLEAVE_ID),
+        "Deep Breath" | "deep breath" => Some(DEEP_BREATH_ID),
         "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
         "Swift Strike" | "swift strike" => Some(SWIFT_STRIKE_ID),
+        "Jack Of All Trades" | "jack of all trades" => Some(JACK_OF_ALL_TRADES_ID),
         "Entrench" | "entrench" => Some(ENTRENCH_ID),
         "Fire Breathing" | "fire breathing" => Some(FIRE_BREATHING_ID),
         "Flex" | "flex" => Some(FLEX_ID),
@@ -5623,15 +5631,15 @@ fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
-        FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
-        OFFERING_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID,
-        REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
-        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WILD_STRIKE_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID => "Strike_R",
@@ -5657,8 +5665,10 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == INFLAME_PLUS_ID => "Inflame+",
         id if id == COMBUST_ID => "Combust",
         id if id == OFFERING_ID => "Offering",
+        id if id == DEEP_BREATH_ID => "Deep Breath",
         id if id == DRAMATIC_ENTRANCE_ID => "Dramatic Entrance",
         id if id == SWIFT_STRIKE_ID => "Swift Strike",
+        id if id == JACK_OF_ALL_TRADES_ID => "Jack Of All Trades",
         id if id == ENTRENCH_ID => "Entrench",
         id if id == FIRE_BREATHING_ID => "Fire Breathing",
         id if id == FLEX_ID => "Flex",
@@ -5930,13 +5940,13 @@ mod tests {
         let message = json!({
             "game_state": {
                 "combat_state": {
-                    "hand": [{"id": "Deep Breath", "name": "Deep Breath"}]
+                    "hand": [{"id": "Meteor Strike", "name": "Meteor Strike"}]
                 }
             }
         });
         let reason =
             unsupported_combat_command_reason(&message, "PLAY 1").expect("unmapped card reason");
-        assert!(reason.contains("Deep Breath"));
+        assert!(reason.contains("Meteor Strike"));
         assert!(reason.contains("not mapped"));
     }
 
