@@ -1089,7 +1089,7 @@ fn apply_play_top_draw_card(
             for content_id in card_effects::chrysalis_generated_skills(state, 3) {
                 follow_ups.push(InternalAction::AddGeneratedCardToPile {
                     content_id,
-                    to: CardPile::Hand,
+                    to: CardPile::DrawPile,
                     temp_cost: Some(0),
                 });
             }
@@ -3112,7 +3112,7 @@ mod tests {
     }
 
     #[test]
-    fn metamorphosis_adds_three_zero_cost_combat_only_attacks_to_hand_and_exhausts_source() {
+    fn metamorphosis_adds_three_zero_cost_combat_only_attacks_to_draw_pile_and_exhausts_source() {
         let mut state = hand_only(METAMORPHOSIS_ID);
         state.card_random_rng = Some(crate::rng::StsRng::new(456));
         let mut expected_rng = crate::rng::StsRng::new(456);
@@ -3138,7 +3138,7 @@ mod tests {
             .any(|card| card.content_id == METAMORPHOSIS_ID));
         let generated: Vec<_> = next
             .piles
-            .hand
+            .draw_pile
             .iter()
             .filter(|card| card.combat_only)
             .collect();
@@ -3158,7 +3158,7 @@ mod tests {
     }
 
     #[test]
-    fn metamorphosis_without_card_random_rng_uses_deterministic_modeled_fallback() {
+    fn metamorphosis_without_card_random_rng_uses_deterministic_draw_pile_fallback() {
         let state = hand_only(METAMORPHOSIS_ID);
         let expected = infernal_blade_modeled_attack_pool()[0];
 
@@ -3168,7 +3168,7 @@ mod tests {
         assert!(next.card_random_rng.is_none());
         let generated: Vec<_> = next
             .piles
-            .hand
+            .draw_pile
             .iter()
             .filter(|card| card.combat_only)
             .collect();
@@ -3179,7 +3179,7 @@ mod tests {
     }
 
     #[test]
-    fn metamorphosis_event_log_records_generation_before_source_exhaust() {
+    fn metamorphosis_event_log_records_draw_pile_generation_before_source_exhaust() {
         let state = hand_only(METAMORPHOSIS_ID);
         let card_id = hand_card_id(&state, METAMORPHOSIS_ID);
         let expected = infernal_blade_modeled_attack_pool()[0];
@@ -3194,17 +3194,17 @@ mod tests {
                 InternalAction::SpendEnergy { amount: 2 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected,
-                    to: CardPile::Hand,
+                    to: CardPile::DrawPile,
                     temp_cost: Some(0),
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected,
-                    to: CardPile::Hand,
+                    to: CardPile::DrawPile,
                     temp_cost: Some(0),
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected,
-                    to: CardPile::Hand,
+                    to: CardPile::DrawPile,
                     temp_cost: Some(0),
                 },
                 InternalAction::MoveCard {
@@ -6335,7 +6335,7 @@ mod tests {
     }
 
     #[test]
-    fn chrysalis_adds_three_zero_cost_combat_only_skills_to_hand_and_exhausts_source() {
+    fn chrysalis_adds_three_zero_cost_combat_only_skills_to_draw_pile_and_exhausts_source() {
         let mut state = hand_only(CHRYSALIS_ID);
         state.player.energy = 2;
         state.card_random_rng = Some(crate::rng::StsRng::new(456));
@@ -6363,7 +6363,7 @@ mod tests {
 
         let generated: Vec<_> = next
             .piles
-            .hand
+            .draw_pile
             .iter()
             .filter(|card| card.combat_only)
             .collect();
@@ -6379,7 +6379,7 @@ mod tests {
     }
 
     #[test]
-    fn chrysalis_without_card_random_rng_uses_deterministic_modeled_fallback() {
+    fn chrysalis_without_card_random_rng_uses_deterministic_draw_pile_fallback() {
         let mut state = hand_only(CHRYSALIS_ID);
         state.player.energy = 2;
         let expected: Vec<_> = chrysalis_modeled_skill_pool().into_iter().take(3).collect();
@@ -6390,7 +6390,7 @@ mod tests {
         assert!(next.card_random_rng.is_none());
         let generated: Vec<_> = next
             .piles
-            .hand
+            .draw_pile
             .iter()
             .filter(|card| card.combat_only)
             .map(|card| {
@@ -6402,7 +6402,7 @@ mod tests {
     }
 
     #[test]
-    fn chrysalis_event_log_records_three_generated_skills_before_source_exhaust() {
+    fn chrysalis_event_log_records_three_generated_skills_to_draw_pile_before_source_exhaust() {
         let mut state = hand_only(CHRYSALIS_ID);
         state.player.energy = 2;
         let card_id = hand_card_id(&state, CHRYSALIS_ID);
@@ -6418,17 +6418,17 @@ mod tests {
                 InternalAction::SpendEnergy { amount: 2 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected[0],
-                    to: CardPile::Hand,
+                    to: CardPile::DrawPile,
                     temp_cost: Some(0),
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected[1],
-                    to: CardPile::Hand,
+                    to: CardPile::DrawPile,
                     temp_cost: Some(0),
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected[2],
-                    to: CardPile::Hand,
+                    to: CardPile::DrawPile,
                     temp_cost: Some(0),
                 },
                 InternalAction::MoveCard {
@@ -6733,7 +6733,7 @@ mod tests {
     }
 
     #[test]
-    fn havoc_top_draw_chrysalis_adds_three_zero_cost_skills_and_exhausts_it() {
+    fn havoc_top_draw_chrysalis_adds_three_zero_cost_skills_to_draw_pile_and_exhausts_it() {
         let mut state = hand_only(HAVOC_ID);
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), CHRYSALIS_ID)];
         let expected: Vec<_> = chrysalis_modeled_skill_pool().into_iter().take(3).collect();
@@ -6749,7 +6749,7 @@ mod tests {
 
         let generated: Vec<_> = next
             .piles
-            .hand
+            .draw_pile
             .iter()
             .filter(|card| card.combat_only)
             .map(|card| {

@@ -1172,7 +1172,7 @@ fn metamorphosis_queue(
     for generated in metamorphosis_generated_attacks(state) {
         queue.push_back(InternalAction::AddGeneratedCardToPile {
             content_id: generated,
-            to: CardPile::Hand,
+            to: CardPile::DrawPile,
             temp_cost: Some(0),
         });
     }
@@ -1284,7 +1284,7 @@ fn chrysalis_queue(
     for content_id in generated {
         queue.push_back(InternalAction::AddGeneratedCardToPile {
             content_id,
-            to: CardPile::Hand,
+            to: CardPile::DrawPile,
             temp_cost: Some(0),
         });
     }
