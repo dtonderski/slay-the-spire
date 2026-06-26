@@ -22,12 +22,12 @@ use sts_core::{
     generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
     generate_neow_three_potions, initialize_combat_piles_with_relics,
     known_neow_colorless_reward_for_seed, known_neow_screen_for_seed, known_neow_transformed_card,
-    leave_shop_merchant, leave_shop_room, select_grid_card, shop_action_for_choice_index,
-    starter_only_deck, CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState,
-    ContentId, Event, EventAction, EventChoice, EventScreen, GeneratedNeowOption, KnownNeowBranch,
-    MonsterId, MonsterIntent, MonsterPowers, MonsterState, NeowDrawback, NeowRewardType,
-    PlayerPowers, PlayerState, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
-    RunPhase, RunState, ShopPick, StsRng,
+    leave_shop_merchant, leave_shop_room, open_neow_reward_grid, select_grid_card,
+    shop_action_for_choice_index, starter_only_deck, CardId, CardInstance, CardPiles, CombatAction,
+    CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice, EventScreen,
+    GeneratedNeowOption, KnownNeowBranch, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
+    NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic, RelicKey, RestAction,
+    RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -659,6 +659,103 @@ fn verify_seed_start_transitions(
                         },
                     }),
                 );
+                phase = SeedStartPhase::NeowLeave;
+            }
+            SeedStartPhase::NeowOptions
+                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .is_some_and(seed_start_neow_option_is_supported_grid_reward) =>
+            {
+                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+                    .expect("matched generated Neow grid option");
+                let run = seed_start_open_neow_grid_run(&deck_ids, &option);
+                neow_gold = run.gold;
+                neow_current_hp = run.player_hp;
+                neow_max_hp = run.player_max_hp;
+                compare_subset(
+                    report,
+                    action,
+                    seed_start_neow_grid_label(option.reward),
+                    seed_start_grid_observed_subset(&post.message),
+                    seed_start_grid_simulated_subset(&run, &relics),
+                );
+                seed_sim = Some(run);
+                phase = SeedStartPhase::NeowGrid;
+            }
+            SeedStartPhase::NeowGrid if command_choose_index(&action.command).is_some() => {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_grid_path".to_owned(),
+                        reason: "seed-start Neow grid action without initialized run simulation"
+                            .to_owned(),
+                    };
+                };
+                let index = command_choose_index(&action.command).expect("matched choose command");
+                let Ok(next) = select_grid_card(sim, index) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_grid_path".to_owned(),
+                        reason: "seed-start Neow grid choose simulation failed".to_owned(),
+                    };
+                };
+                compare_subset(
+                    report,
+                    action,
+                    "Neow grid select",
+                    seed_start_grid_observed_subset(&post.message),
+                    seed_start_grid_simulated_subset(&next, &relics),
+                );
+                seed_sim = Some(next);
+                phase = SeedStartPhase::NeowGridConfirm;
+            }
+            SeedStartPhase::NeowGridConfirm if action.command.eq_ignore_ascii_case("CONFIRM") => {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_grid_path".to_owned(),
+                        reason: "seed-start Neow grid confirm without initialized run simulation"
+                            .to_owned(),
+                    };
+                };
+                let Ok(next) = confirm_grid(sim) else {
+                    return SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_grid_path".to_owned(),
+                        reason: "seed-start Neow grid confirm simulation failed".to_owned(),
+                    };
+                };
+                deck_ids = deck_content_keys(&next.deck);
+                if next.card_grid.is_some() {
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow grid confirm",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&next, &relics),
+                    );
+                    seed_sim = Some(next);
+                    phase = SeedStartPhase::NeowGrid;
+                    continue;
+                } else {
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow grid confirm",
+                        seed_start_observed_subset(&post.message),
+                        json!({
+                            "screen_type": "EVENT",
+                            "ascension": start.ascension,
+                            "floor": 0,
+                            "gold": neow_gold,
+                            "current_hp": neow_current_hp,
+                            "max_hp": neow_max_hp,
+                            "deck_ids": deck_ids,
+                            "relic_ids": relics,
+                            "choices": ["leave"],
+                        }),
+                    );
+                }
+                seed_sim = Some(next);
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowCardReward
@@ -2216,6 +2313,8 @@ enum SeedStartPhase {
     NeowCardReward,
     NeowTransformGrid,
     NeowTransformConfirm,
+    NeowGrid,
+    NeowGridConfirm,
     NeowLeave,
     Map,
     Event,
@@ -2897,6 +2996,32 @@ fn seed_start_neow_option_is_supported_card_reward(option: GeneratedNeowOption) 
                 | NeowRewardType::OneRandomRareCard
                 | NeowRewardType::ThreeRareCards
         )
+}
+
+fn seed_start_neow_option_is_supported_grid_reward(option: GeneratedNeowOption) -> bool {
+    seed_start_neow_drawback_is_simple(option.drawback)
+        && matches!(
+            option.reward,
+            NeowRewardType::RemoveCard | NeowRewardType::RemoveTwo | NeowRewardType::UpgradeCard
+        )
+}
+
+fn seed_start_open_neow_grid_run(deck_ids: &[String], option: &GeneratedNeowOption) -> RunState {
+    let mut run = RunState::map_fixture();
+    run.gold = 99;
+    run.deck = deck_instances_from_keys(deck_ids);
+    apply_neow_simple_drawback(&mut run, option.drawback);
+    open_neow_reward_grid(&mut run, option.reward);
+    run
+}
+
+fn seed_start_neow_grid_label(reward: NeowRewardType) -> &'static str {
+    match reward {
+        NeowRewardType::RemoveCard => "Neow remove card grid",
+        NeowRewardType::RemoveTwo => "Neow remove two grid",
+        NeowRewardType::UpgradeCard => "Neow upgrade grid",
+        _ => "Neow grid",
+    }
 }
 
 fn seed_start_neow_stats_after_drawback(option: &GeneratedNeowOption) -> Option<(i32, i32, i32)> {
@@ -6347,6 +6472,110 @@ mod tests {
 
         assert_eq!(option.reward, NeowRewardType::TransformCard);
         assert_eq!(seed_start_apply_neow_simple_option(option), None);
+    }
+
+    #[test]
+    fn seed_start_neow_grid_reward_dispatch_opens_core_upgrade_grid() {
+        let (numeric_seed, command, option) = (1_i64..10_000)
+            .find_map(|seed| {
+                generate_neow_options(seed, 80)
+                    .into_iter()
+                    .find(|option| option.reward == NeowRewardType::UpgradeCard)
+                    .map(|option| (seed, format!("CHOOSE {}", option.slot), option))
+            })
+            .expect("synthetic seed with upgrade-card option");
+
+        assert_eq!(
+            seed_start_selected_neow_option(numeric_seed, &command),
+            Some(option.clone())
+        );
+        assert!(seed_start_neow_option_is_supported_grid_reward(
+            option.clone()
+        ));
+
+        let run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+
+        assert_eq!(
+            seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()]),
+            json!({
+                "screen_type": "GRID",
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": ironclad_starter_deck_keys(),
+                "relic_ids": ["Burning Blood"],
+                "choices": ["strike", "strike", "strike", "strike", "strike"],
+            })
+        );
+    }
+
+    #[test]
+    fn seed_start_neow_upgrade_grid_choose_confirm_returns_to_leave() {
+        let option = GeneratedNeowOption {
+            slot: 0,
+            drawback: NeowDrawback::None,
+            reward: NeowRewardType::UpgradeCard,
+            label: "upgrade a card".to_owned(),
+        };
+        let mut run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+
+        run = select_grid_card(&run, 0).expect("select first strike");
+        assert_eq!(
+            seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()]),
+            json!({
+                "screen_type": "GRID",
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": ironclad_starter_deck_keys(),
+                "relic_ids": ["Burning Blood"],
+                "choices": [],
+            })
+        );
+
+        run = confirm_grid(&run).expect("confirm upgrade");
+
+        assert!(run.card_grid.is_none());
+        assert_eq!(
+            run.deck[0].content_id,
+            sts_core::content::cards::STRIKE_R_PLUS_ID
+        );
+        assert_eq!(
+            deck_content_keys(&run.deck),
+            vec![
+                "unknown", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
+                "Defend_R", "Defend_R", "Bash",
+            ]
+        );
+    }
+
+    #[test]
+    fn seed_start_neow_remove_two_grid_reopens_second_selection() {
+        let option = GeneratedNeowOption {
+            slot: 0,
+            drawback: NeowDrawback::TenPercentHpLoss,
+            reward: NeowRewardType::RemoveTwo,
+            label: "lose 8 max hp remove 2 cards".to_owned(),
+        };
+        let mut run = seed_start_open_neow_grid_run(&ironclad_starter_deck_keys(), &option);
+
+        assert_eq!(run.player_hp, 72);
+        assert_eq!(run.player_max_hp, 72);
+
+        run = select_grid_card(&run, 0).expect("select first strike");
+        run = confirm_grid(&run).expect("confirm first remove");
+
+        assert!(run.card_grid.is_some());
+        assert_eq!(run.deck.len(), 9);
+        assert_eq!(
+            seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()])["choices"]
+                .as_array()
+                .expect("choices")
+                .len(),
+            9
+        );
     }
 
     #[test]
