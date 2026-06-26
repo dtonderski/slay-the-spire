@@ -18,11 +18,13 @@ use sts_core::{
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
     enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    initialize_combat_piles_with_relics, leave_shop_merchant, leave_shop_room, select_grid_card,
-    shop_action_for_choice_index, starter_only_deck, CardId, CardInstance, CardPiles, CombatAction,
-    CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice, EventScreen, MonsterId,
-    MonsterIntent, MonsterPowers, MonsterState, PlayerPowers, PlayerState, Relic, RelicKey,
-    RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    initialize_combat_piles_with_relics, known_neow_colorless_reward_for_seed,
+    known_neow_screen_for_seed, known_neow_transformed_card, leave_shop_merchant, leave_shop_room,
+    select_grid_card, shop_action_for_choice_index, starter_only_deck, CardId, CardInstance,
+    CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice,
+    EventScreen, KnownNeowBranch, MonsterId, MonsterIntent, MonsterPowers, MonsterState,
+    PlayerPowers, PlayerState, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
+    RunPhase, RunState, ShopPick, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2670,15 +2672,11 @@ fn seed_start_m290001_visible_deck_after_transform() -> Vec<String> {
 }
 
 fn seed_start_is_transform_neow_branch(seed: &str) -> bool {
-    matches!(seed, "M290001" | "M290008")
+    known_neow_screen_for_seed(seed).branch == Some(KnownNeowBranch::TransformCard)
 }
 
 fn seed_start_transformed_card(seed: &str) -> Option<&'static str> {
-    match seed {
-        "M290001" => Some("Sever Soul"),
-        "M290008" => Some("Sentinel"),
-        _ => None,
-    }
+    known_neow_transformed_card(seed)
 }
 
 fn seed_start_visible_deck_after_transform(seed: &str) -> Vec<String> {
@@ -2697,111 +2695,42 @@ fn seed_start_deck_after_transform(seed: &str) -> Vec<String> {
 }
 
 fn seed_start_neow_choices(seed: &str) -> Vec<&'static str> {
-    match seed {
-        "M290001" => vec![
-            "transform a card",
-            "enemies in your next three combats have 1 hp",
-            "obtain a curse max hp +16",
-            "lose your starting relic obtain a random boss relic",
-        ],
-        "M290008" => vec![
-            "transform a card",
-            "obtain 100 gold",
-            "lose all gold max hp +16",
-            "lose your starting relic obtain a random boss relic",
-        ],
-        "TEST" => vec![
-            "choose a colorless card to obtain",
-            "enemies in your next three combats have 1 hp",
-            "lose 8 max hp obtain a random rare relic",
-            "lose your starting relic obtain a random boss relic",
-        ],
-        "CODEX04" => vec![
-            "choose a colorless card to obtain",
-            "obtain 3 random potions",
-            "lose 8 max hp remove 2 cards",
-            "lose your starting relic obtain a random boss relic",
-        ],
-        "CODEX03" => vec![
-            "upgrade a card",
-            "enemies in your next three combats have 1 hp",
-            "lose all gold obtain a random rare relic",
-            "lose your starting relic obtain a random boss relic",
-        ],
-        _ => vec![
-            "choose a card to obtain",
-            "obtain a random common relic",
-            "lose 8 max hp remove 2 cards",
-            "lose your starting relic obtain a random boss relic",
-        ],
-    }
+    known_neow_screen_for_seed(seed).options
 }
 
 fn seed_start_is_colorless_neow_branch(seed: &str) -> bool {
-    matches!(seed, "CODEX04" | "TEST")
+    known_neow_screen_for_seed(seed).branch == Some(KnownNeowBranch::ColorlessCardReward)
 }
 
 fn seed_start_colorless_neow_choice_names(seed: &str) -> Vec<&'static str> {
-    match seed {
-        "TEST" => vec!["deep breath", "swift strike", "jack of all trades"],
-        _ => vec!["deep breath", "dramatic entrance", "jack of all trades"],
-    }
+    known_neow_colorless_reward_for_seed(seed)
+        .map(|reward| reward.choice_names)
+        .unwrap_or_default()
 }
 
 fn seed_start_colorless_neow_card_ids(seed: &str) -> Vec<&'static str> {
-    match seed {
-        "TEST" => vec!["Deep Breath", "Swift Strike", "Jack Of All Trades"],
-        _ => vec!["Deep Breath", "Dramatic Entrance", "Jack Of All Trades"],
-    }
+    known_neow_colorless_reward_for_seed(seed)
+        .map(|reward| reward.card_ids)
+        .unwrap_or_default()
 }
 
 fn seed_start_colorless_pick_card(seed: &str, command: &str) -> Option<&'static str> {
-    match seed {
-        "CODEX04" if command_is_choose(command, 1) => Some("Dramatic Entrance"),
-        "TEST" if command_is_choose(command, 1) => Some("Swift Strike"),
-        _ => None,
-    }
+    let reward = known_neow_colorless_reward_for_seed(seed)?;
+    command_is_choose(command, reward.pick_index).then_some(reward.picked_card_id)
 }
 
 fn seed_start_colorless_pick_label(seed: &str) -> &'static str {
-    match seed {
-        "TEST" => "Neow Swift Strike pickup",
-        _ => "Neow Dramatic Entrance pickup",
-    }
+    known_neow_colorless_reward_for_seed(seed)
+        .map(|reward| reward.pick_label)
+        .unwrap_or("Neow colorless pickup")
 }
 
 fn seed_start_unchosen_neow_command(seed: &str) -> String {
-    match seed {
-        "M290001" => "CHOOSE 1/2/3".to_owned(),
-        "M290008" => "CHOOSE 1/2/3".to_owned(),
-        "TEST" => "CHOOSE 1/2/3".to_owned(),
-        "CODEX04" => "CHOOSE 1/2/3".to_owned(),
-        "CODEX03" => "CHOOSE 0/2/3".to_owned(),
-        _ => "CHOOSE 0/2/3".to_owned(),
-    }
+    known_neow_screen_for_seed(seed).unchosen_command.to_owned()
 }
 
 fn seed_start_unchosen_neow_reason(seed: &str) -> String {
-    match seed {
-        "M290001" => {
-            "unchosen Neow branches are classified but not implemented: Neow's Lament, curse max-hp bonus, and boss swap".to_owned()
-        }
-        "M290008" => {
-            "unchosen Neow branches are classified but not implemented: gold, all-gold max-hp bonus, and boss swap".to_owned()
-        }
-        "TEST" => {
-            "unchosen Neow branches are classified but not implemented: Neow's Lament, max-hp rare relic, and boss swap".to_owned()
-        }
-        "CODEX04" => {
-            "unchosen Neow branches are classified but not implemented: potions, max-hp removal, and boss swap".to_owned()
-        }
-        "CODEX03" => {
-            "unchosen Neow branches are classified but not implemented: card upgrade, gold-for-relic, and boss swap".to_owned()
-        }
-        _ => {
-            "unchosen Neow branches are classified but not implemented: card reward, max-hp removal, and boss swap".to_owned()
-        }
-    }
+    known_neow_screen_for_seed(seed).unchosen_reason.to_owned()
 }
 
 fn seed_start_treasure_observed_subset(message: &Value) -> Value {

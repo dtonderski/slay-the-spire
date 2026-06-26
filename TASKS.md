@@ -1746,7 +1746,7 @@ Do not implement:
 
 ## Milestone 33: Neow Generalization
 
-Status: planned.
+Status: in progress. Initial seam extraction is complete: captured seed-start Neow branch tables now live behind a first-class `sts_core::run::neow` facade, with focused tests preserving VERIFY01/CODEX03/CODEX04/TEST/M290001/M290008 behavior. Target jar constant-pool audit identifies `NeowEvent`, `NeowReward`, reward/drawback enum classes, reward mutation APIs, and involved RNG streams, but exact option-list draw order still needs bytecode/decompiler evidence before replacing captured branches with source-backed generation.
 
 Goal: replace captured-branch Neow handling with source-backed option generation and reward application for Ironclad A0.
 
