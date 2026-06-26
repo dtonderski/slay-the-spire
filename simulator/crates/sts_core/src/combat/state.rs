@@ -43,7 +43,7 @@ pub struct CombatState {
     /// In-combat zero-cost card reward from Discovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_card_reward: Option<Vec<CardInstance>>,
-    /// Awaiting player choice for Warcry, Armaments, and similar hand-select effects.
+    /// Awaiting player choice for Warcry, Armaments, Forethought, and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
     /// Awaiting player choice for discard-pile effects such as Liquid Memories or Headbutt.
@@ -73,6 +73,7 @@ pub enum HandSelectPurpose {
     #[default]
     WarcryPutOnDraw,
     ArmamentsUpgrade,
+    ForethoughtPutOnDraw,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

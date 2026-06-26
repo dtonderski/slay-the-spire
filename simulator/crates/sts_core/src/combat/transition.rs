@@ -936,6 +936,7 @@ fn hand_select_allows_card(
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw => true,
         HandSelectPurpose::ArmamentsUpgrade => upgrade_content_id(card.content_id).is_some(),
+        HandSelectPurpose::ForethoughtPutOnDraw => true,
     }
 }
 
@@ -953,6 +954,9 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
         }
         HandSelectPurpose::ArmamentsUpgrade => {
             confirm_armaments_select(state, hand_select.source_card_id, index)
+        }
+        HandSelectPurpose::ForethoughtPutOnDraw => {
+            confirm_forethought_select(state, hand_select.source_card_id, index)
         }
     }
 }
@@ -987,6 +991,26 @@ fn confirm_armaments_select(
     let upgraded = upgrade_content_id(card.content_id)
         .ok_or(SimError::IllegalAction("selected card cannot be upgraded"))?;
     card.content_id = upgraded;
+    move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)
+}
+
+fn confirm_forethought_select(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    index: usize,
+) -> SimResult<()> {
+    let card_id = state
+        .piles
+        .hand
+        .get(index)
+        .ok_or(SimError::IllegalAction("hand select index out of range"))?
+        .id;
+    if card_id == source_card_id {
+        return Err(SimError::IllegalAction("cannot choose Forethought"));
+    }
+    let mut card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
+    card.temp_cost = Some(0);
+    state.piles.draw_pile.push(card);
     move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)
 }
 
@@ -1347,17 +1371,17 @@ mod tests {
         DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
         DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID,
         EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID,
-        FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID,
-        GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID,
-        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WOUND_ID,
+        FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID,
+        GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID,
+        PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -9682,6 +9706,111 @@ mod tests {
             Some(HandSelectPurpose::WarcryPutOnDraw)
         );
         assert_eq!(hand_select_ui_to_hand_index(&after_play, 0), Ok(1));
+    }
+
+    #[test]
+    fn forethought_opens_hand_select_at_zero_energy() {
+        let mut state = hand_only(FORETHOUGHT_ID);
+        state.player.energy = 0;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FORETHOUGHT_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+        ];
+
+        let after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Forethought opens hand select");
+
+        assert_eq!(after_play.player.energy, 0);
+        assert_eq!(
+            after_play.hand_select.as_ref().map(|select| select.purpose),
+            Some(HandSelectPurpose::ForethoughtPutOnDraw)
+        );
+        assert_eq!(hand_select_ui_to_hand_index(&after_play, 0), Ok(1));
+    }
+
+    #[test]
+    fn forethought_moves_chosen_card_to_next_draw_with_zero_temp_cost_and_discards_source() {
+        let mut state = hand_only(FORETHOUGHT_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FORETHOUGHT_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+            CardInstance::new(CardId::new(22), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Forethought opens hand select");
+        choose_hand_select(&mut after_play, 0).expect("choose Bash");
+        confirm_hand_select(&mut after_play).expect("confirm Forethought select");
+
+        assert!(after_play.hand_select.is_none());
+        assert_eq!(
+            after_play.piles.draw_pile.last().unwrap().id,
+            CardId::new(21)
+        );
+        assert_eq!(
+            after_play.piles.draw_pile.last().unwrap().content_id,
+            BASH_ID
+        );
+        assert_eq!(
+            after_play.piles.draw_pile.last().unwrap().temp_cost,
+            Some(0)
+        );
+        assert!(after_play
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == FORETHOUGHT_ID));
+        assert!(after_play.piles.exhaust_pile.is_empty());
+        assert_eq!(
+            after_play
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(22)]
+        );
+    }
+
+    #[test]
+    fn forethought_chosen_card_is_drawn_next_with_zero_temp_cost() {
+        let mut state = hand_only(FORETHOUGHT_ID);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), FORETHOUGHT_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let mut after_play = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Forethought opens hand select");
+        choose_hand_select(&mut after_play, 0).expect("choose Bash");
+        confirm_hand_select(&mut after_play).expect("confirm Forethought select");
+
+        player_draw_cards(&mut after_play, 1);
+
+        let drawn = after_play.piles.hand.last().expect("drawn card");
+        assert_eq!(drawn.id, CardId::new(21));
+        assert_eq!(drawn.content_id, BASH_ID);
+        assert_eq!(drawn.temp_cost, Some(0));
     }
 
     #[test]

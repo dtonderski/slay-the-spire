@@ -4,7 +4,8 @@ use crate::{
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, CLASH_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID,
-        EXHUME_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        EXHUME_ID, FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -72,6 +73,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         }
 
         if definition.id == EXHUME_ID && !has_exhumable_card(state) {
+            continue;
+        }
+
+        if definition.id == FORETHOUGHT_ID && !has_other_hand_card(state, card.id) {
             continue;
         }
 
@@ -175,6 +180,12 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
 
             if definition.id == EXHUME_ID && !has_exhumable_card(state) {
                 return Err(SimError::IllegalAction("Exhume requires an exhumable card"));
+            }
+
+            if definition.id == FORETHOUGHT_ID && !has_other_hand_card(state, card_id) {
+                return Err(SimError::IllegalAction(
+                    "Forethought requires another card in hand",
+                ));
             }
 
             if !is_affordable(state, card_id, definition) {
@@ -309,6 +320,10 @@ fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool 
     })
 }
 
+fn has_other_hand_card(state: &CombatState, exclude_id: CardId) -> bool {
+    state.piles.hand.iter().any(|card| card.id != exclude_id)
+}
+
 fn hand_contains_only_attacks(state: &CombatState) -> bool {
     state.piles.hand.iter().all(|card| {
         get_card_definition(card.content_id)
@@ -391,10 +406,10 @@ mod tests {
             CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID,
             DEMON_FORM_ID, DISARM_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID,
             EVOLVE_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID,
-            FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, GHOSTLY_ARMOR_ID,
-            GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-            IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
-            INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID, PANACEA_ID,
+            FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID,
+            GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+            HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
+            INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, LIMIT_BREAK_ID, OFFERING_ID, PANACEA_ID,
             PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
             PUMMEL_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
             SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
@@ -3424,6 +3439,79 @@ mod tests {
                 card_id: CardId::new(20),
                 target: Some(MonsterId::new(1)),
             })
+        );
+    }
+
+    #[test]
+    fn forethought_is_legal_at_zero_energy_with_another_card() {
+        let mut state = hand_with_card(FORETHOUGHT_ID);
+        state.player.energy = 0;
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+
+        assert!(
+            legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn forethought_rejects_target() {
+        let mut state = hand_with_card(FORETHOUGHT_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "non-targeted card cannot have a target"
+            ))
+        );
+    }
+
+    #[test]
+    fn forethought_requires_another_card_in_hand() {
+        let state = hand_with_card(FORETHOUGHT_ID);
+
+        assert!(
+            !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            })
+        );
+        assert_eq!(
+            validate_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(20),
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction(
+                "Forethought requires another card in hand"
+            ))
         );
     }
 

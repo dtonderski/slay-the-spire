@@ -14,17 +14,17 @@ use crate::{
         DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
         DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID,
         ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID, HAVOC_ID,
-        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID,
-        INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID,
-        REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
+        FORETHOUGHT_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMMOLATE_ID, IMPATIENCE_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
+        IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, RUPTURE_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
     },
     content::shop_pool::{
         ironclad_combat_attack_discovery_pool, ironclad_combat_power_discovery_pool,
@@ -165,6 +165,7 @@ pub(super) fn play_card_queue(
         DISCOVERY_ID => discovery_queue(&mut queued_state, card_id, definition),
         BANDAGE_UP_ID => bandage_up_queue(card_id, definition),
         PANACEA_ID => panacea_queue(card_id, definition),
+        FORETHOUGHT_ID => forethought_queue(state, card_id, definition),
         FEEL_NO_PAIN_ID => feel_no_pain_queue(card_id),
         DARK_EMBRACE_ID => dark_embrace_queue(card_id),
         COMBUST_ID => combust_queue(card_id),
@@ -1190,6 +1191,29 @@ fn panacea_queue(
             card_id,
             from: CardPile::Hand,
             to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn forethought_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    if lowest_other_hand_card(state, card_id).is_none() {
+        return Err(SimError::IllegalAction(
+            "Forethought requires another card in hand",
+        ));
+    }
+
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::AwaitHandSelect {
+            source_card_id: card_id,
+            purpose: HandSelectPurpose::ForethoughtPutOnDraw,
         },
     ]))
 }

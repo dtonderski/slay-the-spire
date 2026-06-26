@@ -63,6 +63,7 @@ pub const DISCOVERY_ID: ContentId = ContentId::new(60_080_667_924_456);
 pub const ENLIGHTENMENT_ID: ContentId = ContentId::new(1_054_645_513_201_118_220);
 pub const FINESSE_ID: ContentId = ContentId::new(64_289_358_915);
 pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_986);
+pub const FORETHOUGHT_ID: ContentId = ContentId::new(59_534_622_361_962_517);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const TRIP_ID: ContentId = ContentId::new(2_584_189);
@@ -1315,6 +1316,21 @@ pub const DARK_SHACKLES: CardDefinition = CardDefinition {
     },
 };
 
+pub const FORETHOUGHT: CardDefinition = CardDefinition {
+    id: FORETHOUGHT_ID,
+    key: "FORETHOUGHT",
+    name: "Forethought",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const GOOD_INSTINCTS: CardDefinition = CardDefinition {
     id: GOOD_INSTINCTS_ID,
     key: "GOOD_INSTINCTS",
@@ -2084,7 +2100,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 114] = [
+pub const ALL_CARDS: [CardDefinition; 115] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2156,6 +2172,7 @@ pub const ALL_CARDS: [CardDefinition; 114] = [
     DISCOVERY,
     FLASH_OF_STEEL,
     DARK_SHACKLES,
+    FORETHOUGHT,
     GOOD_INSTINCTS,
     FINESSE,
     PANACEA,
@@ -2302,6 +2319,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == DARK_SHACKLES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == FORETHOUGHT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -2582,6 +2600,19 @@ mod tests {
         assert_eq!(DEEP_BREATH.keywords, CARD_KEYWORDS_NONE);
         assert_eq!(
             card_type_and_rarity(DEEP_BREATH_ID),
+            Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn forethought_has_expected_values_and_rarity() {
+        assert_eq!(FORETHOUGHT.id, FORETHOUGHT_ID);
+        assert_eq!(FORETHOUGHT.cost, 0);
+        assert_eq!(FORETHOUGHT.target, TargetRequirement::None);
+        assert_eq!(FORETHOUGHT.card_type, CardType::Skill);
+        assert_eq!(FORETHOUGHT.keywords, CARD_KEYWORDS_NONE);
+        assert_eq!(
+            card_type_and_rarity(FORETHOUGHT_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
         );
     }
