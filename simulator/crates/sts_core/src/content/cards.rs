@@ -67,6 +67,7 @@ pub const FLASH_OF_STEEL_ID: ContentId = ContentId::new(18_371_492_448_625_970_9
 pub const FORETHOUGHT_ID: ContentId = ContentId::new(59_534_622_361_962_517);
 pub const GOOD_INSTINCTS_ID: ContentId = ContentId::new(8_602_552_533_669_984_653);
 pub const HAND_OF_GREED_ID: ContentId = ContentId::new(3_088_851_373_662_850_713);
+pub const CHRYSALIS_ID: ContentId = ContentId::new(59_200_009_685_460);
 pub const MIND_BLAST_ID: ContentId = ContentId::new(2_100_321_069_307_395);
 pub const PANACEA_ID: ContentId = ContentId::new(72_935_227_539);
 pub const PANACHE_ID: ContentId = ContentId::new(72_935_227_636);
@@ -1727,6 +1728,27 @@ pub const IMPATIENCE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const CHRYSALIS: CardDefinition = CardDefinition {
+    id: CHRYSALIS_ID,
+    key: "CHRYSALIS",
+    name: "Chrysalis",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const TRIP: CardDefinition = CardDefinition {
     id: TRIP_ID,
     key: "TRIP",
@@ -2430,7 +2452,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 131] = [
+pub const ALL_CARDS: [CardDefinition; 132] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -2514,6 +2536,7 @@ pub const ALL_CARDS: [CardDefinition; 131] = [
     PURITY,
     TRIP,
     IMPATIENCE,
+    CHRYSALIS,
     JACK_OF_ALL_TRADES,
     MADNESS,
     MASTER_OF_STRATEGY,
@@ -2678,6 +2701,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PURITY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == CHRYSALIS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -3031,6 +3055,19 @@ mod tests {
         assert_eq!(
             card_type_and_rarity(IMPATIENCE_ID),
             Some((CardType::Skill, CardRarity::Uncommon))
+        );
+    }
+
+    #[test]
+    fn chrysalis_has_expected_values_keywords_and_rarity() {
+        assert_eq!(CHRYSALIS.id, CHRYSALIS_ID);
+        assert_eq!(CHRYSALIS.cost, 2);
+        assert_eq!(CHRYSALIS.target, TargetRequirement::None);
+        assert_eq!(CHRYSALIS.card_type, CardType::Skill);
+        assert!(CHRYSALIS.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(CHRYSALIS_ID),
+            Some((CardType::Skill, CardRarity::Rare))
         );
     }
 
