@@ -1698,6 +1698,29 @@ mod tests {
     }
 
     #[test]
+    fn fairy_revives_after_spent_lizard_tail_and_uses_sacred_bark_heal() {
+        let mut run =
+            RunState::combat_fixture_with_relics(vec![Relic::LizardTail, Relic::SacredBark]);
+        run.lizard_tail_used = true;
+        run.potions.push(Potion::Fire);
+        run.potions.push(Potion::Fairy);
+        run.combat.as_mut().expect("combat").player.hp = 1;
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn resolves");
+
+        let combat = after.combat.expect("combat continues");
+        assert_eq!(combat.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(
+            combat.player.hp,
+            combat.player.max_hp * FAIRY_HEAL_PERCENT * 2 / 100
+        );
+        assert_eq!(after.player_hp, combat.player.hp);
+        assert!(after.lizard_tail_used);
+        assert_eq!(after.potions, vec![Potion::Fire]);
+    }
+
+    #[test]
     fn card_reward_choices_are_deterministic_for_seed() {
         let mut first = SimulatorRng::new(7);
         let mut second = SimulatorRng::new(7);

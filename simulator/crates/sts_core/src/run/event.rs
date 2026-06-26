@@ -606,6 +606,37 @@ mod tests {
     }
 
     #[test]
+    fn generated_golden_shrine_uses_same_pray_branch_as_legacy_fixture() {
+        let mut run = RunState::map_fixture();
+        run.event_rng_seed = 13;
+        run.act1_event_list = vec![Event::BigFish];
+        run.act1_shrine_list = vec![Event::GoldenShrine];
+        let gold_before = run.gold;
+
+        for counter in 0..64 {
+            let mut trial = run.clone();
+            trial.event_rng_counter = counter;
+            enter_event_screen(&mut trial);
+            if trial.event.as_ref().unwrap().event == Event::GoldenShrine {
+                run = trial;
+                break;
+            }
+        }
+
+        assert_eq!(run.event.as_ref().unwrap().event, Event::GoldenShrine);
+        assert!(run.act1_shrine_list.is_empty());
+        assert!(run.event_rng_counter > 0);
+        assert_eq!(run.event.as_ref().unwrap().choices[0].label, "Pray");
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("pray");
+
+        assert_eq!(after.phase, RunPhase::Idle);
+        assert!(after.event.is_none());
+        assert_eq!(after.gold, gold_before + GOLDEN_SHRINE_GOLD);
+    }
+
+    #[test]
     fn ectoplasm_blocks_event_gold_gain() {
         let mut run = RunState::map_fixture();
         run.relics.push(crate::Relic::Ectoplasm);
@@ -616,6 +647,39 @@ mod tests {
             apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("pray");
 
         assert_eq!(after.gold, gold_before);
+    }
+
+    #[test]
+    fn cleric_heal_choice_restores_quarter_max_hp_and_exits_event() {
+        let mut run = RunState::map_fixture();
+        run.player_max_hp = 80;
+        run.player_hp = 40;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::TheCleric));
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("heal");
+
+        assert_eq!(after.player_hp, 60);
+        assert_eq!(after.phase, RunPhase::Idle);
+        assert!(after.event.is_none());
+    }
+
+    #[test]
+    fn cleric_remove_curse_choice_is_explicitly_unsupported() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::TheCleric));
+
+        assert_eq!(run.event.as_ref().unwrap().choices[1].label, "Remove Curse");
+
+        let err = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect_err("remove curse is not implemented");
+
+        assert_eq!(
+            err,
+            SimError::IllegalAction("event choice is not implemented for this event")
+        );
     }
 
     #[test]
