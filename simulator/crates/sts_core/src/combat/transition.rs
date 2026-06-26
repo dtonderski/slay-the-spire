@@ -349,6 +349,10 @@ fn apply_internal_action(
             state.player.temp_rage_block += amount;
             Ok(Vec::new())
         }
+        InternalAction::SetRandomHandCardCostForCombat { amount } => {
+            set_random_hand_card_cost_for_combat(state, amount);
+            Ok(Vec::new())
+        }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
             find_hand_card_mut(state, card_id)?.rampage_damage_bonus += amount;
             Ok(Vec::new())
@@ -736,6 +740,22 @@ fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) {
         state.player.block += gained;
         apply_juggernaut_after_direct_block_gain(state, gained);
     }
+}
+
+fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) {
+    if state.piles.hand.is_empty() {
+        return;
+    }
+
+    let index = if let Some(rng) = state.card_random_rng.as_mut() {
+        rng.random_int((state.piles.hand.len() - 1) as i32) as usize
+    } else {
+        0
+    };
+
+    let card = &mut state.piles.hand[index];
+    card.temp_cost = Some(amount);
+    card.temp_cost_turn_only = false;
 }
 
 fn apply_play_top_draw_card(
@@ -1378,7 +1398,7 @@ mod tests {
         GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
         IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        MADNESS_ID, METALLICIZE_ID, OFFERING_ID, PANACEA_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
         POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
         RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID,
@@ -5027,6 +5047,110 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.content_id == DEEP_BREATH_ID));
+    }
+
+    #[test]
+    fn madness_spends_energy_exhausts_source_and_sets_random_hand_card_cost_to_zero() {
+        let mut state = hand_only(MADNESS_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(22), DEFEND_R_ID));
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        let mut expected_rng = crate::rng::StsRng::new(123);
+        let pick = expected_rng.random_int(1) as usize;
+        let expected_id = state.piles.hand[pick + 1].id;
+
+        let next = apply_combat_action(&state, madness_action(&state)).expect("Madness applies");
+
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, MADNESS_ID);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        let discounted = next
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == expected_id)
+            .expect("discounted card remains in hand");
+        assert_eq!(discounted.temp_cost, Some(0));
+        assert!(!discounted.temp_cost_turn_only);
+    }
+
+    #[test]
+    fn madness_empty_hand_after_source_exhaust_does_not_roll_rng() {
+        let mut state = hand_only(MADNESS_ID);
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+
+        let next = apply_combat_action(&state, madness_action(&state)).expect("Madness applies");
+
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
+        assert_eq!(next.piles.exhaust_pile[0].content_id, MADNESS_ID);
+    }
+
+    #[test]
+    fn madness_without_card_random_rng_uses_first_remaining_hand_card_fallback() {
+        let mut state = hand_only(MADNESS_ID);
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), BASH_ID));
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(22), DEFEND_R_ID));
+
+        let next = apply_combat_action(&state, madness_action(&state)).expect("Madness applies");
+
+        assert!(next.card_random_rng.is_none());
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .find(|card| card.id == CardId::new(21))
+                .expect("first remaining card")
+                .temp_cost,
+            Some(0)
+        );
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .find(|card| card.id == CardId::new(22))
+                .expect("second remaining card")
+                .temp_cost,
+            None
+        );
+    }
+
+    #[test]
+    fn madness_discount_persists_across_turn_and_reduces_later_spend() {
+        let mut state = hand_only(MADNESS_ID);
+        state.relics = vec![Relic::RunicPyramid];
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(21), LIMIT_BREAK_ID));
+
+        let after_madness =
+            apply_combat_action(&state, madness_action(&state)).expect("Madness applies");
+        let after_turn =
+            apply_combat_action(&after_madness, CombatAction::EndTurn).expect("turn ends");
+        let after_limit_break = apply_combat_action(&after_turn, limit_break_action(&after_turn))
+            .expect("Limit Break applies");
+
+        assert_eq!(after_turn.piles.hand[0].temp_cost, Some(0));
+        assert_eq!(after_limit_break.player.energy, 3);
     }
 
     #[test]
@@ -11035,6 +11159,20 @@ mod tests {
         }
     }
 
+    fn jack_of_all_trades_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, JACK_OF_ALL_TRADES_ID),
+            target: None,
+        }
+    }
+
+    fn madness_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, MADNESS_ID),
+            target: None,
+        }
+    }
+
     fn clash_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, CLASH_ID),
@@ -11080,13 +11218,6 @@ mod tests {
     fn infernal_blade_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, INFERNAL_BLADE_ID),
-            target: None,
-        }
-    }
-
-    fn jack_of_all_trades_action(state: &CombatState) -> CombatAction {
-        CombatAction::PlayCard {
-            card_id: hand_card_id(state, JACK_OF_ALL_TRADES_ID),
             target: None,
         }
     }
