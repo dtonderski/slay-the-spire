@@ -9,7 +9,9 @@ use crate::{
     content::{reward_pool::IRONCLAD_REWARD_ENTRIES, shop_pool::random_colorless_from_pool},
     ids::ContentId,
     potion::{Potion, IRONCLAD_POTION_POOL},
+    relic::{Relic, RelicKey, RelicTier},
     rng::StsRng,
+    run::state::RunState,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -94,6 +96,12 @@ pub struct NeowColorlessReward {
 pub struct NeowPotionReward {
     pub potions: Vec<Potion>,
     pub potion_rng_counter: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NeowBossSwapReward {
+    pub relic: RelicKey,
+    pub relic_rng_counter: u32,
 }
 
 pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<GeneratedNeowOption> {
@@ -181,6 +189,25 @@ pub fn generate_neow_three_potions_with_rng(potion_rng: &mut StsRng) -> NeowPoti
     NeowPotionReward {
         potions,
         potion_rng_counter: potion_rng.counter(),
+    }
+}
+
+pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
+    run.relics.retain(|relic| *relic != Relic::BurningBlood);
+    run.relic_keys.retain(|key| *key != RelicKey::BurningBlood);
+    run.ensure_ironclad_relic_pools();
+
+    let context = run.relic_spawn_context(run.current_floor, false);
+    let relic = run
+        .relic_pools
+        .as_mut()
+        .expect("relic pools initialized")
+        .return_random_relic(RelicTier::Boss, &context);
+    run.gain_relic_key(relic);
+
+    NeowBossSwapReward {
+        relic,
+        relic_rng_counter: run.relic_rng_counter,
     }
 }
 
@@ -492,6 +519,7 @@ mod tests {
     use crate::content::cards::{
         DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID, SWIFT_STRIKE_ID,
     };
+    use crate::relic::RelicPoolState;
 
     #[test]
     fn known_verify01_common_relic_branch_matches_current_verifier_scope() {
@@ -664,5 +692,40 @@ mod tests {
 
         assert_eq!(reward.potions.len(), 3);
         assert_eq!(reward.potion_rng_counter, 3);
+    }
+
+    #[test]
+    fn boss_swap_removes_starter_relic_before_popping_boss_pool() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood];
+        run.relic_pools = Some(RelicPoolState {
+            common: Vec::new(),
+            uncommon: Vec::new(),
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: vec![RelicKey::BlackBlood, RelicKey::CoffeeDripper],
+        });
+
+        let reward = apply_neow_boss_swap(&mut run);
+
+        assert_eq!(reward.relic, RelicKey::CoffeeDripper);
+        assert!(!run.relics.contains(&Relic::BurningBlood));
+        assert!(!run.relics.contains(&Relic::BlackBlood));
+        assert!(run.relics.contains(&Relic::CoffeeDripper));
+        assert_eq!(run.energy_per_turn, 4);
+    }
+
+    #[test]
+    fn boss_swap_initializes_relic_pools_once_without_reward_rng_draws() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood];
+        run.relic_rng_seed = 22_079_335_079;
+
+        let reward = apply_neow_boss_swap(&mut run);
+
+        assert_eq!(reward.relic_rng_counter, 5);
+        assert_eq!(run.relic_rng_counter, 5);
+        assert!(!run.relics.contains(&Relic::BurningBlood));
+        assert!(run.relics.iter().any(|relic| relic.key() == reward.relic));
     }
 }
