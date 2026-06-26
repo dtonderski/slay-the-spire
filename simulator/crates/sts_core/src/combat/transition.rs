@@ -14,12 +14,12 @@ use crate::{
     },
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_ID,
-        BLOOD_FOR_BLOOD_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID,
-        DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, EXHUME_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
-        IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, RECKLESS_CHARGE_ID,
-        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        BLOOD_FOR_BLOOD_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
+        DEFEND_R_ID, DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, EXHUME_ID, FINESSE_ID,
+        FLASH_OF_STEEL_ID, IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
+        PANACEA_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RECKLESS_CHARGE_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
@@ -1037,6 +1037,15 @@ fn apply_play_top_draw_card(
         IMPATIENCE_ID => {
             follow_ups.push(InternalAction::DrawCards { count: 2 });
         }
+        CHRYSALIS_ID => {
+            for content_id in card_effects::chrysalis_generated_skills(state, 3) {
+                follow_ups.push(InternalAction::AddGeneratedCardToPile {
+                    content_id,
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
+                });
+            }
+        }
         FINESSE_ID => {
             follow_ups.push(InternalAction::GainBlock {
                 amount: definition.values.block.unwrap_or(0),
@@ -1738,8 +1747,8 @@ fn upgrade_combat_cards(state: &mut CombatState) {
 #[cfg(test)]
 mod tests {
     use super::card_effects::{
-        discovery_modeled_card_pool, infernal_blade_modeled_attack_pool,
-        jack_of_all_trades_colorless_pool,
+        chrysalis_modeled_skill_pool, discovery_modeled_card_pool,
+        infernal_blade_modeled_attack_pool, jack_of_all_trades_colorless_pool,
     };
     use super::*;
     use crate::card::{CardRarity, TargetRequirement};
@@ -1748,13 +1757,13 @@ mod tests {
         ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID,
         BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID,
         BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
-        CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID,
-        DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DISCOVERY_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID, ENTRENCH_ID,
-        EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FINESSE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
-        FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
+        CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID,
+        CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEFEND_R_ID,
+        DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID,
+        FIEND_FIRE_ID, FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID,
+        FLEX_PLUS_ID, FORETHOUGHT_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID,
+        HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMPATIENCE_ID, IMPERVIOUS_ID,
         INFERNAL_BLADE_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MASTER_OF_STRATEGY_ID,
         METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANACHE_ID,
@@ -6154,6 +6163,113 @@ mod tests {
     }
 
     #[test]
+    fn chrysalis_adds_three_zero_cost_combat_only_skills_to_hand_and_exhausts_source() {
+        let mut state = hand_only(CHRYSALIS_ID);
+        state.player.energy = 2;
+        state.card_random_rng = Some(crate::rng::StsRng::new(456));
+        let mut expected_rng = crate::rng::StsRng::new(456);
+        let expected_pool = chrysalis_modeled_skill_pool();
+        let expected: Vec<_> = (0..3)
+            .map(|_| {
+                expected_pool[expected_rng.random_int((expected_pool.len() - 1) as i32) as usize]
+            })
+            .collect();
+
+        let next =
+            apply_combat_action(&state, chrysalis_action(&state)).expect("Chrysalis applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            expected_rng.counter()
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == CHRYSALIS_ID));
+
+        let generated: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .collect();
+        assert_eq!(generated.len(), 3);
+        for (card, expected_content_id) in generated.iter().zip(expected) {
+            assert_eq!(card.content_id, expected_content_id);
+            assert_eq!(card.temp_cost, Some(0));
+            assert_eq!(
+                get_card_definition(card.content_id).map(|definition| definition.card_type),
+                Some(CardType::Skill)
+            );
+        }
+    }
+
+    #[test]
+    fn chrysalis_without_card_random_rng_uses_deterministic_modeled_fallback() {
+        let mut state = hand_only(CHRYSALIS_ID);
+        state.player.energy = 2;
+        let expected: Vec<_> = chrysalis_modeled_skill_pool().into_iter().take(3).collect();
+
+        let next =
+            apply_combat_action(&state, chrysalis_action(&state)).expect("Chrysalis applies");
+
+        assert!(next.card_random_rng.is_none());
+        let generated: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .map(|card| {
+                assert_eq!(card.temp_cost, Some(0));
+                card.content_id
+            })
+            .collect();
+        assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn chrysalis_event_log_records_three_generated_skills_before_source_exhaust() {
+        let mut state = hand_only(CHRYSALIS_ID);
+        state.player.energy = 2;
+        let card_id = hand_card_id(&state, CHRYSALIS_ID);
+        let expected: Vec<_> = chrysalis_modeled_skill_pool().into_iter().take(3).collect();
+
+        let transition = apply_combat_action_with_events(&state, chrysalis_action(&state))
+            .expect("Chrysalis applies");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::PlayCard { card_id },
+                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected[0],
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
+                },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected[1],
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
+                },
+                InternalAction::AddGeneratedCardToPile {
+                    content_id: expected[2],
+                    to: CardPile::Hand,
+                    temp_cost: Some(0),
+                },
+                InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::CardExhausted { card_id },
+            ]
+        );
+    }
+
+    #[test]
     fn flash_of_steel_event_log_records_damage_draw_then_discard() {
         let mut state = hand_only(FLASH_OF_STEEL_ID);
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), DEFEND_R_ID)];
@@ -6442,6 +6558,39 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.content_id == IMPATIENCE_ID));
+    }
+
+    #[test]
+    fn havoc_top_draw_chrysalis_adds_three_zero_cost_skills_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(31), CHRYSALIS_ID)];
+        let expected: Vec<_> = chrysalis_modeled_skill_pool().into_iter().take(3).collect();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, HAVOC_ID),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Chrysalis");
+
+        let generated: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .map(|card| {
+                assert_eq!(card.temp_cost, Some(0));
+                card.content_id
+            })
+            .collect();
+        assert_eq!(generated, expected);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == CHRYSALIS_ID));
     }
 
     #[test]
@@ -12749,6 +12898,13 @@ mod tests {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, HAND_OF_GREED_ID),
             target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn chrysalis_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, CHRYSALIS_ID),
+            target: None,
         }
     }
 
