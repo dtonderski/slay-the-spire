@@ -332,7 +332,7 @@
     await singleFlight("Requesting bridge state", async () => {
       const result = await requestJson("/api/bridge/command", {
         method: "POST",
-        body: { command: "state" },
+        body: { command: "state", source_state_id: bridgeStateId() || undefined },
       });
       app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
       await refreshParityQuietly();
@@ -353,7 +353,10 @@
     await singleFlight(`Sending ${bridgeActionLabel(action)}`, async () => {
       const result = await requestJson("/api/bridge/descriptor", {
         method: "POST",
-        body: { descriptor },
+        body: {
+          descriptor,
+          source_state_id: firstDefined(action.source_state_id, action.sourceStateId, bridgeStateId()) || undefined,
+        },
       });
       app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
       await refreshParityQuietly();
@@ -774,11 +777,12 @@
     actions.forEach((action) => {
       const button = document.createElement("button");
       const disabledReason = action.disabled_reason || action.disabledReason;
+      const sourceStateId = firstDefined(action.source_state_id, action.sourceStateId, null);
       button.type = "button";
       button.className = "bridge-action-button";
       button.disabled = app.inFlight || app.bridge.pending_command || action.enabled === false;
       button.textContent = bridgeActionLabel(action);
-      button.title = disabledReason || (app.bridge.pending_command ? "Bridge command pending." : stringify(firstDefined(action.command, action.action_id, action.actionId, "")));
+      button.title = disabledReason || (app.bridge.pending_command ? "Bridge command pending." : `Derived from bridge state ${stringify(sourceStateId || bridgeStateId() || "-")}`);
       button.addEventListener("click", () => submitBridgeAction(action));
       if (disabledReason) {
         const reason = document.createElement("span");
@@ -931,6 +935,10 @@
       app.snapshot && app.snapshot.snapshot_hash,
       null,
     );
+  }
+
+  function bridgeStateId() {
+    return firstDefined(app.bridge && app.bridge.state_id, app.bridge && app.bridge.stateId, null);
   }
 
   function hasLoadedSnapshotJson() {

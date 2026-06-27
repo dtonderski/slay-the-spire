@@ -361,11 +361,21 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(self.manager.parity(parts[2], self.bridge.status()))
                 return
             if parts == ["api", "bridge", "command"]:
-                self._send_json(self.bridge.send_command(str(payload.get("command", ""))))
+                self._send_json(
+                    self.bridge.send_command(
+                        str(payload.get("command", "")),
+                        source_state_id=_optional_string(payload.get("source_state_id")),
+                    )
+                )
                 return
             if parts == ["api", "bridge", "descriptor"]:
                 command = command_for_descriptor(payload.get("descriptor", {}))
-                self._send_json(self.bridge.send_command(command))
+                self._send_json(
+                    self.bridge.send_command(
+                        command,
+                        source_state_id=_optional_string(payload.get("source_state_id")),
+                    )
+                )
                 return
             self.send_error(404, "not found")
         except Exception as error:
@@ -525,6 +535,13 @@ def _query_int(query: dict[str, list[str]], name: str, default: int) -> int:
         return int(values[0])
     except ValueError:
         return default
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 if __name__ == "__main__":

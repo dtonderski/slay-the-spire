@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 import time
@@ -39,6 +40,7 @@ class BridgeMirror:
         exited = status.get("status") == "exited" if isinstance(status, dict) else False
         connected = bool(status) and not status.get("missing", False) and not exited
         pending_command = command_path.exists()
+        state_id = _bridge_state_id(status, summary, current_state)
         lifecycle = bridge_lifecycle_from_status(
             status if isinstance(status, dict) else {},
             summary if isinstance(summary, dict) else {},
@@ -53,6 +55,7 @@ class BridgeMirror:
             "stale": stale,
             "exited": exited,
             "bridge_lifecycle": lifecycle,
+            "state_id": state_id,
             "session_dir": str(self.session_dir),
             "pending_command": pending_command,
             "pending_command_meta": command_meta if pending_command else None,
@@ -69,6 +72,7 @@ class BridgeMirror:
             "current_state": current_state,
             "bridge_actions": bridge_actions_from_status(
                 summary if isinstance(summary, dict) else {},
+                source_state_id=state_id,
                 connected=connected,
                 stale=stale,
                 pending_command=pending_command,
@@ -77,7 +81,13 @@ class BridgeMirror:
             "last_error": _first(status, summary, key="error"),
         }
 
-    def send_command(self, command: str, now: float | None = None) -> dict[str, Any]:
+    def send_command(
+        self,
+        command: str,
+        now: float | None = None,
+        *,
+        source_state_id: str | None = None,
+    ) -> dict[str, Any]:
         command = command.strip()
         if not command:
             raise ValueError("command is required")
@@ -85,6 +95,8 @@ class BridgeMirror:
             raise ValueError("command is too long")
 
         before = self.status(now=now)
+        if source_state_id is not None and source_state_id != before["state_id"]:
+            raise ValueError("stale bridge action rejected")
         if before["pending_command"]:
             raise ValueError("bridge command already pending")
         if before["exited"]:
@@ -99,6 +111,7 @@ class BridgeMirror:
                 {
                     "command_id": command_id,
                     "command": command,
+                    "source_state_id": source_state_id,
                     "submitted_at": now if now is not None else time.time(),
                 },
                 sort_keys=True,
@@ -148,6 +161,7 @@ def command_for_descriptor(descriptor: dict[str, Any]) -> str:
 def bridge_actions_from_status(
     summary: dict[str, Any],
     *,
+    source_state_id: str | None = None,
     connected: bool = True,
     stale: bool = False,
     pending_command: bool = False,
@@ -187,6 +201,7 @@ def bridge_actions_from_status(
                                 "target_slot": target_slot,
                             },
                             disabled_reason,
+                            source_state_id,
                         )
                     )
             else:
@@ -196,6 +211,7 @@ def bridge_actions_from_status(
                         label,
                         {"kind": "PlayHandSlot", "hand_slot": hand_slot},
                         disabled_reason,
+                        source_state_id,
                     )
                 )
 
@@ -224,6 +240,7 @@ def bridge_actions_from_status(
                                     "target_slot": target_slot,
                                 },
                                 disabled_reason,
+                                source_state_id,
                             )
                         )
                 else:
@@ -233,6 +250,7 @@ def bridge_actions_from_status(
                             label,
                             {"kind": "UsePotionSlot", "potion_slot": potion_slot},
                             disabled_reason,
+                            source_state_id,
                         )
                     )
             if potion.get("can_discard"):
@@ -242,6 +260,7 @@ def bridge_actions_from_status(
                         f"Discard {potion.get('name') or potion.get('id') or potion_slot}",
                         {"kind": "DiscardPotionSlot", "potion_slot": potion_slot},
                         disabled_reason,
+                        source_state_id,
                     )
                 )
 
@@ -254,6 +273,7 @@ def bridge_actions_from_status(
                     str(choice),
                     {"kind": "ChooseVisibleOption", "option_slot": index},
                     disabled_reason,
+                    source_state_id,
                 )
             )
 
@@ -268,7 +288,7 @@ def bridge_actions_from_status(
     ]
     for command, label, descriptor in simple_commands:
         if command in available:
-            actions.append(_bridge_action(command, label, descriptor, disabled_reason))
+            actions.append(_bridge_action(command, label, descriptor, disabled_reason, source_state_id))
 
     return actions
 
@@ -328,10 +348,12 @@ def _bridge_action(
     label: str,
     descriptor: dict[str, Any],
     disabled_reason: str | None,
+    source_state_id: str | None,
 ) -> dict[str, Any]:
     command = command_for_descriptor(descriptor)
     return {
         "action_id": action_id,
+        "source_state_id": source_state_id,
         "label": label,
         "command": command,
         "descriptor": descriptor,
@@ -364,6 +386,16 @@ def _bridge_disabled_reason(
     if not summary.get("ready_for_command", False):
         return "bridge is not ready for a command"
     return None
+
+
+def _bridge_state_id(status: dict[str, Any], summary: dict[str, Any], current_state: dict[str, Any]) -> str:
+    payload = {
+        "status": status,
+        "summary": summary,
+        "current_state": current_state,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:32]
 
 
 def _first(*values: dict[str, Any], key: str) -> Any:
