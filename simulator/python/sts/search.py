@@ -344,7 +344,14 @@ def _rollout(
 
 
 def _portfolio_outcome_score(env: Any, terminal_reason: str | None) -> float:
-    state = _state(env)
+    try:
+        state = _state(env)
+    except ValueError:
+        if terminal_reason == "won":
+            return 100_000.0
+        if terminal_reason == "lost":
+            return -100_000.0
+        raise
     player_hp = float(state.get("player", {}).get("hp", 0))
     monster_hp = sum(
         float(monster.get("hp", 0))
@@ -364,7 +371,14 @@ def _terminal_score(
     env: Any,
     evaluator: Callable[[dict[str, Any]], float],
 ) -> float:
-    state_score = evaluator(_state(env))
+    try:
+        state_score = evaluator(_state(env))
+    except ValueError:
+        if reason == "won":
+            return 1_000_000.0
+        if reason == "lost":
+            return -1_000_000.0
+        raise
     if reason == "won":
         return 1_000_000.0 + state_score
     if reason == "lost":

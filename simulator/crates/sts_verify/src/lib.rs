@@ -25,6 +25,7 @@ pub use normalize::{
 };
 pub use seed::{sts_seed_string_to_long, STS_SEED_ALPHABET};
 pub use sim_real::{
+    run_state_from_observed_combat_message,
     verify_communication_mod_trace, verify_communication_mod_trace_with_mode,
     verify_seed_start_communication_mod_trace,
     verify_seed_start_communication_mod_trace_with_options, ObservedStateRestoration, RngBoundary,

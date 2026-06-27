@@ -331,6 +331,22 @@ impl PyOmniRunEnv {
     }
 
     #[staticmethod]
+    pub fn from_communication_mod_state_json(json: &str) -> PyResult<Self> {
+        let value: serde_json::Value = serde_json::from_str(json).map_err(|error| {
+            PyValueError::new_err(format!("invalid CommunicationMod state JSON: {error}"))
+        })?;
+        let message = if value.get("game_state").is_some() {
+            value
+        } else {
+            serde_json::json!({ "game_state": value })
+        };
+        let state = sts_verify::run_state_from_observed_combat_message(&message).ok_or_else(|| {
+            PyValueError::new_err("CommunicationMod state is not a supported observed combat state")
+        })?;
+        Ok(Self { state })
+    }
+
+    #[staticmethod]
     pub fn from_snapshot_json(json: &str) -> PyResult<Self> {
         let snapshot: Snapshot<RunState> = serde_json::from_str(json).map_err(|error| {
             PyValueError::new_err(format!("invalid run snapshot JSON: {error}"))
