@@ -946,6 +946,11 @@ until their legal-action enumeration is first-class enough for UI/search use.
 - show bridge status and observed state
 - replay traces in UI
 
+Status: implemented as a read-only bridge mirror endpoint and UI panel. The
+new Python service reads `tools/communication/session` files, reports
+connected/stale/exited/pending-command state, and surfaces trace path, step,
+available commands, and observed current-state JSON without sending commands.
+
 ### Slice 6: Bridge Control
 
 - map UI descriptors to CommunicationMod commands
