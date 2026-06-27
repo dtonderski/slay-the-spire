@@ -973,6 +973,11 @@ next bridge-control step.
 Parity status is now exposed for combat sessions. The service compares the
 simulator combat state against the observed bridge summary when available and
 reports `unknown`, `in_sync`, or `diverged` with concrete field-level diffs.
+The UI also derives guarded bridge action buttons from the observed bridge
+summary for combat cards, visible choices, and command families including
+`END`, `CONFIRM`, `CANCEL`, `SKIP`, `PROCEED`, `LEAVE`, and `RETURN`; stale,
+disconnected, not-ready, and pending-command bridge states disable those
+actions before they can write `next_command.txt`.
 
 ### Slice 7: Fair API
 

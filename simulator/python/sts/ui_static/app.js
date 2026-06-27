@@ -289,6 +289,27 @@
     });
   }
 
+  async function submitBridgeAction(action) {
+    if (app.inFlight) {
+      flashPending();
+      return;
+    }
+    const descriptor = action && action.descriptor;
+    if (!descriptor) {
+      showError("Cannot submit this bridge action because it has no descriptor.");
+      return;
+    }
+
+    await singleFlight(`Sending ${bridgeActionLabel(action)}`, async () => {
+      const result = await requestJson("/api/bridge/descriptor", {
+        method: "POST",
+        body: { descriptor },
+      });
+      app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
+      await refreshParityQuietly();
+    });
+  }
+
   async function refreshTraces() {
     app.traceLoading = true;
     app.traceError = null;
@@ -578,6 +599,7 @@
       });
       el.bridgePanel.appendChild(list);
     }
+    el.bridgePanel.appendChild(bridgeActionsSection());
     if (app.bridge.last_error || app.bridge.error) {
       const msg = document.createElement("div");
       msg.className = "message error";
@@ -604,6 +626,43 @@
         el.bridgePanel.appendChild(list);
       }
     }
+  }
+
+  function bridgeActionsSection() {
+    const wrapper = document.createElement("div");
+    wrapper.className = "bridge-action-section";
+    wrapper.appendChild(line("h3", "Bridge Actions"));
+
+    const actions = arrayOf(app.bridge && app.bridge.bridge_actions);
+    if (!actions.length) {
+      const emptyText = document.createElement("span");
+      emptyText.className = "bridge-action-empty";
+      emptyText.textContent = "No bridge actions available.";
+      wrapper.appendChild(emptyText);
+      return wrapper;
+    }
+
+    const grid = document.createElement("div");
+    grid.className = "bridge-action-grid";
+    actions.forEach((action) => {
+      const button = document.createElement("button");
+      const disabledReason = action.disabled_reason || action.disabledReason;
+      button.type = "button";
+      button.className = "bridge-action-button";
+      button.disabled = app.inFlight || app.bridge.pending_command || action.enabled === false;
+      button.textContent = bridgeActionLabel(action);
+      button.title = disabledReason || (app.bridge.pending_command ? "Bridge command pending." : stringify(firstDefined(action.command, action.action_id, action.actionId, "")));
+      button.addEventListener("click", () => submitBridgeAction(action));
+      if (disabledReason) {
+        const reason = document.createElement("span");
+        reason.className = "button-reason";
+        reason.textContent = disabledReason;
+        button.appendChild(reason);
+      }
+      grid.appendChild(button);
+    });
+    wrapper.appendChild(grid);
+    return wrapper;
   }
 
   function renderTrace() {
@@ -923,6 +982,11 @@
       return details ? `${humanize(kind)} (${details})` : humanize(kind);
     }
     return humanize(firstDefined(action.action_id, action.id, "Action"));
+  }
+
+  function bridgeActionLabel(action) {
+    if (!action) return "Bridge action";
+    return stringify(firstDefined(action.label, action.command, action.action_id, action.actionId, "Bridge action"));
   }
 
   function sourceTitle(action) {

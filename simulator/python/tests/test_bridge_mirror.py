@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sts.bridge import BridgeMirror, command_for_descriptor
+from sts.bridge import BridgeMirror, bridge_actions_from_status, command_for_descriptor
 
 
 class BridgeMirrorTests(unittest.TestCase):
@@ -35,6 +35,7 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(status["client_pid"], 12)
         self.assertEqual(status["trace_path"], "trace.jsonl")
         self.assertEqual(status["available_commands"], ["play", "end", "state"])
+        self.assertIn("bridge_actions", status)
 
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -78,6 +79,52 @@ class BridgeMirrorTests(unittest.TestCase):
     def test_descriptor_translation_rejects_unknown_kind(self):
         with self.assertRaises(ValueError):
             command_for_descriptor({"kind": "Unknown"})
+
+    def test_bridge_actions_cover_choices_and_simple_commands(self):
+        actions = bridge_actions_from_status(
+            {
+                "ready_for_command": True,
+                "available_commands": ["choose", "leave", "return", "state"],
+                "choices": ["talk", "x=3"],
+            }
+        )
+
+        labels = [action["label"] for action in actions]
+        commands = [action["command"] for action in actions]
+        self.assertEqual(labels[:2], ["talk", "x=3"])
+        self.assertEqual(commands, ["CHOOSE 0", "CHOOSE 1", "LEAVE", "RETURN"])
+        self.assertTrue(all(action["enabled"] for action in actions))
+
+    def test_bridge_actions_cover_play_end_and_disabled_state(self):
+        actions = bridge_actions_from_status(
+            {
+                "ready_for_command": True,
+                "available_commands": ["play", "end", "state"],
+                "combat": {
+                    "hand": [
+                        {"index": 1, "name": "Strike", "playable": True, "has_target": True},
+                        {"index": 2, "name": "Defend", "playable": True, "has_target": False},
+                        {"index": 3, "name": "Wound", "playable": False, "has_target": False},
+                    ],
+                    "monsters": [
+                        {"index": 0, "name": "Cultist", "gone": False},
+                        {"index": 1, "name": "Slime", "gone": True},
+                    ],
+                },
+            },
+            pending_command=True,
+        )
+
+        self.assertEqual(
+            [(action["label"], action["command"]) for action in actions],
+            [
+                ("Play Strike -> Cultist", "PLAY 1 0"),
+                ("Play Defend", "PLAY 2"),
+                ("End turn", "END"),
+            ],
+        )
+        self.assertTrue(all(not action["enabled"] for action in actions))
+        self.assertTrue(all(action["disabled_reason"] == "bridge command already pending" for action in actions))
 
 
 if __name__ == "__main__":
