@@ -47,6 +47,48 @@ class CombatSearchSmokeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             search_combat(env, CombatSearchConfig(objective="mystery"))
 
+    def test_beam_search_accepts_large_depth_without_mutating_root(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+        before = env.snapshot_hash()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=20,
+                objective="tactical_survival",
+                algorithm="beam",
+                beam_width=4,
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["algorithm"], "beam")
+        self.assertEqual(result.diagnostics["beam_width"], 4)
+        self.assertGreater(result.visits, 1)
+        self.assertEqual(env.snapshot_hash(), before)
+
+    def test_greedy_search_is_reported_as_greedy(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=20,
+                objective="aggressive_lethal",
+                algorithm="greedy",
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["algorithm"], "greedy")
+        self.assertEqual(result.diagnostics["beam_width"], 1)
+
+    def test_exhaustive_search_rejects_runaway_depth(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+
+        with self.assertRaises(ValueError):
+            search_combat(env, CombatSearchConfig(max_depth=40, algorithm="exhaustive"))
+
     def test_search_accepts_run_combat_fixture(self):
         env = omni.OmniRunEnv.combat_fixture()
 
