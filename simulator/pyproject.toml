@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "py-sts"
+version = "0.1.0"
+description = "Python helpers and PyO3 bindings for the Slay the Spire simulator."
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = ["maturin>=1.9,<2"]
+
+[tool.maturin]
+manifest-path = "crates/py_sts/Cargo.toml"
+python-source = "python"
+module-name = "sts.sts_omni"
+features = ["pyo3/extension-module"]

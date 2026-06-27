@@ -20,9 +20,9 @@ without contaminating the evaluation with human trace choices.
 Run:
 
 ```powershell
-$env:PYTHONPATH = "$PWD\python"
-py -3.14 -m sts.search_lab --split dev --max-source-depth 2 --max-roots 48 --max-actions 40
-py -3.14 -m sts.search_lab --split eval --max-source-depth 2 --max-roots 200 --max-actions 40
+uv run maturin develop --release
+uv run python -m sts.search_lab --split dev --max-source-depth 2 --max-roots 48 --max-actions 40
+uv run python -m sts.search_lab --split eval --max-source-depth 2 --max-roots 200 --max-actions 40
 ```
 
 ## Current Candidates

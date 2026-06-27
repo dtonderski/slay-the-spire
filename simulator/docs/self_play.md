@@ -15,9 +15,9 @@ state.
 ## Commands
 
 ```powershell
-$env:PYTHONPATH = "$PWD\python"
-py -3.14 -m sts.self_play run --start seed --seed TEST --random-seed 7 --max-steps 40 --output target\selfplay-seed.jsonl
-py -3.14 -m sts.self_play verify target\selfplay-seed.jsonl
+uv run maturin develop --release
+uv run python -m sts.self_play run --start seed --seed TEST --random-seed 7 --max-steps 40 --output target\selfplay-seed.jsonl
+uv run python -m sts.self_play verify target\selfplay-seed.jsonl
 ```
 
 The trace can include potions when the simulator run state exposes them. For
@@ -32,7 +32,7 @@ fixture. They are deterministic and replayable, but they are not target-game
 seed parity.
 
 ```powershell
-py -3.14 -m sts.self_play run --start seed --seed TEST --output target\selfplay-seed.jsonl
+uv run python -m sts.self_play run --start seed --seed TEST --output target\selfplay-seed.jsonl
 ```
 
 To play target-game seeded runs end-to-end, `OmniRunEnv` still needs a
@@ -46,8 +46,7 @@ command runs one trace per seed, verifies each trace, and writes
 `index.json` plus trace files under `traces/`.
 
 ```powershell
-$env:PYTHONPATH = "$PWD\python"
-py -3.14 -m sts.self_play batch --output-dir target\selfplay-corpus --seeds 1..100 --random-seed 1000 --max-steps 200
+uv run python -m sts.self_play batch --output-dir target\selfplay-corpus --seeds 1..100 --random-seed 1000 --max-steps 200
 ```
 
 The index is labeled:
@@ -66,7 +65,7 @@ inside the corpus traces. The original trace is the fixed eval dataset; candidat
 policies are rolled forward from each recorded combat snapshot.
 
 ```powershell
-py -3.14 -m sts.self_play eval --corpus-dir target\selfplay-corpus --split eval --max-roots 64 --max-actions 40 --output target\selfplay-corpus\eval.json
+uv run python -m sts.self_play eval --corpus-dir target\selfplay-corpus --split eval --max-roots 64 --max-actions 40 --output target\selfplay-corpus\eval.json
 ```
 
 The eval report includes potion metadata:

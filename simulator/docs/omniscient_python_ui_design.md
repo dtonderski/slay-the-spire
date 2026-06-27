@@ -864,10 +864,9 @@ cargo test
 The local wheel path is:
 
 ```powershell
-py -3.14 -m maturin build -m crates/py_sts/Cargo.toml --release
-py -3.14 -m pip install --force-reinstall target\wheels\py_sts-0.1.0-cp314-cp314-win_amd64.whl
-$env:PYTHONPATH = "$PWD\python"
-py -3.14 -m unittest discover -s python/tests
+uv sync
+uv run maturin develop --release
+uv run python -m unittest discover -s python/tests
 ```
 
 ### Slice 2: Combat Search
@@ -895,8 +894,7 @@ not a simulator rule.
 Verification:
 
 ```powershell
-$env:PYTHONPATH = "$PWD\python"
-py -3.14 -m unittest discover -s python/tests -v
+uv run python -m unittest discover -s python/tests -v
 ```
 
 ### Slice 3: Local UI Service
