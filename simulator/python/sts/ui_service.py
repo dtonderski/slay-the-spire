@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from sts import omni
-from sts.bridge import BridgeMirror
+from sts.bridge import BridgeMirror, command_for_descriptor
 from sts.search import CombatSearchConfig, search_combat
 
 
@@ -231,6 +231,10 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "bridge", "command"]:
                 self._send_json(self.bridge.send_command(str(payload.get("command", ""))))
+                return
+            if parts == ["api", "bridge", "descriptor"]:
+                command = command_for_descriptor(payload.get("descriptor", {}))
+                self._send_json(self.bridge.send_command(command))
                 return
             self.send_error(404, "not found")
         except Exception as error:

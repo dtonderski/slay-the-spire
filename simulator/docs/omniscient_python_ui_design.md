@@ -964,7 +964,9 @@ Status: first guarded control path implemented for explicit bridge commands.
 The UI can request a fresh bridge `state` command through the Python service;
 the service refuses empty commands, overlong commands, exited bridge sessions,
 and existing pending `next_command.txt` files. Descriptor-to-command expansion
-and simulator-vs-observed parity diffs remain the next bridge-control step.
+now covers `PLAY`, `END`, `POTION`, `CHOOSE`, `CONFIRM`, `CANCEL`, `SKIP`,
+`PROCEED`, `LEAVE`, and `RETURN`. Simulator-vs-observed parity diffs remain the
+next bridge-control step.
 
 ### Slice 7: Fair API
 
