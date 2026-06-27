@@ -6,39 +6,102 @@ const EXORDIUM_ROWS: usize = 15;
 const EXORDIUM_WIDTH: usize = 7;
 const EXORDIUM_PATHS: usize = 6;
 const ACT_1_SEED_OFFSET: i64 = 1;
+const ACT_2_SEED_OFFSET: i64 = 200;
 const EXORDIUM_SHOP_ROOM_CHANCE: f32 = 0.05;
 const EXORDIUM_REST_ROOM_CHANCE: f32 = 0.12;
 const EXORDIUM_TREASURE_ROOM_CHANCE: f32 = 0.0;
 const EXORDIUM_EVENT_ROOM_CHANCE: f32 = 0.22;
 const EXORDIUM_ELITE_ROOM_CHANCE: f32 = 0.08;
+const CITY_SHOP_ROOM_CHANCE: f32 = 0.05;
+const CITY_REST_ROOM_CHANCE: f32 = 0.12;
+const CITY_TREASURE_ROOM_CHANCE: f32 = 0.0;
+const CITY_EVENT_ROOM_CHANCE: f32 = 0.22;
+const CITY_ELITE_ROOM_CHANCE: f32 = 0.08;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetMapAct {
+    Exordium,
+    City,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TargetMapConfig {
+    act: u8,
+    seed_offset: i64,
+    rows: usize,
+    width: usize,
+    paths: usize,
+    root_room_kind: RoomKind,
+    first_row_room_kind: RoomKind,
+    shop_room_chance: f32,
+    rest_room_chance: f32,
+    treasure_room_chance: f32,
+    elite_room_chance: f32,
+    event_room_chance: f32,
+}
+
+impl TargetMapAct {
+    fn config(self) -> TargetMapConfig {
+        match self {
+            Self::Exordium => TargetMapConfig {
+                act: 1,
+                seed_offset: ACT_1_SEED_OFFSET,
+                rows: EXORDIUM_ROWS,
+                width: EXORDIUM_WIDTH,
+                paths: EXORDIUM_PATHS,
+                root_room_kind: RoomKind::Event,
+                first_row_room_kind: RoomKind::Combat,
+                shop_room_chance: EXORDIUM_SHOP_ROOM_CHANCE,
+                rest_room_chance: EXORDIUM_REST_ROOM_CHANCE,
+                treasure_room_chance: EXORDIUM_TREASURE_ROOM_CHANCE,
+                elite_room_chance: EXORDIUM_ELITE_ROOM_CHANCE,
+                event_room_chance: EXORDIUM_EVENT_ROOM_CHANCE,
+            },
+            Self::City => TargetMapConfig {
+                act: 2,
+                seed_offset: ACT_2_SEED_OFFSET,
+                rows: EXORDIUM_ROWS,
+                width: EXORDIUM_WIDTH,
+                paths: EXORDIUM_PATHS,
+                root_room_kind: RoomKind::Boss,
+                first_row_room_kind: RoomKind::Combat,
+                shop_room_chance: CITY_SHOP_ROOM_CHANCE,
+                rest_room_chance: CITY_REST_ROOM_CHANCE,
+                treasure_room_chance: CITY_TREASURE_ROOM_CHANCE,
+                elite_room_chance: CITY_ELITE_ROOM_CHANCE,
+                event_room_chance: CITY_EVENT_ROOM_CHANCE,
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExordiumMapTopology {
+pub struct TargetMapTopology {
     pub first_row_choices: Vec<i32>,
     pub first_row_room_kind: RoomKind,
-    pub fixed_room_rows: Vec<ExordiumFixedRoomRow>,
-    pub room_type_counts: ExordiumRoomTypeCounts,
+    pub fixed_room_rows: Vec<TargetFixedRoomRow>,
+    pub room_type_counts: TargetRoomTypeCounts,
     pub pre_shuffle_room_list: Vec<RoomKind>,
     pub shuffled_room_list: Vec<RoomKind>,
-    pub assigned_rooms: Vec<ExordiumAssignedRoom>,
+    pub assigned_rooms: Vec<TargetAssignedRoom>,
     pub map_rng_counter: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExordiumMapChoiceStep {
+pub struct TargetMapChoiceStep {
     pub floor: usize,
     pub x: i32,
     pub next_choices: Vec<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExordiumFixedRoomRow {
+pub struct TargetFixedRoomRow {
     pub row: usize,
     pub room_kind: RoomKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExordiumRoomTypeCounts {
+pub struct TargetRoomTypeCounts {
     pub assignable_connected_nodes: usize,
     pub shops: usize,
     pub rests: usize,
@@ -49,18 +112,27 @@ pub struct ExordiumRoomTypeCounts {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExordiumAssignedRoom {
+pub struct TargetAssignedRoom {
     pub row: usize,
     pub x: i32,
     pub room_kind: RoomKind,
-    pub children: Vec<ExordiumMapChild>,
+    pub children: Vec<TargetMapChild>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExordiumMapChild {
+pub struct TargetMapChild {
     pub row: usize,
     pub x: i32,
 }
+
+pub type ExordiumMapTopology = TargetMapTopology;
+pub type ExordiumMapChoiceStep = TargetMapChoiceStep;
+pub type ExordiumFixedRoomRow = TargetFixedRoomRow;
+pub type ExordiumRoomTypeCounts = TargetRoomTypeCounts;
+pub type ExordiumAssignedRoom = TargetAssignedRoom;
+pub type ExordiumMapChild = TargetMapChild;
+pub type CityMapTopology = TargetMapTopology;
+pub type CityMapChoiceStep = TargetMapChoiceStep;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TopologyNode {
@@ -81,42 +153,64 @@ struct TopologyEdge {
 
 #[must_use]
 pub fn generate_exordium_map_topology(seed: i64) -> ExordiumMapTopology {
-    let mut generator = TargetMapGenerator::new(seed + ACT_1_SEED_OFFSET);
-    generator.create_paths(EXORDIUM_PATHS);
+    generate_target_map_topology(seed, TargetMapAct::Exordium)
+}
+
+#[must_use]
+pub fn generate_city_map_topology(seed: i64) -> CityMapTopology {
+    generate_target_map_topology(seed, TargetMapAct::City)
+}
+
+#[must_use]
+pub fn generate_target_map_topology(seed: i64, act: TargetMapAct) -> TargetMapTopology {
+    let config = act.config();
+    let mut generator = TargetMapGenerator::new(seed + config.seed_offset, config);
+    generator.create_paths(config.paths);
     generator.filter_redundant_edges_from_first_row();
     generator.topology()
 }
 
 #[must_use]
 pub fn generate_exordium_fixed_map(seed: i64) -> MapRunState {
-    let topology = generate_exordium_map_topology(seed);
-    let boss_id = exordium_boss_node_id();
+    generate_target_fixed_map(seed, TargetMapAct::Exordium)
+}
+
+#[must_use]
+pub fn generate_city_fixed_map(seed: i64) -> MapRunState {
+    generate_target_fixed_map(seed, TargetMapAct::City)
+}
+
+#[must_use]
+pub fn generate_target_fixed_map(seed: i64, act: TargetMapAct) -> MapRunState {
+    let config = act.config();
+    let topology = generate_target_map_topology(seed, act);
+    let boss_id = target_boss_node_id(config);
     let mut nodes = Vec::with_capacity(topology.assigned_rooms.len() + 2);
     nodes.push(MapNode {
-        id: exordium_root_node_id(),
-        act: 1,
-        room_kind: RoomKind::Event,
+        id: target_root_node_id(),
+        act: config.act,
+        room_kind: config.root_room_kind,
         children: topology
             .first_row_choices
             .iter()
             .copied()
-            .map(|x| exordium_map_node_id(0, x))
+            .map(|x| target_map_node_id(config, 0, x))
             .collect(),
     });
 
     nodes.extend(topology.assigned_rooms.iter().map(|room| {
         MapNode {
-            id: exordium_map_node_id(room.row, room.x),
-            act: 1,
+            id: target_map_node_id(config, room.row, room.x),
+            act: config.act,
             room_kind: room.room_kind,
             children: room
                 .children
                 .iter()
                 .map(|child| {
-                    if child.row >= EXORDIUM_ROWS {
+                    if child.row >= config.rows {
                         boss_id
                     } else {
-                        exordium_map_node_id(child.row, child.x)
+                        target_map_node_id(config, child.row, child.x)
                     }
                 })
                 .collect(),
@@ -125,15 +219,15 @@ pub fn generate_exordium_fixed_map(seed: i64) -> MapRunState {
 
     nodes.push(MapNode {
         id: boss_id,
-        act: 1,
+        act: config.act,
         room_kind: RoomKind::Boss,
         children: Vec::new(),
     });
 
     MapRunState {
-        act: 1,
+        act: config.act,
         floor: 0,
-        current_node: exordium_root_node_id(),
+        current_node: target_root_node_id(),
         map: FixedMap { nodes },
     }
 }
@@ -143,8 +237,23 @@ pub fn generate_exordium_map_choices_after_path(
     seed: i64,
     path_xs: &[i32],
 ) -> Vec<ExordiumMapChoiceStep> {
-    let mut generator = TargetMapGenerator::new(seed + ACT_1_SEED_OFFSET);
-    generator.create_paths(EXORDIUM_PATHS);
+    generate_target_map_choices_after_path(seed, TargetMapAct::Exordium, path_xs)
+}
+
+#[must_use]
+pub fn generate_city_map_choices_after_path(seed: i64, path_xs: &[i32]) -> Vec<CityMapChoiceStep> {
+    generate_target_map_choices_after_path(seed, TargetMapAct::City, path_xs)
+}
+
+#[must_use]
+pub fn generate_target_map_choices_after_path(
+    seed: i64,
+    act: TargetMapAct,
+    path_xs: &[i32],
+) -> Vec<TargetMapChoiceStep> {
+    let config = act.config();
+    let mut generator = TargetMapGenerator::new(seed + config.seed_offset, config);
+    generator.create_paths(config.paths);
     generator.filter_redundant_edges_from_first_row();
     generator.choices_after_path(path_xs)
 }
@@ -152,12 +261,24 @@ pub fn generate_exordium_map_choices_after_path(
 /// Returns the room kind assigned to each node along a captured Exordium path prefix.
 #[must_use]
 pub fn exordium_room_kinds_on_path(seed: i64, path_xs: &[i32]) -> Vec<RoomKind> {
+    target_room_kinds_on_path(seed, TargetMapAct::Exordium, path_xs)
+}
+
+/// Returns the room kind assigned to each node along a captured City path prefix.
+#[must_use]
+pub fn city_room_kinds_on_path(seed: i64, path_xs: &[i32]) -> Vec<RoomKind> {
+    target_room_kinds_on_path(seed, TargetMapAct::City, path_xs)
+}
+
+#[must_use]
+pub fn target_room_kinds_on_path(seed: i64, act: TargetMapAct, path_xs: &[i32]) -> Vec<RoomKind> {
     use crate::map::{apply_map_action, MapAction};
 
-    let mut state = generate_exordium_fixed_map(seed);
+    let config = act.config();
+    let mut state = generate_target_fixed_map(seed, act);
     let mut kinds = Vec::with_capacity(path_xs.len());
     for (row, x) in path_xs.iter().copied().enumerate() {
-        let node_id = exordium_map_node_id(row, x);
+        let node_id = target_map_node_id(config, row, x);
         let room_kind = state.map.node(node_id).expect("path node exists").room_kind;
         kinds.push(room_kind);
         state = apply_map_action(&state, MapAction::ChooseNode { node_id })
@@ -168,14 +289,15 @@ pub fn exordium_room_kinds_on_path(seed: i64, path_xs: &[i32]) -> Vec<RoomKind> 
 
 struct TargetMapGenerator {
     rng: StsRng,
+    config: TargetMapConfig,
     grid: Vec<Vec<TopologyNode>>,
 }
 
 impl TargetMapGenerator {
-    fn new(map_seed: i64) -> Self {
-        let grid = (0..EXORDIUM_ROWS)
+    fn new(map_seed: i64, config: TargetMapConfig) -> Self {
+        let grid = (0..config.rows)
             .map(|y| {
-                (0..EXORDIUM_WIDTH)
+                (0..config.width)
                     .map(|x| TopologyNode {
                         x: x as i32,
                         y: y as i32,
@@ -188,12 +310,13 @@ impl TargetMapGenerator {
             .collect();
         Self {
             rng: StsRng::new(map_seed),
+            config,
             grid,
         }
     }
 
     fn create_paths(&mut self, path_count: usize) {
-        let max_x = EXORDIUM_WIDTH as i32 - 1;
+        let max_x = self.config.width as i32 - 1;
         let mut first_x = -1;
         for path_index in 0..path_count {
             let mut x = self.rand_range(0, max_x);
@@ -401,7 +524,7 @@ impl TargetMapGenerator {
             .dedup_by_key(|edge| (edge.dst_x, edge.dst_y));
     }
 
-    fn topology(mut self) -> ExordiumMapTopology {
+    fn topology(mut self) -> TargetMapTopology {
         let first_row_choices = self.grid[0]
             .iter()
             .filter(|node| !node.edges.is_empty())
@@ -423,10 +546,10 @@ impl TargetMapGenerator {
         self.assign_rooms_to_nodes(&mut shuffled_room_list);
         self.last_minute_node_checker();
         let assigned_rooms = self.assigned_rooms();
-        ExordiumMapTopology {
+        TargetMapTopology {
             first_row_choices,
-            first_row_room_kind: RoomKind::Combat,
-            fixed_room_rows: target_fixed_room_rows(),
+            first_row_room_kind: self.config.first_row_room_kind,
+            fixed_room_rows: target_fixed_room_rows(self.config),
             room_type_counts,
             pre_shuffle_room_list,
             shuffled_room_list: shuffled_room_list_report,
@@ -435,14 +558,14 @@ impl TargetMapGenerator {
         }
     }
 
-    fn room_type_counts(&self) -> ExordiumRoomTypeCounts {
+    fn room_type_counts(&self) -> TargetRoomTypeCounts {
         let assignable_connected_nodes = self.assignable_connected_node_count();
-        let shops = java_round(assignable_connected_nodes as f32 * EXORDIUM_SHOP_ROOM_CHANCE);
-        let rests = java_round(assignable_connected_nodes as f32 * EXORDIUM_REST_ROOM_CHANCE);
+        let shops = java_round(assignable_connected_nodes as f32 * self.config.shop_room_chance);
+        let rests = java_round(assignable_connected_nodes as f32 * self.config.rest_room_chance);
         let treasures =
-            java_round(assignable_connected_nodes as f32 * EXORDIUM_TREASURE_ROOM_CHANCE);
-        let elites = java_round(assignable_connected_nodes as f32 * EXORDIUM_ELITE_ROOM_CHANCE);
-        let events = java_round(assignable_connected_nodes as f32 * EXORDIUM_EVENT_ROOM_CHANCE);
+            java_round(assignable_connected_nodes as f32 * self.config.treasure_room_chance);
+        let elites = java_round(assignable_connected_nodes as f32 * self.config.elite_room_chance);
+        let events = java_round(assignable_connected_nodes as f32 * self.config.event_room_chance);
         let combats = assignable_connected_nodes
             .saturating_sub(shops)
             .saturating_sub(rests)
@@ -450,7 +573,7 @@ impl TargetMapGenerator {
             .saturating_sub(elites)
             .saturating_sub(events);
 
-        ExordiumRoomTypeCounts {
+        TargetRoomTypeCounts {
             assignable_connected_nodes,
             shops,
             rests,
@@ -467,7 +590,7 @@ impl TargetMapGenerator {
             .enumerate()
             .flat_map(|(row_index, row)| {
                 row.iter()
-                    .filter(move |node| node.has_edges() && row_index != EXORDIUM_ROWS - 2)
+                    .filter(move |node| node.has_edges() && row_index != self.config.rows - 2)
             })
             .count()
     }
@@ -482,7 +605,7 @@ impl TargetMapGenerator {
             .count()
     }
 
-    fn choices_after_path(&self, path_xs: &[i32]) -> Vec<ExordiumMapChoiceStep> {
+    fn choices_after_path(&self, path_xs: &[i32]) -> Vec<TargetMapChoiceStep> {
         let mut steps = Vec::with_capacity(path_xs.len());
         for (floor, x) in path_xs.iter().copied().enumerate() {
             let Some(node) = self
@@ -493,7 +616,7 @@ impl TargetMapGenerator {
                 break;
             };
             let next_choices = node.edges.iter().map(|edge| edge.dst_x).collect();
-            steps.push(ExordiumMapChoiceStep {
+            steps.push(TargetMapChoiceStep {
                 floor: floor + 1,
                 x,
                 next_choices,
@@ -507,8 +630,8 @@ impl TargetMapGenerator {
     }
 
     fn assign_fixed_rows(&mut self) {
-        self.assign_row_as_room_type(EXORDIUM_ROWS - 1, RoomKind::Rest);
-        self.assign_row_as_room_type(0, RoomKind::Combat);
+        self.assign_row_as_room_type(self.config.rows - 1, RoomKind::Rest);
+        self.assign_row_as_room_type(0, self.config.first_row_room_kind);
         self.assign_row_as_room_type(8, RoomKind::Treasure);
     }
 
@@ -579,7 +702,7 @@ impl TargetMapGenerator {
         if y <= 4 && matches!(room_kind, RoomKind::Rest | RoomKind::Elite) {
             return false;
         }
-        if y >= 13 && room_kind == RoomKind::Rest {
+        if y >= self.config.rows as i32 - 2 && room_kind == RoomKind::Rest {
             return false;
         }
         true
@@ -619,7 +742,7 @@ impl TargetMapGenerator {
         }
     }
 
-    fn assigned_rooms(&self) -> Vec<ExordiumAssignedRoom> {
+    fn assigned_rooms(&self) -> Vec<TargetAssignedRoom> {
         self.grid
             .iter()
             .flat_map(|row| {
@@ -627,14 +750,14 @@ impl TargetMapGenerator {
                     if !node.has_edges() {
                         return None;
                     }
-                    node.room_kind.map(|room_kind| ExordiumAssignedRoom {
+                    node.room_kind.map(|room_kind| TargetAssignedRoom {
                         row: node.y as usize,
                         x: node.x,
                         room_kind,
                         children: node
                             .edges
                             .iter()
-                            .map(|edge| ExordiumMapChild {
+                            .map(|edge| TargetMapChild {
                                 row: edge.dst_y as usize,
                                 x: edge.dst_x,
                             })
@@ -646,16 +769,21 @@ impl TargetMapGenerator {
     }
 }
 
-fn exordium_root_node_id() -> MapNodeId {
+#[cfg(test)]
+fn exordium_map_node_id(row: usize, x: i32) -> MapNodeId {
+    target_map_node_id(TargetMapAct::Exordium.config(), row, x)
+}
+
+fn target_root_node_id() -> MapNodeId {
     MapNodeId::new(0)
 }
 
-fn exordium_boss_node_id() -> MapNodeId {
-    MapNodeId::new(1 + EXORDIUM_ROWS as u64 * EXORDIUM_WIDTH as u64)
+fn target_boss_node_id(config: TargetMapConfig) -> MapNodeId {
+    MapNodeId::new(1 + config.rows as u64 * config.width as u64)
 }
 
-fn exordium_map_node_id(row: usize, x: i32) -> MapNodeId {
-    MapNodeId::new(1 + row as u64 * EXORDIUM_WIDTH as u64 + x as u64)
+fn target_map_node_id(config: TargetMapConfig, row: usize, x: i32) -> MapNodeId {
+    MapNodeId::new(1 + row as u64 * config.width as u64 + x as u64)
 }
 
 impl TopologyNode {
@@ -668,24 +796,24 @@ fn java_round(value: f32) -> usize {
     value.round() as usize
 }
 
-fn target_fixed_room_rows() -> Vec<ExordiumFixedRoomRow> {
+fn target_fixed_room_rows(config: TargetMapConfig) -> Vec<TargetFixedRoomRow> {
     vec![
-        ExordiumFixedRoomRow {
+        TargetFixedRoomRow {
             row: 0,
-            room_kind: RoomKind::Combat,
+            room_kind: config.first_row_room_kind,
         },
-        ExordiumFixedRoomRow {
+        TargetFixedRoomRow {
             row: 8,
             room_kind: RoomKind::Treasure,
         },
-        ExordiumFixedRoomRow {
-            row: 14,
+        TargetFixedRoomRow {
+            row: config.rows - 1,
             room_kind: RoomKind::Rest,
         },
     ]
 }
 
-fn pre_shuffle_room_list(counts: ExordiumRoomTypeCounts) -> Vec<RoomKind> {
+fn pre_shuffle_room_list(counts: TargetRoomTypeCounts) -> Vec<RoomKind> {
     let mut rooms = Vec::with_capacity(counts.assignable_connected_nodes);
     rooms.extend(std::iter::repeat_n(RoomKind::Shop, counts.shops));
     rooms.extend(std::iter::repeat_n(RoomKind::Rest, counts.rests));
@@ -1023,6 +1151,111 @@ mod tests {
         assert_eq!(
             exordium_room_kinds_on_path(1_957_307_888_551, &[1, 2, verify01_floor_three_x],),
             vec![RoomKind::Combat; 3]
+        );
+    }
+
+    #[test]
+    fn city_topology_uses_act_two_seed_offset_without_changing_exordium() {
+        let seed = 1_218_623;
+
+        assert_eq!(
+            generate_city_map_topology(seed),
+            generate_target_map_topology(seed, TargetMapAct::City)
+        );
+        assert_eq!(
+            generate_exordium_map_topology(seed),
+            generate_target_map_topology(seed, TargetMapAct::Exordium)
+        );
+        assert_ne!(
+            generate_city_map_topology(seed).first_row_choices,
+            generate_exordium_map_topology(seed).first_row_choices,
+            "Act 2 mapRng must use seed + actNum * 100 instead of the Act 1 seed + actNum stream"
+        );
+    }
+
+    #[test]
+    fn city_fixed_rows_and_counts_are_target_style_act_two_scaffold() {
+        let topology = generate_city_map_topology(1_218_623);
+
+        assert_eq!(
+            topology.fixed_room_rows,
+            vec![
+                TargetFixedRoomRow {
+                    row: 0,
+                    room_kind: RoomKind::Combat,
+                },
+                TargetFixedRoomRow {
+                    row: 8,
+                    room_kind: RoomKind::Treasure,
+                },
+                TargetFixedRoomRow {
+                    row: 14,
+                    room_kind: RoomKind::Rest,
+                },
+            ]
+        );
+        assert_eq!(topology.first_row_room_kind, RoomKind::Combat);
+        assert_eq!(
+            topology.pre_shuffle_room_list.len(),
+            topology.room_type_counts.shops
+                + topology.room_type_counts.rests
+                + topology.room_type_counts.treasures
+                + topology.room_type_counts.elites
+                + topology.room_type_counts.events
+                + topology.room_type_counts.combats
+        );
+        assert_eq!(
+            topology
+                .assigned_rooms
+                .iter()
+                .filter(|room| room.row == 0)
+                .count(),
+            topology.first_row_choices.len()
+        );
+    }
+
+    #[test]
+    fn city_fixed_map_is_act_two_and_traversable_from_boss_reward_root() {
+        let mut state = generate_city_fixed_map(1_218_623);
+
+        assert_eq!(state.act, 2);
+        assert_eq!(state.floor, 0);
+        assert_eq!(
+            state
+                .map
+                .node(state.current_node)
+                .map(|node| node.room_kind),
+            Some(RoomKind::Boss)
+        );
+        let first_choices = legal_map_actions(&state);
+        assert!(!first_choices.is_empty());
+
+        let MapAction::ChooseNode { node_id } = first_choices[0];
+        state = apply_map_action(&state, MapAction::ChooseNode { node_id })
+            .expect("first City map node is reachable");
+        assert_eq!(state.act, 2);
+        assert_eq!(state.floor, 1);
+        assert_eq!(
+            state
+                .map
+                .node(state.current_node)
+                .map(|node| node.room_kind),
+            Some(RoomKind::Combat)
+        );
+    }
+
+    #[test]
+    fn city_room_kind_helpers_share_generic_target_map_path_logic() {
+        let seed = 1_218_623;
+        let first_x = generate_city_map_topology(seed).first_row_choices[0];
+
+        assert_eq!(
+            city_room_kinds_on_path(seed, &[first_x]),
+            target_room_kinds_on_path(seed, TargetMapAct::City, &[first_x])
+        );
+        assert_eq!(
+            generate_city_map_choices_after_path(seed, &[first_x]),
+            generate_target_map_choices_after_path(seed, TargetMapAct::City, &[first_x])
         );
     }
 }

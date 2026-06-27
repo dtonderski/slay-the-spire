@@ -33,10 +33,11 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     if monster.hp <= 0 {
         monster.alive = false;
         monster.block = 0;
-    } else if monster.powers.curl_up > 0 {
+    } else if hp_damage > 0 && monster.powers.curl_up > 0 {
         monster.block += monster.powers.curl_up;
         monster.powers.curl_up = 0;
     }
+    reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
 
     hp_damage
 }
@@ -46,6 +47,11 @@ fn deal_attack_damage_to_monster(
     relics: &[Relic],
     amount: i32,
 ) -> AttackDamageResult {
+    let amount = if monster.powers.flight > 0 {
+        amount / 2
+    } else {
+        amount
+    };
     let block_before = monster.block;
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
@@ -60,10 +66,32 @@ fn deal_attack_damage_to_monster(
         monster.block += monster.powers.curl_up;
         monster.powers.curl_up = 0;
     }
+    if monster.alive && hp_damage > 0 && monster.powers.malleable > 0 {
+        monster.block += monster.powers.malleable;
+        monster.powers.malleable += 1;
+    }
+    if monster.alive && hp_damage > 0 && monster.powers.flight > 0 {
+        monster.powers.flight -= 1;
+        if monster.powers.flight == 0 {
+            monster.intent = crate::MonsterIntent::Stun;
+        }
+    }
+    reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
 
     AttackDamageResult {
         hp_damage,
         broke_block: block_before > 0 && blocked == block_before,
+    }
+}
+
+fn reduce_monster_plated_armor_after_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
+    if !monster.alive || hp_damage <= 0 || monster.powers.plated_armor <= 0 {
+        return;
+    }
+
+    monster.powers.plated_armor -= 1;
+    if monster.powers.plated_armor == 0 {
+        monster.intent = crate::MonsterIntent::Stun;
     }
 }
 
@@ -122,6 +150,7 @@ mod tests {
             hp: 1,
             block: 0,
             alive: true,
+            escaped: false,
             powers: crate::MonsterPowers {
                 curl_up: 3,
                 ..Default::default()
@@ -136,6 +165,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -152,6 +182,7 @@ mod tests {
             hp: 10,
             block: 4,
             alive: true,
+            escaped: false,
             powers: Default::default(),
             temp_strength_down: 0,
             content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -163,6 +194,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -174,12 +206,381 @@ mod tests {
     }
 
     #[test]
+    fn unmodified_damage_does_not_trigger_curl_up_without_hp_damage() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 10,
+            block: 6,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                curl_up: 3,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_unmodified_damage_to_monster(&mut monster, 5);
+
+        assert_eq!(monster.block, 1);
+        assert_eq!(monster.powers.curl_up, 3);
+        assert_eq!(monster.hp, 10);
+    }
+
+    #[test]
+    fn attack_hp_damage_triggers_malleable_block_and_increment() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                malleable: 3,
+                malleable_base: 3,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        let result = deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 5,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(result.hp_damage, 5);
+        assert_eq!(monster.hp, 15);
+        assert_eq!(monster.block, 3);
+        assert_eq!(monster.powers.malleable, 4);
+    }
+
+    #[test]
+    fn flight_halves_attack_damage_and_loses_one_stack_on_nonlethal_hp_damage() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                flight: 3,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        let result = deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 7,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(result.hp_damage, 3);
+        assert_eq!(monster.hp, 17);
+        assert_eq!(monster.powers.flight, 2);
+        assert_eq!(monster.intent, crate::MonsterIntent::Attack { damage: 6 });
+    }
+
+    #[test]
+    fn flight_grounding_sets_stun_intent() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                flight: 1,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 6,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(monster.powers.flight, 0);
+        assert_eq!(monster.intent, crate::MonsterIntent::Stun);
+    }
+
+    #[test]
+    fn lethal_attack_damage_does_not_reduce_flight() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 3,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                flight: 3,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 6,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert!(!monster.alive);
+        assert_eq!(monster.powers.flight, 3);
+    }
+
+    #[test]
+    fn unmodified_damage_bypasses_flight() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                flight: 3,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        let hp_damage = deal_unmodified_damage_to_monster(&mut monster, 7);
+
+        assert_eq!(hp_damage, 7);
+        assert_eq!(monster.hp, 13);
+        assert_eq!(monster.powers.flight, 3);
+    }
+
+    #[test]
+    fn monster_plated_armor_break_sets_stun_intent() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                plated_armor: 1,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 6,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(monster.powers.plated_armor, 0);
+        assert_eq!(monster.intent, crate::MonsterIntent::Stun);
+    }
+
+    #[test]
+    fn lethal_damage_does_not_trigger_monster_plated_armor_break_stun() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 6,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                plated_armor: 1,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 6,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert!(!monster.alive);
+        assert_eq!(monster.powers.plated_armor, 1);
+        assert_eq!(monster.intent, crate::MonsterIntent::Attack { damage: 6 });
+    }
+
+    #[test]
+    fn lethal_attack_damage_does_not_trigger_malleable_block() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 5,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                malleable: 3,
+                malleable_base: 3,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 5,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert!(!monster.alive);
+        assert_eq!(monster.block, 0);
+        assert_eq!(monster.powers.malleable, 3);
+    }
+
+    #[test]
     fn damage_info_preserves_block_and_hp_math() {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 10,
             block: 4,
             alive: true,
+            escaped: false,
             powers: Default::default(),
             temp_strength_down: 0,
             content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -191,6 +592,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -212,6 +614,7 @@ mod tests {
             hp: 20,
             block: 4,
             alive: true,
+            escaped: false,
             powers: Default::default(),
             temp_strength_down: 0,
             content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -223,6 +626,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -250,6 +654,7 @@ mod tests {
             hp: 20,
             block: 4,
             alive: true,
+            escaped: false,
             powers: Default::default(),
             temp_strength_down: 0,
             content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -261,6 +666,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -276,6 +682,7 @@ mod tests {
             hp: 20,
             block: 0,
             alive: true,
+            escaped: false,
             powers: Default::default(),
             temp_strength_down: 0,
             content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -287,6 +694,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -316,6 +724,7 @@ mod tests {
             hp: 20,
             block: 0,
             alive: true,
+            escaped: false,
             powers: Default::default(),
             temp_strength_down: 0,
             content_id: FIXED_SIMPLE_MONSTER_ID,
@@ -327,6 +736,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -356,6 +766,7 @@ mod tests {
             hp: 30,
             block: 0,
             alive: true,
+            escaped: false,
             powers: crate::MonsterPowers {
                 vulnerable: 1,
                 ..Default::default()
@@ -370,6 +781,7 @@ mod tests {
             mode_shift: 0,
             in_defensive_mode: false,
             rolled_attack_damage: None,
+            stolen_gold: 0,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -404,6 +816,7 @@ mod tests {
             temp_thorns: 0,
             temp_rage_block: 0,
             no_block_turns: 0,
+            vulnerable_just_applied: false,
         };
 
         reflect_spikes_to_player(&mut player, &[], 3);
@@ -427,6 +840,7 @@ mod tests {
             temp_thorns: 0,
             temp_rage_block: 0,
             no_block_turns: 0,
+            vulnerable_just_applied: false,
         };
 
         reflect_spikes_to_player(&mut player, &[crate::Relic::TungstenRod], 3);
@@ -453,6 +867,7 @@ mod tests {
             temp_thorns: 0,
             temp_rage_block: 0,
             no_block_turns: 0,
+            vulnerable_just_applied: false,
         };
 
         reflect_spikes_to_player(&mut player, &[], 3);

@@ -1245,6 +1245,7 @@ mod tests {
         run.reward = Some(RewardScreen {
             choices: Vec::new(),
             gold_offer: 0,
+            stolen_gold_offer: 0,
             potion_offer: None,
             relic_offer: Some(Relic::TinyHouse),
             relic_key_offer: None,
@@ -1607,6 +1608,10 @@ pub struct RunState {
     #[serde(default)]
     pub act1_shrine_list: Vec<super::event::Event>,
     #[serde(default)]
+    pub act2_event_list: Vec<super::event::Event>,
+    #[serde(default)]
+    pub act2_shrine_list: Vec<super::event::Event>,
+    #[serde(default)]
     pub ascension: u8,
     #[serde(default)]
     pub treasure_room: Option<super::reward::TreasureRoomState>,
@@ -1666,6 +1671,10 @@ fn is_zero_u32(value: &u32) -> bool {
     *value == 0
 }
 
+fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1680,6 +1689,8 @@ fn apply_neow_lament_to_combat(combat: &mut CombatState) {
 pub struct RewardScreen {
     pub choices: Vec<CardInstance>,
     pub gold_offer: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub stolen_gold_offer: i32,
     pub potion_offer: Option<Potion>,
     pub relic_offer: Option<Relic>,
     #[serde(default)]
@@ -1735,6 +1746,7 @@ pub enum RunAction {
     },
     TakeSingingBowlReward,
     TakeGoldReward,
+    TakeStolenGoldReward,
     TakePotionReward,
     TakeRelicReward,
     OpenCardReward,
@@ -2051,6 +2063,8 @@ impl RunState {
             shop_remove_count: 0,
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
+            act2_event_list: Vec::new(),
+            act2_shrine_list: Vec::new(),
             ascension,
             treasure_room: None,
         };
@@ -2116,6 +2130,8 @@ impl RunState {
             shop_remove_count: 0,
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
+            act2_event_list: Vec::new(),
+            act2_shrine_list: Vec::new(),
             ascension: 0,
             treasure_room: None,
         }
@@ -2509,7 +2525,10 @@ impl RunState {
             | Relic::GamblingChip
             | Relic::Toolbox
             | Relic::JuzuBracelet
-            | Relic::PrismaticShard => {}
+            | Relic::PrismaticShard
+            | Relic::GoldenIdol
+            | Relic::BloodyIdol
+            | Relic::MutagenicStrength => {}
         }
     }
 
@@ -2594,6 +2613,13 @@ impl RunState {
                     Ok(())
                 } else {
                     Err(SimError::IllegalAction("no gold reward offered"))
+                }
+            }
+            RunAction::TakeStolenGoldReward => {
+                if reward.stolen_gold_offer > 0 {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction("no stolen gold reward offered"))
                 }
             }
             RunAction::TakePotionReward => {
@@ -2835,6 +2861,9 @@ impl Relic {
             Relic::Toolbox => RelicKey::Toolbox,
             Relic::JuzuBracelet => RelicKey::JuzuBracelet,
             Relic::PrismaticShard => RelicKey::PrismaticShard,
+            Relic::MutagenicStrength => RelicKey::MutagenicStrength,
+            Relic::GoldenIdol => RelicKey::GoldenIdol,
+            Relic::BloodyIdol => RelicKey::BloodyIdol,
         }
     }
 
@@ -2936,6 +2965,9 @@ impl Relic {
             RelicKey::LizardTail => Some(Relic::LizardTail),
             RelicKey::Pocketwatch => Some(Relic::Pocketwatch),
             RelicKey::HandDrill => Some(Relic::HandDrill),
+            RelicKey::Necronomicon | RelicKey::Enchiridion | RelicKey::NilrysCodex => None,
+            RelicKey::GoldenIdol => Some(Relic::GoldenIdol),
+            RelicKey::BloodyIdol => Some(Relic::BloodyIdol),
             RelicKey::Circlet => Some(Relic::Circlet),
             RelicKey::RedCirclet => Some(Relic::RedCirclet),
             RelicKey::SacredBark => Some(Relic::SacredBark),
@@ -2980,6 +3012,7 @@ impl Relic {
             RelicKey::Toolbox => Some(Relic::Toolbox),
             RelicKey::JuzuBracelet => Some(Relic::JuzuBracelet),
             RelicKey::PrismaticShard => Some(Relic::PrismaticShard),
+            RelicKey::MutagenicStrength => Some(Relic::MutagenicStrength),
         }
     }
 }

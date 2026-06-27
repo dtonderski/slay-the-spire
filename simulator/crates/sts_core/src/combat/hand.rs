@@ -26,37 +26,52 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
         .filter(|card| card.content_id == BURN_ID)
         .count() as i32;
 
-    let mitigated =
-        crate::relic::mitigate_hp_loss(&state.relics, burn_copies * BURN_END_TURN_DAMAGE);
+    let incoming = burn_copies * BURN_END_TURN_DAMAGE;
+    let blocked = state.player.block.min(incoming);
+    state.player.block -= blocked;
+    let mitigated = crate::relic::mitigate_hp_loss(&state.relics, incoming - blocked);
     let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp -= hp_loss;
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
 }
 
 fn apply_regret_damage_in_hand(state: &mut CombatState) {
-    let regret_copies = state
-        .piles
-        .hand
-        .iter()
-        .filter(|card| card.content_id == REGRET_ID)
-        .count();
     let hand_size = state.piles.hand.len() as i32;
+    let mut remaining = Vec::with_capacity(state.piles.hand.len());
+    let mut regrets = Vec::new();
 
-    for _ in 0..regret_copies {
+    for card in state.piles.hand.drain(..) {
+        if card.content_id == REGRET_ID {
+            regrets.push(card);
+        } else {
+            remaining.push(card);
+        }
+    }
+    state.piles.hand = remaining;
+
+    for _ in &regrets {
         let mitigated = crate::relic::mitigate_hp_loss(&state.relics, hand_size);
         let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
         state.player.hp -= hp_loss;
         crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
     }
+    state.piles.discard_pile.extend(regrets);
 }
 
 fn apply_doubt_weak_in_hand(state: &mut CombatState) {
-    let doubt_copies = state
-        .piles
-        .hand
-        .iter()
-        .filter(|card| card.content_id == DOUBT_ID)
-        .count() as i32;
+    let mut doubt_copies = 0;
+    let mut remaining = Vec::with_capacity(state.piles.hand.len());
+    let mut doubts = Vec::new();
+
+    for card in state.piles.hand.drain(..) {
+        if card.content_id == DOUBT_ID {
+            doubt_copies += 1;
+            doubts.push(card);
+        } else {
+            remaining.push(card);
+        }
+    }
+    state.piles.hand = remaining;
 
     if doubt_copies > 0 {
         crate::relic::apply_player_weak_with_relics(
@@ -64,6 +79,11 @@ fn apply_doubt_weak_in_hand(state: &mut CombatState) {
             &state.relics,
             doubt_copies,
         );
+        if state.relics.contains(&crate::Relic::RunicPyramid) {
+            state.piles.hand.extend(doubts);
+        } else {
+            state.piles.discard_pile.extend(doubts);
+        }
     }
 }
 
@@ -115,7 +135,8 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            DAZED_ID, DEFEND_R_ID, DOUBT, ETHEREAL_STRIKE_ID, RETAIN_DEFEND_ID, WOUND_ID,
+            DAZED_ID, DEFEND_R_ID, DOUBT, ETHEREAL_STRIKE_ID, FLEX_PLUS_ID, RETAIN_DEFEND_ID,
+            WOUND_ID,
         },
         ids::CardId,
         CardInstance,
@@ -242,6 +263,41 @@ mod tests {
     }
 
     #[test]
+    fn metallicize_block_absorbs_burn_before_regret_loses_hp() {
+        let mut state = CombatState::guardian_fixture();
+        state.player.hp = 26;
+        state.player.energy = 0;
+        state.player.block = 0;
+        state.player.powers.metallicize = 4;
+        state.player.powers.strength = 7;
+        state.player.temp_strength = 4;
+        state.monsters[0].hp = 60;
+        state.monsters[0].block = 20;
+        state.monsters[0].intent = crate::MonsterIntent::GuardianCloseUp { sharp_hide: 3 };
+        state.monsters[0].powers.vulnerable = 2;
+        state.monsters[0].in_defensive_mode = true;
+        state.monsters[0].defensive_turns_remaining = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), REGRET_ID),
+            CardInstance::new(CardId::new(23), crate::content::cards::BURN_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 22);
+        assert_eq!(next.player.block, 0);
+        assert_eq!(next.player.powers.strength, 7);
+        assert_eq!(next.player.temp_strength, 0);
+        assert_eq!(next.monsters[0].hp, 60);
+        assert_eq!(next.monsters[0].block, 0);
+        assert_eq!(next.monsters[0].powers.vulnerable, 1);
+        assert_eq!(next.monsters[0].powers.spikes, 3);
+    }
+
+    #[test]
     fn regret_in_hand_deals_damage_equal_to_hand_size() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 20;
@@ -294,13 +350,13 @@ mod tests {
     }
 
     #[test]
-    fn regret_damages_then_discards_at_end_of_turn() {
+    fn regret_autoplays_to_discard_before_remaining_hand_discards() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 20;
         state.monsters[0].alive = false;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(20), REGRET_ID),
-            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(21), FLEX_PLUS_ID),
         ];
         state.piles.draw_pile.clear();
 
@@ -308,15 +364,21 @@ mod tests {
 
         assert_eq!(next.player.hp, 18);
         assert!(next.piles.hand.is_empty());
-        assert!(next
+        let discard_ids = next
             .piles
             .discard_pile
             .iter()
-            .any(|card| card.content_id == REGRET_ID));
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            discard_ids,
+            vec![REGRET_ID, FLEX_PLUS_ID],
+            "Regret end-turn autoplay reaches discard before normal hand discard"
+        );
     }
 
     #[test]
-    fn runic_pyramid_keeps_regret_after_end_turn_damage() {
+    fn runic_pyramid_keeps_other_cards_after_regret_autoplays_to_discard() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 20;
         state.monsters[0].alive = false;
@@ -330,13 +392,10 @@ mod tests {
         let next = crate::combat::end_player_turn(&state);
 
         assert_eq!(next.player.hp, 18);
-        assert_eq!(next.piles.hand.len(), 2);
-        assert!(next
-            .piles
-            .hand
-            .iter()
-            .any(|card| card.content_id == REGRET_ID));
-        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DEFEND_R_ID);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, REGRET_ID);
     }
 
     #[test]

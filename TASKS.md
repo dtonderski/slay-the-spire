@@ -1821,7 +1821,7 @@ Do not implement:
 
 ## Milestone 36: Act 2 Support
 
-Status: planned.
+Status: in progress. Initial source-backed/synthetic-testable prep is underway while M35 remains `partial_data_blocked`: the target map generator now supports an explicit `TargetMapAct`, keeps existing Exordium wrappers intact, and exposes City/Act 2 topology, fixed-map, map-choice, and path room-kind helpers using the target `seed + actNum * 100` map RNG offset (`seed + 200` for Act 2) and the same fixed-row/room-assignment machinery. City encounter-key lists, act-aware City key lookup, source-backed City encounter group composition metadata, City-native monster HP ranges, City-native damage/status/block constants, partial executable Spheric Guardian opening state/intent, and event/shrine inventories are also decoded from target `TheCity`/`MonsterHelper`/monster constructors; event bodies, broader City monster AI, spawn RNG, and executable City monster groups remain explicit scaffolds. This is Act 2 scaffolding only; no passing Act 2 trace or boss-reward parity claim exists yet.
 
 Goal: extend source-backed seed-start parity through Act 2 boss reward for at least one Ironclad A0 trace.
 

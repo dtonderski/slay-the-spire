@@ -52,6 +52,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         }
 
+        if state.player.powers.entangled > 0 && definition.card_type == CardType::Attack {
+            continue;
+        }
+
         if definition.id == CLASH_ID && !hand_contains_only_attacks(state) {
             continue;
         }
@@ -234,6 +238,10 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
 
             if !is_affordable(state, card_id, definition) {
                 return Err(SimError::IllegalAction("card is unaffordable"));
+            }
+
+            if state.player.powers.entangled > 0 && definition.card_type == CardType::Attack {
+                return Err(SimError::IllegalAction("player is entangled"));
             }
 
             if definition.id == CLASH_ID && !hand_contains_only_attacks(state) {
@@ -657,6 +665,29 @@ mod tests {
                 },
             ),
             Err(SimError::IllegalAction("targeted card requires a target"))
+        );
+    }
+
+    #[test]
+    fn entangled_blocks_attack_cards_but_not_skills() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.entangled = 1;
+
+        let strike = CombatAction::PlayCard {
+            card_id: hand_card_id(&state, STRIKE_R_ID),
+            target: Some(MonsterId::new(1)),
+        };
+        let defend = CombatAction::PlayCard {
+            card_id: hand_card_id(&state, DEFEND_R_ID),
+            target: None,
+        };
+        let actions = legal_combat_actions(&state);
+
+        assert!(!actions.contains(&strike));
+        assert!(actions.contains(&defend));
+        assert_eq!(
+            validate_combat_action(&state, strike),
+            Err(SimError::IllegalAction("player is entangled"))
         );
     }
 

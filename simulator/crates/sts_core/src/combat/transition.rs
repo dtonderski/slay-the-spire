@@ -24,13 +24,14 @@ use crate::{
         TWIN_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
-        check_slime_boss_split, get_monster_definition, guardian_on_hp_damage,
-        wake_lagavulin_on_damage,
+        apply_gremlin_leader_death_escape, check_slime_boss_split, get_monster_definition,
+        guardian_on_hp_damage, wake_lagavulin_on_damage,
     },
     content::shop_pool::colorless_discovery_pool,
     ids::{CardId, ContentId, MonsterId},
     power::{
-        apply_monster_vulnerable, apply_monster_weak, calculate_block, reduce_monster_strength,
+        apply_monster_vulnerable, apply_monster_weak, apply_player_vulnerable, calculate_block,
+        reduce_monster_strength,
     },
     relic::Relic,
     rng::{JavaRng, SimulatorRng},
@@ -148,7 +149,7 @@ fn apply_internal_action(
             apply_rage_on_card_type(state, definition.card_type);
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
-            follow_ups.extend(apply_on_card_play_powers(state));
+            follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
             Ok(follow_ups)
         }
         InternalAction::SpendEnergy { amount } => {
@@ -203,9 +204,9 @@ fn apply_internal_action(
             }
             check_slime_boss_split(state, info.target);
             if !still_alive {
-                crate::relic::apply_monster_death_relics(state);
+                apply_monster_death_hooks(state, info.target);
             }
-            if still_alive && spikes > 0 {
+            if spikes > 0 {
                 let hp_before = state.player.hp;
                 reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
                 crate::combat::hp_loss::apply_player_hp_loss_hooks(
@@ -251,9 +252,9 @@ fn apply_internal_action(
                 }
                 check_slime_boss_split(state, target);
                 if !still_alive {
-                    crate::relic::apply_monster_death_relics(state);
+                    apply_monster_death_hooks(state, target);
                 }
-                if still_alive && spikes > 0 {
+                if spikes > 0 {
                     let hp_before = state.player.hp;
                     reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
                     crate::combat::hp_loss::apply_player_hp_loss_hooks(
@@ -261,6 +262,56 @@ fn apply_internal_action(
                         hp_before - state.player.hp,
                     );
                 }
+            }
+            Ok(Vec::new())
+        }
+        InternalAction::DealDamageAndHealUnblocked { info } => {
+            let player_powers = state.player.powers;
+            let temp_strength = state.player.temp_strength;
+            let relics = state.relics.clone();
+            let (hp_damage, spikes, still_alive, hand_drill_applies) = {
+                let monster = living_monster_mut(state, info.target)?;
+                let spikes = monster.powers.spikes;
+                let damage = deal_damage_info_to_monster_with_result(
+                    monster,
+                    info,
+                    player_powers,
+                    temp_strength,
+                    &relics,
+                );
+                wake_lagavulin_on_damage(monster, damage.hp_damage);
+                guardian_on_hp_damage(monster, damage.hp_damage);
+                (
+                    damage.hp_damage,
+                    spikes,
+                    monster.alive,
+                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                )
+            };
+            crate::relic::heal_player_in_combat_with_relics(
+                &mut state.player.hp,
+                state.player.max_hp,
+                hp_damage,
+                &state.relics,
+            );
+            if still_alive && hand_drill_applies {
+                apply_player_vulnerable_debuff(
+                    state,
+                    info.target,
+                    crate::relic::HAND_DRILL_VULNERABLE,
+                )?;
+            }
+            check_slime_boss_split(state, info.target);
+            if !still_alive {
+                apply_monster_death_hooks(state, info.target);
+            }
+            if spikes > 0 {
+                let hp_before = state.player.hp;
+                reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(
+                    state,
+                    hp_before - state.player.hp,
+                );
             }
             Ok(Vec::new())
         }
@@ -297,9 +348,9 @@ fn apply_internal_action(
             if !still_alive {
                 state.player.max_hp += max_hp_gain;
                 state.player.hp += max_hp_gain;
-                crate::relic::apply_monster_death_relics(state);
+                apply_monster_death_hooks(state, info.target);
             }
-            if still_alive && spikes > 0 {
+            if spikes > 0 {
                 let hp_before = state.player.hp;
                 reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
                 crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
@@ -544,6 +595,10 @@ fn apply_internal_action(
             state.player.temp_strength += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainIntangible { amount } => {
+            state.player.powers.intangible += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainRitual { amount } => {
             state.player.powers.ritual += amount;
             Ok(Vec::new())
@@ -637,27 +692,40 @@ fn apply_rupture_after_hp_loss(state: &mut CombatState, source: HpLossSource, ac
     state.player.powers.strength += state.player.powers.rupture;
 }
 
-fn apply_on_card_play_powers(state: &mut CombatState) -> Vec<InternalAction> {
-    if state.player.powers.panache <= 0 {
-        return Vec::new();
+fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Vec<InternalAction> {
+    let mut follow_ups = Vec::new();
+
+    if state.player.powers.hex > 0 && card_type != CardType::Attack {
+        for _ in 0..state.player.powers.hex {
+            follow_ups.push(InternalAction::AddGeneratedCardToPile {
+                content_id: DAZED_ID,
+                to: CardPile::DrawPile,
+                temp_cost: None,
+            });
+        }
     }
 
+    if state.player.powers.panache <= 0 {
+        return follow_ups;
+    }
     state.player.powers.panache_cards_played += 1;
     if state.player.powers.panache_cards_played < 5 {
-        return Vec::new();
+        return follow_ups;
     }
 
     state.player.powers.panache_cards_played = 0;
     let amount = state.player.powers.panache;
-    state
-        .monsters
-        .iter()
-        .filter(|monster| monster.alive)
-        .map(|monster| InternalAction::DealUnmodifiedDamage {
-            target: monster.id,
-            amount,
-        })
-        .collect()
+    follow_ups.extend(
+        state
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive)
+            .map(|monster| InternalAction::DealUnmodifiedDamage {
+                target: monster.id,
+                amount,
+            }),
+    );
+    follow_ups
 }
 
 fn deal_attack_damage_to_all_living(
@@ -704,9 +772,9 @@ fn deal_attack_damage_to_all_living(
         total_hp_damage += hp_damage;
         check_slime_boss_split(state, target);
         if !still_alive {
-            crate::relic::apply_monster_death_relics(state);
+            apply_monster_death_hooks(state, target);
         }
-        if still_alive && spikes > 0 {
+        if spikes > 0 {
             let hp_before = state.player.hp;
             reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
             crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_before - state.player.hp);
@@ -730,9 +798,28 @@ fn deal_unmodified_damage_to_living_monster(
     };
     check_slime_boss_split(state, target);
     if !still_alive {
-        crate::relic::apply_monster_death_relics(state);
+        apply_monster_death_hooks(state, target);
     }
     Ok(())
+}
+
+pub(crate) fn apply_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) {
+    apply_gremlin_leader_death_escape(&mut state.monsters, monster_id);
+    apply_spore_cloud_on_monster_death(state, monster_id);
+    crate::relic::apply_monster_death_relics(state);
+}
+
+fn apply_spore_cloud_on_monster_death(state: &mut CombatState, monster_id: MonsterId) {
+    let amount = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == monster_id)
+        .map_or(0, |monster| monster.powers.spore_cloud);
+    if amount <= 0 || !state.monsters.iter().any(|monster| monster.alive) {
+        return;
+    }
+
+    apply_player_vulnerable(&mut state.player.powers, amount);
 }
 
 fn apply_sadistic_nature_after_monster_debuff(
@@ -850,7 +937,7 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId)
             };
             check_slime_boss_split(state, target);
             if !still_alive {
-                crate::relic::apply_monster_death_relics(state);
+                apply_monster_death_hooks(state, target);
             }
         }
     }
@@ -997,6 +1084,7 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
         if let Some(monster_def) = get_monster_definition(monster.content_id) {
             if monster_def.enrage_weak_on_skill > 0 {
                 monster.powers.anger += monster_def.enrage_weak_on_skill;
+                monster.powers.strength += monster_def.enrage_weak_on_skill;
             }
         }
     }
@@ -1057,7 +1145,7 @@ fn apply_play_top_draw_card(
     apply_enrage_on_card_type(state, definition.card_type);
     apply_rage_on_card_type(state, definition.card_type);
 
-    let mut follow_ups = Vec::new();
+    let mut follow_ups = apply_on_card_play_powers(state, definition.card_type);
     let current_pile_count_with_top_card = card_effects::current_combat_pile_card_count(state) + 1;
 
     match definition.id {
@@ -2027,33 +2115,39 @@ mod tests {
     use crate::card::{CardRarity, TargetRequirement};
     use crate::content::cards::ARMAMENTS_ID;
     use crate::content::cards::{
-        ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID,
-        BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BLIND_ID, BLIND_PLUS_ID,
-        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
-        BRUTALITY_ID, BURNING_PACT_ID, BURN_ID, CARNAGE_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
-        DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID,
-        DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, EXHUME_PLUS_ID,
-        FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID,
+        ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, APPARITION_ID,
+        APPARITION_PLUS_ID, BANDAGE_UP_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID,
+        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BITE_ID, BLIND_ID, BLIND_PLUS_ID, BLOODLETTING_ID,
+        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
+        BURNING_PACT_ID, BURN_ID, CARNAGE_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID,
+        DARK_SHACKLES_PLUS_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
+        DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DROPKICK_ID, DUAL_WIELD_ID, ENLIGHTENMENT_ID,
+        ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID,
+        FEED_PLUS_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID,
         FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FLEX_PLUS_ID,
         FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID,
         HAVOC_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
         IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID,
         INFLAME_PLUS_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID,
-        JACK_OF_ALL_TRADES_PLUS_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID, MAGNETISM_ID,
-        MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METAMORPHOSIS_ID, MIND_BLAST_ID, OFFERING_ID,
-        PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID,
-        RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-        SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID,
-        SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, THUNDERCLAP_ID,
-        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        JACK_OF_ALL_TRADES_PLUS_ID, JAX_ID, JAX_PLUS_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID,
+        MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, METAMORPHOSIS_ID,
+        MIND_BLAST_ID, OFFERING_ID, OFFERING_PLUS_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        PURITY_ID, RAGE_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
+        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRANSMUTATION_ID,
+        TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+    };
+    use crate::content::monsters::{
+        monster_state, FIXED_SIMPLE_MONSTER, FUNGI_BEAST_A0, GREMLIN_LEADER_A0, GREMLIN_THIEF_A0,
+        GREMLIN_WARRIOR_A0,
     };
     use crate::legal_combat_actions;
     use crate::MonsterIntent;
@@ -2065,6 +2159,76 @@ mod tests {
         let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 6);
+    }
+
+    #[test]
+    fn killing_fungi_beast_releases_spore_cloud_when_battle_continues() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, MonsterId::new(1)),
+            monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 6;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[1].alive);
+        assert_eq!(next.player.powers.vulnerable, 2);
+    }
+
+    #[test]
+    fn killing_gremlin_leader_makes_living_minions_escape() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&GREMLIN_WARRIOR_A0, MonsterId::new(1)),
+            monster_state(&GREMLIN_THIEF_A0, MonsterId::new(2)),
+            monster_state(&GREMLIN_LEADER_A0, MonsterId::new(3)),
+        ];
+        state.monsters[2].hp = 6;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, STRIKE_R_ID),
+                target: Some(MonsterId::new(3)),
+            },
+        )
+        .expect("leader kill applies");
+
+        assert!(!next.monsters[0].alive);
+        assert!(!next.monsters[1].alive);
+        assert!(!next.monsters[2].alive);
+        assert_eq!(next.phase, CombatPhase::Won);
+    }
+
+    #[test]
+    fn killing_last_fungi_beast_skips_spore_cloud() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&FUNGI_BEAST_A0, MonsterId::new(1))];
+        state.monsters[0].hp = 6;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.powers.vulnerable, 0);
+    }
+
+    #[test]
+    fn fungi_beast_spore_cloud_consumes_player_artifact() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, MonsterId::new(1)),
+            monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 6;
+        state.player.powers.artifact = 1;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.powers.artifact, 0);
+        assert_eq!(next.player.powers.vulnerable, 0);
     }
 
     #[test]
@@ -6276,6 +6440,60 @@ mod tests {
     }
 
     #[test]
+    fn apparition_grants_one_intangible_and_exhausts() {
+        let mut state = hand_only(APPARITION_ID);
+        state.player.hp = 70;
+        state.player.block = 0;
+        state.piles.draw_pile.clear();
+        let apparition_id = hand_card_id(&state, APPARITION_ID);
+
+        let after_apparition = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: apparition_id,
+                target: None,
+            },
+        )
+        .expect("Apparition applies");
+
+        assert_eq!(after_apparition.player.energy, state.player.energy - 1);
+        assert_eq!(after_apparition.player.powers.intangible, 1);
+        assert!(after_apparition
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == apparition_id));
+
+        let next_turn = crate::combat::end_player_turn(&after_apparition);
+
+        assert_eq!(next_turn.player.hp, 69);
+        assert_eq!(next_turn.player.powers.intangible, 0);
+    }
+
+    #[test]
+    fn apparition_plus_grants_one_intangible_and_exhausts_without_ethereal() {
+        let state = hand_only(APPARITION_PLUS_ID);
+        let apparition_id = hand_card_id(&state, APPARITION_PLUS_ID);
+
+        let after_apparition = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: apparition_id,
+                target: None,
+            },
+        )
+        .expect("Apparition+ applies");
+
+        assert_eq!(after_apparition.player.energy, state.player.energy - 1);
+        assert_eq!(after_apparition.player.powers.intangible, 1);
+        assert!(after_apparition
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == apparition_id));
+    }
+
+    #[test]
     fn bandage_up_healing_is_capped_at_max_hp() {
         let mut state = hand_only(BANDAGE_UP_ID);
         state.player.hp = 78;
@@ -7165,6 +7383,26 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.id == swift_strike_id));
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn bite_deals_seven_heals_unblocked_damage_and_discards() {
+        let mut state = hand_only(BITE_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 80;
+        let bite_id = hand_card_id(&state, BITE_ID);
+
+        let next = apply_combat_action(&state, bite_action(&state)).expect("Bite applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 7);
+        assert_eq!(next.player.hp, 47);
+        assert_eq!(next.player.energy, 2);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == bite_id));
         assert!(next.piles.exhaust_pile.is_empty());
     }
 
@@ -8184,7 +8422,7 @@ mod tests {
             transition.event_log,
             vec![
                 InternalAction::PlayCard { card_id: strike_id },
-                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::SpendCardEnergy { card_id: strike_id },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(strike_id),
@@ -8278,6 +8516,19 @@ mod tests {
         let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
 
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
+    }
+
+    #[test]
+    fn pen_nib_doubles_attack_damage_after_strength() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(crate::Relic::PenNib);
+        state.relic_counters.pen_nib_attacks_played = 9;
+        state.player.powers.strength = 4;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 20);
         assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
     }
 
@@ -8941,6 +9192,35 @@ mod tests {
 
         assert_eq!(next.player.energy, state.player.energy - 1);
         assert_eq!(next.player.block, 8);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(30)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
+    fn shrug_it_off_plus_gains_eleven_block_draws_one_and_moves_to_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), SHRUG_IT_OFF_PLUS_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Shrug It Off+ applies");
+
+        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.block, 11);
         assert!(next
             .piles
             .hand
@@ -11371,7 +11651,7 @@ mod tests {
 
         assert_eq!(next_turn.player.hp, 39);
         assert_eq!(next_turn.player.powers.brutality, 1);
-        assert_eq!(next_turn.piles.hand.len(), 5);
+        assert_eq!(next_turn.piles.hand.len(), 6);
         assert_eq!(
             next_turn
                 .piles
@@ -11385,6 +11665,7 @@ mod tests {
                 CardId::new(33),
                 CardId::new(32),
                 CardId::new(31),
+                CardId::new(30),
             ]
         );
         assert_eq!(
@@ -11394,7 +11675,7 @@ mod tests {
                 .iter()
                 .map(|card| card.id)
                 .collect::<Vec<_>>(),
-            vec![CardId::new(30)]
+            Vec::<CardId>::new()
         );
     }
 
@@ -11420,7 +11701,7 @@ mod tests {
 
         assert_eq!(next_turn.player.hp, 38);
         assert_eq!(next_turn.player.powers.brutality, 2);
-        assert_eq!(next_turn.piles.hand.len(), 5);
+        assert_eq!(next_turn.piles.hand.len(), 7);
         assert_eq!(
             next_turn
                 .piles
@@ -11428,7 +11709,7 @@ mod tests {
                 .iter()
                 .map(|card| card.id)
                 .collect::<Vec<_>>(),
-            vec![CardId::new(30), CardId::new(31)]
+            Vec::<CardId>::new()
         );
     }
 
@@ -11696,7 +11977,9 @@ mod tests {
                 InternalAction::PlayCard {
                     card_id: CardId::new(20),
                 },
-                InternalAction::SpendEnergy { amount: 1 },
+                InternalAction::SpendCardEnergy {
+                    card_id: CardId::new(20),
+                },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(CardId::new(20)),
@@ -12425,6 +12708,27 @@ mod tests {
     }
 
     #[test]
+    fn lethal_pommel_strike_takes_sharp_hide_before_burning_blood_heal() {
+        let mut state = hand_only(POMMEL_STRIKE_ID);
+        state.player.hp = 11;
+        state.relics = vec![Relic::BurningBlood];
+        state.monsters[0].hp = 1;
+        state.monsters[0].powers.spikes = 3;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("lethal Pommel Strike applies");
+
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert_eq!(next.player.hp, 14);
+    }
+
+    #[test]
     fn battle_trance_draws_two_sets_cannot_draw_and_moves_to_discard() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![CardInstance::new(CardId::new(20), BATTLE_TRANCE_ID)];
@@ -12756,6 +13060,47 @@ mod tests {
     }
 
     #[test]
+    fn jax_loses_three_hp_and_grants_two_strength() {
+        let mut state = hand_only(JAX_ID);
+        state.player.hp = 70;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("J.A.X. applies");
+
+        assert_eq!(next.player.hp, 67);
+        assert_eq!(next.player.powers.strength, 2);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == JAX_ID));
+    }
+
+    #[test]
+    fn jax_plus_grants_three_strength() {
+        let mut state = hand_only(JAX_PLUS_ID);
+        state.player.hp = 70;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("J.A.X.+ applies");
+
+        assert_eq!(next.player.hp, 67);
+        assert_eq!(next.player.powers.strength, 3);
+    }
+
+    #[test]
     fn flex_temp_strength_boosts_strike_damage() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
@@ -12926,6 +13271,39 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![BASH_ID, DEFEND_R_ID, STRIKE_R_ID]
         );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == offering_id));
+    }
+
+    #[test]
+    fn offering_plus_draws_five_and_exhausts() {
+        let mut state = hand_only(OFFERING_PLUS_ID);
+        state.player.energy = 0;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+            CardInstance::new(CardId::new(32), BASH_ID),
+            CardInstance::new(CardId::new(33), CLEAVE_ID),
+            CardInstance::new(CardId::new(34), ANGER_ID),
+        ];
+        let offering_id = hand_card_id(&state, OFFERING_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: offering_id,
+                target: None,
+            },
+        )
+        .expect("Offering+ applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 6);
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.piles.hand.len(), 5);
+        assert!(next.piles.draw_pile.is_empty());
         assert!(next
             .piles
             .exhaust_pile
@@ -13175,6 +13553,7 @@ mod tests {
         let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
 
         assert_eq!(next.monsters[0].powers.anger, 2);
+        assert_eq!(next.monsters[0].powers.strength, 2);
     }
 
     #[test]
@@ -13186,6 +13565,7 @@ mod tests {
             .expect("Power Through applies");
 
         assert_eq!(next.monsters[0].powers.anger, 2);
+        assert_eq!(next.monsters[0].powers.strength, 2);
     }
 
     #[test]
@@ -13195,6 +13575,7 @@ mod tests {
         let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
 
         assert_eq!(next.monsters[0].powers.anger, 0);
+        assert_eq!(next.monsters[0].powers.strength, 0);
     }
 
     #[test]
@@ -13223,6 +13604,52 @@ mod tests {
         .expect("second Defend applies");
 
         assert_eq!(after_second.monsters[0].powers.anger, 4);
+        assert_eq!(after_second.monsters[0].powers.strength, 4);
+    }
+
+    #[test]
+    fn hex_adds_dazed_to_draw_pile_when_non_attack_is_played() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.hex = 1;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert!(next
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID && card.combat_only));
+    }
+
+    #[test]
+    fn hex_does_not_trigger_when_attack_is_played() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.hex = 1;
+
+        let next = apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+
+        assert!(!next
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID));
+    }
+
+    #[test]
+    fn stacked_hex_adds_multiple_dazed_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.hex = 2;
+
+        let next = apply_combat_action(&state, defend_action(&state)).expect("Defend applies");
+
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID && card.combat_only)
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -14916,6 +15343,22 @@ mod tests {
             .all(|card| card.content_id != METALLICIZE_ID));
     }
 
+    #[test]
+    fn metallicize_plus_grants_four_metallicize() {
+        let state = hand_only(METALLICIZE_PLUS_ID);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Metallicize+ applies");
+
+        assert_eq!(next.player.powers.metallicize, 4);
+    }
+
     fn hand_only(content_id: crate::ContentId) -> CombatState {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![CardInstance::new(CardId::new(20), content_id)];
@@ -15072,6 +15515,13 @@ mod tests {
     fn swift_strike_action(state: &CombatState) -> CombatAction {
         CombatAction::PlayCard {
             card_id: hand_card_id(state, SWIFT_STRIKE_ID),
+            target: Some(MonsterId::new(1)),
+        }
+    }
+
+    fn bite_action(state: &CombatState) -> CombatAction {
+        CombatAction::PlayCard {
+            card_id: hand_card_id(state, BITE_ID),
             target: Some(MonsterId::new(1)),
         }
     }

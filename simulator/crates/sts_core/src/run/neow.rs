@@ -244,6 +244,7 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
         run.reward = Some(RewardScreen {
             choices: Vec::new(),
             gold_offer: 0,
+            stolen_gold_offer: 0,
             potion_offer: None,
             relic_offer: None,
             relic_key_offer: None,

@@ -8,7 +8,9 @@ use crate::{
 
 pub const STRIKE_R_ID: ContentId = ContentId::new(1);
 pub const DEFEND_R_ID: ContentId = ContentId::new(2);
+pub const DEFEND_R_PLUS_ID: ContentId = ContentId::new(2_000_001);
 pub const BASH_ID: ContentId = ContentId::new(3);
+pub const BASH_PLUS_ID: ContentId = ContentId::new(3_000_001);
 pub const WOUND_ID: ContentId = ContentId::new(4);
 pub const DAZED_ID: ContentId = ContentId::new(5);
 pub const BURN_ID: ContentId = ContentId::new(6);
@@ -34,6 +36,7 @@ pub const ANGER_PLUS_ID: ContentId = ContentId::new(13);
 pub const CLEAVE_PLUS_ID: ContentId = ContentId::new(14);
 pub const TWIN_STRIKE_PLUS_ID: ContentId = ContentId::new(15);
 pub const SHRUG_IT_OFF_ID: ContentId = ContentId::new(16);
+pub const SHRUG_IT_OFF_PLUS_ID: ContentId = ContentId::new(10_152);
 pub const TRUE_GRIT_ID: ContentId = ContentId::new(17);
 pub const BURNING_PACT_ID: ContentId = ContentId::new(18);
 pub const FEEL_NO_PAIN_ID: ContentId = ContentId::new(19);
@@ -64,6 +67,12 @@ pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
 pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
 pub const SWIFT_STRIKE_PLUS_ID: ContentId = ContentId::new(46);
+pub const BITE_ID: ContentId = ContentId::new(47);
+pub const RITUAL_DAGGER_ID: ContentId = ContentId::new(48);
+pub const APPARITION_ID: ContentId = ContentId::new(49);
+pub const APPARITION_PLUS_ID: ContentId = ContentId::new(49_000_001);
+pub const JAX_ID: ContentId = ContentId::new(50);
+pub const JAX_PLUS_ID: ContentId = ContentId::new(50_000_001);
 pub const BANDAGE_UP_ID: ContentId = ContentId::new(1_802_661_242_803_912);
 pub const BANDAGE_UP_PLUS_ID: ContentId = ContentId::new(1_802_661_242_803_913);
 pub const APOTHEOSIS_ID: ContentId = ContentId::new(1_789_056_897_720_887);
@@ -155,6 +164,7 @@ pub const FLAME_BARRIER_ID: ContentId = ContentId::new(117);
 pub const FLAME_BARRIER_PLUS_ID: ContentId = ContentId::new(10_117);
 pub const PUMMEL_ID: ContentId = ContentId::new(118);
 pub const METALLICIZE_ID: ContentId = ContentId::new(119);
+pub const METALLICIZE_PLUS_ID: ContentId = ContentId::new(10_119);
 pub const SHOCKWAVE_ID: ContentId = ContentId::new(120);
 pub const SHOCKWAVE_PLUS_ID: ContentId = ContentId::new(10_120);
 pub const RAMPAGE_ID: ContentId = ContentId::new(121);
@@ -206,6 +216,7 @@ pub const EXHUME_PLUS_ID: ContentId = ContentId::new(150_000_001);
 pub const OFFERING_ID: ContentId = ContentId::new(151);
 pub const OFFERING_PLUS_ID: ContentId = ContentId::new(10_151);
 pub const IMMOLATE_ID: ContentId = ContentId::new(152);
+pub const IMMOLATE_PLUS_ID: ContentId = ContentId::new(152_000_001);
 
 pub const STRIKE_R: CardDefinition = CardDefinition {
     id: STRIKE_R_ID,
@@ -252,6 +263,21 @@ pub const DEFEND_R: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const DEFEND_R_PLUS: CardDefinition = CardDefinition {
+    id: DEFEND_R_PLUS_ID,
+    key: "Defend_R+",
+    name: "Defend+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(8),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BASH: CardDefinition = CardDefinition {
     id: BASH_ID,
     key: "Bash",
@@ -263,6 +289,21 @@ pub const BASH: CardDefinition = CardDefinition {
         damage: Some(8),
         block: None,
         vulnerable: Some(2),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BASH_PLUS: CardDefinition = CardDefinition {
+    id: BASH_PLUS_ID,
+    key: "Bash+",
+    name: "Bash+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(10),
+        block: None,
+        vulnerable: Some(3),
     },
     keywords: CARD_KEYWORDS_NONE,
 };
@@ -627,6 +668,21 @@ pub const SHRUG_IT_OFF: CardDefinition = CardDefinition {
     values: CardValues {
         damage: None,
         block: Some(8),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const SHRUG_IT_OFF_PLUS: CardDefinition = CardDefinition {
+    id: SHRUG_IT_OFF_PLUS_ID,
+    key: "Shrug It Off+",
+    name: "Shrug It Off+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(11),
         vulnerable: None,
     },
     keywords: CARD_KEYWORDS_NONE,
@@ -1668,6 +1724,114 @@ pub const SWIFT_STRIKE_PLUS: CardDefinition = CardDefinition {
         damage: Some(10),
         block: None,
         vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BITE: CardDefinition = CardDefinition {
+    id: BITE_ID,
+    key: "Bite",
+    name: "Bite",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const RITUAL_DAGGER: CardDefinition = CardDefinition {
+    id: RITUAL_DAGGER_ID,
+    key: "RitualDagger",
+    name: "Ritual Dagger",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(15),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        exhaust: true,
+        ethereal: false,
+        innate: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const APPARITION: CardDefinition = CardDefinition {
+    id: APPARITION_ID,
+    key: "Apparition",
+    name: "Apparition",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: true,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const APPARITION_PLUS: CardDefinition = CardDefinition {
+    id: APPARITION_PLUS_ID,
+    key: "Apparition+",
+    name: "Apparition+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const JAX: CardDefinition = CardDefinition {
+    id: JAX_ID,
+    key: "J.A.X.",
+    name: "J.A.X.",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(3),
+        block: None,
+        vulnerable: Some(2),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const JAX_PLUS: CardDefinition = CardDefinition {
+    id: JAX_PLUS_ID,
+    key: "J.A.X.+",
+    name: "J.A.X.+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(3),
+        block: None,
+        vulnerable: Some(3),
     },
     keywords: CARD_KEYWORDS_NONE,
 };
@@ -3238,6 +3402,27 @@ pub const IMMOLATE: CardDefinition = CardDefinition {
     },
 };
 
+pub const IMMOLATE_PLUS: CardDefinition = CardDefinition {
+    id: IMMOLATE_PLUS_ID,
+    key: "Immolate+",
+    name: "Immolate+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(28),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub const BLUDGEON: CardDefinition = CardDefinition {
     id: BLUDGEON_ID,
     key: "BLUDGEON",
@@ -3457,6 +3642,21 @@ pub const METALLICIZE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const METALLICIZE_PLUS: CardDefinition = CardDefinition {
+    id: METALLICIZE_PLUS_ID,
+    key: "Metallicize+",
+    name: "Metallicize+",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(4),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const THUNDERCLAP: CardDefinition = CardDefinition {
     id: THUNDERCLAP_ID,
     key: "Thunderclap",
@@ -3502,8 +3702,9 @@ pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 10] = [
     WHIRLWIND,
     WHIRLWIND_PLUS,
 ];
-pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 11] = [
+pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 12] = [
     SHRUG_IT_OFF,
+    SHRUG_IT_OFF_PLUS,
     TRUE_GRIT,
     BURNING_PACT,
     BATTLE_TRANCE,
@@ -3527,11 +3728,13 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 199] = [
+pub const ALL_CARDS: [CardDefinition; 210] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
+    DEFEND_R_PLUS,
     BASH,
+    BASH_PLUS,
     WOUND,
     DAZED,
     BURN,
@@ -3557,6 +3760,7 @@ pub const ALL_CARDS: [CardDefinition; 199] = [
     CLEAVE_PLUS,
     TWIN_STRIKE_PLUS,
     SHRUG_IT_OFF,
+    SHRUG_IT_OFF_PLUS,
     TRUE_GRIT,
     BURNING_PACT,
     FEEL_NO_PAIN,
@@ -3623,6 +3827,12 @@ pub const ALL_CARDS: [CardDefinition; 199] = [
     ENLIGHTENMENT_PLUS,
     SWIFT_STRIKE,
     SWIFT_STRIKE_PLUS,
+    BITE,
+    RITUAL_DAGGER,
+    APPARITION,
+    APPARITION_PLUS,
+    JAX,
+    JAX_PLUS,
     DEEP_BREATH,
     DEEP_BREATH_PLUS,
     DISCOVERY,
@@ -3714,6 +3924,7 @@ pub const ALL_CARDS: [CardDefinition; 199] = [
     BLOOD_FOR_BLOOD,
     BLOOD_FOR_BLOOD_PLUS,
     IMMOLATE,
+    IMMOLATE_PLUS,
     BLUDGEON,
     FEED,
     FEED_PLUS,
@@ -3725,6 +3936,7 @@ pub const ALL_CARDS: [CardDefinition; 199] = [
     EXHUME,
     EXHUME_PLUS,
     METALLICIZE,
+    METALLICIZE_PLUS,
     THUNDERCLAP,
     UPPERCUT,
 ];
@@ -3768,7 +3980,8 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
     match id {
         id if id == STRIKE_R_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == BASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == DEFEND_R_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == BASH_ID || id == BASH_PLUS_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BANDAGE_UP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BANDAGE_UP_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == BLIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -3818,6 +4031,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == SWORD_BOOMERANG_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == SHRUG_IT_OFF_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == SHRUG_IT_OFF_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == TRUE_GRIT_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == POMMEL_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BATTLE_TRANCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -3854,6 +4068,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
             Some((CardType::Skill, CardRarity::Rare))
         }
         id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == METALLICIZE_ID || id == METALLICIZE_PLUS_ID => {
+            Some((CardType::Power, CardRarity::Uncommon))
+        }
         id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == WHIRLWIND_ID => Some((CardType::Attack, CardRarity::Uncommon)),
@@ -3871,6 +4088,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         }
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RAGE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == IMMOLATE_ID || id == IMMOLATE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Rare))
+        }
         id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == FEED_ID || id == FEED_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
@@ -3884,6 +4104,12 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == APOTHEOSIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == SWIFT_STRIKE_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == BITE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == RITUAL_DAGGER_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == APPARITION_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == APPARITION_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == JAX_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == JAX_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == FLASH_OF_STEEL_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == MIND_BLAST_ID => Some((CardType::Attack, CardRarity::Uncommon)),
@@ -3944,6 +4170,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
 #[must_use]
 pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
     match id {
+        APPARITION_ID => Some(APPARITION_PLUS_ID),
         ARMAMENTS_ID => Some(ARMAMENTS_PLUS_ID),
         HEADBUTT_ID => Some(HEADBUTT_PLUS_ID),
         BLOOD_FOR_BLOOD_ID => Some(BLOOD_FOR_BLOOD_PLUS_ID),
@@ -3958,6 +4185,9 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         OFFERING_ID => Some(OFFERING_PLUS_ID),
         REAPER_ID => Some(REAPER_PLUS_ID),
         FIEND_FIRE_ID => Some(FIEND_FIRE_PLUS_ID),
+        DEFEND_R_ID => Some(DEFEND_R_PLUS_ID),
+        BASH_ID => Some(BASH_PLUS_ID),
+        IMMOLATE_ID => Some(IMMOLATE_PLUS_ID),
         STRIKE_R_ID => Some(STRIKE_R_PLUS_ID),
         ANGER_ID => Some(ANGER_PLUS_ID),
         CLEAVE_ID => Some(CLEAVE_PLUS_ID),
@@ -3993,6 +4223,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         MIND_BLAST_ID => Some(MIND_BLAST_PLUS_ID),
         PANACEA_ID => Some(PANACEA_PLUS_ID),
         APOTHEOSIS_ID => Some(APOTHEOSIS_PLUS_ID),
+        JAX_ID => Some(JAX_PLUS_ID),
         DISCOVERY_ID => Some(DISCOVERY_PLUS_ID),
         ENLIGHTENMENT_ID => Some(ENLIGHTENMENT_PLUS_ID),
         FORETHOUGHT_ID => Some(FORETHOUGHT_PLUS_ID),
@@ -4015,6 +4246,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         THINKING_AHEAD_ID => Some(THINKING_AHEAD_PLUS_ID),
         TRANSMUTATION_ID => Some(TRANSMUTATION_PLUS_ID),
         METAMORPHOSIS_ID => Some(METAMORPHOSIS_PLUS_ID),
+        METALLICIZE_ID => Some(METALLICIZE_PLUS_ID),
         _ => None,
     }
 }
@@ -4058,6 +4290,18 @@ mod tests {
             card_type_and_rarity(EVOLVE_ID),
             Some((CardType::Power, CardRarity::Uncommon))
         );
+    }
+
+    #[test]
+    fn metallicize_plus_has_upgraded_magic_number() {
+        assert_eq!(METALLICIZE.values.block, Some(3));
+        assert_eq!(METALLICIZE_PLUS.id, METALLICIZE_PLUS_ID);
+        assert_eq!(METALLICIZE_PLUS.values.block, Some(4));
+        assert_eq!(
+            upgrade_content_id(METALLICIZE_ID),
+            Some(METALLICIZE_PLUS_ID)
+        );
+        assert_eq!(upgrade_content_id(METALLICIZE_PLUS_ID), None);
     }
 
     #[test]
@@ -4288,6 +4532,64 @@ mod tests {
             card_type_and_rarity(SWIFT_STRIKE_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
+    }
+
+    #[test]
+    fn ritual_dagger_has_expected_values_keywords_and_rarity() {
+        assert_eq!(RITUAL_DAGGER.id, RITUAL_DAGGER_ID);
+        assert_eq!(RITUAL_DAGGER.cost, 1);
+        assert_eq!(RITUAL_DAGGER.target, TargetRequirement::Enemy);
+        assert_eq!(RITUAL_DAGGER.card_type, CardType::Attack);
+        assert_eq!(RITUAL_DAGGER.values.damage, Some(15));
+        assert!(RITUAL_DAGGER.keywords.exhaust);
+        assert_eq!(
+            card_type_and_rarity(RITUAL_DAGGER_ID),
+            Some((CardType::Attack, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn apparition_has_expected_values_keywords_and_rarity() {
+        assert_eq!(APPARITION.id, APPARITION_ID);
+        assert_eq!(APPARITION.cost, 1);
+        assert_eq!(APPARITION.target, TargetRequirement::None);
+        assert_eq!(APPARITION.card_type, CardType::Skill);
+        assert_eq!(APPARITION.values.damage, None);
+        assert!(APPARITION.keywords.ethereal);
+        assert!(APPARITION.keywords.exhaust);
+        assert_eq!(APPARITION_PLUS.id, APPARITION_PLUS_ID);
+        assert_eq!(APPARITION_PLUS.cost, 1);
+        assert_eq!(APPARITION_PLUS.target, TargetRequirement::None);
+        assert_eq!(APPARITION_PLUS.card_type, CardType::Skill);
+        assert_eq!(APPARITION_PLUS.values.damage, None);
+        assert!(!APPARITION_PLUS.keywords.ethereal);
+        assert!(APPARITION_PLUS.keywords.exhaust);
+        assert_eq!(upgrade_content_id(APPARITION_ID), Some(APPARITION_PLUS_ID));
+        assert_eq!(upgrade_content_id(APPARITION_PLUS_ID), None);
+        assert_eq!(
+            card_type_and_rarity(APPARITION_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+        assert_eq!(
+            card_type_and_rarity(APPARITION_PLUS_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+    }
+
+    #[test]
+    fn jax_has_expected_values_upgrade_and_rarity() {
+        assert_eq!(JAX.id, JAX_ID);
+        assert_eq!(JAX.cost, 0);
+        assert_eq!(JAX.target, TargetRequirement::None);
+        assert_eq!(JAX.card_type, CardType::Skill);
+        assert_eq!(JAX.values.damage, Some(3));
+        assert_eq!(JAX.values.vulnerable, Some(2));
+        assert_eq!(upgrade_content_id(JAX_ID), Some(JAX_PLUS_ID));
+        assert_eq!(
+            card_type_and_rarity(JAX_ID),
+            Some((CardType::Skill, CardRarity::Rare))
+        );
+        assert_eq!(JAX_PLUS.values.vulnerable, Some(3));
     }
 
     #[test]
@@ -5026,6 +5328,12 @@ mod tests {
         assert_eq!(SHRUG_IT_OFF.target, TargetRequirement::None);
         assert_eq!(SHRUG_IT_OFF.card_type, CardType::Skill);
         assert_eq!(SHRUG_IT_OFF.values.block, Some(8));
+        assert_eq!(SHRUG_IT_OFF_PLUS.cost, 1);
+        assert_eq!(SHRUG_IT_OFF_PLUS.target, TargetRequirement::None);
+        assert_eq!(SHRUG_IT_OFF_PLUS.card_type, CardType::Skill);
+        assert_eq!(SHRUG_IT_OFF_PLUS.values.block, Some(11));
+        assert_eq!(upgrade_content_id(SHRUG_IT_OFF_ID), None);
+        assert_eq!(upgrade_content_id(SHRUG_IT_OFF_PLUS_ID), None);
     }
 
     #[test]

@@ -27,7 +27,7 @@ pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng)
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
             let content_id = card.content_id;
-            apply_snecko_eye_cost_randomization(state, &mut card);
+            apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
             apply_fire_breathing_on_draw(state, content_id);
             draw_cards(state, evolve_extra_draw_count(state, content_id), rng);
@@ -47,7 +47,7 @@ pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut 
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
             let content_id = card.content_id;
-            apply_snecko_eye_cost_randomization(state, &mut card);
+            apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
             apply_fire_breathing_on_draw(state, content_id);
             draw_cards_with_sts_rng(state, evolve_extra_draw_count(state, content_id), rng);
@@ -63,7 +63,7 @@ pub(crate) fn draw_cards_without_shuffle(state: &mut CombatState, count: usize) 
 
         if let Some(mut card) = draw_card_from_pile_top(state) {
             let content_id = card.content_id;
-            apply_snecko_eye_cost_randomization(state, &mut card);
+            apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
             apply_fire_breathing_on_draw(state, content_id);
             draw_cards_without_shuffle(state, evolve_extra_draw_count(state, content_id));
@@ -100,7 +100,7 @@ fn apply_fire_breathing_on_draw(state: &mut CombatState, content_id: crate::Cont
         };
         check_slime_boss_split(state, target);
         if !still_alive {
-            crate::relic::apply_monster_death_relics(state);
+            crate::combat::transition::apply_monster_death_hooks(state, target);
         }
     }
 }
@@ -124,14 +124,13 @@ fn is_status_or_curse(content_id: crate::ContentId) -> bool {
             .is_some_and(|definition| definition.card_type == CardType::Status)
 }
 
-pub(crate) fn apply_snecko_eye_cost_randomization(
-    state: &mut CombatState,
-    card: &mut CardInstance,
-) {
-    if !state.relics.contains(&Relic::SneckoEye) {
+pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: &mut CardInstance) {
+    if !state.relics.contains(&Relic::SneckoEye) && state.player.powers.confusion <= 0 {
         return;
     }
-    if !get_card_definition(card.content_id).is_some_and(|definition| definition.cost > 0) {
+    if !get_card_definition(card.content_id)
+        .is_some_and(|definition| !definition.keywords.unplayable)
+    {
         return;
     }
     let Some(rng) = state.card_random_rng.as_mut() else {
@@ -249,6 +248,50 @@ mod tests {
         draw_cards(&mut state, 1, &mut rng);
 
         assert_eq!(state.player.block, 2);
+    }
+
+    #[test]
+    fn confusion_randomizes_drawn_card_costs_including_zero_cost_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.confusion = 1;
+        state.card_random_rng = Some(StsRng::new(123));
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(
+            crate::CardId::new(20),
+            crate::content::cards::DEEP_BREATH_ID,
+        )];
+        let mut rng = SimulatorRng::new(3);
+
+        draw_cards(&mut state, 1, &mut rng);
+
+        assert_eq!(state.piles.hand.len(), 1);
+        assert!(state.piles.hand[0].temp_cost.is_some());
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn confusion_does_not_randomize_unplayable_drawn_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.confusion = 1;
+        state.card_random_rng = Some(StsRng::new(123));
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(
+            crate::CardId::new(20),
+            crate::content::cards::WOUND_ID,
+        )];
+        let mut rng = SimulatorRng::new(3);
+
+        draw_cards(&mut state, 1, &mut rng);
+
+        assert_eq!(state.piles.hand.len(), 1);
+        assert_eq!(state.piles.hand[0].temp_cost, None);
+        assert_eq!(
+            state.card_random_rng.as_ref().expect("card rng").counter(),
+            0
+        );
     }
 
     #[test]

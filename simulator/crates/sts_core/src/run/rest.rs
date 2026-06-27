@@ -136,6 +136,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 next.reward = Some(RewardScreen {
                     choices: Vec::new(),
                     gold_offer: 0,
+                    stolen_gold_offer: 0,
                     potion_offer: None,
                     relic_offer: None,
                     relic_key_offer: None,
@@ -170,6 +171,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             next.reward = Some(RewardScreen {
                 choices: Vec::new(),
                 gold_offer: 0,
+                stolen_gold_offer: 0,
                 potion_offer: None,
                 relic_offer,
                 relic_key_offer: if relic_offer.is_some() {

@@ -15,6 +15,8 @@ use crate::{
 pub enum GridPurpose {
     RestSmith,
     ShopRemove,
+    EventRemove,
+    EventObtainCard,
     EmptyCage { remaining: u8 },
     NeowRemove { remaining: u8 },
     NeowUpgrade,
@@ -24,6 +26,7 @@ pub enum GridPurpose {
     PandorasBox,
     Astrolabe,
     NeowTransform { count: u8 },
+    EventTransform { count: u8 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -49,6 +52,57 @@ pub fn open_shop_remove_grid(run: &mut RunState) {
     run.card_grid = Some(CardGridScreen {
         cards: run.deck.clone(),
         purpose: GridPurpose::ShopRemove,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_remove_grid(run: &mut RunState) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| !card.bottled)
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventRemove,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_obtain_card_grid(run: &mut RunState, cards: Vec<CardInstance>) {
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventObtainCard,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_transform_grid(run: &mut RunState, count: u8) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| !card.bottled)
+        .collect::<Vec<_>>();
+    if cards.is_empty() || count == 0 {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventTransform { count },
         selected: None,
         selected_indices: Vec::new(),
     });
@@ -283,6 +337,9 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         GridPurpose::NeowTransform { count } => {
             confirm_neow_transform_grid(&mut next, count)?;
         }
+        GridPurpose::EventTransform { count } => {
+            confirm_event_transform_grid(&mut next, count)?;
+        }
         GridPurpose::RestSmith => {
             let card = selected_grid_card(grid)?;
             upgrade_deck_card(&mut next, card)?;
@@ -313,6 +370,20 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                 shop.remove_cost = remove_cost;
             }
             next.card_grid = None;
+        }
+        GridPurpose::EventRemove => {
+            let card = selected_grid_card(grid)?;
+            next.deck.retain(|deck_card| deck_card.id != card.id);
+            next.card_grid = None;
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        GridPurpose::EventObtainCard => {
+            let card = selected_grid_card(grid)?;
+            next.add_deck_card(card);
+            next.card_grid = None;
+            next.phase = RunPhase::Idle;
+            next.event = None;
         }
         GridPurpose::EmptyCage { remaining } => {
             let card = selected_grid_card(grid)?;
@@ -350,6 +421,7 @@ fn grid_multi_select_count(purpose: GridPurpose) -> Option<usize> {
         GridPurpose::Astrolabe => Some(ASTROLABE_TRANSFORM_COUNT),
         GridPurpose::NeowRemove { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowTransform { count } => Some(usize::from(count)),
+        GridPurpose::EventTransform { count } => Some(usize::from(count)),
         _ => None,
     }
 }
@@ -366,6 +438,7 @@ fn confirm_multi_select_grid(run: &mut RunState) -> SimResult<()> {
             confirm_multi_remove_grid(run, purpose)
         }
         GridPurpose::NeowTransform { count } => confirm_neow_transform_grid(run, count),
+        GridPurpose::EventTransform { count } => confirm_event_transform_grid(run, count),
         _ => Err(SimError::IllegalAction("grid is not multi-select")),
     }
 }
@@ -506,6 +579,35 @@ fn confirm_neow_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
     Ok(())
 }
 
+fn confirm_event_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
+    let grid = run
+        .card_grid
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no card grid is open"))?;
+    let required = usize::from(count);
+    if grid.selected_indices.len() < required {
+        return Err(SimError::IllegalAction(
+            "event transform requires more selected cards",
+        ));
+    }
+    let cards = grid
+        .selected_indices
+        .iter()
+        .take(required)
+        .map(|index| {
+            grid.cards
+                .get(*index)
+                .copied()
+                .ok_or(SimError::IllegalAction("grid index out of range"))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    transform_event_cards(run, &cards);
+    run.card_grid = None;
+    run.phase = RunPhase::Idle;
+    run.event = None;
+    Ok(())
+}
+
 fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) {
     let sources = cards.iter().map(|card| card.content_id).collect::<Vec<_>>();
     let reward =
@@ -532,6 +634,30 @@ fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) {
 }
 
 fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) {
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let next_card_id = run.next_card_instance_id();
+    let transformed = cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| {
+            let content_id = transform_card_content_id(card.content_id, &mut rng);
+            CardInstance::new(
+                crate::ids::CardId::new(next_card_id + index as u64),
+                run.content_id_after_card_add_relics(content_id),
+            )
+        })
+        .collect::<Vec<_>>();
+    run.misc_rng_counter = rng.counter();
+
+    for card in cards {
+        run.deck.retain(|deck_card| deck_card.id != card.id);
+    }
+    for card in transformed {
+        run.add_deck_card(card);
+    }
+}
+
+fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) {
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
     let next_card_id = run.next_card_instance_id();
     let transformed = cards
