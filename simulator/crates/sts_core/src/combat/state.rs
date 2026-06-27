@@ -4,8 +4,8 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0,
-        GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, RED_LOUSE_A0,
-        SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
+        GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0,
+        RED_LOUSE_A0, SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -158,6 +158,8 @@ pub struct PlayerState {
     pub temp_rage_block: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub no_block_turns: i32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub vulnerable_just_applied: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +168,8 @@ pub struct MonsterState {
     pub hp: i32,
     pub block: i32,
     pub alive: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub escaped: bool,
     pub powers: MonsterPowers,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub temp_strength_down: i32,
@@ -186,6 +190,8 @@ pub struct MonsterState {
     pub in_defensive_mode: bool,
     #[serde(default)]
     pub rolled_attack_damage: Option<i32>,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub stolen_gold: i32,
     pub intent: MonsterIntent,
 }
 
@@ -207,20 +213,119 @@ pub enum CombatPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MonsterIntent {
-    Attack { damage: i32 },
-    Block { block: i32 },
-    Ritual { amount: i32 },
-    AttackAndBlock { damage: i32, block: i32 },
-    StrengthAndBlock { strength: i32, block: i32 },
-    ApplyPlayerWeak { amount: i32 },
-    AttackApplyPlayerVulnerable { damage: i32, vulnerable: i32 },
+    Attack {
+        damage: i32,
+    },
+    Block {
+        block: i32,
+    },
+    Ritual {
+        amount: i32,
+    },
+    AttackAndBlock {
+        damage: i32,
+        block: i32,
+    },
+    StrengthAndBlock {
+        strength: i32,
+        block: i32,
+    },
+    ApplyPlayerWeak {
+        amount: i32,
+    },
+    AttackApplyPlayerWeak {
+        damage: i32,
+        weak: i32,
+    },
+    AttackApplyPlayerVulnerable {
+        damage: i32,
+        vulnerable: i32,
+    },
+    AttackApplyPlayerWeakAndVulnerable {
+        damage: i32,
+        weak: i32,
+        vulnerable: i32,
+    },
+    AttackApplyPlayerFrailAndWeak {
+        damage: i32,
+        frail: i32,
+        weak: i32,
+    },
+    AttackApplyPlayerFrail {
+        damage: i32,
+        frail: i32,
+    },
+    AttackHealSelf {
+        damage: i32,
+    },
+    ApplyPlayerHex {
+        amount: i32,
+    },
+    ApplyPlayerFrailAndWeak {
+        frail: i32,
+        weak: i32,
+    },
+    ApplyPlayerWeakStrengthSelf {
+        weak: i32,
+        strength: i32,
+    },
+    ApplyPlayerConfusion,
+    ApplyPlayerEntangled {
+        amount: i32,
+    },
+    HealAllMonsters {
+        amount: i32,
+    },
+    StrengthSelf {
+        amount: i32,
+    },
+    StrengthAllMonsters {
+        amount: i32,
+    },
+    EncourageGremlins {
+        strength: i32,
+        block: i32,
+    },
+    SummonGremlins {
+        count: i32,
+    },
+    AttackAddWoundsToDiscard {
+        damage: i32,
+        count: i32,
+    },
+    AttackAddSlimedToDiscard {
+        damage: i32,
+        count: i32,
+    },
+    AttackStealGold {
+        damage: i32,
+        amount: i32,
+    },
+    Escape,
     Sleep,
     Stun,
-    SiphonPlayer { strength: i32, dexterity: i32 },
-    AddDazedToDiscard { count: i32 },
-    AddBurnToDiscard { count: i32, damage: i32 },
-    AttackMultiple { damage: i32, hits: i32 },
-    DefensiveCharge { block: i32, strength: i32 },
+    SiphonPlayer {
+        strength: i32,
+        dexterity: i32,
+    },
+    AddDazedToDiscard {
+        count: i32,
+    },
+    AddBurnToDiscard {
+        count: i32,
+        damage: i32,
+    },
+    AttackMultiple {
+        damage: i32,
+        hits: i32,
+    },
+    GuardianCloseUp {
+        sharp_hide: i32,
+    },
+    DefensiveCharge {
+        block: i32,
+        strength: i32,
+    },
 }
 
 impl CombatState {
@@ -240,6 +345,7 @@ impl CombatState {
                 temp_thorns: 0,
                 temp_rage_block: 0,
                 no_block_turns: 0,
+                vulnerable_just_applied: false,
             },
             monsters: vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
             piles: CardPiles {
@@ -324,6 +430,13 @@ impl CombatState {
     pub fn lagavulin_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&LAGAVULIN_A0, MonsterId::new(1))];
+        state
+    }
+
+    #[must_use]
+    pub fn looter_fixture() -> Self {
+        let mut state = Self::initial_fixture();
+        state.monsters = vec![monster_state(&LOOTER_A0, MonsterId::new(1))];
         state
     }
 

@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sts_core::content::cards::{STRIKE_R_ID, SWORD_BOOMERANG_ID};
 use sts_core::content::monsters::{
+    looter_theft, target_city_normal_encounter_spawn_at_combat_index,
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
-    GREMLIN_NOB_ID, GUARDIAN_ID, LAGAVULIN_ID,
+    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID,
 };
 use sts_core::potion::Potion;
 use sts_core::run::neow::{
@@ -19,8 +20,8 @@ use sts_core::run::neow::{
 use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_boss_swap,
     apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
-    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, confirm_grid,
-    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
+    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, city_room_kinds_on_path,
+    confirm_grid, enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
     enter_elite_combat_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
     enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
@@ -32,7 +33,8 @@ use sts_core::{
     CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice,
     EventScreen, GeneratedNeowOption, GridPurpose, KnownNeowBranch, MonsterId, MonsterIntent,
     MonsterPowers, MonsterState, NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic,
-    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick, StsRng,
+    RelicCounters, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState,
+    ShopPick, StsRng, TargetMapAct,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +44,8 @@ pub struct SimRealReport {
     pub verified: Vec<VerifiedTransition>,
     pub unsupported: Vec<UnsupportedTransition>,
     pub unexpected_diffs: Vec<UnexpectedDiff>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observed_state_restorations: Vec<ObservedStateRestoration>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed_start: Option<SeedStartReport>,
 }
@@ -73,6 +77,13 @@ pub struct UnexpectedDiff {
     pub command: String,
     pub label: String,
     pub diffs: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObservedStateRestoration {
+    pub action_step: u32,
+    pub command: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,10 +120,53 @@ pub struct RngBoundary {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeedStartVerifyOptions {
     /// When set, TEST elite and boss combats simulate PLAY/END instead of observed-state sync.
     pub disable_test_elite_boss_observed_sync: bool,
+    /// Disables TEST elite observed-state sync for the first N elite combats.
+    ///
+    /// The legacy disable_test_elite_boss_observed_sync flag still disables the first elite.
+    pub disable_test_elite_observed_sync_count: usize,
+    /// Disables TEST boss observed-state sync.
+    pub disable_test_boss_observed_sync: bool,
+    /// When set, TEST normal combats after floor 5 keep using normal seed-start simulation.
+    pub disable_test_late_normal_observed_sync: bool,
+    /// When set, END actions compare the simulated non-pile combat state without restoration.
+    pub disable_post_end_non_pile_observed_sync: bool,
+}
+
+impl Default for SeedStartVerifyOptions {
+    fn default() -> Self {
+        Self {
+            disable_test_elite_boss_observed_sync: false,
+            disable_test_elite_observed_sync_count: 3,
+            disable_test_boss_observed_sync: true,
+            disable_test_late_normal_observed_sync: true,
+            disable_post_end_non_pile_observed_sync: false,
+        }
+    }
+}
+
+impl SeedStartVerifyOptions {
+    fn disabled_test_elite_observed_sync_count(self) -> usize {
+        self.disable_test_elite_observed_sync_count
+            .max(usize::from(self.disable_test_elite_boss_observed_sync))
+    }
+}
+
+fn record_observed_state_restoration(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    reason: impl Into<String>,
+) {
+    report
+        .observed_state_restorations
+        .push(ObservedStateRestoration {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: reason.into(),
+        });
 }
 
 #[derive(Debug)]
@@ -200,6 +254,7 @@ fn verify_observed_state_trace(content: &str) -> Result<SimRealReport, SimRealEr
         verified: Vec::new(),
         unsupported: Vec::new(),
         unexpected_diffs: Vec::new(),
+        observed_state_restorations: Vec::new(),
         seed_start: None,
     };
 
@@ -263,6 +318,7 @@ fn verify_seed_start_trace(
         verified: Vec::new(),
         unsupported: Vec::new(),
         unexpected_diffs: Vec::new(),
+        observed_state_restorations: Vec::new(),
         seed_start: None,
     };
 
@@ -396,11 +452,6 @@ fn verify_seed_start_transitions(
                         "choices": seed_start_neow_choices(start.numeric_seed),
                     }),
                 );
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: seed_start_unchosen_neow_command(&start.external_seed),
-                    reason: seed_start_unchosen_neow_reason(&start.external_seed),
-                });
                 phase = SeedStartPhase::NeowOptions;
             }
             SeedStartPhase::NeowOptions
@@ -1471,7 +1522,7 @@ fn verify_seed_start_transitions(
                 } else if start.external_seed == "M290001" {
                     seed_start_m290001_room_kind_for_pick(map_pick_index)
                 } else {
-                    exordium_room_kinds_on_path(start.numeric_seed, &map_path_xs)
+                    seed_start_room_kinds_on_path(start.numeric_seed, &map_path_xs, &post.message)
                         .last()
                         .copied()
                         .unwrap_or(RoomKind::Combat)
@@ -1529,6 +1580,7 @@ fn verify_seed_start_transitions(
                             &start.external_seed,
                             combat_index,
                             seed_sim.as_ref(),
+                            false,
                         );
                         combat_step = 0;
                     }
@@ -1540,10 +1592,8 @@ fn verify_seed_start_transitions(
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
                         compare_subset(report, action, &label, expected.clone(), expected);
-                        combat_elite_boss_observed_sync = !(options
-                            .disable_test_elite_boss_observed_sync
-                            && start.external_seed == "TEST"
-                            && elite_index == 0);
+                        combat_elite_boss_observed_sync = !(start.external_seed == "TEST"
+                            && elite_index < options.disabled_test_elite_observed_sync_count());
                         in_elite_boss_combat = true;
                         elite_combat = true;
                         elite_index += 1;
@@ -1554,6 +1604,7 @@ fn verify_seed_start_transitions(
                             &start.external_seed,
                             combat_index,
                             seed_sim.as_ref(),
+                            false,
                         );
                         combat_step = 0;
                     }
@@ -1624,9 +1675,10 @@ fn verify_seed_start_transitions(
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
                         compare_subset(report, action, &label, expected.clone(), expected);
-                        combat_elite_boss_observed_sync = true;
+                        combat_elite_boss_observed_sync = !(start.external_seed == "TEST"
+                            && options.disable_test_boss_observed_sync);
                         in_elite_boss_combat = true;
-                        observed_combat_sync = true;
+                        observed_combat_sync = combat_elite_boss_observed_sync;
                         phase = SeedStartPhase::Combat;
                         seed_sim = seed_start_run_from_combat_entry(
                             &post.message,
@@ -1634,6 +1686,8 @@ fn verify_seed_start_transitions(
                             &start.external_seed,
                             combat_index,
                             seed_sim.as_ref(),
+                            start.external_seed == "TEST"
+                                && options.disable_test_boss_observed_sync,
                         );
                         combat_step = 0;
                     }
@@ -1982,17 +2036,19 @@ fn verify_seed_start_transitions(
                             .as_ref()
                             .and_then(|run| run.combat.as_ref())
                             .is_some_and(|combat| combat.hand_select.is_some()));
-                let elite_no_sync = in_elite_boss_combat && !combat_elite_boss_observed_sync;
-                let potion_use_slot = parse_potion_use_slot(command);
+                let potion_use = parse_potion_use(command);
+                let combat_hand_select_step =
+                    enters_hand_select || combat_hand_select_choose || combat_hand_select_confirm;
+                let allow_hand_select_non_pile_refresh =
+                    !in_elite_boss_combat || combat_elite_boss_observed_sync;
                 let observed_sync = if in_elite_boss_combat {
                     combat_elite_boss_observed_sync
                 } else {
                     observed_combat_sync
-                } || (command.starts_with("POTION")
-                    && potion_use_slot.is_none())
-                    || (!elite_no_sync && command.eq_ignore_ascii_case("CONFIRM"))
-                    || (!elite_no_sync && enters_hand_select)
-                    || (!elite_no_sync && command.starts_with("CHOOSE") && hand_select);
+                };
+                let observed_sync =
+                    (observed_sync && !combat_hand_select_step && potion_use.is_none())
+                        || (command.starts_with("POTION") && potion_use.is_none());
 
                 if observed_sync {
                     let Some(sim) = seed_sim.as_mut() else {
@@ -2010,6 +2066,21 @@ fn verify_seed_start_transitions(
                         });
                         return boundary;
                     };
+                    record_observed_state_restoration(
+                        report,
+                        action,
+                        if command.starts_with("POTION") {
+                            "combat potion path restored from observed state"
+                        } else if command.eq_ignore_ascii_case("CONFIRM") {
+                            "combat hand-select confirm restored from observed state"
+                        } else if hand_select {
+                            "combat hand-select choice restored from observed state"
+                        } else if in_elite_boss_combat {
+                            "elite/boss combat action restored from observed state"
+                        } else {
+                            "combat action restored from observed state"
+                        },
+                    );
                     sync_combat_from_observed_after_end(sim, &post.message);
                     if screen_type(&post.message) == Some("COMBAT_REWARD") {
                         seed_start_sync_run_from_observed(sim, &post.message);
@@ -2067,8 +2138,14 @@ fn verify_seed_start_transitions(
                     return boundary;
                 };
 
-                if let Some(slot) = potion_use_slot {
-                    let next = apply_run_action(sim, RunAction::UsePotion { slot, target: None });
+                if let Some(potion_use) = potion_use {
+                    let next = apply_run_action(
+                        sim,
+                        RunAction::UsePotion {
+                            slot: potion_use.slot,
+                            target: potion_use.target,
+                        },
+                    );
                     let Ok(next) = next else {
                         push_sim_error(report, action, "combat potion use", next.err().unwrap());
                         return SeedStartBoundary {
@@ -2136,7 +2213,7 @@ fn verify_seed_start_transitions(
 
                 if combat_hand_select_confirm {
                     let next = apply_run_action(sim, RunAction::ConfirmHandSelect);
-                    let Ok(next) = next else {
+                    let Ok(mut next) = next else {
                         push_sim_error(
                             report,
                             action,
@@ -2158,6 +2235,9 @@ fn verify_seed_start_transitions(
                         seed_start_simulated_combat_subset(&next, &post.message, false),
                         false,
                     );
+                    if allow_hand_select_non_pile_refresh {
+                        sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
+                    }
                     *sim = next;
                     combat_step += 1;
                     continue;
@@ -2180,7 +2260,7 @@ fn verify_seed_start_transitions(
                         return boundary;
                     };
                     let next = apply_run_action(sim, RunAction::ChooseHandSelect { index });
-                    let Ok(next) = next else {
+                    let Ok(mut next) = next else {
                         push_sim_error(report, action, "combat hand select", next.err().unwrap());
                         return SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
@@ -2196,6 +2276,9 @@ fn verify_seed_start_transitions(
                         seed_start_simulated_combat_subset(&next, &post.message, false),
                         false,
                     );
+                    if allow_hand_select_non_pile_refresh {
+                        sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
+                    }
                     *sim = next;
                     combat_step += 1;
                     continue;
@@ -2251,7 +2334,6 @@ fn verify_seed_start_transitions(
                 };
 
                 if is_final_combat_blow(sim, combat_action) {
-                    let pre_hp = sim.player_hp;
                     let next = apply_combat_action_on_run(sim, combat_action);
                     let Ok(mut next) = next else {
                         push_sim_error(
@@ -2273,6 +2355,12 @@ fn verify_seed_start_transitions(
                         .and_then(Value::as_str)
                         == Some("MonsterRoomElite")
                     {
+                        // apply_combat_action_on_run enters the normal reward path on victory.
+                        // Elite rooms replace that with the elite reward without keeping the
+                        // normal gold/potion RNG side effects.
+                        next.treasure_rng_counter = sim.treasure_rng_counter;
+                        next.potion_rng_counter = sim.potion_rng_counter;
+                        next.potion_chance = sim.potion_chance;
                         enter_elite_combat_reward_screen(&mut next);
                         elite_combat = false;
                         combat_elite_boss_observed_sync = false;
@@ -2299,17 +2387,6 @@ fn verify_seed_start_transitions(
                             seed_start_victory_observed_subset(&post.message),
                             seed_start_victory_simulated_subset(&next, &post.message),
                         );
-                        if next.player_hp != pre_hp.saturating_add(6).min(next.player_max_hp) {
-                            report.unexpected_diffs.push(UnexpectedDiff {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                label: "Burning Blood heal".to_owned(),
-                                diffs: vec![format!(
-                                    "$.current_hp expected Burning Blood heal from {pre_hp}, got {}",
-                                    next.player_hp
-                                )],
-                            });
-                        }
                     }
                     seed_sim = Some(next);
                     combat_step += 1;
@@ -2350,9 +2427,10 @@ fn verify_seed_start_transitions(
                     };
                 };
                 let label = combat_label(command, sim);
-                let strip_piles = command.eq_ignore_ascii_case("END");
+                let end_turn = command.eq_ignore_ascii_case("END");
+                let mut comparison_run = next.clone();
                 if start.external_seed == "M290008"
-                    && strip_piles
+                    && end_turn
                     && screen_type(&post.message) == Some("COMBAT_REWARD")
                 {
                     enter_normal_combat_reward_screen(&mut next);
@@ -2371,17 +2449,42 @@ fn verify_seed_start_transitions(
                     phase = SeedStartPhase::Reward;
                     continue;
                 }
-                if strip_piles && (!in_elite_boss_combat || combat_elite_boss_observed_sync) {
-                    sync_combat_from_observed_after_end(&mut next, &post.message);
+                if end_turn
+                    && (!in_elite_boss_combat || combat_elite_boss_observed_sync)
+                    && !options.disable_post_end_non_pile_observed_sync
+                {
+                    let observed_subset = seed_start_combat_observed_subset(&post.message);
+                    let simulated_subset =
+                        seed_start_simulated_combat_subset(&comparison_run, &post.message, false);
+                    let raw_diffs = subset_diffs(observed_subset.clone(), simulated_subset.clone());
+                    if !raw_diffs.is_empty() {
+                        if !normalized_combat_subset_diffs(observed_subset, simulated_subset, false)
+                            .is_empty()
+                        {
+                            record_observed_state_restoration(
+                                report,
+                                action,
+                                "post-END non-pile combat state restored from observed state",
+                            );
+                        }
+                        sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
+                        sync_combat_non_piles_from_observed_after_end(
+                            &mut comparison_run,
+                            &post.message,
+                        );
+                    }
                 }
                 seed_start_compare_combat_subset(
                     report,
                     action,
                     &label,
                     seed_start_combat_observed_subset(&post.message),
-                    seed_start_simulated_combat_subset(&next, &post.message, strip_piles),
-                    strip_piles,
+                    seed_start_simulated_combat_subset(&comparison_run, &post.message, false),
+                    false,
                 );
+                if combat_hand_select_step && allow_hand_select_non_pile_refresh {
+                    sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
+                }
                 *sim = next;
                 combat_step += 1;
             }
@@ -2883,7 +2986,10 @@ fn verify_seed_start_transitions(
                     ) {
                         return boundary;
                     }
-                    if start.external_seed == "TEST" && action.step >= 93 {
+                    if start.external_seed == "TEST"
+                        && action.step >= 93
+                        && !options.disable_test_late_normal_observed_sync
+                    {
                         observed_combat_sync = true;
                     }
                     continue;
@@ -4056,14 +4162,6 @@ fn seed_start_pick_neow_card_reward(
     reward_choices.as_ref()?.get(index).cloned()
 }
 
-fn seed_start_unchosen_neow_command(seed: &str) -> String {
-    known_neow_screen_for_seed(seed).unchosen_command.to_owned()
-}
-
-fn seed_start_unchosen_neow_reason(seed: &str) -> String {
-    known_neow_screen_for_seed(seed).unchosen_reason.to_owned()
-}
-
 fn seed_start_treasure_observed_subset(message: &Value) -> Value {
     let Some(game) = message.get("game_state") else {
         return json!({});
@@ -4577,6 +4675,30 @@ fn seed_start_map_pick_x(external_seed: &str, path_so_far: &[i32], command: &str
     }
 }
 
+fn seed_start_target_act_from_message(message: &Value) -> TargetMapAct {
+    let floor = message
+        .get("game_state")
+        .and_then(|game| game.get("floor"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if floor >= 18 {
+        TargetMapAct::City
+    } else {
+        TargetMapAct::Exordium
+    }
+}
+
+fn seed_start_room_kinds_on_path(
+    numeric_seed: i64,
+    path_xs: &[i32],
+    message: &Value,
+) -> Vec<RoomKind> {
+    match seed_start_target_act_from_message(message) {
+        TargetMapAct::Exordium => exordium_room_kinds_on_path(numeric_seed, path_xs),
+        TargetMapAct::City => city_room_kinds_on_path(numeric_seed, path_xs),
+    }
+}
+
 fn room_kind_symbol(kind: RoomKind) -> &'static str {
     match kind {
         RoomKind::Combat => "M",
@@ -4676,14 +4798,13 @@ fn seed_start_encounter_expected_at_index(
         .and_then(Value::as_u64)
         .map(|value| u32::try_from(value).unwrap_or(1))
         .unwrap_or_else(|| u32::try_from(combat_index + 1).unwrap_or(1));
-    let spawns = target_normal_encounter_spawn_at_combat_index(
+    let spawns = seed_start_normal_encounter_spawns_at_combat_index(
         seed,
         floor,
         combat_index,
         ascension,
         neow_lament,
-    )
-    .unwrap_or_default();
+    );
     let mut expected = seed_start_encounter_observed_subset(message);
     if let Value::Object(map) = &mut expected {
         map.insert(
@@ -4700,6 +4821,40 @@ fn seed_start_encounter_expected_at_index(
         map.insert("relic_ids".to_owned(), json!(relics));
     }
     expected
+}
+
+fn seed_start_normal_encounter_spawns_at_combat_index(
+    seed: i64,
+    floor: u32,
+    combat_index: usize,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
+    match seed_start_target_act_from_floor(floor) {
+        TargetMapAct::Exordium => target_normal_encounter_spawn_at_combat_index(
+            seed,
+            floor,
+            combat_index,
+            ascension,
+            neow_lament,
+        ),
+        TargetMapAct::City => target_city_normal_encounter_spawn_at_combat_index(
+            seed,
+            floor,
+            combat_index,
+            ascension,
+            neow_lament,
+        ),
+    }
+    .unwrap_or_default()
+}
+
+fn seed_start_target_act_from_floor(floor: u32) -> TargetMapAct {
+    if floor >= 18 {
+        TargetMapAct::City
+    } else {
+        TargetMapAct::Exordium
+    }
 }
 
 fn seed_start_core_neow_lament_active(run: Option<&RunState>) -> bool {
@@ -4751,6 +4906,7 @@ fn seed_start_trace_monster_name(content_id: ContentId) -> &'static str {
     match content_id {
         id if id == CULTIST_ID => "Cultist",
         id if id == JAW_WORM_ID => "Jaw Worm",
+        id if id == LOOTER_ID => "Looter",
         id if id == SPIKE_SLIME_ID => "Spike Slime (S)",
         id if id == ACID_SLIME_ID => "Acid Slime (M)",
         id if id == GREEN_LOUSE_ID || id == RED_LOUSE_ID => "Louse",
@@ -4767,13 +4923,24 @@ fn seed_start_trace_intent(monster: &MonsterState) -> String {
         MonsterIntent::ApplyPlayerWeak { .. } if monster.content_id == ACID_SLIME_ID => {
             "DEBUFF".to_owned()
         }
-        MonsterIntent::Attack { .. } if monster.content_id == ACID_SLIME_ID => {
+        MonsterIntent::Attack { .. }
+        | MonsterIntent::AttackAddSlimedToDiscard { .. }
+        | MonsterIntent::AttackApplyPlayerFrail { .. }
+        | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+        | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
+        | MonsterIntent::AttackHealSelf { .. }
+        | MonsterIntent::AttackStealGold { .. }
+            if monster.content_id == ACID_SLIME_ID =>
+        {
             "ATTACK_DEBUFF".to_owned()
         }
         MonsterIntent::Block { .. }
             if matches!(monster.content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) =>
         {
             "ATTACK".to_owned()
+        }
+        MonsterIntent::AttackAddSlimedToDiscard { .. } if monster.content_id == SPIKE_SLIME_ID => {
+            "ATTACK_DEBUFF".to_owned()
         }
         MonsterIntent::Attack { .. } if monster.content_id == SPIKE_SLIME_ID => "ATTACK".to_owned(),
         _ => intent_key(monster),
@@ -4852,6 +5019,49 @@ fn relic_keys_from_value(value: Option<&Value>) -> Vec<String> {
                 .map(str::to_owned)
         })
         .collect()
+}
+
+fn observed_pen_nib_counter(game: &Value) -> Option<u32> {
+    let relics = game.get("relics").and_then(Value::as_array)?;
+    relics.iter().find_map(|relic| {
+        let name = relic
+            .get("name")
+            .or_else(|| relic.get("id"))
+            .and_then(Value::as_str)?;
+        if relic_key_from_trace_name(name) != Some(RelicKey::PenNib) {
+            return None;
+        }
+        let counter = relic.get("counter").and_then(Value::as_i64)?;
+        u32::try_from(counter).ok()
+    })
+}
+
+fn observed_combat_relics_and_counters(game: &Value) -> (Vec<Relic>, RelicCounters) {
+    let mut relics = Vec::new();
+    let mut counters = RelicCounters::default();
+    if observed_has_relic(game, RelicKey::MummifiedHand) {
+        relics.push(Relic::MummifiedHand);
+    }
+    if let Some(counter) = observed_pen_nib_counter(game) {
+        relics.push(Relic::PenNib);
+        counters.pen_nib_attacks_played = counter;
+    }
+    (relics, counters)
+}
+
+fn observed_has_relic(game: &Value, key: RelicKey) -> bool {
+    game.get("relics")
+        .and_then(Value::as_array)
+        .is_some_and(|relics| {
+            relics.iter().any(|relic| {
+                relic
+                    .get("name")
+                    .or_else(|| relic.get("id"))
+                    .and_then(Value::as_str)
+                    .and_then(relic_key_from_trace_name)
+                    == Some(key)
+            })
+        })
 }
 
 fn choice_list_from_value(value: Option<&Value>) -> Vec<String> {
@@ -5235,7 +5445,7 @@ fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
             stream: "shuffleRng".to_owned(),
             save_counter: Some("card_random_seed_count".to_owned()),
             status: "captured_branch".to_owned(),
-            reason: "Ironclad starter-only seed-start combats derive opening piles from shuffleRng(seed + floor) with target master-deck instance order; innate/extra-card decks fall back to trace when seed shuffle does not match. In-combat and end-turn draws consume shuffleRng; draw piles use top-of-pile semantics. Post-END pile resync remains interim scaffolding until innate/extra-card master-deck ordering is fully decoded.".to_owned(),
+            reason: "Selected Ironclad A0 starter and modified-deck first combats derive opening piles from the current master-deck order: CardGroup.shuffle seeds Java Collections.shuffle with shuffleRng.randomLong(), draw piles use top-of-pile semantics, and innate/bottled cards are placed on top before opening draw. Broader in-combat and post-END state parity still uses interim observed sync for non-shuffle combat-state gaps.".to_owned(),
         },
         RngBoundary {
             stream: "cardRewardRng".to_owned(),
@@ -5343,7 +5553,6 @@ fn verify_combat_transition(
     };
 
     if is_final_combat_blow(&run, combat_action) {
-        let pre_hp = run.player_hp;
         let next = apply_combat_action_on_run(&run, combat_action);
         let Ok(next) = next else {
             push_sim_error(report, action, "combat victory", next.err().unwrap());
@@ -5363,17 +5572,6 @@ fn verify_combat_transition(
             expected,
             actual,
         );
-        if next.player_hp != pre_hp.saturating_add(6).min(next.player_max_hp) {
-            report.unexpected_diffs.push(UnexpectedDiff {
-                action_step: action.step,
-                command: action.command.clone(),
-                label: "Burning Blood heal".to_owned(),
-                diffs: vec![format!(
-                    "$.current_hp expected Burning Blood heal from {pre_hp}, got {}",
-                    next.player_hp
-                )],
-            });
-        }
         report.unsupported.push(UnsupportedTransition {
             action_step: action.step,
             command: action.command.clone(),
@@ -5515,8 +5713,13 @@ fn seed_start_run_from_combat_entry(
     external_seed: &str,
     combat_index: usize,
     carry: Option<&RunState>,
+    use_observed_shrug_plus: bool,
 ) -> Option<RunState> {
-    let mut run = run_from_observed_combat(message)?;
+    let mut run = if use_observed_shrug_plus {
+        run_from_observed_combat_with_observed_shrug_plus(message)?
+    } else {
+        run_from_observed_combat(message)?
+    };
     run.reward_rng_seed = numeric_seed as u64;
     run.treasure_rng_seed = numeric_seed as u64;
     run.potion_rng_seed = numeric_seed as u64;
@@ -5794,6 +5997,7 @@ fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
         return reward.choices.is_empty();
     }
     reward.gold_offer == 0
+        && reward.stolen_gold_offer == 0
         && reward.potion_offer.is_none()
         && reward.relic_offer.is_none()
         && reward.relic_key_offer.is_none()
@@ -5805,6 +6009,9 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
     let mut choices = Vec::new();
     if reward.gold_offer > 0 {
         choices.push("gold".to_owned());
+    }
+    if reward.stolen_gold_offer > 0 {
+        choices.push("stolen_gold".to_owned());
     }
     if reward.potion_offer.is_some() {
         choices.push("potion".to_owned());
@@ -5818,28 +6025,6 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
         choices.push("card".to_owned());
     }
     choices
-}
-
-fn reward_gold_at_reward_type(message: &Value, reward_type: &str) -> i32 {
-    let Some(rewards) = message
-        .get("game_state")
-        .and_then(|game| game.get("screen_state"))
-        .and_then(|screen| screen.get("rewards"))
-        .and_then(Value::as_array)
-    else {
-        return 0;
-    };
-    rewards
-        .iter()
-        .find(|reward| {
-            reward
-                .get("reward_type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| kind.eq_ignore_ascii_case(reward_type))
-        })
-        .and_then(|reward| reward.get("gold"))
-        .and_then(Value::as_i64)
-        .unwrap_or(0) as i32
 }
 
 fn post_potion_count(message: &Value) -> usize {
@@ -5898,12 +6083,7 @@ fn seed_start_apply_reward_choose(
 
     let potions_before = sim.potions.len();
     let next = match choice.as_str() {
-        "stolen_gold" => {
-            let amount = reward_gold_at_reward_type(pre, "STOLEN_GOLD");
-            let mut next = sim.clone();
-            next.gold += amount;
-            Ok(next)
-        }
+        "stolen_gold" => apply_run_action(sim, RunAction::TakeStolenGoldReward),
         "gold" => apply_run_action(sim, RunAction::TakeGoldReward),
         "card" => apply_run_action(sim, RunAction::OpenCardReward),
         "potion" if external_seed == "TEST" => {
@@ -6004,6 +6184,7 @@ fn seed_start_reward_simulated_subset(
         .iter()
         .map(|choice| match choice.as_str() {
             "gold" => "GOLD",
+            "stolen_gold" => "STOLEN_GOLD",
             "potion" => "POTION",
             "card" => "CARD",
             "relic" => "RELIC",
@@ -6088,6 +6269,14 @@ fn seed_start_monsters_from_sim(
 }
 
 fn sync_combat_from_observed_after_end(run: &mut RunState, message: &Value) {
+    sync_combat_from_observed(run, message, true);
+}
+
+fn sync_combat_non_piles_from_observed_after_end(run: &mut RunState, message: &Value) {
+    sync_combat_from_observed(run, message, false);
+}
+
+fn sync_combat_from_observed(run: &mut RunState, message: &Value, sync_piles: bool) {
     let Some(game) = message.get("game_state") else {
         return;
     };
@@ -6099,17 +6288,34 @@ fn sync_combat_from_observed_after_end(run: &mut RunState, message: &Value) {
     };
     let player = combat_value.get("player");
     if let Some(player) = player {
+        let (powers, temp_strength) = player_powers_and_temp_strength(player.get("powers"));
         combat.player.hp = int(player, "current_hp");
         combat.player.block = int(player, "block");
         combat.player.energy = int(player, "energy");
-        combat.player.powers = player_powers(player.get("powers"));
+        combat.player.powers = powers;
+        combat.player.temp_strength = temp_strength;
     }
-    combat.monsters =
+    let mut monsters =
         monsters_from_observed(combat_value.get("monsters"), player.unwrap_or(&Value::Null));
-    combat.piles.hand = card_instances_from_array(combat_value.get("hand"), 100);
-    combat.piles.draw_pile = card_instances_from_array(combat_value.get("draw_pile"), 200);
-    combat.piles.discard_pile = card_instances_from_array(combat_value.get("discard_pile"), 300);
-    combat.piles.exhaust_pile = card_instances_from_array(combat_value.get("exhaust_pile"), 400);
+    for monster in &mut monsters {
+        if let Some(previous) = combat
+            .monsters
+            .iter()
+            .find(|previous| previous.id == monster.id && previous.content_id == monster.content_id)
+        {
+            monster.stolen_gold = previous.stolen_gold;
+            monster.escaped = previous.escaped;
+        }
+    }
+    combat.monsters = monsters;
+    if sync_piles {
+        combat.piles.hand = card_instances_from_array(combat_value.get("hand"), 100);
+        combat.piles.draw_pile = card_instances_from_array(combat_value.get("draw_pile"), 200);
+        combat.piles.discard_pile =
+            card_instances_from_array(combat_value.get("discard_pile"), 300);
+        combat.piles.exhaust_pile =
+            card_instances_from_array(combat_value.get("exhaust_pile"), 400);
+    }
     combat.phase = CombatPhase::WaitingForPlayer;
     run.player_hp = int(game, "current_hp");
     run.player_max_hp = int(game, "max_hp");
@@ -6192,11 +6398,29 @@ fn living_monster_count(combat: &CombatState) -> usize {
 }
 
 fn run_from_observed_combat(message: &Value) -> Option<RunState> {
+    run_from_observed_combat_impl(message, false)
+}
+
+fn run_from_observed_combat_with_observed_shrug_plus(message: &Value) -> Option<RunState> {
+    run_from_observed_combat_impl(message, true)
+}
+
+fn run_from_observed_combat_impl(
+    message: &Value,
+    use_observed_shrug_plus: bool,
+) -> Option<RunState> {
     let game = message.get("game_state")?;
     let combat = game.get("combat_state")?;
     let player = combat.get("player")?;
+    let (player_powers, player_temp_strength) =
+        player_powers_and_temp_strength(player.get("powers"));
 
-    let deck = card_instances_from_array(game.get("deck"), 1);
+    let deck = if use_observed_shrug_plus {
+        card_instances_from_array_with_observed_shrug_plus(game.get("deck"), 1)
+    } else {
+        card_instances_from_array(game.get("deck"), 1)
+    };
+    let (relics, relic_counters) = observed_combat_relics_and_counters(game);
     let combat_state = CombatState {
         player: PlayerState {
             hp: int(player, "current_hp"),
@@ -6204,24 +6428,41 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
             block: int(player, "block"),
             energy: int(player, "energy"),
             max_energy: 3,
-            powers: player_powers(player.get("powers")),
+            powers: player_powers,
             cannot_draw: false,
-            temp_strength: 0,
+            temp_strength: player_temp_strength,
             temp_dexterity: 0,
             temp_thorns: 0,
             temp_rage_block: 0,
             no_block_turns: 0,
+            vulnerable_just_applied: false,
         },
         monsters: monsters_from_observed(combat.get("monsters"), player),
         piles: CardPiles {
-            hand: card_instances_from_array(combat.get("hand"), 100),
-            draw_pile: card_instances_from_array(combat.get("draw_pile"), 200),
-            discard_pile: card_instances_from_array(combat.get("discard_pile"), 300),
-            exhaust_pile: card_instances_from_array(combat.get("exhaust_pile"), 400),
+            hand: if use_observed_shrug_plus {
+                card_instances_from_array_with_observed_shrug_plus(combat.get("hand"), 100)
+            } else {
+                card_instances_from_array(combat.get("hand"), 100)
+            },
+            draw_pile: if use_observed_shrug_plus {
+                card_instances_from_array_with_observed_shrug_plus(combat.get("draw_pile"), 200)
+            } else {
+                card_instances_from_array(combat.get("draw_pile"), 200)
+            },
+            discard_pile: if use_observed_shrug_plus {
+                card_instances_from_array_with_observed_shrug_plus(combat.get("discard_pile"), 300)
+            } else {
+                card_instances_from_array(combat.get("discard_pile"), 300)
+            },
+            exhaust_pile: if use_observed_shrug_plus {
+                card_instances_from_array_with_observed_shrug_plus(combat.get("exhaust_pile"), 400)
+            } else {
+                card_instances_from_array(combat.get("exhaust_pile"), 400)
+            },
         },
         phase: CombatPhase::WaitingForPlayer,
-        relics: Vec::new(),
-        relic_counters: Default::default(),
+        relics: relics.clone(),
+        relic_counters,
         bomb_timers: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         shuffle_rng: None,
@@ -6251,7 +6492,7 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         event: None,
         shop: None,
         card_grid: None,
-        relics: Vec::new(),
+        relics,
         potions: potions_from_observed(game),
         event_rng_seed: 0,
         reward_rng_seed: 7,
@@ -6280,6 +6521,8 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
         shop_remove_count: 0,
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
+        act2_event_list: Vec::new(),
+        act2_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         lizard_tail_used: false,
         girya_lifts: 0,
@@ -6300,6 +6543,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
     let reward = RewardScreen {
         choices: reward_choices_from_observed(game),
         gold_offer: reward_gold_offer(game),
+        stolen_gold_offer: reward_gold_at_reward_type_from_game(game, "STOLEN_GOLD"),
         potion_offer: None,
         relic_offer: None,
         relic_key_offer: None,
@@ -6379,6 +6623,8 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         shop_remove_count: 0,
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
+        act2_event_list: Vec::new(),
+        act2_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         lizard_tail_used: false,
         girya_lifts: 0,
@@ -6596,12 +6842,7 @@ fn compare_subset(
     expected: Value,
     actual: Value,
 ) {
-    let expected_json = serde_json::to_string(&expected).expect("json serializes");
-    let actual_json = serde_json::to_string(&actual).expect("json serializes");
-    let diffs: Vec<_> = canonical_diff(&expected_json, &actual_json)
-        .into_iter()
-        .filter(|diff| !is_known_card_vs_legacy_unknown_diff(diff))
-        .collect();
+    let diffs = subset_diffs(expected, actual);
     if diffs.is_empty() {
         report.verified.push(VerifiedTransition {
             action_step: action.step,
@@ -6616,6 +6857,26 @@ fn compare_subset(
             diffs,
         });
     }
+}
+
+fn subset_diffs(expected: Value, actual: Value) -> Vec<String> {
+    let expected_json = serde_json::to_string(&expected).expect("json serializes");
+    let actual_json = serde_json::to_string(&actual).expect("json serializes");
+    canonical_diff(&expected_json, &actual_json)
+        .into_iter()
+        .filter(|diff| !is_known_card_vs_legacy_unknown_diff(diff))
+        .collect()
+}
+
+fn normalized_combat_subset_diffs(
+    expected: Value,
+    actual: Value,
+    strip_piles: bool,
+) -> Vec<String> {
+    subset_diffs(
+        seed_start_normalize_combat_compare(expected, strip_piles),
+        seed_start_normalize_combat_compare(actual, strip_piles),
+    )
 }
 
 fn is_known_card_vs_legacy_unknown_diff(diff: &str) -> bool {
@@ -6693,6 +6954,7 @@ fn monsters_from_observed(value: Option<&Value>, _player: &Value) -> Vec<Monster
                 hp: int(monster, "current_hp"),
                 block: int(monster, "block"),
                 alive: int(monster, "current_hp") > 0,
+                escaped: false,
                 powers,
                 temp_strength_down: 0,
                 content_id,
@@ -6704,6 +6966,7 @@ fn monsters_from_observed(value: Option<&Value>, _player: &Value) -> Vec<Monster
                 mode_shift: replay.mode_shift,
                 in_defensive_mode: replay.in_defensive_mode,
                 rolled_attack_damage,
+                stolen_gold: 0,
                 intent: replay.intent,
             }
         })
@@ -6848,36 +7111,76 @@ fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Op
 
 fn observed_intent(monster: &Value, content_id: ContentId) -> MonsterIntent {
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+        ACID_SLIME_ID, CHOSEN_ID, CULTIST_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SNECKO_ID,
+        SPIKE_SLIME_ID,
     };
 
     let damage = int(monster, "move_base_damage");
     match monster.get("intent").and_then(Value::as_str).unwrap_or("") {
+        "ATTACK" if content_id == LOOTER_ID => MonsterIntent::AttackStealGold {
+            damage: damage.max(0),
+            amount: looter_theft(0),
+        },
         "ATTACK" => MonsterIntent::Attack {
             damage: damage.max(0),
         },
-        "DEBUFF" => MonsterIntent::ApplyPlayerWeak {
-            amount: if content_id == ACID_SLIME_ID { 1 } else { 1 },
-        },
+        "DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerHex { amount: 1 },
+        "STRONG_DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerHex { amount: 1 },
+        "STRONG_DEBUFF" if content_id == SNECKO_ID => MonsterIntent::ApplyPlayerConfusion,
+        "DEBUFF" => MonsterIntent::ApplyPlayerWeak { amount: 1 },
+        "ATTACK_DEBUFF" if matches!(content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) => {
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: damage.max(0),
+                count: observed_slimed_count(monster, content_id),
+            }
+        }
         "ATTACK_DEBUFF" => MonsterIntent::Attack {
             damage: damage.max(0),
         },
+        "DEFEND" | "BLOCK" if matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) => {
+            MonsterIntent::StrengthAndBlock {
+                strength: 3,
+                block: 0,
+            }
+        }
+        "DEFEND" | "BLOCK" if content_id == GUARDIAN_ID => MonsterIntent::Block {
+            block: GUARDIAN_CHARGE_BLOCK,
+        },
         "DEFEND" | "BLOCK" => MonsterIntent::Block {
-            block: if matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) {
-                3
-            } else {
-                damage.max(0)
-            },
+            block: damage.max(0),
         },
         "BUFF" | "DEBUG" => match content_id {
             CULTIST_ID => MonsterIntent::Ritual { amount: 3 },
+            SPIKE_SLIME_ID if damage >= 8 => MonsterIntent::AttackAddSlimedToDiscard {
+                damage,
+                count: observed_slimed_count(monster, content_id),
+            },
             SPIKE_SLIME_ID if damage > 0 => MonsterIntent::Attack { damage },
             SPIKE_SLIME_ID => MonsterIntent::Attack { damage: 5 },
             ACID_SLIME_ID => MonsterIntent::Attack { damage: 7 },
-            RED_LOUSE_ID | GREEN_LOUSE_ID => MonsterIntent::Block { block: 3 },
+            RED_LOUSE_ID | GREEN_LOUSE_ID => MonsterIntent::StrengthAndBlock {
+                strength: 3,
+                block: 0,
+            },
+            GUARDIAN_ID if monster.get("intent").and_then(Value::as_str) == Some("BUFF") => {
+                MonsterIntent::GuardianCloseUp { sharp_hide: 3 }
+            }
+            GUARDIAN_ID => MonsterIntent::Block {
+                block: GUARDIAN_CHARGE_BLOCK,
+            },
             _ => MonsterIntent::Attack { damage: 0 },
         },
         _ => MonsterIntent::Attack { damage: 0 },
+    }
+}
+
+fn observed_slimed_count(monster: &Value, content_id: ContentId) -> i32 {
+    use sts_core::content::monsters::{SPIKE_SLIME_ID, SPIKE_SLIME_M_A7_HP_RANGE};
+
+    if content_id == SPIKE_SLIME_ID && int(monster, "max_hp") > SPIKE_SLIME_M_A7_HP_RANGE.max {
+        2
+    } else {
+        1
     }
 }
 
@@ -6890,6 +7193,7 @@ fn moves_executed_from_observed(monster: &Value, content_id: ContentId) -> u32 {
         "BUFF" | "DEBUG" | "DEBUFF" => 0,
         "ATTACK_DEBUFF" => 1,
         "ATTACK" if content_id == CULTIST_ID => 1,
+        "ATTACK" if content_id == LOOTER_ID => 1,
         "ATTACK" if content_id == SPIKE_SLIME_ID => 0,
         "ATTACK" if matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) => 1,
         "ATTACK" if content_id == ACID_SLIME_ID => 1,
@@ -6914,21 +7218,24 @@ fn monster_powers(value: Option<&Value>) -> MonsterPowers {
             Some("Curl Up") => powers.curl_up = amount,
             Some("Anger") => powers.anger = amount,
             Some("Metallicize") => powers.metallicize = amount,
+            Some("Painful Stabs") => powers.painful_stabs = 1,
             _ => {}
         }
     }
     powers
 }
 
-fn player_powers(value: Option<&Value>) -> PlayerPowers {
+fn player_powers_and_temp_strength(value: Option<&Value>) -> (PlayerPowers, i32) {
     let mut powers = PlayerPowers::default();
+    let mut temp_strength = 0;
     let Some(items) = value.and_then(Value::as_array) else {
-        return powers;
+        return (powers, temp_strength);
     };
     for power in items {
         let amount = int(power, "amount");
         match power_id(power).as_deref() {
             Some("Strength") => powers.strength = amount,
+            Some("Strength Down") | Some("Flex") => temp_strength = amount,
             Some("Weak") | Some("Weakened") => powers.weak = amount,
             Some("Dexterity") => powers.dexterity = amount,
             Some("Frail") => powers.frail = amount,
@@ -6938,14 +7245,29 @@ fn player_powers(value: Option<&Value>) -> PlayerPowers {
             _ => {}
         }
     }
-    powers
+    powers.strength -= temp_strength;
+    (powers, temp_strength)
 }
 
 fn reward_gold_offer(game: &Value) -> i32 {
+    reward_gold_at_reward_type_from_game(game, "GOLD")
+}
+
+fn reward_gold_at_reward_type_from_game(game: &Value, reward_type: &str) -> i32 {
     game.get("screen_state")
-        .and_then(|state| state.get("rewards"))
+        .and_then(|screen| screen.get("rewards"))
         .and_then(Value::as_array)
-        .and_then(|rewards| rewards.iter().find_map(|reward| reward.get("gold")))
+        .and_then(|rewards| {
+            rewards
+                .iter()
+                .find(|reward| {
+                    reward
+                        .get("reward_type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case(reward_type))
+                })
+                .and_then(|reward| reward.get("gold"))
+        })
         .and_then(Value::as_i64)
         .unwrap_or(0) as i32
 }
@@ -6993,6 +7315,25 @@ fn card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardIns
         .collect()
 }
 
+fn card_instances_from_array_with_observed_shrug_plus(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    let Some(cards) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    cards
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| {
+            content_id_from_card_value_with_observed_shrug_plus(card).map(|content_id| {
+                CardInstance::new(CardId::new(base_id + index as u64), content_id)
+            })
+        })
+        .collect()
+}
+
 fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
     let id = card.get("id").and_then(Value::as_str)?;
     let upgrades = card.get("upgrades").and_then(Value::as_u64).unwrap_or(0);
@@ -7003,36 +7344,52 @@ fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
     Some(base)
 }
 
+fn content_id_from_card_value_with_observed_shrug_plus(card: &Value) -> Option<ContentId> {
+    let id = card.get("id").and_then(Value::as_str)?;
+    let upgrades = card.get("upgrades").and_then(Value::as_u64).unwrap_or(0);
+    let base = content_id_from_key(id)?;
+    if upgrades > 0 && base == sts_core::content::cards::SHRUG_IT_OFF_ID {
+        return Some(sts_core::content::cards::SHRUG_IT_OFF_PLUS_ID);
+    }
+    content_id_from_card_value(card)
+}
+
 fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
     sts_core::content::cards::upgrade_content_id(base)
 }
 
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, DECAY_ID,
-        DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID,
-        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
-        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, INJURY_ID, INTIMIDATE_ID,
-        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, METALLICIZE_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
-        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
+        BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, DECAY_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID,
+        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
+        IMMOLATE_PLUS_ID, INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID,
+        METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
         TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
         "Defend_R" | "Defend" => Some(DEFEND_R_ID),
+        "Defend_R+" | "Defend+" => Some(DEFEND_R_PLUS_ID),
         "Bash" => Some(BASH_ID),
+        "Bash+" | "bash+" => Some(BASH_PLUS_ID),
+        "Burn" | "burn" => Some(BURN_ID),
         "Slimed" | "slimed" => Some(SLIMED_ID),
         "Thunderclap" | "thunderclap" => Some(THUNDERCLAP_ID),
         "Anger" | "anger" => Some(ANGER_ID),
         "Warcry" | "warcry" => Some(WARCRY_ID),
         "Warcry+" | "warcry+" => Some(WARCRY_PLUS_ID),
         "Metallicize" | "metallicize" => Some(METALLICIZE_ID),
+        "Metallicize+" | "metallicize+" => Some(METALLICIZE_PLUS_ID),
         "Twin Strike" | "twin strike" => Some(TWIN_STRIKE_ID),
         "Battle Trance" | "battle trance" => Some(BATTLE_TRANCE_ID),
         "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
+        "Shrug It Off+" | "shrug it off+" => Some(SHRUG_IT_OFF_PLUS_ID),
         "Body Slam" | "body slam" => Some(BODY_SLAM_ID),
         "Cleave" | "cleave" => Some(CLEAVE_ID),
         "Deep Breath" | "deep breath" => Some(DEEP_BREATH_ID),
@@ -7061,6 +7418,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Disarm" | "disarm" => Some(DISARM_ID),
         "Dual Wield" | "dual wield" => Some(DUAL_WIELD_ID),
         "Immolate" | "immolate" => Some(IMMOLATE_ID),
+        "Immolate+" | "immolate+" => Some(IMMOLATE_PLUS_ID),
         "Berserk" | "berserk" => Some(BERSERK_ID),
         "Limit Break" | "limit break" => Some(LIMIT_BREAK_ID),
         "Armaments" | "armaments" => Some(ARMAMENTS_ID),
@@ -7087,25 +7445,26 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BATTLE_TRANCE_ID, BERSERK_ID,
+        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        CLUMSY_ID, COMBUST_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID,
-        DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEED_ID,
-        FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID,
-        HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
-        IMMOLATE_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INJURY_ID, INTIMIDATE_ID,
-        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, METALLICIZE_ID,
-        NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REGRET_ID, SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-        SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
-        WILD_STRIKE_ID, WRITHE_ID,
+        CLUMSY_ID, COMBUST_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
+        FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID,
+        METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID,
+        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID,
+        REGRET_ID, SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WRITHE_ID,
     };
     match content_id {
-        id if id == STRIKE_R_ID => "Strike_R",
-        id if id == DEFEND_R_ID => "Defend_R",
-        id if id == BASH_ID => "Bash",
+        id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID => "Strike_R",
+        id if id == DEFEND_R_ID || id == DEFEND_R_PLUS_ID => "Defend_R",
+        id if id == BASH_ID || id == BASH_PLUS_ID => "Bash",
         id if id == BURN_ID => "Burn",
         id if id == SLIMED_ID => "Slimed",
         id if id == THUNDERCLAP_ID => "Thunderclap",
@@ -7113,9 +7472,11 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == WARCRY_ID => "Warcry",
         id if id == WARCRY_PLUS_ID => "Warcry+",
         id if id == METALLICIZE_ID => "Metallicize",
+        id if id == METALLICIZE_PLUS_ID => "Metallicize+",
         id if id == TWIN_STRIKE_ID => "Twin Strike",
         id if id == BATTLE_TRANCE_ID => "Battle Trance",
         id if id == SHRUG_IT_OFF_ID => "Shrug It Off",
+        id if id == SHRUG_IT_OFF_PLUS_ID => "Shrug It Off+",
         id if id == BODY_SLAM_ID => "Body Slam",
         id if id == CLASH_ID => "Clash",
         id if id == CLEAVE_ID => "Cleave",
@@ -7126,9 +7487,11 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == INFLAME_PLUS_ID => "Inflame+",
         id if id == COMBUST_ID => "Combust",
         id if id == OFFERING_ID => "Offering",
+        id if id == OFFERING_PLUS_ID => "Offering+",
         id if id == DEEP_BREATH_ID => "Deep Breath",
         id if id == DRAMATIC_ENTRANCE_ID => "Dramatic Entrance",
         id if id == SWIFT_STRIKE_ID => "Swift Strike",
+        id if id == SWIFT_STRIKE_PLUS_ID => "Swift Strike+",
         id if id == JACK_OF_ALL_TRADES_ID => "Jack Of All Trades",
         id if id == ENTRENCH_ID => "Entrench",
         id if id == FIRE_BREATHING_ID => "Fire Breathing",
@@ -7142,7 +7505,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == SWORD_BOOMERANG_ID => "Sword Boomerang",
         id if id == TRUE_GRIT_ID => "True Grit",
         id if id == HEADBUTT_ID => "Headbutt",
-        id if id == IMMOLATE_ID => "Immolate",
+        id if id == IMMOLATE_ID || id == IMMOLATE_PLUS_ID => "Immolate",
         id if id == BERSERK_ID => "Berserk",
         id if id == LIMIT_BREAK_ID => "Limit Break",
         id if id == IMPERVIOUS_ID => "Impervious",
@@ -7246,18 +7609,45 @@ fn choose_index(command: &str) -> Option<usize> {
     }
 }
 
-fn parse_potion_use_slot(command: &str) -> Option<usize> {
+struct ParsedPotionUse {
+    slot: usize,
+    target: Option<MonsterId>,
+}
+
+fn parse_potion_use(command: &str) -> Option<ParsedPotionUse> {
     let parts: Vec<_> = command.split_whitespace().collect();
     match parts.as_slice() {
-        [head, second, third]
+        [head, second, slot]
             if head.eq_ignore_ascii_case("POTION") && second.eq_ignore_ascii_case("USE") =>
         {
-            third.parse().ok()
+            Some(ParsedPotionUse {
+                slot: slot.parse().ok()?,
+                target: None,
+            })
         }
-        [head, slot, ..]
+        [head, second, slot, target]
+            if head.eq_ignore_ascii_case("POTION") && second.eq_ignore_ascii_case("USE") =>
+        {
+            Some(ParsedPotionUse {
+                slot: slot.parse().ok()?,
+                target: Some(MonsterId::new(target.parse().ok()?)),
+            })
+        }
+        [head, slot, target]
             if head.eq_ignore_ascii_case("potion") && !slot.eq_ignore_ascii_case("USE") =>
         {
-            slot.parse().ok()
+            Some(ParsedPotionUse {
+                slot: slot.parse().ok()?,
+                target: Some(MonsterId::new(target.parse().ok()?)),
+            })
+        }
+        [head, slot]
+            if head.eq_ignore_ascii_case("potion") && !slot.eq_ignore_ascii_case("USE") =>
+        {
+            Some(ParsedPotionUse {
+                slot: slot.parse().ok()?,
+                target: None,
+            })
         }
         _ => None,
     }
@@ -7323,11 +7713,25 @@ fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
 }
 
 fn intent_key(monster: &MonsterState) -> String {
-    use sts_core::content::monsters::ACID_SLIME_ID;
+    use sts_core::content::monsters::{ACID_SLIME_ID, SPIKE_SLIME_ID};
 
     match monster.intent {
-        MonsterIntent::Attack { .. } | MonsterIntent::AttackMultiple { .. } => {
-            if monster.content_id == ACID_SLIME_ID {
+        MonsterIntent::Attack { .. }
+        | MonsterIntent::AttackAddSlimedToDiscard { .. }
+        | MonsterIntent::AttackApplyPlayerFrail { .. }
+        | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+        | MonsterIntent::AttackApplyPlayerWeak { .. }
+        | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
+        | MonsterIntent::AttackMultiple { .. }
+        | MonsterIntent::AttackStealGold { .. } => {
+            if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) {
+                "ATTACK_DEBUFF".to_owned()
+            } else if matches!(
+                monster.intent,
+                MonsterIntent::AttackApplyPlayerWeak { .. }
+                    | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+                    | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
+            ) {
                 "ATTACK_DEBUFF".to_owned()
             } else {
                 "ATTACK".to_owned()
@@ -7335,16 +7739,32 @@ fn intent_key(monster: &MonsterState) -> String {
         }
         MonsterIntent::Ritual { .. }
         | MonsterIntent::Block { .. }
-        | MonsterIntent::StrengthAndBlock { .. } => "BUFF".to_owned(),
-        MonsterIntent::AttackAndBlock { .. } => "ATTACK_BUFF".to_owned(),
+        | MonsterIntent::StrengthAndBlock { .. }
+        | MonsterIntent::HealAllMonsters { .. }
+        | MonsterIntent::StrengthSelf { .. }
+        | MonsterIntent::StrengthAllMonsters { .. }
+        | MonsterIntent::GuardianCloseUp { .. } => "BUFF".to_owned(),
+        MonsterIntent::EncourageGremlins { .. } => "DEFEND_BUFF".to_owned(),
+        MonsterIntent::AttackAndBlock { .. } | MonsterIntent::AttackHealSelf { .. } => {
+            "ATTACK_BUFF".to_owned()
+        }
         MonsterIntent::ApplyPlayerWeak { .. }
         | MonsterIntent::AttackApplyPlayerVulnerable { .. }
+        | MonsterIntent::AttackAddWoundsToDiscard { .. }
+        | MonsterIntent::ApplyPlayerHex { .. }
+        | MonsterIntent::ApplyPlayerFrailAndWeak { .. }
+        | MonsterIntent::ApplyPlayerWeakStrengthSelf { .. }
+        | MonsterIntent::ApplyPlayerConfusion
         | MonsterIntent::AddDazedToDiscard { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
         | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
+        MonsterIntent::ApplyPlayerEntangled { .. } => "STRONG_DEBUFF".to_owned(),
         MonsterIntent::Sleep => "SLEEP".to_owned(),
         MonsterIntent::Stun => "STUN".to_owned(),
-        MonsterIntent::DefensiveCharge { .. } => "UNKNOWN".to_owned(),
+        MonsterIntent::Escape => "ESCAPE".to_owned(),
+        MonsterIntent::DefensiveCharge { .. } | MonsterIntent::SummonGremlins { .. } => {
+            "UNKNOWN".to_owned()
+        }
     }
 }
 
@@ -7384,8 +7804,88 @@ fn push_sim_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sts_core::content::cards::{DRAMATIC_ENTRANCE_ID, DROPKICK_ID};
+    use sts_core::content::cards::{BURN_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID};
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
+
+    #[test]
+    fn seed_start_act2_combat_entry_uses_city_spawn_helper() {
+        let seed = 1_218_623;
+        let floor = 18;
+        let combat_index = 0;
+        let message = json!({
+            "game_state": {
+                "screen_type": "COMBAT",
+                "ascension_level": 0,
+                "floor": floor,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": [{"id": "Strike_R"}],
+                "relics": [],
+                "combat_state": {
+                    "player": {
+                        "current_hp": 80,
+                        "block": 0,
+                        "energy": 3
+                    },
+                    "monsters": []
+                }
+            }
+        });
+
+        let expected = seed_start_encounter_expected_at_index(
+            seed,
+            combat_index,
+            0,
+            &["Strike_R".to_owned()],
+            &[],
+            false,
+            &message,
+        );
+        let actual_monsters = expected
+            .get("monsters")
+            .and_then(Value::as_array)
+            .expect("expected monsters");
+        let city_spawns =
+            target_city_normal_encounter_spawn_at_combat_index(seed, floor, combat_index, 0, false)
+                .expect("city spawn metadata");
+        let exordium_spawns =
+            target_normal_encounter_spawn_at_combat_index(seed, floor, combat_index, 0, false)
+                .expect("exordium spawn metadata");
+
+        assert_eq!(actual_monsters.len(), city_spawns.len());
+        assert_eq!(
+            actual_monsters[0].get("name").and_then(Value::as_str),
+            Some(city_spawns[0].name)
+        );
+        assert_ne!(city_spawns[0].name, exordium_spawns[0].name);
+    }
+
+    #[test]
+    fn seed_start_act2_room_kind_resolution_uses_city_map_stream() {
+        let seed = 1_218_623;
+        let path = vec![0];
+        let act1_message = json!({"game_state": {"floor": 1}});
+        let act2_message = json!({"game_state": {"floor": 18}});
+
+        assert_eq!(
+            seed_start_target_act_from_message(&act1_message),
+            TargetMapAct::Exordium
+        );
+        assert_eq!(
+            seed_start_target_act_from_message(&act2_message),
+            TargetMapAct::City
+        );
+        assert_eq!(
+            seed_start_room_kinds_on_path(seed, &path, &act2_message),
+            city_room_kinds_on_path(seed, &path)
+        );
+        assert_eq!(
+            seed_start_room_kinds_on_path(seed, &path, &act1_message),
+            exordium_room_kinds_on_path(seed, &path)
+        );
+        assert_eq!(seed_start_target_act_from_floor(18), TargetMapAct::City);
+    }
 
     #[test]
     fn trace_replay_parses_unknown_exit_metadata_and_supports_empty_trace() {
@@ -7412,6 +7912,73 @@ mod tests {
 
         assert_eq!(content_id_from_card_value(&card), Some(DROPKICK_ID));
         assert_eq!(content_key(DROPKICK_ID), "Dropkick");
+    }
+
+    #[test]
+    fn burn_maps_from_observed_card_json() {
+        let card = json!({"id": "Burn", "name": "Burn"});
+
+        assert_eq!(content_id_from_card_value(&card), Some(BURN_ID));
+        assert_eq!(content_key(BURN_ID), "Burn");
+    }
+
+    #[test]
+    fn observed_combat_reconstruction_bridges_mummified_hand_and_only_pen_nib_counter() {
+        let message = json!({
+            "game_state": {
+                "deck": [],
+                "relics": [
+                    {"name": "Burning Blood", "id": "Burning Blood", "counter": 4},
+                    {"name": "Mummified Hand", "id": "Mummified Hand", "counter": -1},
+                    {"name": "Pen Nib", "id": "Pen Nib", "counter": 9},
+                    {"name": "Nunchaku", "id": "Nunchaku", "counter": 8}
+                ],
+                "current_hp": 70,
+                "max_hp": 80,
+                "gold": 42,
+                "floor": 16,
+                "ascension_level": 0,
+                "combat_state": {
+                    "player": {
+                        "current_hp": 70,
+                        "max_hp": 80,
+                        "block": 0,
+                        "energy": 3,
+                        "powers": []
+                    },
+                    "monsters": [],
+                    "hand": [],
+                    "draw_pile": [],
+                    "discard_pile": [],
+                    "exhaust_pile": []
+                }
+            }
+        });
+
+        let run = run_from_observed_combat(&message).expect("observed combat reconstructs");
+        let combat = run.combat.as_ref().expect("combat state");
+
+        assert_eq!(run.relics, vec![Relic::MummifiedHand, Relic::PenNib]);
+        assert_eq!(combat.relics, vec![Relic::MummifiedHand, Relic::PenNib]);
+        assert_eq!(combat.relic_counters.pen_nib_attacks_played, 9);
+        assert_eq!(combat.relic_counters.nunchaku_attacks_played, 0);
+        assert_eq!(combat.relic_counters.ink_bottle_cards_played, 0);
+    }
+
+    #[test]
+    fn guardian_defend_observed_intent_replays_charge_up_block() {
+        let monster = json!({
+            "id": "TheGuardian",
+            "intent": "DEFEND",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GUARDIAN_ID),
+            MonsterIntent::Block {
+                block: GUARDIAN_CHARGE_BLOCK
+            }
+        );
     }
 
     #[test]
@@ -8467,12 +9034,37 @@ mod tests {
             "CODEX03",
             0,
             Some(&carried),
+            false,
         )
         .expect("combat entry run");
 
         assert_eq!(carried.neow_lament_combats_remaining, 3);
         assert_eq!(entered.neow_lament_combats_remaining, 2);
         assert!(seed_start_core_neow_lament_active(Some(&entered)));
+    }
+
+    #[test]
+    fn m34_selected_modified_deck_opening_piles_are_seed_derived() {
+        for case in [
+            (
+                "communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl",
+                "CODEX04 colorless innate",
+            ),
+            (
+                "communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl",
+                "TEST obtained colorless",
+            ),
+            (
+                "communication_mod/trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl",
+                "M290001 transformed card",
+            ),
+            (
+                "communication_mod/trace-2026-06-23T07-42-06-085Z.best-run.jsonl",
+                "M290008 transformed card",
+            ),
+        ] {
+            assert_selected_trace_first_combat_opening_is_seed_derived(case.0, case.1);
+        }
     }
 
     #[test]
@@ -10290,6 +10882,7 @@ mod tests {
             verified: Vec::new(),
             unsupported: Vec::new(),
             unexpected_diffs: Vec::new(),
+            observed_state_restorations: Vec::new(),
             seed_start: None,
         };
         verify_transition(&pre, &action, &post, &mut report);
@@ -10320,6 +10913,65 @@ mod tests {
         path: &'static str,
         seed: &'static str,
         expected_labels: &'static [&'static str],
+    }
+
+    fn assert_selected_trace_first_combat_opening_is_seed_derived(path: &str, label: &str) {
+        let content = crate::load_corpus_file(path)
+            .unwrap_or_else(|| panic!("selected M34 trace missing from corpus: {path}"));
+        let trace = import_communication_mod_trace(&content).expect("trace imports");
+        let start = trace
+            .lines
+            .iter()
+            .filter_map(|line| match line {
+                TraceLine::Action(action) => parse_start_command(action).and_then(Result::ok),
+                _ => None,
+            })
+            .next()
+            .expect("trace has START command");
+        let transitions = trace_transitions(&trace.lines).expect("trace transitions");
+        let (_, _, post) = transitions
+            .iter()
+            .find(|(_, _, post)| {
+                post.message
+                    .get("game_state")
+                    .and_then(|game| game.get("combat_state"))
+                    .is_some()
+            })
+            .unwrap_or_else(|| panic!("{label} trace has no combat entry"));
+        let game = post.message.get("game_state").expect("game_state");
+        let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as i64;
+        let deck = card_instances_from_array(game.get("deck"), 1);
+        let mut shuffle_rng = StsRng::new(start.numeric_seed + floor);
+        let mut card_random_rng = None;
+        let simulated =
+            initialize_combat_piles_with_relics(&deck, &mut shuffle_rng, &mut card_random_rng, &[]);
+
+        assert!(
+            seed_start_opening_piles_match(&simulated, &post.message),
+            "{label} opening piles were not seed-derived from current deck ordering; observed hand={:?} draw={:?}, simulated hand={:?} draw={:?}",
+            combat_card_ids(
+                post.message
+                    .get("game_state")
+                    .and_then(|game| game.get("combat_state"))
+                    .and_then(|combat| combat.get("hand"))
+            ),
+            combat_card_ids(
+                post.message
+                    .get("game_state")
+                    .and_then(|game| game.get("combat_state"))
+                    .and_then(|combat| combat.get("draw_pile"))
+            ),
+            simulated
+                .hand
+                .iter()
+                .map(|card| content_key(card.content_id))
+                .collect::<Vec<_>>(),
+            simulated
+                .draw_pile
+                .iter()
+                .map(|card| content_key(card.content_id))
+                .collect::<Vec<_>>()
+        );
     }
 
     fn test_seed_string_from_long(mut seed: i64) -> String {

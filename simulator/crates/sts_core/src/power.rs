@@ -49,6 +49,12 @@ pub struct PlayerPowers {
     pub intangible: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub sadistic_nature: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub hex: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub confusion: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub entangled: i32,
 }
 
 fn is_zero_i32(value: &i32) -> bool {
@@ -62,6 +68,12 @@ pub struct MonsterPowers {
     pub strength: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub artifact: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub flight: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub plated_armor: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub painful_stabs: i32,
     pub ritual: i32,
     pub spikes: i32,
     pub curl_up: i32,
@@ -69,6 +81,14 @@ pub struct MonsterPowers {
     pub anger: i32,
     /// Lagavulin sleep stance block gain per turn.
     pub metallicize: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub malleable: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub malleable_base: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub spore_cloud: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub minion: i32,
 }
 
 /// Slay the Spire-style vulnerable bonus: attack damage is increased by 50%, floored.
@@ -135,6 +155,18 @@ pub fn apply_player_frail(powers: &mut PlayerPowers, amount: i32) {
     apply_player_debuff(powers, |powers| powers.frail += amount);
 }
 
+pub fn apply_player_hex(powers: &mut PlayerPowers, amount: i32) {
+    apply_player_debuff(powers, |powers| powers.hex += amount);
+}
+
+pub fn apply_player_confusion(powers: &mut PlayerPowers) {
+    apply_player_debuff(powers, |powers| powers.confusion = powers.confusion.max(1));
+}
+
+pub fn apply_player_entangled(powers: &mut PlayerPowers, amount: i32) {
+    apply_player_debuff(powers, |powers| powers.entangled += amount);
+}
+
 pub fn reduce_player_strength(powers: &mut PlayerPowers, amount: i32) {
     apply_player_debuff(powers, |powers| powers.strength -= amount);
 }
@@ -165,6 +197,9 @@ pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
     powers.weak = 0;
     powers.frail = 0;
     powers.vulnerable = 0;
+    powers.hex = 0;
+    powers.confusion = 0;
+    powers.entangled = 0;
 }
 
 fn apply_player_debuff(powers: &mut PlayerPowers, apply: impl FnOnce(&mut PlayerPowers)) {

@@ -85,7 +85,7 @@ fn jaw_worm_combat_executes_chomp_thrash_bellow_cycle() {
     let after_bellow = end_player_turn(&after_thrash);
     assert_eq!(after_bellow.player.hp, 82);
     assert_eq!(after_bellow.monsters[0].powers.strength, 3);
-    assert_eq!(after_bellow.monsters[0].block, 11);
+    assert_eq!(after_bellow.monsters[0].block, 6);
     assert_eq!(
         after_bellow.monsters[0].intent,
         MonsterIntent::Attack { damage: 11 }
@@ -100,34 +100,40 @@ fn gremlin_nob_fixture_has_expected_hp_and_opening_intent() {
     let state = CombatState::gremlin_nob_fixture();
 
     assert_eq!(state.monsters[0].hp, GREMLIN_NOB_A0.hp);
-    assert_eq!(
-        state.monsters[0].intent,
-        MonsterIntent::Attack { damage: 6 }
-    );
+    assert_eq!(state.monsters[0].intent, MonsterIntent::Block { block: 0 });
 }
 
 #[test]
-fn gremlin_nob_combat_executes_bite_skull_bash_cycle() {
+fn gremlin_nob_combat_executes_bellow_skull_bash_rush_cycle() {
     let mut state = CombatState::gremlin_nob_fixture();
     state.player.hp = 100;
     state.piles.draw_pile.clear();
 
-    let after_bite = end_player_turn(&state);
-    assert_eq!(after_bite.player.hp, 94);
+    let after_bellow = end_player_turn(&state);
+    assert_eq!(after_bellow.player.hp, 100);
     assert_eq!(
-        after_bite.monsters[0].intent,
+        after_bellow.monsters[0].intent,
         MonsterIntent::AttackApplyPlayerVulnerable {
-            damage: 14,
+            damage: 6,
             vulnerable: 2,
         }
     );
 
-    let after_skull_bash = end_player_turn(&after_bite);
-    assert_eq!(after_skull_bash.player.hp, 80);
+    let after_skull_bash = end_player_turn(&after_bellow);
+    assert_eq!(after_skull_bash.player.hp, 94);
+    assert_eq!(after_skull_bash.player.powers.vulnerable, 2);
     assert_eq!(
         after_skull_bash.monsters[0].intent,
-        MonsterIntent::Attack { damage: 6 }
+        MonsterIntent::Attack { damage: 14 }
     );
+
+    let after_first_rush = end_player_turn(&after_skull_bash);
+    assert_eq!(after_first_rush.player.hp, 73);
+    assert_eq!(after_first_rush.player.powers.vulnerable, 1);
+
+    let after_second_rush = end_player_turn(&after_first_rush);
+    assert_eq!(after_second_rush.player.hp, 52);
+    assert_eq!(after_second_rush.player.powers.vulnerable, 0);
 }
 
 #[test]
@@ -144,6 +150,29 @@ fn gremlin_nob_enrage_applies_anger_when_player_plays_skill() {
     .expect("Defend applies");
 
     assert_eq!(next.monsters[0].powers.anger, 2);
+    assert_eq!(next.monsters[0].powers.strength, 2);
+}
+
+#[test]
+fn gremlin_nob_enrage_bonus_is_applied_once_to_next_attack() {
+    let mut state = CombatState::gremlin_nob_fixture();
+    state.player.hp = 100;
+    state.piles.draw_pile.clear();
+
+    let after_defend = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: hand_defend_id(&state),
+            target: None,
+        },
+    )
+    .expect("Defend applies");
+    let after_bellow = end_player_turn(&after_defend);
+    let after_skull_bash = end_player_turn(&after_bellow);
+
+    assert_eq!(after_skull_bash.player.hp, 92);
+    assert_eq!(after_skull_bash.monsters[0].powers.anger, 2);
+    assert_eq!(after_skull_bash.monsters[0].powers.strength, 2);
 }
 
 #[test]
@@ -160,6 +189,7 @@ fn gremlin_nob_enrage_does_not_trigger_on_attack() {
     .expect("Strike applies");
 
     assert_eq!(next.monsters[0].powers.anger, 0);
+    assert_eq!(next.monsters[0].powers.strength, 0);
 }
 
 #[test]
@@ -167,7 +197,13 @@ fn red_louse_fixture_has_expected_hp_and_opening_intent() {
     let state = CombatState::red_louse_fixture();
 
     assert_eq!(state.monsters[0].hp, RED_LOUSE_A0.hp);
-    assert_eq!(state.monsters[0].intent, MonsterIntent::Block { block: 3 });
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::StrengthAndBlock {
+            strength: 3,
+            block: 0
+        }
+    );
 }
 
 #[test]
@@ -178,22 +214,26 @@ fn red_louse_combat_executes_curl_bite_cycle() {
 
     let after_curl = end_player_turn(&state);
     assert_eq!(after_curl.player.hp, 100);
-    assert_eq!(after_curl.monsters[0].block, 3);
+    assert_eq!(after_curl.monsters[0].block, 0);
     assert_eq!(
         after_curl.monsters[0].intent,
         MonsterIntent::Attack { damage: 6 }
     );
 
     let after_bite = end_player_turn(&after_curl);
-    assert_eq!(after_bite.player.hp, 94);
+    assert_eq!(after_bite.player.hp, 91);
     assert_eq!(
         after_bite.monsters[0].intent,
-        MonsterIntent::Block { block: 3 }
+        MonsterIntent::StrengthAndBlock {
+            strength: 3,
+            block: 0
+        }
     );
 
     let after_second_curl = end_player_turn(&after_bite);
-    assert_eq!(after_second_curl.player.hp, 94);
-    assert_eq!(after_second_curl.monsters[0].block, 6);
+    assert_eq!(after_second_curl.player.hp, 91);
+    assert_eq!(after_second_curl.monsters[0].block, 0);
+    assert_eq!(after_second_curl.monsters[0].powers.strength, 6);
     assert_eq!(
         after_second_curl.monsters[0].intent,
         MonsterIntent::Attack { damage: 6 }
@@ -206,7 +246,13 @@ fn green_louse_fixture_has_expected_hp_spikes_and_opening_intent() {
 
     assert_eq!(state.monsters[0].hp, GREEN_LOUSE_A0.hp);
     assert_eq!(state.monsters[0].powers.spikes, 3);
-    assert_eq!(state.monsters[0].intent, MonsterIntent::Block { block: 3 });
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::StrengthAndBlock {
+            strength: 3,
+            block: 0
+        }
+    );
 }
 
 #[test]
@@ -234,14 +280,14 @@ fn green_louse_combat_executes_curl_bite_cycle() {
 
     let after_curl = end_player_turn(&state);
     assert_eq!(after_curl.player.hp, 100);
-    assert_eq!(after_curl.monsters[0].block, 3);
+    assert_eq!(after_curl.monsters[0].block, 0);
     assert_eq!(
         after_curl.monsters[0].intent,
         MonsterIntent::Attack { damage: 6 }
     );
 
     let after_bite = end_player_turn(&after_curl);
-    assert_eq!(after_bite.player.hp, 94);
+    assert_eq!(after_bite.player.hp, 91);
 }
 
 #[test]
@@ -517,15 +563,12 @@ fn slime_boss_splits_into_acid_slimes_at_half_hp() {
 }
 
 #[test]
-fn guardian_fixture_has_expected_hp_and_charge_intent() {
+fn guardian_fixture_has_expected_hp_and_charge_up_intent() {
     let state = CombatState::guardian_fixture();
 
     assert_eq!(state.monsters[0].hp, GUARDIAN_A0.hp);
     assert_eq!(state.monsters[0].mode_shift, 30);
-    assert_eq!(
-        state.monsters[0].intent,
-        MonsterIntent::Attack { damage: 32 }
-    );
+    assert_eq!(state.monsters[0].intent, MonsterIntent::Block { block: 9 });
 }
 
 #[test]
@@ -540,7 +583,37 @@ fn guardian_mode_shift_enters_defensive_on_hp_damage() {
     guardian_on_hp_damage(&mut after.monsters[0], 10);
 
     assert!(after.monsters[0].in_defensive_mode);
-    assert_eq!(after.monsters[0].powers.spikes, 3);
+    assert_eq!(after.monsters[0].powers.spikes, 0);
+    assert_eq!(
+        after.monsters[0].intent,
+        MonsterIntent::GuardianCloseUp { sharp_hide: 3 }
+    );
+}
+
+#[test]
+fn guardian_close_up_turn_applies_sharp_hide_without_attacking() {
+    let mut state = CombatState::guardian_fixture();
+    state.player.hp = 200;
+    state.piles.draw_pile.clear();
+    state.monsters[0].mode_shift = 1;
+
+    let after_shift = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: hand_strike_id(&state),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Strike applies");
+    let after_close_up = end_player_turn(&after_shift);
+
+    assert_eq!(after_close_up.player.hp, 200);
+    assert_eq!(after_close_up.monsters[0].block, 0);
+    assert_eq!(after_close_up.monsters[0].powers.spikes, 3);
+    assert_eq!(
+        after_close_up.monsters[0].intent,
+        MonsterIntent::Attack { damage: 9 }
+    );
 }
 
 fn hand_strike_id(state: &CombatState) -> CardId {

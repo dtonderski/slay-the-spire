@@ -1927,7 +1927,10 @@ mod tests {
 
     #[test]
     fn blessing_of_the_forge_upgrades_hand_and_is_consumed() {
-        use crate::content::cards::{ANGER_ID, ANGER_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID};
+        use crate::content::cards::{
+            ANGER_ID, ANGER_PLUS_ID, BASH_ID, BASH_PLUS_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
+            IMMOLATE_ID, IMMOLATE_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        };
 
         let mut run = RunState::combat_fixture();
         run.potions.push(Potion::BlessingOfTheForge);
@@ -1936,6 +1939,9 @@ mod tests {
             CardInstance::new(CardId::new(10), STRIKE_R_ID),
             CardInstance::new(CardId::new(11), ANGER_ID),
             CardInstance::new(CardId::new(12), STRIKE_R_PLUS_ID),
+            CardInstance::new(CardId::new(13), BASH_ID),
+            CardInstance::new(CardId::new(14), IMMOLATE_ID),
+            CardInstance::new(CardId::new(15), DEFEND_R_ID),
         ];
 
         let after = apply_potion_action(
@@ -1956,7 +1962,14 @@ mod tests {
             .collect();
         assert_eq!(
             hand,
-            vec![STRIKE_R_PLUS_ID, ANGER_PLUS_ID, STRIKE_R_PLUS_ID]
+            vec![
+                STRIKE_R_PLUS_ID,
+                ANGER_PLUS_ID,
+                STRIKE_R_PLUS_ID,
+                BASH_PLUS_ID,
+                IMMOLATE_PLUS_ID,
+                DEFEND_R_PLUS_ID
+            ]
         );
         assert!(after.potions.is_empty());
     }

@@ -211,9 +211,14 @@ pub use generation::{
     generate_map_placeholder, generated_map_fixture, placeholder_generated_map_fixture,
 };
 pub use target::{
-    exordium_room_kinds_on_path, generate_exordium_fixed_map,
-    generate_exordium_map_choices_after_path, generate_exordium_map_topology, ExordiumFixedRoomRow,
-    ExordiumMapChoiceStep, ExordiumMapTopology,
+    city_room_kinds_on_path, exordium_room_kinds_on_path, generate_city_fixed_map,
+    generate_city_map_choices_after_path, generate_city_map_topology, generate_exordium_fixed_map,
+    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
+    generate_target_fixed_map, generate_target_map_choices_after_path,
+    generate_target_map_topology, target_room_kinds_on_path, CityMapChoiceStep, CityMapTopology,
+    ExordiumFixedRoomRow, ExordiumMapChoiceStep, ExordiumMapTopology, TargetAssignedRoom,
+    TargetFixedRoomRow, TargetMapAct, TargetMapChild, TargetMapChoiceStep, TargetMapTopology,
+    TargetRoomTypeCounts,
 };
 
 #[cfg(test)]

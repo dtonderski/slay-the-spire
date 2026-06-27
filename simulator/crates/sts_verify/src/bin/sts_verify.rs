@@ -124,6 +124,10 @@ fn main() {
             println!("verified={}", report.verified.len());
             println!("unsupported={}", report.unsupported.len());
             println!("unexpected_diffs={}", report.unexpected_diffs.len());
+            println!(
+                "observed_state_restorations={}",
+                report.observed_state_restorations.len()
+            );
             if let Some(seed_start) = &report.seed_start {
                 println!(
                     "seed_start.expected_failure={}",
@@ -209,6 +213,13 @@ fn main() {
                 println!(
                     "unsupported step={} command=\"{}\" reason=\"{}\"",
                     unsupported.action_step, unsupported.command, unsupported.reason
+                );
+            }
+
+            for restoration in &report.observed_state_restorations {
+                println!(
+                    "observed_state_restoration step={} command=\"{}\" reason=\"{}\"",
+                    restoration.action_step, restoration.command, restoration.reason
                 );
             }
 

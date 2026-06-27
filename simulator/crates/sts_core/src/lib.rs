@@ -35,12 +35,17 @@ pub use error::{SimError, SimResult};
 pub use fidelity::FidelityCategory;
 pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 pub use map::{
-    apply_map_action, exordium_room_kinds_on_path, generate_exordium_fixed_map,
-    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    generate_map_placeholder, generated_map_fixture, legacy_milestone8_fixture, legal_map_actions,
-    milestone8_fixture, milestone8_map, placeholder_generated_map_fixture, reachable_nodes,
-    validate_map_action, ExordiumFixedRoomRow, ExordiumMapChoiceStep, ExordiumMapTopology,
-    FixedMap, MapAction, MapNode, MapRunState, RoomKind,
+    apply_map_action, city_room_kinds_on_path, exordium_room_kinds_on_path,
+    generate_city_fixed_map, generate_city_map_choices_after_path, generate_city_map_topology,
+    generate_exordium_fixed_map, generate_exordium_map_choices_after_path,
+    generate_exordium_map_topology, generate_map_placeholder, generate_target_fixed_map,
+    generate_target_map_choices_after_path, generate_target_map_topology, generated_map_fixture,
+    legacy_milestone8_fixture, legal_map_actions, milestone8_fixture, milestone8_map,
+    placeholder_generated_map_fixture, reachable_nodes, target_room_kinds_on_path,
+    validate_map_action, CityMapChoiceStep, CityMapTopology, ExordiumFixedRoomRow,
+    ExordiumMapChoiceStep, ExordiumMapTopology, FixedMap, MapAction, MapNode, MapRunState,
+    RoomKind, TargetAssignedRoom, TargetFixedRoomRow, TargetMapAct, TargetMapChild,
+    TargetMapChoiceStep, TargetMapTopology, TargetRoomTypeCounts,
 };
 pub use potion::{
     Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,

@@ -46,6 +46,9 @@ pub enum InternalAction {
     DealDamage {
         info: DamageInfo,
     },
+    DealDamageAndHealUnblocked {
+        info: DamageInfo,
+    },
     DealDamageRandomEnemy {
         source: CardId,
         amount: i32,
@@ -202,6 +205,9 @@ pub enum InternalAction {
         amount: i32,
     },
     GainTempStrength {
+        amount: i32,
+    },
+    GainIntangible {
         amount: i32,
     },
     GainRitual {

@@ -2,14 +2,18 @@ use crate::{
     combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
     combat::{
         draw::{
-            apply_snecko_eye_cost_randomization, draw_cards_with_sts_rng,
+            apply_confusion_cost_randomization, draw_cards_with_sts_rng,
             draw_cards_without_shuffle, evolve_extra_draw_count,
         },
         hand::{discard_end_of_turn_hand, resolve_end_of_turn_doubt, resolve_end_of_turn_hand},
     },
     combat::{CombatPhase, CombatState},
+    content::cards::WOUND_ID,
     content::monsters::{
-        apply_monster_intent, clear_lagavulin_metallicize_if_awake, prepare_monster_intent,
+        apply_gremlin_leader_encourage, apply_gremlin_leader_rally_representative,
+        apply_heal_all_monsters, apply_monster_intent, apply_strength_all_monsters,
+        clear_lagavulin_metallicize_if_awake, heal_monster_to_definition_cap,
+        prepare_monster_intent_for_ascension, SPHERIC_GUARDIAN_ID,
     },
     ids::MonsterId,
     rng::JavaRng,
@@ -29,8 +33,8 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
     let started_with_living_monster = state.monsters.iter().any(|monster| monster.alive);
 
-    resolve_end_of_turn_hand(&mut next);
     apply_end_of_player_turn_powers(&mut next);
+    resolve_end_of_turn_hand(&mut next);
     if finish_combat_if_over(&mut next, started_with_living_monster) {
         return next;
     }
@@ -40,6 +44,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
         return next;
     }
     discard_end_of_turn_hand(&mut next);
+    clear_living_monster_block(&mut next);
     next.phase = CombatPhase::MonsterTurn;
     run_monster_turn(&mut next);
 
@@ -50,6 +55,14 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 
     start_player_turn(&mut next);
     next
+}
+
+fn clear_living_monster_block(state: &mut CombatState) {
+    for monster in &mut state.monsters {
+        if monster.alive && monster.content_id != SPHERIC_GUARDIAN_ID {
+            monster.block = 0;
+        }
+    }
 }
 
 pub fn start_player_turn(state: &mut CombatState) {
@@ -199,26 +212,82 @@ fn reset_turn_only_temp_costs(state: &mut CombatState) {
 fn run_monster_turn(state: &mut CombatState) {
     let ascension = state.ascension;
     let relics = state.relics.clone();
-    let CombatState {
-        player,
-        monsters,
-        piles,
-        phase: _,
-        ..
-    } = state;
     let mut pending_damage = Vec::new();
-    for monster in monsters.iter_mut().filter(|monster| monster.alive) {
-        clear_lagavulin_metallicize_if_awake(monster);
-        let player_snapshot = player.clone();
-        let damage =
-            apply_monster_intent(monster, player, piles, ascension, &player_snapshot, &relics);
+    let turn_order = state
+        .monsters
+        .iter()
+        .map(|monster| monster.id)
+        .collect::<Vec<_>>();
+    for actor_id in turn_order {
+        let Some(index) = state
+            .monsters
+            .iter()
+            .position(|monster| monster.id == actor_id)
+        else {
+            continue;
+        };
+        if !state.monsters[index].alive {
+            continue;
+        }
+        clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
+        match state.monsters[index].intent {
+            crate::MonsterIntent::HealAllMonsters { amount } => {
+                apply_heal_all_monsters(&mut state.monsters, ascension, amount);
+                state.monsters[index].moves_executed += 1;
+                continue;
+            }
+            crate::MonsterIntent::StrengthAllMonsters { amount } => {
+                apply_strength_all_monsters(&mut state.monsters, amount);
+                state.monsters[index].moves_executed += 1;
+                continue;
+            }
+            crate::MonsterIntent::EncourageGremlins { strength, block } => {
+                let leader_id = state.monsters[index].id;
+                apply_gremlin_leader_encourage(&mut state.monsters, leader_id, strength, block);
+                state.monsters[index].moves_executed += 1;
+                continue;
+            }
+            crate::MonsterIntent::SummonGremlins { count } => {
+                let summoner_id = state.monsters[index].id;
+                apply_gremlin_leader_rally_representative(&mut state.monsters, count);
+                if let Some(monster) = state
+                    .monsters
+                    .iter_mut()
+                    .find(|monster| monster.id == summoner_id)
+                {
+                    monster.moves_executed += 1;
+                }
+                continue;
+            }
+            _ => {}
+        }
+        let player_snapshot = state.player.clone();
+        let damage = apply_monster_intent(
+            &mut state.monsters[index],
+            &mut state.player,
+            &mut state.piles,
+            ascension,
+            &player_snapshot,
+            &relics,
+        );
         if damage > 0 {
-            pending_damage.push(damage);
+            let heal_self = matches!(
+                state.monsters[index].intent,
+                crate::MonsterIntent::AttackHealSelf { .. }
+            )
+            .then_some(state.monsters[index].id);
+            pending_damage.push((
+                damage,
+                state.monsters[index].powers.painful_stabs,
+                heal_self,
+            ));
         }
     }
 
-    for damage in pending_damage {
-        deal_damage_to_player(state, damage);
+    for (damage, painful_stabs, heal_self) in pending_damage {
+        let hp_damage = deal_damage_to_player(state, damage);
+        apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
+        apply_attack_heal_self_after_player_damage(state, heal_self, hp_damage);
     }
 
     for monster in &mut state.monsters {
@@ -229,6 +298,9 @@ fn run_monster_turn(state: &mut CombatState) {
             if monster.powers.weak > 0 {
                 monster.powers.weak -= 1;
             }
+            if monster.powers.malleable_base > 0 {
+                monster.powers.malleable = monster.powers.malleable_base;
+            }
             apply_end_of_monster_turn_powers(monster);
             if monster.temp_strength_down > 0 {
                 monster.powers.strength += monster.temp_strength_down;
@@ -237,8 +309,12 @@ fn run_monster_turn(state: &mut CombatState) {
         }
     }
 
-    if state.player.powers.vulnerable > 0 {
+    if state.player.powers.vulnerable > 0 && state.player.vulnerable_just_applied {
+        state.player.vulnerable_just_applied = false;
+    } else if state.player.powers.vulnerable > 0 {
         state.player.powers.vulnerable -= 1;
+    } else {
+        state.player.vulnerable_just_applied = false;
     }
     if state.player.powers.intangible > 0 {
         state.player.powers.intangible -= 1;
@@ -259,7 +335,7 @@ fn apply_turn_transition_block_loss(state: &mut CombatState) {
     }
 }
 
-fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
+fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> i32 {
     let incoming = if state.player.powers.intangible > 0 && amount > 1 {
         1
     } else {
@@ -275,6 +351,45 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) {
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
     }
+    hp_damage
+}
+
+fn apply_painful_stabs_after_player_damage(
+    state: &mut CombatState,
+    painful_stabs: i32,
+    hp_damage: i32,
+) {
+    if painful_stabs <= 0 || hp_damage <= 0 {
+        return;
+    }
+
+    for _ in 0..painful_stabs {
+        let next_id = crate::CardId::new(state.piles.max_card_instance_id() + 1);
+        state
+            .piles
+            .discard_pile
+            .push(crate::CardInstance::new(next_id, WOUND_ID));
+    }
+}
+
+fn apply_attack_heal_self_after_player_damage(
+    state: &mut CombatState,
+    monster_id: Option<MonsterId>,
+    hp_damage: i32,
+) {
+    if hp_damage <= 0 {
+        return;
+    }
+    let Some(monster_id) = monster_id else {
+        return;
+    };
+    if let Some(monster) = state
+        .monsters
+        .iter_mut()
+        .find(|monster| monster.id == monster_id && monster.alive)
+    {
+        heal_monster_to_definition_cap(monster, state.ascension, hp_damage);
+    }
 }
 
 fn draw_next_hand_without_shuffle(state: &mut CombatState) {
@@ -287,7 +402,7 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
 }
 
 fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::StsRng) {
-    while state.piles.hand.len() < target_hand_size(state) {
+    for _ in 0..target_hand_size(state) {
         if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
             state.piles.draw_pile.append(&mut state.piles.discard_pile);
             let shuffle_seed = rng.random_long();
@@ -301,7 +416,7 @@ fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::St
 
         if let Some(mut card) = state.piles.draw_pile.pop() {
             let extra_draws = evolve_extra_draw_count(state, card.content_id);
-            apply_snecko_eye_cost_randomization(state, &mut card);
+            apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
             draw_cards_with_sts_rng(state, extra_draws, rng);
         }
@@ -309,14 +424,14 @@ fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::St
 }
 
 fn draw_next_hand_without_rng(state: &mut CombatState) {
-    while state.piles.hand.len() < target_hand_size(state) {
+    for _ in 0..target_hand_size(state) {
         if state.piles.draw_pile.is_empty() {
             break;
         }
 
         if let Some(mut card) = state.piles.draw_pile.pop() {
             let extra_draws = evolve_extra_draw_count(state, card.content_id);
-            apply_snecko_eye_cost_randomization(state, &mut card);
+            apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
             draw_cards_without_shuffle(state, extra_draws);
         }
@@ -335,7 +450,7 @@ fn target_hand_size(state: &CombatState) -> usize {
 fn prepare_next_intents(state: &mut CombatState) {
     for monster in &mut state.monsters {
         if monster.alive {
-            monster.intent = prepare_monster_intent(monster);
+            monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension);
         }
     }
 }
@@ -346,8 +461,11 @@ mod tests {
     use crate::{
         apply_combat_action,
         combat::MonsterIntent,
-        content::cards::{BASH_ID, DEFEND_R_ID, MAYHEM_ID, STRIKE_R_ID},
-        content::monsters::FIXED_SIMPLE_MONSTER,
+        content::cards::{BASH_ID, DEFEND_R_ID, MAYHEM_ID, RETAIN_DEFEND_ID, STRIKE_R_ID},
+        content::monsters::{
+            monster_state, BOOK_OF_STABBING_A0, FIXED_SIMPLE_MONSTER, GREMLIN_LEADER_A0,
+            GREMLIN_LEADER_ID, GREMLIN_WARRIOR_ID, MUGGER_A0, SHELLED_PARASITE_A0,
+        },
         ids::CardId,
         CardInstance, CombatAction,
     };
@@ -389,6 +507,140 @@ mod tests {
 
         assert_eq!(next.player.hp, 20);
         assert_eq!(next.player.powers.plated_armor, 4);
+    }
+
+    #[test]
+    fn shelled_parasite_life_suck_heals_by_actual_player_hp_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SHELLED_PARASITE_A0, MonsterId::new(1))];
+        state.monsters[0].hp = 60;
+        state.monsters[0].intent = MonsterIntent::AttackHealSelf { damage: 10 };
+        state.player.hp = 40;
+        state.player.block = 0;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 30);
+        assert_eq!(next.monsters[0].hp, 70);
+    }
+
+    #[test]
+    fn shelled_parasite_life_suck_does_not_heal_fully_blocked_hit() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SHELLED_PARASITE_A0, MonsterId::new(1))];
+        state.monsters[0].hp = 60;
+        state.monsters[0].intent = MonsterIntent::AttackHealSelf { damage: 10 };
+        state.player.hp = 40;
+        state.player.block = 10;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 40);
+        assert_eq!(next.monsters[0].hp, 60);
+    }
+
+    #[test]
+    fn shelled_parasite_life_suck_healing_caps_at_definition_hp() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SHELLED_PARASITE_A0, MonsterId::new(1))];
+        state.monsters[0].hp = 65;
+        state.monsters[0].intent = MonsterIntent::AttackHealSelf { damage: 10 };
+        state.player.hp = 40;
+        state.player.block = 0;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 30);
+        assert_eq!(next.monsters[0].hp, 70);
+    }
+
+    #[test]
+    fn book_of_stabbing_painful_stabs_adds_wound_after_unblocked_hit() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&BOOK_OF_STABBING_A0, MonsterId::new(1))];
+        state.monsters[0].intent = MonsterIntent::Attack { damage: 6 };
+        state.player.hp = 40;
+        state.player.block = 0;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 34);
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn book_of_stabbing_painful_stabs_skips_fully_blocked_hit() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&BOOK_OF_STABBING_A0, MonsterId::new(1))];
+        state.monsters[0].intent = MonsterIntent::Attack { damage: 6 };
+        state.player.hp = 40;
+        state.player.block = 6;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 40);
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == WOUND_ID));
+    }
+
+    #[test]
+    fn gremlin_leader_rally_summons_minions_without_immediate_minion_turns() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GREMLIN_LEADER_A0, MonsterId::new(10))];
+        state.monsters[0].intent = MonsterIntent::SummonGremlins { count: 2 };
+        state.player.hp = 40;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 40);
+        assert_eq!(next.monsters.len(), 3);
+        assert_eq!(
+            next.monsters
+                .iter()
+                .filter(|monster| monster.content_id == GREMLIN_WARRIOR_ID)
+                .count(),
+            2
+        );
+        let leader = next
+            .monsters
+            .iter()
+            .find(|monster| monster.content_id == GREMLIN_LEADER_ID)
+            .expect("leader remains present");
+        assert_eq!(leader.moves_executed, 1);
+    }
+
+    #[test]
+    fn mugger_escape_intent_ends_single_monster_combat_without_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&MUGGER_A0, MonsterId::new(1))];
+        state.monsters[0].intent = MonsterIntent::Escape;
+        state.monsters[0].stolen_gold = 15;
+        state.player.hp = 40;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert_eq!(next.player.hp, 40);
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[0].escaped);
+        assert_eq!(next.monsters[0].stolen_gold, 15);
     }
 
     #[test]
@@ -631,6 +883,29 @@ mod tests {
     }
 
     #[test]
+    fn retained_cards_do_not_reduce_next_turn_draw_amount() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), RETAIN_DEFEND_ID)];
+        state.piles.draw_pile = (30..36)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.piles.hand.len(), 6);
+        assert_eq!(next.piles.hand[0].content_id, RETAIN_DEFEND_ID);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .filter(|card| card.content_id == STRIKE_R_ID)
+                .count(),
+            5
+        );
+        assert_eq!(next.piles.draw_pile.len(), 1);
+    }
+
+    #[test]
     fn snecko_eye_draws_seven_each_turn_and_randomizes_drawn_costs() {
         let mut state = CombatState::initial_fixture();
         state.relics = vec![crate::Relic::SneckoEye];
@@ -827,6 +1102,44 @@ mod tests {
 
         state = end_player_turn(&state);
         assert_eq!(state.monsters[0].powers.vulnerable, 0);
+    }
+
+    #[test]
+    fn monster_malleable_resets_at_end_of_monster_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].powers.malleable = 5;
+        state.monsters[0].powers.malleable_base = 3;
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.monsters[0].powers.malleable, 3);
+    }
+
+    #[test]
+    fn living_monster_block_clears_at_player_end_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].block = 12;
+        state.monsters[0].intent = MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.monsters[0].block, 0);
+    }
+
+    #[test]
+    fn spheric_guardian_barricade_preserves_block_at_player_end_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::SPHERIC_GUARDIAN_A0,
+            MonsterId::new(1),
+        )];
+        state.monsters[0].intent = MonsterIntent::Block { block: 0 };
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.monsters[0].block, 40);
     }
 
     fn bash_action(state: &CombatState) -> CombatAction {

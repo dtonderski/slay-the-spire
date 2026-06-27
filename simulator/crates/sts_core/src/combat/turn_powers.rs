@@ -44,6 +44,9 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
     if state.player.powers.frail > 0 {
         state.player.powers.frail -= 1;
     }
+    if state.player.powers.entangled > 0 {
+        state.player.powers.entangled = 0;
+    }
 }
 
 pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
@@ -78,6 +81,9 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
     }
     if player.powers.frail > 0 {
         player.powers.frail -= 1;
+    }
+    if player.powers.entangled > 0 {
+        player.powers.entangled = 0;
     }
 }
 
@@ -146,7 +152,7 @@ fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i3
         };
         check_slime_boss_split(state, target);
         if killed {
-            crate::relic::apply_monster_death_relics(state);
+            crate::combat::transition::apply_monster_death_hooks(state, target);
         }
     }
 }
@@ -158,11 +164,13 @@ pub fn apply_end_of_monster_turn_powers(monster: &mut MonsterState) {
     if monster.powers.metallicize > 0 {
         monster.block += monster.powers.metallicize;
     }
+    if monster.powers.plated_armor > 0 {
+        monster.block += monster.powers.plated_armor;
+    }
 }
 
 pub fn monster_attack_damage(monster: &MonsterState, base: i32) -> i32 {
-    let strength_bonus = monster.powers.strength + monster.powers.anger;
-    let with_strength = (base + strength_bonus).max(0);
+    let with_strength = (base + monster.powers.strength).max(0);
     if monster.powers.weak > 0 {
         with_strength * 3 / 4
     } else {
@@ -290,6 +298,14 @@ mod tests {
     }
 
     #[test]
+    fn monster_anger_does_not_directly_increase_attack_damage() {
+        let mut monster = CombatState::initial_fixture().monsters[0].clone();
+        monster.powers.anger = 2;
+
+        assert_eq!(monster_attack_damage(&monster, 6), 6);
+    }
+
+    #[test]
     fn monster_weak_reduces_attack_damage_with_floor() {
         let mut monster = CombatState::initial_fixture().monsters[0].clone();
         monster.powers.weak = 1;
@@ -308,6 +324,19 @@ mod tests {
         let next = crate::combat::end_player_turn(&state);
 
         assert_eq!(next.player.powers.frail, 1);
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+    }
+
+    #[test]
+    fn entangled_expires_at_end_of_player_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.entangled = 1;
+        state.player.hp = IRONCLAD_A0_BASE_HP;
+        state.player.block = 0;
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.powers.entangled, 0);
         assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
     }
 }

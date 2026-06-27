@@ -820,6 +820,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
         gold_offer: 0,
+        stolen_gold_offer: 0,
         potion_offer: None,
         relic_offer,
         relic_key_offer,
@@ -841,6 +842,7 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
         gold_offer: 0,
+        stolen_gold_offer: 0,
         potion_offer: None,
         relic_offer,
         relic_key_offer,
@@ -864,6 +866,7 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
         gold_offer: 0,
+        stolen_gold_offer: 0,
         potion_offer: None,
         relic_offer,
         relic_key_offer,
@@ -982,6 +985,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
         gold_offer,
+        stolen_gold_offer: 0,
         potion_offer,
         relic_offer: None,
         relic_key_offer: None,
@@ -995,7 +999,22 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
 }
 
 pub fn enter_reward_screen(run: &mut RunState) {
+    let stolen_gold_offer = run
+        .combat
+        .as_ref()
+        .map(|combat| {
+            combat
+                .monsters
+                .iter()
+                .filter(|monster| !monster.escaped)
+                .map(|monster| monster.stolen_gold)
+                .sum()
+        })
+        .unwrap_or(0);
     enter_normal_combat_reward_screen(run);
+    if let Some(reward) = run.reward.as_mut() {
+        reward.stolen_gold_offer = stolen_gold_offer;
+    }
 }
 
 pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
@@ -1033,6 +1052,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
         gold_offer,
+        stolen_gold_offer: 0,
         potion_offer: None,
         relic_offer,
         relic_key_offer,
@@ -1074,6 +1094,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
         gold_offer: 0,
+        stolen_gold_offer: 0,
         potion_offer: None,
         relic_offer,
         relic_key_offer,
@@ -1112,6 +1133,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let transition = apply_combat_action_with_events(combat, action)?;
     let mut next_combat = transition.state;
     let mut next = run.clone();
+    apply_looter_theft_to_run_gold(&mut next, combat, &mut next_combat);
     if let Some(rng) = next_combat.card_random_rng.as_ref() {
         next.store_rng_counter(RunRngStream::CardRandom, rng);
     }
@@ -1133,6 +1155,28 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+fn apply_looter_theft_to_run_gold(
+    run: &mut RunState,
+    before: &crate::combat::CombatState,
+    after: &mut crate::combat::CombatState,
+) {
+    for monster in &mut after.monsters {
+        let before_stolen = before
+            .monsters
+            .iter()
+            .find(|before_monster| before_monster.id == monster.id)
+            .map(|before_monster| before_monster.stolen_gold)
+            .unwrap_or(0);
+        let delta = (monster.stolen_gold - before_stolen).max(0);
+        if delta == 0 {
+            continue;
+        }
+        let actual = delta.min(run.gold);
+        run.gold -= actual;
+        monster.stolen_gold = before_stolen + actual;
+    }
 }
 
 fn apply_mummified_hand_for_power_play(
@@ -1335,6 +1379,12 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.gold_offer = 0;
             next.gain_gold(gold_offer);
         }
+        RunAction::TakeStolenGoldReward => {
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            let stolen_gold_offer = reward.stolen_gold_offer;
+            reward.stolen_gold_offer = 0;
+            next.gain_gold(stolen_gold_offer);
+        }
         RunAction::TakePotionReward => {
             let potion = next
                 .reward
@@ -1449,6 +1499,7 @@ mod tests {
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::Relic;
+    use crate::MonsterId;
 
     fn offered_relic_key(reward: &RewardScreen) -> Option<RelicKey> {
         reward
@@ -1929,6 +1980,46 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn mummified_hand_discounted_strike_spends_zero_energy() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::MummifiedHand]);
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.player.energy = 1;
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(25), INFLAME_ID),
+            CardInstance::new(CardId::new(20), STRIKE_R_ID),
+        ];
+        combat.piles.draw_pile.clear();
+
+        let after_power = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Inflame applies");
+        let mut discounted = after_power;
+        discounted
+            .combat
+            .as_mut()
+            .expect("combat remains")
+            .player
+            .energy = 0;
+
+        let after_strike = apply_combat_action_on_run(
+            &discounted,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("discounted Strike applies at zero energy");
+        let combat = after_strike.combat.expect("combat remains");
+
+        assert_eq!(combat.player.energy, 0);
     }
 
     #[test]
@@ -2864,6 +2955,43 @@ mod tests {
         let reward = run.reward.expect("reward screen present");
         assert_eq!(reward.gold_offer, 19);
         assert_eq!(run.treasure_rng_counter, 1);
+    }
+
+    #[test]
+    fn stolen_gold_reward_is_offered_when_thief_is_killed() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.monsters[0].alive = false;
+        combat.monsters[0].stolen_gold = 15;
+
+        enter_reward_screen(&mut run);
+
+        assert_eq!(
+            run.reward
+                .as_ref()
+                .expect("reward screen")
+                .stolen_gold_offer,
+            15
+        );
+    }
+
+    #[test]
+    fn stolen_gold_reward_is_not_offered_when_thief_escaped() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.monsters[0].alive = false;
+        combat.monsters[0].escaped = true;
+        combat.monsters[0].stolen_gold = 15;
+
+        enter_reward_screen(&mut run);
+
+        assert_eq!(
+            run.reward
+                .as_ref()
+                .expect("reward screen")
+                .stolen_gold_offer,
+            0
+        );
     }
 
     #[test]

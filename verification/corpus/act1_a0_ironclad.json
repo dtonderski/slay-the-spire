@@ -1,0 +1,35 @@
+{
+  "name": "act1_a0_ironclad",
+  "milestone": 35,
+  "status": "partial_data_blocked",
+  "required_passing_traces": {
+    "min": 5,
+    "target": 10
+  },
+  "entries": [
+    {
+      "path": "communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl",
+      "external_seed": "TEST",
+      "numeric_seed": 1218623,
+      "endpoint": "act1_boss_relic_return_to_map",
+      "expected_failure": false,
+      "first_boundary_category": "none",
+      "allow_observed_state_restoration": false,
+      "notes": "Current clean full Act 1 candidate. M35 remains partial until more full Act 1 traces pass."
+    }
+  ],
+  "blocked_candidates": [
+    {
+      "path": "communication_mod/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
+      "reason": "Structurally reaches beyond Act 1, but seed-start currently diverges at map generation and the raw trace has manual/bridge contamination notes."
+    },
+    {
+      "path": "communication_mod/trace-2026-06-23T07-42-06-085Z.best-run.jsonl",
+      "reason": "Reaches Act 1 boss combat, but does not reach boss reward and currently stops at an unsupported Sword Boomerang random-target boundary."
+    },
+    {
+      "path": "communication_mod/trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl",
+      "reason": "Stops at floor 8 reward screen with expected missing_post_reward_boundary; useful regression, not a full Act 1 passing trace."
+    }
+  ]
+}

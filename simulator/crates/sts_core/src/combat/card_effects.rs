@@ -7,41 +7,42 @@ use crate::{
     },
     content::cards::{
         get_card_definition, is_curse_content_id, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID,
-        APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, ARMAMENTS_ID, ARMAMENTS_PLUS_ID, BANDAGE_UP_ID,
-        BANDAGE_UP_PLUS_ID, BARRICADE_ID, BARRICADE_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
-        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BERSERK_PLUS_ID, BLIND_ID, BLIND_PLUS_ID,
-        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BRUTALITY_ID,
-        BRUTALITY_PLUS_ID, BURNING_PACT_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, COMBUST_ID, COMBUST_PLUS_ID, CORRUPTION_ID,
-        CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID,
-        DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
-        DISCOVERY_PLUS_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID,
-        EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID,
-        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID, FINESSE_PLUS_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID,
-        FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID,
-        HAND_OF_GREED_ID, HAND_OF_GREED_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
-        HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID,
+        APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, APPARITION_ID, APPARITION_PLUS_ID, ARMAMENTS_ID,
+        ARMAMENTS_PLUS_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID, BARRICADE_ID, BARRICADE_PLUS_ID,
+        BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BERSERK_ID,
+        BERSERK_PLUS_ID, BITE_ID, BLIND_ID, BLIND_PLUS_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID,
+        BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID,
+        CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
+        COMBUST_ID, COMBUST_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID,
+        DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID,
+        DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DISCOVERY_PLUS_ID,
+        DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, EVOLVE_ID,
+        EVOLVE_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID,
+        FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID, FINESSE_PLUS_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
+        FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, HAND_OF_GREED_ID,
+        HAND_OF_GREED_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID,
         IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID,
-        JUGGERNAUT_ID, JUGGERNAUT_PLUS_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID, MADNESS_ID,
-        MADNESS_PLUS_ID, MAGNETISM_ID, MAGNETISM_PLUS_ID, MASTER_OF_STRATEGY_ID,
-        MASTER_OF_STRATEGY_PLUS_ID, MAYHEM_ID, METALLICIZE_ID, METAMORPHOSIS_ID,
-        METAMORPHOSIS_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, OFFERING_PLUS_ID,
-        PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID,
-        PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAMPAGE_ID,
-        RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RUPTURE_ID,
+        INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JAX_ID,
+        JAX_PLUS_ID, JUGGERNAUT_ID, JUGGERNAUT_PLUS_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID,
+        MADNESS_ID, MADNESS_PLUS_ID, MAGNETISM_ID, MAGNETISM_PLUS_ID, MASTER_OF_STRATEGY_ID,
+        MASTER_OF_STRATEGY_PLUS_ID, MAYHEM_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
+        METAMORPHOSIS_ID, METAMORPHOSIS_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID,
+        OFFERING_PLUS_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
+        PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID,
+        RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RUPTURE_ID,
         RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID,
         SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID,
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, THE_BOMB_DAMAGE, THE_BOMB_ID,
-        THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID,
-        THUNDERCLAP_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID,
+        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
+        THE_BOMB_DAMAGE, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
+        THINKING_AHEAD_PLUS_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID,
+        TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, VIOLENCE_ID,
         VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         WILD_STRIKE_ID, WOUND_ID,
     },
@@ -82,8 +83,12 @@ pub(super) fn play_card_queue(
             target.expect("validated Strike has a target"),
             definition,
         ),
-        DEFEND_R_ID => defend_queue(card_id, definition),
-        BASH_ID => bash_queue(card_id, target.expect("validated Bash has a target")),
+        DEFEND_R_ID | DEFEND_R_PLUS_ID => defend_queue(card_id, definition),
+        BASH_ID | BASH_PLUS_ID => bash_queue(
+            card_id,
+            target.expect("validated Bash has a target"),
+            definition,
+        ),
         SLIMED_ID => slimed_queue(card_id, target.expect("validated Slimed has a target")),
         ANGER_ID | ANGER_PLUS_ID => anger_queue(
             card_id,
@@ -99,6 +104,11 @@ pub(super) fn play_card_queue(
             state,
             card_id,
             target.expect("validated Body Slam has a target"),
+            definition,
+        ),
+        BITE_ID => bite_queue(
+            card_id,
+            target.expect("validated Bite has a target"),
             definition,
         ),
         CLASH_ID
@@ -172,7 +182,7 @@ pub(super) fn play_card_queue(
         ),
         REAPER_ID | REAPER_PLUS_ID => reaper_queue(card_id, definition),
         CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID => cleave_queue(card_id, definition),
-        IMMOLATE_ID => immolate_queue(card_id, definition),
+        IMMOLATE_ID | IMMOLATE_PLUS_ID => immolate_queue(card_id, definition),
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => twin_strike_queue(
             card_id,
             target.expect("validated Twin Strike has a target"),
@@ -183,7 +193,7 @@ pub(super) fn play_card_queue(
         FINESSE_ID | FINESSE_PLUS_ID => finesse_queue(card_id, definition),
         IMPATIENCE_ID | IMPATIENCE_PLUS_ID => impatience_queue(card_id, definition),
         PANIC_BUTTON_ID | PANIC_BUTTON_PLUS_ID => panic_button_queue(card_id, definition),
-        SHRUG_IT_OFF_ID => shrug_it_off_queue(card_id),
+        SHRUG_IT_OFF_ID | SHRUG_IT_OFF_PLUS_ID => shrug_it_off_queue(card_id, definition),
         TRUE_GRIT_ID => true_grit_queue(state, card_id),
         BURNING_PACT_ID => burning_pact_queue(state, card_id),
         INFERNAL_BLADE_ID | INFERNAL_BLADE_PLUS_ID => {
@@ -200,6 +210,7 @@ pub(super) fn play_card_queue(
         MADNESS_ID | MADNESS_PLUS_ID => madness_queue(card_id, definition),
         BANDAGE_UP_ID | BANDAGE_UP_PLUS_ID => bandage_up_queue(card_id, definition),
         VIOLENCE_ID | VIOLENCE_PLUS_ID => violence_queue(card_id, definition),
+        APPARITION_ID | APPARITION_PLUS_ID => apparition_queue(card_id, definition),
         PANACEA_ID | PANACEA_PLUS_ID => panacea_queue(card_id, definition),
         PANACHE_ID | PANACHE_PLUS_ID => panache_queue(card_id, definition),
         SADISTIC_NATURE_ID | SADISTIC_NATURE_PLUS_ID => sadistic_nature_queue(card_id, definition),
@@ -220,7 +231,7 @@ pub(super) fn play_card_queue(
         FIRE_BREATHING_ID => fire_breathing_queue(card_id, definition),
         EXHUME_ID | EXHUME_PLUS_ID => exhume_queue(state, card_id),
         DEMON_FORM_ID => demon_form_queue(card_id),
-        METALLICIZE_ID => metallicize_queue(card_id, definition),
+        METALLICIZE_ID | METALLICIZE_PLUS_ID => metallicize_queue(card_id, definition),
         POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID | FLASH_OF_STEEL_ID | FLASH_OF_STEEL_PLUS_ID => {
             pommel_strike_queue(
                 card_id,
@@ -281,6 +292,7 @@ pub(super) fn play_card_queue(
         RAGE_ID => rage_queue(card_id, definition),
         INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
+        JAX_ID | JAX_PLUS_ID => jax_queue(card_id, definition),
         LIMIT_BREAK_ID | LIMIT_BREAK_PLUS_ID => limit_break_queue(state, card_id, definition),
         MASTER_OF_STRATEGY_ID | MASTER_OF_STRATEGY_PLUS_ID => {
             master_of_strategy_queue(card_id, definition)
@@ -494,18 +506,18 @@ fn apply_pen_nib_to_tenth_attack_queue(
                         ..
                     },
             } if *source == card_id => {
-                *amount *= 2;
+                *amount = pen_nib_queue_amount(state, *amount);
             }
             InternalAction::DealDamageRandomEnemy { source, amount } if *source == card_id => {
-                *amount *= 2;
+                *amount = pen_nib_queue_amount(state, *amount);
             }
             InternalAction::DealDamageAll { source, amount } if *source == card_id => {
-                *amount *= 2;
+                *amount = pen_nib_queue_amount(state, *amount);
             }
             InternalAction::DealDamageAllAndHealUnblocked { source, amount }
                 if *source == card_id =>
             {
-                *amount *= 2;
+                *amount = pen_nib_queue_amount(state, *amount);
             }
             InternalAction::DealFeedDamage {
                 info:
@@ -516,11 +528,16 @@ fn apply_pen_nib_to_tenth_attack_queue(
                     },
                 ..
             } if *source == card_id => {
-                *amount *= 2;
+                *amount = pen_nib_queue_amount(state, *amount);
             }
             _ => {}
         }
     }
+}
+
+fn pen_nib_queue_amount(state: &CombatState, amount: i32) -> i32 {
+    let strength = state.player.powers.strength + state.player.temp_strength;
+    (amount + strength).max(0) * 2 - strength
 }
 
 fn apply_duplication_potion_to_queue(
@@ -654,7 +671,7 @@ fn strike_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::SpendCardEnergy { card_id },
         InternalAction::DealDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
@@ -1102,6 +1119,31 @@ fn wild_strike_queue(
     ]))
 }
 
+fn bite_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamageAndHealUnblocked {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
 fn rampage_queue(
     state: &CombatState,
     card_id: CardId,
@@ -1473,6 +1515,24 @@ fn violence_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::DrawRandomAttacksFromDrawPile { count },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn apparition_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainIntangible { amount: 1 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -2295,7 +2355,11 @@ fn slimed_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<Intern
     ]))
 }
 
-fn bash_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
+fn bash_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: 2 },
@@ -2303,10 +2367,13 @@ fn bash_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<Internal
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: 8,
+                amount: definition.values.damage.unwrap_or(0),
             },
         },
-        InternalAction::ApplyVulnerable { target, amount: 2 },
+        InternalAction::ApplyVulnerable {
+            target,
+            amount: definition.values.vulnerable.unwrap_or(0),
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -2804,11 +2871,16 @@ fn twin_strike_queue(
     ]))
 }
 
-fn shrug_it_off_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+fn shrug_it_off_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: 1 },
-        InternalAction::GainBlock { amount: 8 },
+        InternalAction::GainBlock {
+            amount: definition.values.block.unwrap_or(0),
+        },
         InternalAction::DrawCards { count: 1 },
         InternalAction::MoveCard {
             card_id,
@@ -3345,6 +3417,27 @@ fn flex_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDequ
     ]))
 }
 
+fn jax_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::LoseHp {
+            amount: definition.values.damage.expect("J.A.X. HP loss"),
+            source: HpLossSource::Card(card_id),
+        },
+        InternalAction::GainStrength {
+            amount: definition.values.vulnerable.expect("J.A.X. Strength"),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
 fn limit_break_queue(
     state: &CombatState,
     card_id: CardId,
@@ -3368,6 +3461,11 @@ fn offering_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    let draw_count = if definition.id == OFFERING_PLUS_ID {
+        5
+    } else {
+        3
+    };
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -3378,7 +3476,7 @@ fn offering_queue(
             source: HpLossSource::Card(card_id),
         },
         InternalAction::GainEnergy { amount: 2 },
-        InternalAction::DrawCards { count: 3 },
+        InternalAction::DrawCards { count: draw_count },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -3400,7 +3498,17 @@ fn any_monster_intends_attack(state: &CombatState) -> bool {
         monster.alive
             && matches!(
                 monster.intent,
-                MonsterIntent::Attack { .. } | MonsterIntent::AttackMultiple { .. }
+                MonsterIntent::Attack { .. }
+                    | MonsterIntent::AttackAndBlock { .. }
+                    | MonsterIntent::AttackApplyPlayerFrail { .. }
+                    | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+                    | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
+                    | MonsterIntent::AttackApplyPlayerVulnerable { .. }
+                    | MonsterIntent::AttackHealSelf { .. }
+                    | MonsterIntent::AttackAddWoundsToDiscard { .. }
+                    | MonsterIntent::AttackAddSlimedToDiscard { .. }
+                    | MonsterIntent::AttackMultiple { .. }
+                    | MonsterIntent::AttackStealGold { .. }
             )
     })
 }

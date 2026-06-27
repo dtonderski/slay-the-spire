@@ -50,6 +50,8 @@ pub const BRONZE_SCALES_THORNS: i32 = 3;
 pub const THREAD_AND_NEEDLE_PLATED_ARMOR: i32 = 4;
 /// Artifact granted by [Relic::ClockworkSouvenir] at combat start.
 pub const CLOCKWORK_SOUVENIR_ARTIFACT: i32 = 1;
+/// Temporary Strength granted by [Relic::MutagenicStrength] at combat start.
+pub const MUTAGENIC_STRENGTH_AMOUNT: i32 = 3;
 /// Strength granted by [Relic::RedSkull] while starting combat at or below half HP.
 pub const RED_SKULL_STRENGTH: i32 = 3;
 /// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
@@ -513,6 +515,12 @@ pub const TOOLBOX_ID: ContentId = ContentId::new(436);
 pub const JUZU_BRACELET_ID: ContentId = ContentId::new(437);
 /// Content id for [Relic::PrismaticShard].
 pub const PRISMATIC_SHARD_ID: ContentId = ContentId::new(438);
+/// Content id for [Relic::MutagenicStrength].
+pub const MUTAGENIC_STRENGTH_ID: ContentId = ContentId::new(439);
+/// Content id for [Relic::GoldenIdol].
+pub const GOLDEN_IDOL_ID: ContentId = ContentId::new(440);
+/// Content id for [Relic::BloodyIdol].
+pub const BLOODY_IDOL_ID: ContentId = ContentId::new(441);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -714,6 +722,12 @@ pub enum RelicKey {
     StrangeSpoon,
     MembershipCard,
     Brimstone,
+    Necronomicon,
+    Enchiridion,
+    NilrysCodex,
+    MutagenicStrength,
+    GoldenIdol,
+    BloodyIdol,
     Circlet,
     RedCirclet,
 }
@@ -1197,6 +1211,9 @@ pub enum Relic {
     Toolbox,
     JuzuBracelet,
     PrismaticShard,
+    MutagenicStrength,
+    GoldenIdol,
+    BloodyIdol,
 }
 
 impl Relic {
@@ -1342,6 +1359,9 @@ impl Relic {
             Relic::Toolbox => TOOLBOX_ID,
             Relic::JuzuBracelet => JUZU_BRACELET_ID,
             Relic::PrismaticShard => PRISMATIC_SHARD_ID,
+            Relic::MutagenicStrength => MUTAGENIC_STRENGTH_ID,
+            Relic::GoldenIdol => GOLDEN_IDOL_ID,
+            Relic::BloodyIdol => BLOODY_IDOL_ID,
         }
     }
 
@@ -1487,6 +1507,9 @@ impl Relic {
             id if id == TOOLBOX_ID => Some(Relic::Toolbox),
             id if id == JUZU_BRACELET_ID => Some(Relic::JuzuBracelet),
             id if id == PRISMATIC_SHARD_ID => Some(Relic::PrismaticShard),
+            id if id == MUTAGENIC_STRENGTH_ID => Some(Relic::MutagenicStrength),
+            id if id == GOLDEN_IDOL_ID => Some(Relic::GoldenIdol),
+            id if id == BLOODY_IDOL_ID => Some(Relic::BloodyIdol),
             _ => None,
         }
     }
@@ -1537,6 +1560,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Toolbox => {}
             Relic::JuzuBracelet => {}
             Relic::PrismaticShard => {}
+            Relic::GoldenIdol => {}
+            Relic::BloodyIdol => {}
+            Relic::MutagenicStrength => {
+                combat.player.temp_strength += MUTAGENIC_STRENGTH_AMOUNT;
+            }
             Relic::FossilizedHelix => {
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
@@ -2333,6 +2361,16 @@ mod tests {
     }
 
     #[test]
+    fn mutagenic_strength_grants_three_temp_strength_at_combat_start() {
+        let mut combat = CombatState::initial_fixture();
+
+        apply_start_of_combat_relics(&mut combat, &[Relic::MutagenicStrength]);
+
+        assert_eq!(combat.player.temp_strength, MUTAGENIC_STRENGTH_AMOUNT);
+        assert_eq!(combat.player.powers.strength, 0);
+    }
+
+    #[test]
     fn start_of_combat_relics_without_vajra_leaves_strength_unchanged() {
         let mut combat = CombatState::initial_fixture();
 
@@ -2497,6 +2535,7 @@ mod tests {
     #[test]
     fn relic_content_ids_map_both_ways() {
         assert_eq!(Relic::Vajra.content_id(), VAJRA_ID);
+        assert_eq!(Relic::MutagenicStrength.content_id(), MUTAGENIC_STRENGTH_ID);
         assert_eq!(Relic::OddlySmoothStone.content_id(), ODDLY_SMOOTH_STONE_ID);
         assert_eq!(Relic::Strawberry.content_id(), STRAWBERRY_ID);
         assert_eq!(Relic::CoffeeDripper.content_id(), COFFEE_DRIPPER_ID);
@@ -2505,6 +2544,8 @@ mod tests {
         assert_eq!(Relic::OrnamentalFan.content_id(), ORNAMENTAL_FAN_ID);
         assert_eq!(Relic::IceCream.content_id(), ICE_CREAM_ID);
         assert_eq!(Relic::BloodVial.content_id(), BLOOD_VIAL_ID);
+        assert_eq!(Relic::GoldenIdol.content_id(), GOLDEN_IDOL_ID);
+        assert_eq!(Relic::BloodyIdol.content_id(), BLOODY_IDOL_ID);
         assert_eq!(Relic::Pear.content_id(), PEAR_ID);
         assert_eq!(Relic::Mango.content_id(), MANGO_ID);
         assert_eq!(Relic::OldCoin.content_id(), OLD_COIN_ID);
@@ -2536,6 +2577,10 @@ mod tests {
         assert_eq!(Relic::TungstenRod.content_id(), TUNGSTEN_ROD_ID);
         assert_eq!(Relic::from_content_id(VAJRA_ID), Some(Relic::Vajra));
         assert_eq!(
+            Relic::from_content_id(MUTAGENIC_STRENGTH_ID),
+            Some(Relic::MutagenicStrength)
+        );
+        assert_eq!(
             Relic::from_content_id(ODDLY_SMOOTH_STONE_ID),
             Some(Relic::OddlySmoothStone)
         );
@@ -2548,6 +2593,14 @@ mod tests {
             Some(Relic::CoffeeDripper)
         );
         assert_eq!(Relic::from_content_id(ANCHOR_ID), Some(Relic::Anchor));
+        assert_eq!(
+            Relic::from_content_id(GOLDEN_IDOL_ID),
+            Some(Relic::GoldenIdol)
+        );
+        assert_eq!(
+            Relic::from_content_id(BLOODY_IDOL_ID),
+            Some(Relic::BloodyIdol)
+        );
         assert_eq!(
             Relic::from_content_id(INK_BOTTLE_ID),
             Some(Relic::InkBottle)
