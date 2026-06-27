@@ -114,21 +114,33 @@ def generate_roots(max_source_depth: int = 5, max_roots: int = 48) -> list[Bench
 def _synthetic_start_envs() -> list[Any]:
     base = json.loads(omni.OmniCombatEnv.initial_fixture().state_json())
     cases = []
-    for player_hp in [24, 40, 72]:
-        for monster_hp in [18, 32, 44]:
-            for incoming in [6, 12, 18]:
-                state = json.loads(json.dumps(base))
-                state["player"]["hp"] = player_hp
-                state["player"]["max_hp"] = 80
-                state["player"]["block"] = 0
-                state["player"]["energy"] = 3
-                monster = state["monsters"][0]
+    enemy_groups = [
+        [(18, 6)],
+        [(32, 12)],
+        [(44, 18)],
+        [(10, 4), (14, 5)],
+        [(12, 5), (16, 6)],
+        [(8, 3), (10, 4), (12, 5)],
+        [(10, 4), (12, 5), (14, 6)],
+    ]
+    for player_hp in [40, 60, 72]:
+        for enemies in enemy_groups:
+            state = json.loads(json.dumps(base))
+            state["player"]["hp"] = player_hp
+            state["player"]["max_hp"] = 80
+            state["player"]["block"] = 0
+            state["player"]["energy"] = 3
+            state["monsters"] = []
+            for index, (monster_hp, incoming) in enumerate(enemies, start=1):
+                monster = json.loads(json.dumps(base["monsters"][0]))
+                monster["id"] = index
                 monster["hp"] = monster_hp
                 monster["block"] = 0
                 monster["alive"] = True
                 monster["intent"] = {"Attack": {"damage": incoming}}
-                state["piles"] = _starter_piles()
-                cases.append(omni.OmniCombatEnv.from_state_json(json.dumps(state)))
+                state["monsters"].append(monster)
+            state["piles"] = _starter_piles()
+            cases.append(omni.OmniCombatEnv.from_state_json(json.dumps(state)))
     return cases
 
 
