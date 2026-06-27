@@ -276,7 +276,7 @@ class SelfPlayTests(unittest.TestCase):
                 report_output=report_path,
             )
 
-            self.assertEqual(result.stop_reason, "unsupported_command_mapping")
+            self.assertEqual(result.stop_reason, "trace_exhausted")
             self.assertEqual(result.steps, map_steps)
             self.assertEqual(result.combat_roots, 0)
             self.assertTrue(result.verified)
@@ -284,9 +284,9 @@ class SelfPlayTests(unittest.TestCase):
             verification = verify_self_play_trace(output_path)
             self.assertTrue(verification["ok"])
             records = self._read_jsonl(output_path)
-            self.assertEqual(records[0]["blocker"]["category"], "unsupported_command_mapping")
+            self.assertIsNone(records[0]["blocker"])
 
-    def test_trace_guided_replay_reports_neow_divergence(self):
+    def test_trace_guided_replay_skips_unsupported_neow_until_anchor(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"
             output_path = Path(directory) / "replayed.jsonl"
@@ -315,11 +315,11 @@ class SelfPlayTests(unittest.TestCase):
             result = replay_real_trace_guided(trace=trace_path, output=output_path)
             records = self._read_jsonl(output_path)
 
-            self.assertEqual(result.stop_reason, "observed_simulator_divergence")
+            self.assertEqual(result.stop_reason, "trace_exhausted")
             self.assertEqual(result.steps, 0)
             self.assertEqual(result.combat_roots, 0)
-            self.assertEqual(records[0]["blocker"]["category"], "observed_simulator_divergence")
-            self.assertEqual(records[0]["blocker"]["diffs"][0]["field"], "phase")
+            self.assertEqual(records[0]["skipped_noncombat_actions"], 1)
+            self.assertIsNone(records[0]["blocker"])
 
     def test_verify_rejects_action_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:

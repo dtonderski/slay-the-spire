@@ -214,6 +214,21 @@ def verify_self_play_trace(path: Path) -> dict[str, Any]:
     env = omni.OmniRunEnv.from_snapshot_json(initial_snapshot)
     steps = 0
     for record in records[1:]:
+        if record.get("type") == "anchor":
+            snapshot = record.get("snapshot_json")
+            if not isinstance(snapshot, str):
+                return {"ok": False, "error": "anchor has no snapshot_json", "steps": steps}
+            env = omni.OmniRunEnv.from_snapshot_json(snapshot)
+            expected_hash = record.get("snapshot_hash")
+            if expected_hash and env.snapshot_hash() != expected_hash:
+                return {
+                    "ok": False,
+                    "error": "anchor hash mismatch",
+                    "step": record.get("step"),
+                    "expected": expected_hash,
+                    "actual": env.snapshot_hash(),
+                }
+            continue
         if record.get("type") != "step":
             continue
         before_hash = record.get("before_hash")
@@ -341,6 +356,8 @@ def replay_real_trace_guided(
     output_records: list[dict[str, Any]] = []
     replayed_steps = 0
     combat_roots = 0
+    anchor_count = 0
+    skipped_noncombat_actions = 0
     stop_reason = "trace_exhausted"
     blocker: dict[str, Any] | None = None
     start_info: dict[str, Any] | None = None
@@ -396,21 +413,57 @@ def replay_real_trace_guided(
         observed_game_state = _game_state_from_record(last_state)
         diffs = _observed_summary_diffs(env, observed_game_state)
         if diffs:
-            blocker = _blocker(
-                record,
-                command,
-                "observed_simulator_divergence",
-                "observed CommunicationMod state does not match simulator before command",
-                diffs=diffs,
-                simulator_summary=_summary(env),
-                observed_summary=_observed_summary(observed_game_state),
-            )
-            stop_reason = "observed_simulator_divergence"
-            break
+            if _observed_summary(observed_game_state).get("phase") == "combat":
+                try:
+                    env = omni.OmniRunEnv.from_communication_mod_state_json(
+                        json.dumps(observed_game_state)
+                    )
+                except Exception as error:
+                    blocker = _blocker(
+                        record,
+                        command,
+                        "observed_combat_anchor_failed",
+                        str(error),
+                        diffs=diffs,
+                        simulator_summary=_summary(env),
+                        observed_summary=_observed_summary(observed_game_state),
+                    )
+                    stop_reason = "observed_combat_anchor_failed"
+                    break
+                anchor_count += 1
+                output_records.append(
+                    _anchor_record(
+                        step=replayed_steps,
+                        command=command,
+                        trace_step=record.get("step"),
+                        env=env,
+                        observed_summary=_observed_summary(observed_game_state),
+                        diffs=diffs,
+                    )
+                )
+                diffs = _observed_summary_diffs(env, observed_game_state)
+                if diffs:
+                    blocker = _blocker(
+                        record,
+                        command,
+                        "observed_combat_anchor_divergence",
+                        "observed combat anchor still differs from simulator summary",
+                        diffs=diffs,
+                        simulator_summary=_summary(env),
+                        observed_summary=_observed_summary(observed_game_state),
+                    )
+                    stop_reason = "observed_combat_anchor_divergence"
+                    break
+            else:
+                skipped_noncombat_actions += 1
+                continue
 
         actions = env.exact_legal_actions()
         action = _action_for_communication_command(env, command, observed_game_state)
         if action is None:
+            if _observed_summary(observed_game_state).get("phase") != "combat":
+                skipped_noncombat_actions += 1
+                continue
             blocker = _blocker(
                 record,
                 command,
@@ -485,6 +538,8 @@ def replay_real_trace_guided(
     output_records[0]["stop_reason"] = stop_reason
     output_records[0]["steps"] = replayed_steps
     output_records[0]["combat_roots"] = combat_roots
+    output_records[0]["anchor_count"] = anchor_count
+    output_records[0]["skipped_noncombat_actions"] = skipped_noncombat_actions
     output_records[0]["final_phase"] = env.phase() if env is not None else None
     output_records[0]["final_state_id"] = env.snapshot_hash() if env is not None else None
     output_records[0]["blocker"] = blocker
@@ -504,6 +559,8 @@ def replay_real_trace_guided(
         "start": start_info,
         "steps": replayed_steps,
         "combat_roots": combat_roots,
+        "anchor_count": anchor_count,
+        "skipped_noncombat_actions": skipped_noncombat_actions,
         "stop_reason": stop_reason,
         "blocker": blocker,
         "verified": verification.get("ok", False),
@@ -962,6 +1019,29 @@ def _transition_record(transition: Any | None) -> dict[str, Any] | None:
     }
 
 
+def _anchor_record(
+    *,
+    step: int,
+    command: str,
+    trace_step: Any,
+    env: Any,
+    observed_summary: dict[str, Any],
+    diffs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "type": "anchor",
+        "step": step,
+        "reason": "observed_combat_state",
+        "command": command,
+        "trace_step": trace_step,
+        "snapshot_hash": env.snapshot_hash(),
+        "snapshot_json": env.snapshot_json(),
+        "summary": _summary(env),
+        "observed_summary": observed_summary,
+        "pre_anchor_diffs": diffs,
+    }
+
+
 def _summary(env: Any) -> dict[str, Any]:
     state = json.loads(env.state_json())
     run = state.get("state", state)
@@ -1100,15 +1180,13 @@ def _play_action_for_indices(
     combat = run.get("combat") or {}
     hand = ((combat.get("piles") or {}).get("hand") or [])
     monsters = combat.get("monsters") or []
+    hand_index = hand_index - 1
     if hand_index < 0 or hand_index >= len(hand):
         return None
     card_id = hand[hand_index].get("id")
     target_id = None
     if target_index is not None:
-        living = [monster for monster in monsters if monster.get("alive", True)]
-        if target_index < 0 or target_index >= len(living):
-            return None
-        target_id = living[target_index].get("id")
+        target_id = target_index + 1
     for action in actions:
         if getattr(action, "kind", lambda: "")() != "play_card":
             continue
@@ -1131,10 +1209,7 @@ def _potion_action_for_indices(
     monsters = ((run.get("combat") or {}).get("monsters") or [])
     target_id = None
     if target_index is not None:
-        living = [monster for monster in monsters if monster.get("alive", True)]
-        if target_index < 0 or target_index >= len(living):
-            return None
-        target_id = living[target_index].get("id")
+        target_id = target_index + 1
     for action in actions:
         if getattr(action, "kind", lambda: "")() != "use_potion":
             continue
@@ -1195,12 +1270,13 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
 def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
     combat = observed.get("combat_state") if isinstance(observed.get("combat_state"), dict) else {}
     player = combat.get("player") if isinstance(combat.get("player"), dict) else {}
+    potion_count = len(_observed_real_potions(observed))
     return {
         "phase": _observed_phase(observed),
         "player_hp": observed.get("current_hp") or observed.get("player_hp") or player.get("current_hp"),
         "player_max_hp": observed.get("max_hp") or observed.get("player_max_hp") or player.get("max_hp"),
         "gold": observed.get("gold"),
-        "potion_count": len(observed.get("potions") or []),
+        "potion_count": potion_count,
         "combat": {
             "energy": combat.get("energy"),
             "hand_count": len(combat.get("hand") or []),
@@ -1230,6 +1306,18 @@ def _observed_phase(observed: dict[str, Any]) -> str | None:
     if screen_type == "NONE" and observed.get("choice_list"):
         return "idle"
     return None
+
+
+def _observed_real_potions(observed: dict[str, Any]) -> list[dict[str, Any]]:
+    potions = []
+    for potion in observed.get("potions") or []:
+        if not isinstance(potion, dict):
+            continue
+        name = str(potion.get("name") or potion.get("id") or "")
+        if name.lower() == "potion slot":
+            continue
+        potions.append(potion)
+    return potions
 
 
 def _blocker(

@@ -6401,6 +6401,11 @@ fn run_from_observed_combat(message: &Value) -> Option<RunState> {
     run_from_observed_combat_impl(message, false)
 }
 
+#[must_use]
+pub fn run_state_from_observed_combat_message(message: &Value) -> Option<RunState> {
+    run_from_observed_combat(message)
+}
+
 fn run_from_observed_combat_with_observed_shrug_plus(message: &Value) -> Option<RunState> {
     run_from_observed_combat_impl(message, true)
 }
