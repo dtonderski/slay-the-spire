@@ -11,6 +11,7 @@
     lifecycle: { kind: "Ready" },
     lastError: null,
     search: null,
+    bridge: null,
     activeDebugTab: "state",
   };
 
@@ -46,6 +47,8 @@
       "applyBestButton",
       "searchStatus",
       "searchResult",
+      "refreshBridgeButton",
+      "bridgePanel",
       "debugSessionId",
       "debugStateId",
       "debugPhase",
@@ -62,6 +65,7 @@
     el.reloadButton.addEventListener("click", reloadSession);
     el.searchButton.addEventListener("click", runSearch);
     el.applyBestButton.addEventListener("click", applyBestAction);
+    el.refreshBridgeButton.addEventListener("click", refreshBridge);
     el.debugTabs.forEach((button) => {
       button.addEventListener("click", () => {
         app.activeDebugTab = button.dataset.debugTab;
@@ -80,6 +84,7 @@
       app.snapshot = null;
       app.search = null;
       await loadSnapshotQuietly();
+      await refreshBridgeQuietly();
     });
   }
 
@@ -89,6 +94,7 @@
       const session = await requestJson(`/api/sessions/${encodeURIComponent(app.sessionId)}`);
       adoptSession(session);
       await loadSnapshotQuietly();
+      await refreshBridgeQuietly();
     });
   }
 
@@ -217,6 +223,18 @@
     }
   }
 
+  async function refreshBridge() {
+    await singleFlight("Refreshing bridge", refreshBridgeQuietly);
+  }
+
+  async function refreshBridgeQuietly() {
+    try {
+      app.bridge = await requestJson("/api/bridge");
+    } catch (error) {
+      app.bridge = { error: readableError(error), connected: false, stale: true };
+    }
+  }
+
   function adoptSession(payload) {
     const state = payload && (payload.state || payload.ui_state || payload);
     app.sessionId = firstDefined(payload && payload.id, payload && payload.session_id, state && state.session_id, app.sessionId);
@@ -251,6 +269,7 @@
     renderHand();
     renderActions();
     renderSearch();
+    renderBridge();
     renderDebug();
   }
 
@@ -419,6 +438,48 @@
         list.appendChild(li);
       });
       el.searchResult.appendChild(list);
+    }
+  }
+
+  function renderBridge() {
+    clear(el.bridgePanel);
+    if (!app.bridge) {
+      empty(el.bridgePanel, "Bridge status not loaded.");
+      return;
+    }
+    el.bridgePanel.className = "bridge-panel";
+    const state = app.bridge.connected
+      ? app.bridge.stale
+        ? "Connected / stale"
+        : "Connected"
+      : app.bridge.exited
+        ? "Exited"
+        : "Disconnected";
+    el.bridgePanel.append(
+      statBlock("CommunicationMod", [
+        ["State", state],
+        ["Step", firstDefined(app.bridge.last_state_step, "-")],
+        ["Ready", firstDefined(app.bridge.ready_for_command, "-")],
+        ["Pending command", app.bridge.pending_command ? "Yes" : "No"],
+        ["Trace", firstDefined(app.bridge.trace_path, "-")],
+      ]),
+    );
+    const commands = arrayOf(app.bridge.available_commands);
+    if (commands.length) {
+      const list = document.createElement("div");
+      list.className = "command-list";
+      commands.forEach((command) => {
+        const badge = document.createElement("span");
+        badge.textContent = command;
+        list.appendChild(badge);
+      });
+      el.bridgePanel.appendChild(list);
+    }
+    if (app.bridge.last_error || app.bridge.error) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = firstDefined(app.bridge.last_error, app.bridge.error);
+      el.bridgePanel.appendChild(msg);
     }
   }
 

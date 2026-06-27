@@ -128,6 +128,7 @@ h3 {
 .board-band,
 .hand-band,
 .control-band,
+.sync-band,
 .debug-band {
   border-top: 1px solid var(--line);
   padding-top: 1rem;
@@ -192,6 +193,7 @@ h3 {
 .monster-panel,
 .hand-row,
 .button-grid,
+.bridge-panel,
 .search-result {
   min-height: 7rem;
 }
@@ -199,6 +201,7 @@ h3 {
 .player-panel,
 .monster,
 .hand-card,
+.bridge-panel,
 .search-result,
 .message {
   border: 1px solid var(--line);
@@ -293,6 +296,22 @@ h3 {
   display: grid;
   grid-template-columns: minmax(18rem, 1.2fr) minmax(18rem, 0.8fr);
   gap: 1rem;
+}
+
+.command-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.command-list span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-strong);
+  padding: 0.25rem 0.55rem;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .action-column,

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from sts import omni
+from sts.bridge import BridgeMirror
 from sts.search import CombatSearchConfig, search_combat
 
 
@@ -189,6 +190,7 @@ class SessionManager:
 
 class UiRequestHandler(SimpleHTTPRequestHandler):
     manager = SessionManager()
+    bridge = BridgeMirror.default()
 
     def __init__(self, *args: Any, static_dir: Path | None = None, **kwargs: Any) -> None:
         self._static_dir = static_dir or UI_STATIC_DIR
@@ -203,6 +205,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "snapshot":
                 self._send_json(self.manager.snapshot(parts[2]))
+                return
+            if parts == ["api", "bridge"]:
+                self._send_json(self.bridge.status())
                 return
             if path == "/":
                 self.path = "/index.html"
