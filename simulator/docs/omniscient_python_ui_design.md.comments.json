@@ -1,0 +1,151 @@
+{
+  "schema": 1,
+  "docStatus": "codex_revision",
+  "comments": [
+    {
+      "id": "cmt_mqwcad6c_exfbh",
+      "anchor": {
+        "sectionId": "slice-2-combat-search",
+        "quote": "keep the first MCTS/search implementation in Python",
+        "originalQuote": "Should MCTS live entirely in Python at first, or move the hot tree into Rust once the Python shape is proven?",
+        "prefix": "implement simple deterministic one-ply or depth-limited search first\n",
+        "suffix": "\nmove hot search loops into Rust only later",
+        "lineStart": 751,
+        "lineEnd": 751
+      },
+      "status": "resolved",
+      "createdAt": "2026-06-27T12:31:47.507Z",
+      "updatedAt": "2026-06-27T12:52:00.000Z",
+      "thread": [
+        {
+          "id": "msg_mqwcad6c",
+          "author": "user",
+          "body": "Let's leave it in Python. We can figure out whether we need to move it into Rust later, with benchmarks.",
+          "createdAt": "2026-06-27T12:31:47.507Z"
+        },
+        {
+          "id": "msg_codex_mcts_python_decision",
+          "author": "codex",
+          "body": "Agreed. I changed Slice 2 so the first MCTS/search implementation stays in Python, and Rust only becomes an option later if benchmarks show Python is too slow.",
+          "createdAt": "2026-06-27T12:52:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "cmt_mqwcaoc2_vo6u7",
+      "anchor": {
+        "sectionId": "open-questions",
+        "quote": "Which combat fixture should be the first UI/search demo? Examples:",
+        "originalQuote": "Which combat fixture should be the first UI/search demo?",
+        "prefix": "",
+        "suffix": "\na tiny starter-deck Cultist fight",
+        "lineStart": 797,
+        "lineEnd": 797
+      },
+      "status": "resolved",
+      "createdAt": "2026-06-27T12:32:01.970Z",
+      "updatedAt": "2026-06-27T12:52:00.000Z",
+      "thread": [
+        {
+          "id": "msg_mqwcaoc2",
+          "author": "user",
+          "body": "What does this mean? add examples please.",
+          "createdAt": "2026-06-27T12:32:01.970Z"
+        },
+        {
+          "id": "msg_codex_fixture_examples",
+          "author": "codex",
+          "body": "Added examples: a tiny starter-deck Cultist fight for basic UI/search plumbing, a captured Act 1 trace combat for real-state comparison, and a hard late-Act trace combat for testing whether advice helps trace collection.",
+          "createdAt": "2026-06-27T12:52:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "cmt_mqwcbf8x_swzav",
+      "anchor": {
+        "sectionId": "slice-5-bridge-mirror",
+        "quote": "replace the current trace UI with this UI; reuse only bridge plumbing that is",
+        "originalQuote": "How much of the existing trace UI should be replaced versus reused as bridge",
+        "prefix": "",
+        "suffix": "\nstill reliable",
+        "lineStart": 771,
+        "lineEnd": 771
+      },
+      "status": "resolved",
+      "createdAt": "2026-06-27T12:32:36.849Z",
+      "updatedAt": "2026-06-27T12:52:00.000Z",
+      "thread": [
+        {
+          "id": "msg_mqwcbf8x",
+          "author": "user",
+          "body": "the current trace UI is pretty bad, easily gets out of sync etc. I think scrap the whole thing and replace it with this? WDYT? I'm thinking we will collect traces through this in the future.",
+          "createdAt": "2026-06-27T12:32:36.849Z"
+        },
+        {
+          "id": "msg_codex_replace_trace_ui",
+          "author": "codex",
+          "body": "I agree. I updated the plan to replace the current trace UI with this new UI, reuse only bridge plumbing that remains reliable, and make the new bridge-control flow the future trace-collection path once sync is reliable enough.",
+          "createdAt": "2026-06-27T12:52:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "cmt_mqwcbmnx_9dgwi",
+      "anchor": {
+        "sectionId": "open-questions",
+        "quote": "Which fidelity categories should be elevated into first-class UI badges?",
+        "originalQuote": "Which fidelity categories should be elevated into first-class UI badges?",
+        "prefix": "",
+        "suffix": "\nExamples:",
+        "lineStart": 815,
+        "lineEnd": 815
+      },
+      "status": "resolved",
+      "createdAt": "2026-06-27T12:32:46.461Z",
+      "updatedAt": "2026-06-27T12:52:00.000Z",
+      "thread": [
+        {
+          "id": "msg_mqwcbmnx",
+          "author": "user",
+          "body": "What??? Expalin with examples.",
+          "createdAt": "2026-06-27T12:32:46.461Z"
+        },
+        {
+          "id": "msg_codex_fidelity_examples",
+          "author": "codex",
+          "body": "Added concrete badge examples: source_backed for high-trust decoded/trace-backed behavior, captured_branch for one observed branch that is not generalized, placeholder/legacy_fixed for scaffolding that search should treat skeptically, and verifier_only for trace repair/comparison machinery that must not look like game mechanics.",
+          "createdAt": "2026-06-27T12:52:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "cmt_mqwcbuqr_ydpgo",
+      "anchor": {
+        "sectionId": "open-questions",
+        "quote": "Should live bridge control send to the simulator first, the real game first,",
+        "originalQuote": "Should live bridge control apply to simulator first, game first, or both with",
+        "prefix": "",
+        "suffix": "\nor both as one coordinated operation? Examples:",
+        "lineStart": 804,
+        "lineEnd": 804
+      },
+      "status": "resolved",
+      "createdAt": "2026-06-27T12:32:56.931Z",
+      "updatedAt": "2026-06-27T12:52:00.000Z",
+      "thread": [
+        {
+          "id": "msg_mqwcbuqr",
+          "author": "user",
+          "body": "What?? Explain with examples.",
+          "createdAt": "2026-06-27T12:32:56.931Z"
+        },
+        {
+          "id": "msg_codex_bridge_order_examples",
+          "author": "codex",
+          "body": "Added examples for the three possible bridge-control orders: simulator-first protects the real run from invalid UI actions, game-first treats the real game as source of truth, and coordinated both-mode records predicted simulator state plus observed game state and surfaces parity diffs.",
+          "createdAt": "2026-06-27T12:52:00.000Z"
+        }
+      ]
+    }
+  ]
+}

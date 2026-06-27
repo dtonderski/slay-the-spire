@@ -599,6 +599,101 @@ The debug panel should make hidden information visually distinct. A user looking
 at an omniscient UI should not confuse debug-visible state with what a real
 player can see.
 
+## Interaction Robustness Requirements
+
+The new UI must fix the failure modes from the current trace UI. In particular:
+
+- clicking an action twice must not accidentally submit two game commands
+- a stale action must not be accepted after the state has advanced
+- invalid actions must not erase the action list
+- unsupported actions must produce a visible error and leave the UI usable
+- every visible game affordance must have a button or explicit unsupported
+  explanation, including `LeaveScreen`, `Proceed`, `ReturnToPreviousScreen`,
+  `ConfirmChoice`, `CancelChoice`, and reward/choice skips
+- the UI must never silently fall into a state with no choices unless the
+  simulator/game is terminal or the decision is explicitly marked unsupported
+- bridge mode must show whether it is waiting for command acknowledgement,
+  waiting for the next game state, stale, disconnected, or diverged
+
+Use command lifecycle state for every user action:
+
+```text
+UiCommandLifecycle
+  Ready
+  Submitting { command_id, ui_action }
+  WaitingForBridgeAck { command_id, sent_command }
+  WaitingForNextState { command_id, expected_previous_state_id }
+  Applied { command_id, resulting_state_id }
+  Rejected { command_id, public_error }
+  Diverged { command_id, parity_diff }
+  Stale { last_state_id, bridge_status }
+```
+
+Each rendered action should carry the state identity it was derived from:
+
+```text
+UiActionDescriptor
+  action_id
+  source_state_id
+  descriptor
+  enabled
+  disabled_reason?
+```
+
+The server must reject actions whose `source_state_id` does not match the
+current session state. That prevents double-clicks and slow bridge updates from
+applying old actions to new states.
+
+In live bridge control, action submission should be single-flight by default:
+
+1. user clicks an enabled action
+2. UI disables all action buttons and shows the pending command
+3. server records a unique `command_id`
+4. simulator applies or rejects the action
+5. bridge sends the corresponding CommunicationMod command, if requested
+6. UI waits for acknowledgement / next observed state
+7. action buttons are regenerated only from the new state
+
+If the user clicks again while a command is pending, the UI should focus or
+flash the pending command status instead of sending another command.
+
+Invalid action handling should be boring:
+
+```text
+InvalidActionResult
+  command_id
+  source_state_id
+  error
+  state_unchanged = true
+  actions = previous_or_regenerated_actions
+```
+
+Do not clear the action list on invalid actions. Do not infer terminal state
+from an empty action list. Empty actions must be accompanied by one of:
+
+- `terminal_reason`
+- `unsupported_decision`
+- `waiting_for_bridge`
+- `stale_bridge`
+- `internal_error`
+
+The action generator should have coverage tests for every command family the
+bridge can send:
+
+- `PLAY`
+- `END`
+- `POTION`
+- `CHOOSE`
+- `CONFIRM`
+- `CANCEL`
+- `SKIP`
+- `PROCEED`
+- `LEAVE`
+- `RETURN`
+
+If the current screen has a visible command that is not implemented yet, render
+it disabled with a specific `UnsupportedAction` reason rather than omitting it.
+
 ## Python Service API For The UI
 
 The web UI should talk to a local service with stable JSON DTOs. This service is
@@ -619,6 +714,9 @@ GET /sessions/{id}/actions
 POST /sessions/{id}/step
   { action: UiActionDescriptor, backend: "simulator" | "bridge" | "both" }
   -> UiStepResult
+
+GET /sessions/{id}/pending-command
+  -> UiCommandLifecycle
 
 POST /sessions/{id}/search/combat
   { config }
@@ -644,9 +742,11 @@ explicit:
 ```text
 UiState
   mode
+  state_id
   decision_substate
   board
   visible_controls
+  command_lifecycle
   debug_full_state?
   bridge_status?
   parity_status?
@@ -724,6 +824,12 @@ Before calling bridge control usable, test:
 - bridge disconnected status
 - stale bridge status
 - duplicate client detection
+- double-click protection with one command in flight
+- stale `source_state_id` rejection
+- invalid action preserves/regenerates available actions
+- unsupported visible commands render disabled with reasons
+- non-terminal empty action lists must report terminal, unsupported, waiting,
+  stale, or internal-error state
 - descriptor-to-command translation for `PLAY`, `END`, `CHOOSE`, `POTION`,
   `CONFIRM`, `CANCEL`, `SKIP`, `PROCEED`, `LEAVE`, and `RETURN`
 - simulator-only step
@@ -744,11 +850,33 @@ Before calling fair mode usable, use the tests in `fair_action_schema.md` and
 - support clone, state JSON, snapshot JSON, hash, exact legal actions, and step
 - add Python smoke tests
 
+Status: implemented as the `py_sts` Rust crate with a compiled `sts_omni`
+extension and a source-level `sts.omni` wrapper.
+
+Local verification on Windows currently needs the Python runtime directory on
+`PATH` before running Rust tests for the PyO3 crate:
+
+```powershell
+$env:PATH = 'C:\Users\davton\AppData\Local\Python\pythoncore-3.14-64;' + $env:PATH
+cargo test
+```
+
+The local wheel path is:
+
+```powershell
+py -3.14 -m maturin build -m crates/py_sts/Cargo.toml --release
+py -3.14 -m pip install --force-reinstall target\wheels\py_sts-0.1.0-cp314-cp314-win_amd64.whl
+$env:PYTHONPATH = "$PWD\python"
+py -3.14 -m unittest discover -s python/tests
+```
+
 ### Slice 2: Combat Search
 
 - add Python `sts.search`
 - implement simple deterministic one-ply or depth-limited search first
-- add MCTS only after clone/snapshot performance is measured
+- keep the first MCTS/search implementation in Python
+- move hot search loops into Rust only later, and only if benchmarks show the
+  Python implementation is too slow
 - expose recommendation and principal variation
 
 ### Slice 3: Local UI Service
@@ -766,7 +894,9 @@ Before calling fair mode usable, use the tests in `fair_action_schema.md` and
 
 ### Slice 5: Bridge Mirror
 
-- read existing CommunicationMod status/current-state files
+- replace the current trace UI with this UI; reuse only bridge plumbing that is
+  still reliable
+- read existing CommunicationMod status/current-state files as an adapter detail
 - show bridge status and observed state
 - replay traces in UI
 
@@ -776,6 +906,8 @@ Before calling fair mode usable, use the tests in `fair_action_schema.md` and
 - send commands through bridge
 - compare predicted simulator state with observed real-game state
 - surface diffs and stale-state issues
+- make this the future trace-collection path once simulator and bridge state
+  synchronization is reliable enough
 
 ### Slice 7: Fair API
 
@@ -788,14 +920,34 @@ Before calling fair mode usable, use the tests in `fair_action_schema.md` and
 - Should the first import be `sts.omni` or `sts_omni`?
 - Should `FullSnapshot` be JSON-only first, or should we add binary snapshots
   immediately after the smoke tests?
-- Should MCTS live entirely in Python at first, or move the hot tree into Rust
-  once the Python shape is proven?
-- Which combat fixture should be the first UI/search demo?
-- How much of the existing trace UI should be replaced versus reused as bridge
-  plumbing?
-- Should live bridge control apply to simulator first, game first, or both with
-  rollback-on-failure semantics?
+- Which combat fixture should be the first UI/search demo? Examples:
+  - a tiny starter-deck Cultist fight, useful for checking the UI/search loop
+    with simple Strike/Defend/Bash decisions
+  - a known captured Act 1 trace combat, useful for comparing simulator advice
+    against a real observed state
+  - a hard late-Act combat from a trace, useful for testing whether MCTS advice
+    actually helps trace collection
+- Should live bridge control send to the simulator first, the real game first,
+  or both as one coordinated operation? Examples:
+  - simulator-first: apply the action locally, then send the command to the
+    game only if the simulator accepts it; this protects the real run from
+    obviously invalid UI actions
+  - game-first: send the command to the real game, then advance/import/compare
+    the simulator after CommunicationMod reports the result; this treats the
+    real game as the source of truth
+  - coordinated both-mode: send through one action pipeline, record both the
+    predicted simulator result and observed game result, and surface a parity
+    diff if they diverge
 - Which fidelity categories should be elevated into first-class UI badges?
+  Examples:
+  - `source_backed`: decoded from target code or trace-backed; good default
+    trust level
+  - `captured_branch`: matches one observed trace branch but is not generalized;
+    useful warning during search
+  - `placeholder` or `legacy_fixed`: simulator scaffolding; search advice should
+    be treated skeptically
+  - `verifier_only`: trace repair/comparison machinery; should never look like
+    normal game mechanics
 
 ## Summary
 

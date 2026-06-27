@@ -1,4 +1,3 @@
 [workspace]
-members = ["crates/sts_core", "crates/sts_verify"]
+members = ["crates/sts_core", "crates/sts_verify", "crates/py_sts"]
 resolver = "2"
-
