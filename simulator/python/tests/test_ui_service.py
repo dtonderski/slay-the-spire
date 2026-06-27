@@ -41,6 +41,40 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["command_lifecycle"]["status"], "applied")
         self.assertTrue(result["actions"] or result["empty_action_reason"])
 
+    def test_restore_replaces_combat_session_from_snapshot(self):
+        manager = SessionManager()
+        session = manager.create_session()
+        snapshot = manager.snapshot(session["session_id"])
+        stepped = manager.step(session["session_id"], session["actions"][0])
+        self.assertNotEqual(stepped["state_id"], snapshot["state_id"])
+
+        restored = manager.restore(session["session_id"], {"snapshot_json": snapshot["snapshot_json"]})
+
+        self.assertEqual(restored["state_id"], snapshot["state_id"])
+        self.assertEqual(restored["command_lifecycle"]["status"], "restored")
+        self.assertEqual(restored["state_kind"], "combat")
+        self.assertTrue(restored["actions"])
+
+    def test_restore_replaces_run_session_from_snapshot(self):
+        manager = SessionManager()
+        session = manager.create_session("run_map_fixture")
+        snapshot = manager.snapshot(session["session_id"])
+        stepped = manager.step(session["session_id"], session["actions"][0])
+        self.assertNotEqual(stepped["state_id"], snapshot["state_id"])
+
+        restored = manager.restore(session["session_id"], {"snapshot_json": snapshot["snapshot_json"]})
+
+        self.assertEqual(restored["state_id"], snapshot["state_id"])
+        self.assertEqual(restored["state_kind"], "run")
+        self.assertEqual(restored["current_decision"], "map")
+
+    def test_restore_rejects_missing_snapshot_json(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        with self.assertRaises(ValueError):
+            manager.restore(session["session_id"], {})
+
     def test_search_returns_best_current_action_id(self):
         manager = SessionManager()
         session = manager.create_session()
