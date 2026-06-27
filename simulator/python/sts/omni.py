@@ -1,6 +1,6 @@
 """Explicitly omniscient Python API for simulator planning and debugging."""
 
-from sts_omni import (
+from sts.sts_omni import (
     DebugTransition,
     ExactCombatAction,
     ExactRunAction,
