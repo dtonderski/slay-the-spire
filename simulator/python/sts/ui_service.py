@@ -23,7 +23,9 @@ UI_STATIC_DIR = Path(__file__).with_name("ui_static")
 @dataclass
 class CombatSession:
     id: str
-    env: omni.OmniCombatEnv
+    mode: str
+    state_kind: str
+    env: Any
     last_error: str | None = None
 
 
@@ -32,10 +34,29 @@ class SessionManager:
         self._sessions: dict[str, CombatSession] = {}
 
     def create_session(self, mode: str = "combat_fixture") -> dict[str, Any]:
-        if mode != "combat_fixture":
+        if mode == "combat_fixture":
+            session = CombatSession(
+                id=uuid4().hex,
+                mode=mode,
+                state_kind="combat",
+                env=omni.OmniCombatEnv.initial_fixture(),
+            )
+        elif mode == "run_map_fixture":
+            session = CombatSession(
+                id=uuid4().hex,
+                mode=mode,
+                state_kind="run",
+                env=omni.OmniRunEnv.map_fixture(),
+            )
+        elif mode == "run_combat_fixture":
+            session = CombatSession(
+                id=uuid4().hex,
+                mode=mode,
+                state_kind="run",
+                env=omni.OmniRunEnv.combat_fixture(),
+            )
+        else:
             raise ValueError(f"unsupported session mode: {mode}")
-
-        session = CombatSession(id=uuid4().hex, env=omni.OmniCombatEnv.initial_fixture())
         self._sessions[session.id] = session
         return self.serialize_session(session)
 
@@ -107,6 +128,8 @@ class SessionManager:
 
     def search(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         session = self._require_session(session_id)
+        if session.state_kind != "combat":
+            raise ValueError("combat search is only available for combat fixture sessions")
         max_depth = int(payload.get("max_depth", 1))
         recommendation = search_combat(session.env, CombatSearchConfig(max_depth=max_depth))
         actions = self._actions(session.env, session.env.snapshot_hash())
@@ -138,6 +161,16 @@ class SessionManager:
     def parity(self, session_id: str, bridge_status: dict[str, Any] | None = None) -> dict[str, Any]:
         session = self._require_session(session_id)
         bridge_status = bridge_status or BridgeMirror.default().status()
+        if session.state_kind != "combat":
+            return {
+                "session_id": session.id,
+                "state_id": session.env.snapshot_hash(),
+                "parity": {
+                    "status": "unknown",
+                    "reason": "combat parity is only available for combat fixture sessions",
+                    "diffs": [],
+                },
+            }
         return {
             "session_id": session.id,
             "state_id": session.env.snapshot_hash(),
@@ -153,21 +186,28 @@ class SessionManager:
         state = json.loads(session.env.state_json())
         actions = self._actions(session.env, state_id)
         terminal_reason = _terminal_reason(session.env.phase())
+        unsupported_reason = _call_optional(session.env, "unsupported_reason") if session.state_kind == "run" else None
         empty_reason = None
         if not actions:
             empty_reason = (
                 {"kind": "terminal", "reason": terminal_reason}
                 if terminal_reason
-                else {"kind": "unsupported", "reason": "no exact combat actions available"}
+                else {
+                    "kind": "unsupported",
+                    "reason": unsupported_reason or f"no exact {session.state_kind} actions available",
+                }
             )
 
         return {
             "session_id": session.id,
-            "mode": "offline_simulator",
+            "mode": session.mode,
+            "state_kind": session.state_kind,
             "state_id": state_id,
             "phase": session.env.phase(),
+            "current_decision": _call_optional(session.env, "current_decision"),
+            "unsupported_reason": unsupported_reason,
             "terminal_reason": terminal_reason,
-            "decision_substate": "Terminal" if terminal_reason else "NormalCombat",
+            "decision_substate": _decision_substate(session, terminal_reason),
             "state": state,
             "actions": [_public_action(action) for action in actions],
             "empty_action_reason": empty_reason,
@@ -181,7 +221,7 @@ class SessionManager:
         except KeyError as exc:
             raise KeyError(f"unknown session: {session_id}") from exc
 
-    def _actions(self, env: omni.OmniCombatEnv, state_id: str) -> list[dict[str, Any]]:
+    def _actions(self, env: Any, state_id: str) -> list[dict[str, Any]]:
         actions = []
         for index, exact_action in enumerate(env.exact_legal_actions()):
             actions.append(
@@ -311,6 +351,13 @@ def _public_action(action: dict[str, Any]) -> dict[str, Any]:
 
 
 def _action_to_descriptor(action: omni.ExactCombatAction) -> dict[str, Any]:
+    if hasattr(action, "family"):
+        return {
+            "kind": "ExactRunAction",
+            "family": action.family(),
+            "action_kind": action.kind(),
+            "action": _json_or_string(action.json()),
+        }
     if action.kind() == "end_turn":
         return {"kind": "EndTurn"}
     return {
@@ -321,6 +368,8 @@ def _action_to_descriptor(action: omni.ExactCombatAction) -> dict[str, Any]:
 
 
 def _action_label(action: omni.ExactCombatAction) -> str:
+    if hasattr(action, "family"):
+        return _run_action_label(action)
     if action.kind() == "end_turn":
         return "End Turn"
     target = action.target()
@@ -341,6 +390,42 @@ def _transition_to_json(transition: Any) -> dict[str, Any]:
 
 def _terminal_reason(phase: str) -> str | None:
     return phase if phase in {"won", "lost"} else None
+
+
+def _decision_substate(session: CombatSession, terminal_reason: str | None) -> str:
+    if terminal_reason:
+        return "Terminal"
+    if session.state_kind == "run":
+        return _call_optional(session.env, "current_decision") or "RunDecision"
+    return "NormalCombat"
+
+
+def _call_optional(obj: Any, name: str) -> Any:
+    method = getattr(obj, name, None)
+    if method is None:
+        return None
+    return method()
+
+
+def _run_action_label(action: Any) -> str:
+    kind = action.kind()
+    family = action.family()
+    data = _json_or_string(action.json())
+    if isinstance(data, dict):
+        details = ", ".join(f"{_humanize(key)} {value}" for key, value in data.items())
+        return f"{_humanize(kind)} ({details})" if details else _humanize(kind)
+    return f"{_humanize(family)}: {_humanize(kind)}"
+
+
+def _json_or_string(value: str) -> Any:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _humanize(value: Any) -> str:
+    return str(value).replace("_", " ").replace("-", " ").title()
 
 
 def _path_parts(path: str) -> list[str]:

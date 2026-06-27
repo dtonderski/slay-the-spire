@@ -14,7 +14,11 @@
           <p id="sessionMeta" class="subtle">No session</p>
         </div>
         <div class="topbar-actions">
-          <button id="newSessionButton" class="primary" type="button">New combat fixture</button>
+          <select id="sessionModeSelect" aria-label="Fixture type">
+            <option value="combat_fixture">Combat fixture</option>
+            <option value="run_map_fixture">Run map fixture</option>
+          </select>
+          <button id="newSessionButton" class="primary" type="button">Start fixture</button>
           <button id="reloadButton" type="button" disabled>Reload</button>
         </div>
       </header>
@@ -24,7 +28,7 @@
           <div class="section-head">
             <div>
               <h2 id="boardTitle">Board</h2>
-              <p id="stateSummary" class="subtle">Start a combat fixture to inspect simulator state.</p>
+              <p id="stateSummary" class="subtle">Start a fixture to inspect simulator state.</p>
             </div>
             <div id="lifecycleBadge" class="status-badge neutral">Ready</div>
           </div>
@@ -140,8 +144,12 @@
           </div>
           <dl class="debug-facts">
             <div><dt>Session</dt><dd id="debugSessionId">-</dd></div>
+            <div><dt>Mode</dt><dd id="debugMode">-</dd></div>
+            <div><dt>Kind</dt><dd id="debugStateKind">-</dd></div>
             <div><dt>State</dt><dd id="debugStateId">-</dd></div>
             <div><dt>Phase</dt><dd id="debugPhase">-</dd></div>
+            <div><dt>Decision</dt><dd id="debugDecision">-</dd></div>
+            <div><dt>Unsupported</dt><dd id="debugUnsupported">-</dd></div>
             <div><dt>Hash</dt><dd id="debugHash">-</dd></div>
           </dl>
           <pre id="debugJson" class="debug-json">{}</pre>

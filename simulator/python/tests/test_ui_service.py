@@ -8,7 +8,8 @@ class UiServiceTests(unittest.TestCase):
         manager = SessionManager()
         session = manager.create_session()
 
-        self.assertEqual(session["mode"], "offline_simulator")
+        self.assertEqual(session["mode"], "combat_fixture")
+        self.assertEqual(session["state_kind"], "combat")
         self.assertEqual(session["command_lifecycle"]["status"], "ready")
         self.assertTrue(session["actions"])
         self.assertEqual(session["actions"][0]["source_state_id"], session["state_id"])
@@ -50,6 +51,43 @@ class UiServiceTests(unittest.TestCase):
         action_ids = {action["action_id"] for action in session["actions"]}
         self.assertIn(recommendation["best_action_id"], action_ids)
         self.assertTrue(recommendation["principal_variation"])
+
+    def test_run_map_fixture_exposes_run_decision_and_actions(self):
+        manager = SessionManager()
+        session = manager.create_session("run_map_fixture")
+
+        self.assertEqual(session["mode"], "run_map_fixture")
+        self.assertEqual(session["state_kind"], "run")
+        self.assertEqual(session["phase"], "idle")
+        self.assertEqual(session["current_decision"], "map")
+        self.assertTrue(session["actions"])
+        self.assertEqual(session["actions"][0]["descriptor"]["kind"], "ExactRunAction")
+
+    def test_run_session_step_rejects_stale_and_applies_current_action(self):
+        manager = SessionManager()
+        session = manager.create_session("run_map_fixture")
+        stale = dict(session["actions"][0])
+        stale["source_state_id"] = "old"
+
+        stale_result = manager.step(session["session_id"], stale)
+        self.assertEqual(stale_result["state_id"], session["state_id"])
+        self.assertEqual(stale_result["command_lifecycle"]["status"], "stale")
+
+        result = manager.step(session["session_id"], session["actions"][0])
+        self.assertNotEqual(result["state_id"], session["state_id"])
+        self.assertEqual(result["state_kind"], "run")
+        self.assertEqual(result["command_lifecycle"]["status"], "applied")
+
+    def test_run_session_reports_search_and_parity_as_combat_only(self):
+        manager = SessionManager()
+        session = manager.create_session("run_map_fixture")
+
+        with self.assertRaises(ValueError):
+            manager.search(session["session_id"], {"max_depth": 1})
+
+        result = manager.parity(session["session_id"], {"summary": {}})
+        self.assertEqual(result["parity"]["status"], "unknown")
+        self.assertIn("combat parity", result["parity"]["reason"])
 
     def test_parity_reports_unknown_without_observed_combat(self):
         manager = SessionManager()
