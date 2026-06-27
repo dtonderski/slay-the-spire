@@ -43,6 +43,17 @@ class CorpusBatchResult:
 
 
 @dataclass(frozen=True)
+class TraceGuidedReplayResult:
+    trace_path: Path
+    output_path: Path
+    report_path: Path | None
+    steps: int
+    combat_roots: int
+    stop_reason: str
+    verified: bool
+
+
+@dataclass(frozen=True)
 class TraceCombatRoot:
     trace_path: Path
     step: int
@@ -308,6 +319,208 @@ def run_self_play_batch(
     index_path = output_dir / "index.json"
     index_path.write_text(json.dumps(index_doc, indent=2, sort_keys=True), encoding="utf-8")
     return CorpusBatchResult(output_dir, index_path, len(trace_summaries), verified_count, stop_reasons)
+
+
+def replay_real_trace_guided(
+    *,
+    trace: Path,
+    output: Path,
+    report_output: Path | None = None,
+    max_actions: int = 10_000,
+) -> TraceGuidedReplayResult:
+    """Replay a CommunicationMod trace through OmniRunEnv until the first hard boundary."""
+
+    records = _read_jsonl(trace)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if report_output:
+        report_output.parent.mkdir(parents=True, exist_ok=True)
+
+    started_at = _now()
+    env = None
+    last_state: dict[str, Any] | None = None
+    output_records: list[dict[str, Any]] = []
+    replayed_steps = 0
+    combat_roots = 0
+    stop_reason = "trace_exhausted"
+    blocker: dict[str, Any] | None = None
+    start_info: dict[str, Any] | None = None
+
+    for record in records:
+        if record.get("type") == "state":
+            last_state = record
+            continue
+        if record.get("type") != "action":
+            continue
+        command = str(record.get("command") or "")
+        if not command:
+            continue
+
+        if env is None:
+            start_info = _parse_start_command(command)
+            if start_info is None:
+                blocker = _blocker(record, command, "missing_start", "first action is not START")
+                stop_reason = "missing_start"
+                break
+            try:
+                env = omni.OmniRunEnv.new_ironclad(
+                    seed=start_info["external_seed"],
+                    ascension=start_info["ascension"],
+                )
+            except Exception as error:
+                blocker = _blocker(record, command, "unsupported_start", str(error))
+                stop_reason = f"unsupported_start: {error}"
+                break
+            metadata = _metadata(
+                started_at=started_at,
+                seed=start_info["external_seed"],
+                ascension=start_info["ascension"],
+                start="communication_mod_trace_guided",
+                random_seed=0,
+                max_steps=max_actions,
+                combat_policy=DEFAULT_COMBAT_POLICY,
+                initial_snapshot_json=env.snapshot_json(),
+                initial_state_id=env.snapshot_hash(),
+            )
+            metadata["source"] = "sim_trace_guided_replay"
+            metadata["parity"] = "trace_guided_until_first_boundary"
+            metadata["source_trace"] = str(trace)
+            metadata["start_command"] = command
+            metadata["numeric_seed"] = start_info.get("numeric_seed")
+            output_records.append(metadata)
+            continue
+
+        if replayed_steps >= max_actions:
+            stop_reason = "max_actions"
+            break
+
+        observed_game_state = _game_state_from_record(last_state)
+        diffs = _observed_summary_diffs(env, observed_game_state)
+        if diffs:
+            blocker = _blocker(
+                record,
+                command,
+                "observed_simulator_divergence",
+                "observed CommunicationMod state does not match simulator before command",
+                diffs=diffs,
+                simulator_summary=_summary(env),
+                observed_summary=_observed_summary(observed_game_state),
+            )
+            stop_reason = "observed_simulator_divergence"
+            break
+
+        actions = env.exact_legal_actions()
+        action = _action_for_communication_command(env, command, observed_game_state)
+        if action is None:
+            blocker = _blocker(
+                record,
+                command,
+                "unsupported_command_mapping",
+                "no exact OmniRunEnv action mapping for CommunicationMod command",
+                simulator_phase=env.phase(),
+                simulator_decision=env.current_decision(),
+                legal_actions=[_action_record(candidate) for candidate in actions],
+                observed_summary=_observed_summary(observed_game_state),
+            )
+            stop_reason = "unsupported_command_mapping"
+            break
+
+        before_hash = env.snapshot_hash()
+        before_snapshot = env.snapshot_json()
+        before_summary = _summary(env)
+        if before_summary.get("phase") == "combat":
+            combat_roots += 1
+
+        try:
+            result = env.step(action)
+        except Exception as error:
+            output_records.append(
+                _step_record(
+                    step=replayed_steps,
+                    before_hash=before_hash,
+                    before_snapshot_json=before_snapshot,
+                    before_summary=before_summary,
+                    legal_actions=actions,
+                    action=action,
+                    policy_name="communication_mod_trace_guided",
+                    policy_diagnostics={"command": command, "trace_step": record.get("step")},
+                    error=f"step_error: {error}",
+                )
+            )
+            blocker = _blocker(record, command, "step_error", str(error))
+            stop_reason = f"step_error: {error}"
+            break
+
+        output_records.append(
+            _step_record(
+                step=replayed_steps,
+                before_hash=before_hash,
+                before_snapshot_json=before_snapshot,
+                before_summary=before_summary,
+                legal_actions=actions,
+                action=action,
+                policy_name="communication_mod_trace_guided",
+                policy_diagnostics={"command": command, "trace_step": record.get("step")},
+                after_hash=result.snapshot_hash,
+                after_snapshot_json=result.snapshot_json,
+                after_summary=_summary(env),
+                transition=result.transition,
+                unsupported_reason=result.unsupported_reason,
+            )
+        )
+        replayed_steps += 1
+
+    if not output_records:
+        output_records.append(
+            {
+                "type": "metadata",
+                "schema": 1,
+                "source": "sim_trace_guided_replay",
+                "started_at": started_at,
+                "source_trace": str(trace),
+                "stop_reason": stop_reason,
+            }
+        )
+
+    output_records[0]["ended_at"] = _now()
+    output_records[0]["stop_reason"] = stop_reason
+    output_records[0]["steps"] = replayed_steps
+    output_records[0]["combat_roots"] = combat_roots
+    output_records[0]["final_phase"] = env.phase() if env is not None else None
+    output_records[0]["final_state_id"] = env.snapshot_hash() if env is not None else None
+    output_records[0]["blocker"] = blocker
+    _write_jsonl(output, output_records)
+
+    verification = (
+        verify_self_play_trace(output)
+        if output_records[0].get("initial_snapshot_json")
+        else {"ok": False, "error": "no initial snapshot"}
+    )
+    report = {
+        "schema": 1,
+        "source": "sim_trace_guided_replay_report",
+        "source_trace": str(trace),
+        "output_trace": str(output),
+        "report_path": str(report_output) if report_output else None,
+        "start": start_info,
+        "steps": replayed_steps,
+        "combat_roots": combat_roots,
+        "stop_reason": stop_reason,
+        "blocker": blocker,
+        "verified": verification.get("ok", False),
+        "verification": verification,
+    }
+    if report_output:
+        report_output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+
+    return TraceGuidedReplayResult(
+        trace_path=trace,
+        output_path=output,
+        report_path=report_output,
+        steps=replayed_steps,
+        combat_roots=combat_roots,
+        stop_reason=stop_reason,
+        verified=bool(verification.get("ok")),
+    )
 
 
 def evaluate_self_play_corpus(
@@ -754,9 +967,11 @@ def _summary(env: Any) -> dict[str, Any]:
     run = state.get("state", state)
     combat = run.get("combat") or {}
     player = combat.get("player") or {}
+    decision = env.current_decision()
+    phase = decision if env.phase() == "idle" and decision == "map" else env.phase()
     return {
-        "phase": env.phase(),
-        "decision": env.current_decision(),
+        "phase": phase,
+        "decision": decision,
         "unsupported_reason": env.unsupported_reason(),
         "player_hp": run.get("player_hp") if run.get("player_hp") is not None else player.get("hp"),
         "player_max_hp": run.get("player_max_hp")
@@ -766,10 +981,13 @@ def _summary(env: Any) -> dict[str, Any]:
         "floor": run.get("current_floor"),
         "act": run.get("current_act"),
         "potions": run.get("potions") or [],
+        "potion_count": len(run.get("potions") or []),
         "relics": run.get("relics") or [],
         "combat": {
             "energy": player.get("energy"),
             "hand": [card.get("content_id") for card in ((combat.get("piles") or {}).get("hand") or [])],
+            "hand_count": len((combat.get("piles") or {}).get("hand") or []),
+            "monster_count": len(combat.get("monsters", [])),
             "monsters": [
                 {
                     "id": monster.get("id"),
@@ -796,6 +1014,238 @@ def _write_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> None:
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def _parse_start_command(command: str) -> dict[str, Any] | None:
+    parts = command.strip().split()
+    if len(parts) != 4 or parts[0].upper() != "START":
+        return None
+    try:
+        ascension = int(parts[2])
+    except ValueError:
+        return None
+    return {
+        "character": parts[1],
+        "ascension": ascension,
+        "external_seed": parts[3],
+        "numeric_seed": None,
+    }
+
+
+def _game_state_from_record(record: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(record, dict):
+        return {}
+    message = record.get("message")
+    if not isinstance(message, dict):
+        return {}
+    game_state = message.get("game_state")
+    return game_state if isinstance(game_state, dict) else {}
+
+
+def _action_for_communication_command(env: Any, command: str, observed: dict[str, Any]) -> Any | None:
+    parts = command.strip().split()
+    if not parts:
+        return None
+    verb = parts[0].upper()
+    actions = env.exact_legal_actions()
+    if verb == "END":
+        return _first_action(actions, kind="end_turn")
+    if verb == "CHOOSE" and len(parts) >= 2:
+        try:
+            index = int(parts[1])
+        except ValueError:
+            return None
+        return _choose_action_for_index(env, actions, index)
+    if verb == "PLAY" and len(parts) >= 2:
+        try:
+            hand_index = int(parts[1])
+            target_index = int(parts[2]) if len(parts) >= 3 else None
+        except ValueError:
+            return None
+        return _play_action_for_indices(env, actions, hand_index, target_index)
+    if verb == "POTION" and len(parts) >= 2:
+        try:
+            slot = int(parts[1])
+            target_index = int(parts[2]) if len(parts) >= 3 else None
+        except ValueError:
+            return None
+        return _potion_action_for_indices(env, actions, slot, target_index)
+    if verb in {"STATE", "WAIT"}:
+        return None
+    _ = observed
+    return None
+
+
+def _choose_action_for_index(env: Any, actions: list[Any], index: int) -> Any | None:
+    phase = env.current_decision() if env.phase() == "idle" else env.phase()
+    if phase == "event":
+        for action in actions:
+            data = _action_json_data(action)
+            choose = data.get("Choose") if isinstance(data, dict) else None
+            if isinstance(choose, dict) and choose.get("choice_index") == index:
+                return action
+    if phase in {"map", "reward", "shop", "rest"} and 0 <= index < len(actions):
+        return actions[index]
+    return None
+
+
+def _play_action_for_indices(
+    env: Any,
+    actions: list[Any],
+    hand_index: int,
+    target_index: int | None,
+) -> Any | None:
+    state = json.loads(env.state_json())
+    run = state.get("state", state)
+    combat = run.get("combat") or {}
+    hand = ((combat.get("piles") or {}).get("hand") or [])
+    monsters = combat.get("monsters") or []
+    if hand_index < 0 or hand_index >= len(hand):
+        return None
+    card_id = hand[hand_index].get("id")
+    target_id = None
+    if target_index is not None:
+        living = [monster for monster in monsters if monster.get("alive", True)]
+        if target_index < 0 or target_index >= len(living):
+            return None
+        target_id = living[target_index].get("id")
+    for action in actions:
+        if getattr(action, "kind", lambda: "")() != "play_card":
+            continue
+        play = _action_json_data(action).get("PlayCard")
+        if not isinstance(play, dict) or play.get("card_id") != card_id:
+            continue
+        if target_id is None or play.get("target") == target_id:
+            return action
+    return None
+
+
+def _potion_action_for_indices(
+    env: Any,
+    actions: list[Any],
+    slot: int,
+    target_index: int | None,
+) -> Any | None:
+    state = json.loads(env.state_json())
+    run = state.get("state", state)
+    monsters = ((run.get("combat") or {}).get("monsters") or [])
+    target_id = None
+    if target_index is not None:
+        living = [monster for monster in monsters if monster.get("alive", True)]
+        if target_index < 0 or target_index >= len(living):
+            return None
+        target_id = living[target_index].get("id")
+    for action in actions:
+        if getattr(action, "kind", lambda: "")() != "use_potion":
+            continue
+        use = _action_json_data(action).get("UsePotion")
+        if not isinstance(use, dict) or use.get("slot") != slot:
+            continue
+        if target_id is None or use.get("target") == target_id:
+            return action
+    return None
+
+
+def _first_action(actions: list[Any], *, kind: str) -> Any | None:
+    return next((action for action in actions if getattr(action, "kind", lambda: "")() == kind), None)
+
+
+def _action_json_data(action: Any) -> dict[str, Any]:
+    try:
+        data = json.loads(action.json())
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str, Any]]:
+    if not observed:
+        return []
+    simulator = _summary(env)
+    observed_summary = _observed_summary(observed)
+    diffs = []
+    for key in ("phase", "player_hp", "player_max_hp", "gold", "potion_count"):
+        if observed_summary.get(key) is None:
+            continue
+        if simulator.get(key) != observed_summary.get(key):
+            diffs.append(
+                {
+                    "field": key,
+                    "simulator": simulator.get(key),
+                    "observed": observed_summary.get(key),
+                }
+            )
+    if simulator.get("phase") == "combat" and observed_summary.get("phase") == "combat":
+        sim_combat = simulator.get("combat") or {}
+        obs_combat = observed_summary.get("combat") or {}
+        for key in ("energy", "hand_count", "monster_count"):
+            if obs_combat.get(key) is None:
+                continue
+            if sim_combat.get(key) != obs_combat.get(key):
+                diffs.append(
+                    {
+                        "field": f"combat.{key}",
+                        "simulator": sim_combat.get(key),
+                        "observed": obs_combat.get(key),
+                    }
+                )
+    return diffs
+
+
+def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
+    combat = observed.get("combat_state") if isinstance(observed.get("combat_state"), dict) else {}
+    player = combat.get("player") if isinstance(combat.get("player"), dict) else {}
+    return {
+        "phase": _observed_phase(observed),
+        "player_hp": observed.get("current_hp") or observed.get("player_hp") or player.get("current_hp"),
+        "player_max_hp": observed.get("max_hp") or observed.get("player_max_hp") or player.get("max_hp"),
+        "gold": observed.get("gold"),
+        "potion_count": len(observed.get("potions") or []),
+        "combat": {
+            "energy": combat.get("energy"),
+            "hand_count": len(combat.get("hand") or []),
+            "monster_count": len(combat.get("monsters") or []),
+        }
+        if combat
+        else None,
+    }
+
+
+def _observed_phase(observed: dict[str, Any]) -> str | None:
+    if not observed:
+        return None
+    if isinstance(observed.get("combat_state"), dict):
+        return "combat"
+    screen_type = str(observed.get("screen_type") or "").upper()
+    if screen_type == "MAP":
+        return "map"
+    if screen_type == "EVENT":
+        return "event"
+    if screen_type in {"SHOP_SCREEN", "SHOP"}:
+        return "shop"
+    if screen_type in {"REST", "REST_ROOM"}:
+        return "rest"
+    if screen_type in {"CARD_REWARD", "COMBAT_REWARD", "BOSS_REWARD", "GRID"}:
+        return "reward"
+    if screen_type == "NONE" and observed.get("choice_list"):
+        return "idle"
+    return None
+
+
+def _blocker(
+    record: dict[str, Any],
+    command: str,
+    category: str,
+    reason: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "trace_step": record.get("step"),
+        "command": command,
+        "category": category,
+        "reason": reason,
+        **extra,
+    }
 
 
 def _now() -> str:
@@ -960,6 +1410,12 @@ def main(argv: list[str] | None = None) -> None:
     report_parser = subparsers.add_parser("real-trace-report")
     report_parser.add_argument("--trace", dest="traces", type=Path, action="append", required=True)
 
+    replay_parser = subparsers.add_parser("replay-real-trace")
+    replay_parser.add_argument("--trace", type=Path, required=True)
+    replay_parser.add_argument("--output", type=Path, required=True)
+    replay_parser.add_argument("--report-output", type=Path)
+    replay_parser.add_argument("--max-actions", type=int, default=10_000)
+
     args = parser.parse_args(argv)
     if args.command == "run":
         result = run_self_play(
@@ -1007,6 +1463,14 @@ def main(argv: list[str] | None = None) -> None:
         print(text)
     elif args.command == "real-trace-report":
         print(json.dumps(real_trace_root_report(args.traces), indent=2, sort_keys=True))
+    elif args.command == "replay-real-trace":
+        result = replay_real_trace_guided(
+            trace=args.trace,
+            output=args.output,
+            report_output=args.report_output,
+            max_actions=args.max_actions,
+        )
+        print(json.dumps(result.__dict__, indent=2, sort_keys=True, default=str))
 
 
 if __name__ == "__main__":

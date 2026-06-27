@@ -9,6 +9,7 @@ from sts.search_lab import SearchCandidate
 from sts.self_play import (
     evaluate_self_play_corpus,
     real_trace_root_report,
+    replay_real_trace_guided,
     run_self_play,
     run_self_play_batch,
     verify_self_play_trace,
@@ -238,6 +239,88 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(report["observed_potion_combat_states"], 1)
             self.assertIn("simulator snapshots", report["blocked_traces"][0]["block_reason"])
 
+    def test_trace_guided_replay_writes_verified_prefix_until_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            output_path = Path(directory) / "replayed.jsonl"
+            report_path = Path(directory) / "report.json"
+            env = omni.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
+            records = [
+                {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                {"type": "action", "step": 0, "command": "START IRONCLAD 0 TEST"},
+                {"type": "state", "step": 1, "message": {"game_state": self._observed_state_from_env(env)}},
+            ]
+            step = 2
+            map_steps = 0
+            while env.exact_legal_actions() and env.phase() != "combat":
+                records.append({"type": "action", "step": step, "command": "CHOOSE 0"})
+                env.step(env.exact_legal_actions()[0])
+                records.append(
+                    {
+                        "type": "state",
+                        "step": step + 1,
+                        "message": {"game_state": self._observed_state_from_env(env)},
+                    }
+                )
+                step += 2
+                map_steps += 1
+            records.append({"type": "action", "step": step, "command": "CHOOSE 0"})
+            self._write_jsonl(
+                trace_path,
+                records,
+            )
+
+            result = replay_real_trace_guided(
+                trace=trace_path,
+                output=output_path,
+                report_output=report_path,
+            )
+
+            self.assertEqual(result.stop_reason, "unsupported_command_mapping")
+            self.assertEqual(result.steps, map_steps)
+            self.assertEqual(result.combat_roots, 0)
+            self.assertTrue(result.verified)
+            self.assertTrue(report_path.exists())
+            verification = verify_self_play_trace(output_path)
+            self.assertTrue(verification["ok"])
+            records = self._read_jsonl(output_path)
+            self.assertEqual(records[0]["blocker"]["category"], "unsupported_command_mapping")
+
+    def test_trace_guided_replay_reports_neow_divergence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            output_path = Path(directory) / "replayed.jsonl"
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 MANUAL01"},
+                    {
+                        "type": "state",
+                        "step": 1,
+                        "message": {
+                            "game_state": {
+                                "screen_type": "EVENT",
+                                "current_hp": 80,
+                                "max_hp": 80,
+                                "gold": 99,
+                                "potions": [],
+                            }
+                        },
+                    },
+                    {"type": "action", "step": 2, "command": "CHOOSE 0"},
+                ],
+            )
+
+            result = replay_real_trace_guided(trace=trace_path, output=output_path)
+            records = self._read_jsonl(output_path)
+
+            self.assertEqual(result.stop_reason, "observed_simulator_divergence")
+            self.assertEqual(result.steps, 0)
+            self.assertEqual(result.combat_roots, 0)
+            self.assertEqual(records[0]["blocker"]["category"], "observed_simulator_divergence")
+            self.assertEqual(records[0]["blocker"]["diffs"][0]["field"], "phase")
+
     def test_verify_rejects_action_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "selfplay.jsonl"
@@ -271,6 +354,32 @@ class SelfPlayTests(unittest.TestCase):
         state = json.loads(omni.OmniRunEnv.combat_fixture().state_json())
         state["potions"] = ["Fire"]
         return omni.OmniRunEnv.from_state_json(json.dumps(state))
+
+    def _observed_state_from_env(self, env):
+        state = json.loads(env.state_json())
+        combat = state.get("combat")
+        if combat:
+            hand = ((combat.get("piles") or {}).get("hand") or [])
+            return {
+                "screen_type": "NONE",
+                "current_hp": state["player_hp"],
+                "max_hp": state["player_max_hp"],
+                "gold": state["gold"],
+                "potions": state.get("potions") or [],
+                "combat_state": {
+                    "energy": ((combat.get("player") or {}).get("energy")),
+                    "hand": [{} for _ in hand],
+                    "monsters": [{} for _ in combat.get("monsters", [])],
+                },
+            }
+        screen_type = "MAP" if env.phase() == "map" else env.phase().upper()
+        return {
+            "screen_type": screen_type,
+            "current_hp": state["player_hp"],
+            "max_hp": state["player_max_hp"],
+            "gold": state["gold"],
+            "potions": state.get("potions") or [],
+        }
 
 
 if __name__ == "__main__":
