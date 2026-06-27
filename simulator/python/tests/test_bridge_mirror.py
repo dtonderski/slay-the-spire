@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sts.bridge import BridgeMirror
+from sts.bridge import BridgeMirror, command_for_descriptor
 
 
 class BridgeMirrorTests(unittest.TestCase):
@@ -55,6 +55,29 @@ class BridgeMirrorTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 BridgeMirror(root).send_command("state")
+
+    def test_descriptor_translation_covers_known_command_families(self):
+        cases = [
+            ({"kind": "PlayHandSlot", "hand_slot": 1, "target_slot": 0}, "PLAY 1 0"),
+            ({"kind": "EndTurn"}, "END"),
+            ({"kind": "UsePotionSlot", "potion_slot": 0, "target_slot": 1}, "POTION 0 1"),
+            ({"kind": "DiscardPotionSlot", "potion_slot": 0}, "POTION 0 DISCARD"),
+            ({"kind": "ChooseVisibleOption", "option_slot": 2}, "CHOOSE 2"),
+            ({"kind": "ConfirmChoice"}, "CONFIRM"),
+            ({"kind": "CancelChoice"}, "CANCEL"),
+            ({"kind": "SkipVisibleReward"}, "SKIP"),
+            ({"kind": "Proceed"}, "PROCEED"),
+            ({"kind": "LeaveScreen"}, "LEAVE"),
+            ({"kind": "ReturnToPreviousScreen"}, "RETURN"),
+        ]
+
+        for descriptor, command in cases:
+            with self.subTest(descriptor=descriptor):
+                self.assertEqual(command_for_descriptor(descriptor), command)
+
+    def test_descriptor_translation_rejects_unknown_kind(self):
+        with self.assertRaises(ValueError):
+            command_for_descriptor({"kind": "Unknown"})
 
 
 if __name__ == "__main__":

@@ -79,6 +79,37 @@ class BridgeMirror:
         }
 
 
+def command_for_descriptor(descriptor: dict[str, Any]) -> str:
+    kind = str(descriptor.get("kind", "")).strip()
+    if kind == "EndTurn":
+        return "END"
+    if kind == "PlayHandSlot":
+        hand_slot = _required_int(descriptor, "hand_slot")
+        target_slot = descriptor.get("target_slot")
+        return f"PLAY {hand_slot}" if target_slot is None else f"PLAY {hand_slot} {_int(target_slot, 'target_slot')}"
+    if kind == "UsePotionSlot":
+        potion_slot = _required_int(descriptor, "potion_slot")
+        target_slot = descriptor.get("target_slot")
+        return f"POTION {potion_slot}" if target_slot is None else f"POTION {potion_slot} {_int(target_slot, 'target_slot')}"
+    if kind == "DiscardPotionSlot":
+        return f"POTION {_required_int(descriptor, 'potion_slot')} DISCARD"
+    if kind in {"ChooseVisibleOption", "ChooseMapNodeSlot", "ChooseRestOption", "ChooseShopSlot", "TakeRewardSlot"}:
+        return f"CHOOSE {_required_int(descriptor, 'option_slot')}"
+    if kind == "ConfirmChoice":
+        return "CONFIRM"
+    if kind == "CancelChoice":
+        return "CANCEL"
+    if kind == "SkipVisibleReward":
+        return "SKIP"
+    if kind == "Proceed":
+        return "PROCEED"
+    if kind == "LeaveScreen":
+        return "LEAVE"
+    if kind == "ReturnToPreviousScreen":
+        return "RETURN"
+    raise ValueError(f"unsupported bridge descriptor kind: {kind or '<missing>'}")
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -105,3 +136,19 @@ def _first(*values: dict[str, Any], key: str) -> Any:
         if isinstance(value, dict) and value.get(key) is not None:
             return value[key]
     return None
+
+
+def _required_int(descriptor: dict[str, Any], key: str) -> int:
+    if key not in descriptor:
+        raise ValueError(f"{key} is required")
+    return _int(descriptor[key], key)
+
+
+def _int(value: Any, key: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key} must be an integer") from exc
+    if parsed < 0:
+        raise ValueError(f"{key} must be non-negative")
+    return parsed
