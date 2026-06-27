@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from sts import omni
 from sts.bridge import BridgeMirror, command_for_descriptor
+from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 
 
@@ -133,6 +134,15 @@ class SessionManager:
             },
         }
 
+    def parity(self, session_id: str, bridge_status: dict[str, Any] | None = None) -> dict[str, Any]:
+        session = self._require_session(session_id)
+        bridge_status = bridge_status or BridgeMirror.default().status()
+        return {
+            "session_id": session.id,
+            "state_id": session.env.snapshot_hash(),
+            "parity": combat_parity(json.loads(session.env.state_json()), bridge_status),
+        }
+
     def serialize_session(
         self,
         session: CombatSession,
@@ -206,6 +216,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "snapshot":
                 self._send_json(self.manager.snapshot(parts[2]))
                 return
+            if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "parity":
+                self._send_json(self.manager.parity(parts[2], self.bridge.status()))
+                return
             if parts == ["api", "bridge"]:
                 self._send_json(self.bridge.status())
                 return
@@ -228,6 +241,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "search":
                 self._send_json(self.manager.search(parts[2], payload))
+                return
+            if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "parity":
+                self._send_json(self.manager.parity(parts[2], self.bridge.status()))
                 return
             if parts == ["api", "bridge", "command"]:
                 self._send_json(self.bridge.send_command(str(payload.get("command", ""))))

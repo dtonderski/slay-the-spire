@@ -377,6 +377,16 @@ h3 {
   padding-left: 1.4rem;
 }
 
+.diff-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  color: var(--danger);
+}
+
+.diff-list li + li {
+  margin-top: 0.25rem;
+}
+
 .pv-list li + li {
   margin-top: 0.25rem;
 }
