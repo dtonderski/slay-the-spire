@@ -879,6 +879,26 @@ py -3.14 -m unittest discover -s python/tests
   Python implementation is too slow
 - expose recommendation and principal variation
 
+Status: implemented as a deterministic Python depth search in `sts.search`.
+The public entrypoint is:
+
+```python
+from sts.search import CombatSearchConfig, search_combat
+
+recommendation = search_combat(env, CombatSearchConfig(max_depth=2))
+```
+
+The result exposes `best_action`, `principal_variation`, `visits`, `value`,
+`win_probability`, `terminal_rate`, and diagnostics. It is a planning advisor,
+not a simulator rule.
+
+Verification:
+
+```powershell
+$env:PYTHONPATH = "$PWD\python"
+py -3.14 -m unittest discover -s python/tests -v
+```
+
 ### Slice 3: Local UI Service
 
 - add session manager
