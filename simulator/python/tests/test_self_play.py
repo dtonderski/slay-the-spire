@@ -3,7 +3,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sts.self_play import run_self_play, verify_self_play_trace
+from sts import omni
+from sts.search import CombatSearchConfig
+from sts.search_lab import SearchCandidate
+from sts.self_play import (
+    evaluate_self_play_corpus,
+    run_self_play,
+    run_self_play_batch,
+    verify_self_play_trace,
+)
 
 
 class SelfPlayTests(unittest.TestCase):
@@ -72,6 +80,103 @@ class SelfPlayTests(unittest.TestCase):
                 any((record.get("after_summary") or {}).get("potions") for record in records[1:])
             )
 
+    def test_batch_writes_verified_non_parity_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_dir = Path(directory) / "corpus"
+
+            result = run_self_play_batch(
+                output_dir=output_dir,
+                seeds=["TEST", "3"],
+                random_seed=11,
+                max_steps=6,
+            )
+
+            self.assertEqual(result.trace_count, 2)
+            self.assertEqual(result.verified_count, 2)
+            self.assertTrue(result.index_path.exists())
+
+            index = json.loads(result.index_path.read_text(encoding="utf-8"))
+            self.assertEqual(index["source"], "sim_selfplay_corpus")
+            self.assertEqual(index["parity"], "non_parity_simulator_only")
+            self.assertEqual(index["trace_count"], 2)
+            self.assertEqual(index["verified_count"], 2)
+            self.assertEqual(len(index["traces"]), 2)
+            self.assertTrue(all(Path(row["path"]).exists() for row in index["traces"]))
+
+    def test_trace_eval_uses_recorded_combat_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "combat.jsonl"
+            env = self._combat_env_with_fire_potion()
+            before_hash = env.snapshot_hash()
+            before_snapshot = env.snapshot_json()
+            actions = env.exact_legal_actions()
+            use_potion = next(action for action in actions if action.kind() == "use_potion")
+            result = env.step(use_potion)
+            self._write_jsonl(
+                trace_path,
+                [
+                    {
+                        "type": "metadata",
+                        "schema": 1,
+                        "source": "sim_selfplay",
+                        "parity": "non_parity_simulator_only",
+                        "initial_snapshot_json": before_snapshot,
+                        "initial_state_id": before_hash,
+                        "stop_reason": "test_fixture",
+                        "steps": 1,
+                    },
+                    {
+                        "type": "step",
+                        "step": 0,
+                        "before_hash": before_hash,
+                        "before_snapshot_json": before_snapshot,
+                        "before_summary": {"phase": "combat", "potions": ["Fire"]},
+                        "legal_actions": [
+                            {"family": action.family(), "kind": action.kind(), "json": action.json()}
+                            for action in actions
+                        ],
+                        "action_family": use_potion.family(),
+                        "action_kind": use_potion.kind(),
+                        "action_json": use_potion.json(),
+                        "policy": "test_fixture",
+                        "policy_diagnostics": {},
+                        "after_hash": result.snapshot_hash,
+                        "after_snapshot_json": result.snapshot_json,
+                        "after_summary": {"phase": result.phase, "potions": []},
+                        "transition": None,
+                        "unsupported_reason": result.unsupported_reason,
+                        "error": None,
+                    },
+                ],
+            )
+
+            report = evaluate_self_play_corpus(
+                traces=[trace_path],
+                max_roots=2,
+                max_actions=2,
+                candidates=[
+                    SearchCandidate(
+                        "tiny_greedy",
+                        CombatSearchConfig(
+                            max_depth=1,
+                            objective="survive_then_damage",
+                            algorithm="greedy",
+                        ),
+                    )
+                ],
+            )
+
+            self.assertEqual(report["source"], "sim_selfplay_trace_eval")
+            self.assertEqual(report["parity"], "non_parity_simulator_only")
+            self.assertGreater(report["roots"], 0)
+            self.assertGreater(report["potion_action_roots"], 0)
+            self.assertEqual(len(report["ranking"]), 1)
+            self.assertEqual(report["ranking"][0]["candidate"], "tiny_greedy")
+            self.assertTrue(report["episodes"])
+            self.assertEqual(report["episodes"][0]["trace_path"], str(trace_path))
+            self.assertIn("legal_action_kinds", report["episodes"][0])
+            self.assertTrue(report["episodes"][0]["has_potion_actions"])
+
     def test_verify_rejects_action_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "selfplay.jsonl"
@@ -100,6 +205,11 @@ class SelfPlayTests(unittest.TestCase):
             for record in records:
                 handle.write(json.dumps(record))
                 handle.write("\n")
+
+    def _combat_env_with_fire_potion(self):
+        state = json.loads(omni.OmniRunEnv.combat_fixture().state_json())
+        state["potions"] = ["Fire"]
+        return omni.OmniRunEnv.from_state_json(json.dumps(state))
 
 
 if __name__ == "__main__":
