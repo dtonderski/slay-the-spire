@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from sts.omni import ExactCombatAction, OmniCombatEnv
 
@@ -15,6 +15,8 @@ class CombatSearchConfig:
 
     max_depth: int = 1
     objective: str = "survive_then_damage"
+    algorithm: str = "exhaustive"
+    beam_width: int = 8
 
 
 @dataclass(frozen=True)
@@ -69,11 +71,20 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
     depth = config.max_depth
     if depth < 1:
         raise ValueError("max_depth must be at least 1")
-    if config.objective != "survive_then_damage":
-        raise ValueError(f"unsupported objective: {config.objective}")
+    evaluator = _evaluator(config.objective)
+    if config.algorithm not in {"exhaustive", "beam", "greedy"}:
+        raise ValueError(f"unsupported algorithm: {config.algorithm}")
+    if config.beam_width < 1:
+        raise ValueError("beam_width must be at least 1")
+    if config.algorithm == "exhaustive" and depth > 8:
+        raise ValueError("exhaustive search max_depth is capped at 8")
 
     _state(env)
-    score, variation, nodes, terminal_reason = _search(env.clone(), depth)
+    if config.algorithm == "exhaustive":
+        score, variation, nodes, terminal_reason = _search(env.clone(), depth, evaluator)
+    else:
+        width = 1 if config.algorithm == "greedy" else config.beam_width
+        score, variation, nodes, terminal_reason = _beam_search(env.clone(), depth, width, evaluator)
     return SearchRecommendation(
         best_action=variation[0] if variation else None,
         principal_variation=tuple(variation),
@@ -85,26 +96,41 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         diagnostics={
             "max_depth": depth,
             "objective": config.objective,
-            "algorithm": "deterministic_depth_search",
+            "algorithm": config.algorithm,
+            "beam_width": width if config.algorithm in {"beam", "greedy"} else None,
             "unsupported_transitions": 0,
         },
         terminal_reason=terminal_reason,
     )
 
 
-def _search(env: Any, depth: int) -> tuple[float, list[Any], int, str | None]:
+def _evaluator(objective: str) -> Callable[[dict[str, Any]], float]:
+    if objective == "survive_then_damage":
+        return _evaluate_basic
+    if objective == "tactical_survival":
+        return _evaluate_tactical_survival
+    if objective == "aggressive_lethal":
+        return _evaluate_aggressive
+    raise ValueError(f"unsupported objective: {objective}")
+
+
+def _search(
+    env: Any,
+    depth: int,
+    evaluator: Callable[[dict[str, Any]], float],
+) -> tuple[float, list[Any], int, str | None]:
     state = _state(env)
     terminal_reason = _terminal_reason(env, state)
     if terminal_reason == "won":
-        return 1_000_000.0 + _evaluate_state(state), [], 1, "won"
+        return 1_000_000.0 + evaluator(state), [], 1, "won"
     if terminal_reason == "lost":
-        return -1_000_000.0 + _evaluate_state(state), [], 1, "lost"
+        return -1_000_000.0 + evaluator(state), [], 1, "lost"
     if depth <= 0:
-        return _evaluate_state(state), [], 1, None
+        return evaluator(state), [], 1, None
 
     actions = _sorted_actions(env.exact_legal_actions())
     if not actions:
-        return _evaluate_state(state), [], 1, None
+        return evaluator(state), [], 1, None
 
     best_score = float("-inf")
     best_variation: list[Any] = []
@@ -116,13 +142,13 @@ def _search(env: Any, depth: int) -> tuple[float, list[Any], int, str | None]:
         result = child.step(action)
         child_terminal = _result_terminal_reason(result, child)
         if child_terminal:
-            child_score = _terminal_score(child_terminal, child)
+            child_score = _terminal_score(child_terminal, child, evaluator)
             child_variation: list[Any] = []
             child_nodes = 1
             child_terminal_reason = child_terminal
         else:
             child_score, child_variation, child_nodes, child_terminal_reason = _search(
-                child, depth - 1
+                child, depth - 1, evaluator
             )
 
         nodes += child_nodes
@@ -135,8 +161,64 @@ def _search(env: Any, depth: int) -> tuple[float, list[Any], int, str | None]:
     return best_score, best_variation, nodes, best_terminal_reason
 
 
-def _terminal_score(reason: str | None, env: Any) -> float:
-    state_score = _evaluate_state(_state(env))
+def _beam_search(
+    env: Any,
+    depth: int,
+    beam_width: int,
+    evaluator: Callable[[dict[str, Any]], float],
+) -> tuple[float, list[Any], int, str | None]:
+    state = _state(env)
+    terminal_reason = _terminal_reason(env, state)
+    if terminal_reason:
+        return _terminal_score(terminal_reason, env, evaluator), [], 1, terminal_reason
+
+    frontier: list[tuple[Any, list[Any], float, str | None]] = [(env, [], evaluator(state), None)]
+    best_score = frontier[0][2]
+    best_variation: list[Any] = []
+    best_terminal_reason: str | None = None
+    nodes = 1
+
+    for _level in range(depth):
+        candidates: list[tuple[Any, list[Any], float, str | None]] = []
+        for current, variation, _score, _reason in frontier:
+            actions = _sorted_actions(current.exact_legal_actions())
+            if not actions:
+                score = evaluator(_state(current))
+                candidates.append((current, variation, score, None))
+                continue
+            for action in actions:
+                child = current.clone()
+                result = child.step(action)
+                nodes += 1
+                child_terminal = _result_terminal_reason(result, child)
+                score = (
+                    _terminal_score(child_terminal, child, evaluator)
+                    if child_terminal
+                    else evaluator(_state(child))
+                )
+                candidates.append((child, [*variation, action], score, child_terminal))
+
+        if not candidates:
+            break
+        candidates.sort(key=lambda item: (-item[2], _variation_key(item[1])))
+        current_best = candidates[0]
+        if _is_better(current_best[1], current_best[2], best_variation, best_score):
+            best_score = current_best[2]
+            best_variation = current_best[1]
+            best_terminal_reason = current_best[3]
+        frontier = [candidate for candidate in candidates if candidate[3] is None][:beam_width]
+        if not frontier:
+            break
+
+    return best_score, best_variation, nodes, best_terminal_reason
+
+
+def _terminal_score(
+    reason: str | None,
+    env: Any,
+    evaluator: Callable[[dict[str, Any]], float],
+) -> float:
+    state_score = evaluator(_state(env))
     if reason == "won":
         return 1_000_000.0 + state_score
     if reason == "lost":
@@ -144,7 +226,7 @@ def _terminal_score(reason: str | None, env: Any) -> float:
     return state_score
 
 
-def _evaluate_state(state: dict[str, Any]) -> float:
+def _evaluate_basic(state: dict[str, Any]) -> float:
     player = state.get("player", {})
     monsters = state.get("monsters", [])
     alive_monsters = [monster for monster in monsters if monster.get("alive", False)]
@@ -163,6 +245,64 @@ def _evaluate_state(state: dict[str, Any]) -> float:
         - monster_block * 0.5
         - len(alive_monsters) * 25.0
     )
+
+
+def _evaluate_tactical_survival(state: dict[str, Any]) -> float:
+    player = state.get("player", {})
+    monsters = state.get("monsters", [])
+    alive_monsters = [monster for monster in monsters if monster.get("alive", False)]
+
+    player_hp = float(player.get("hp", 0))
+    player_block = float(player.get("block", 0))
+    player_energy = float(player.get("energy", 0))
+    incoming = sum(_intent_damage(monster.get("intent")) for monster in alive_monsters)
+    unblocked = max(0.0, incoming - player_block)
+    useful_block = min(player_block, incoming)
+    monster_hp = sum(float(monster.get("hp", 0)) for monster in alive_monsters)
+    monster_block = sum(float(monster.get("block", 0)) for monster in alive_monsters)
+    hand_count = len(((state.get("piles") or {}).get("hand")) or [])
+
+    return (
+        player_hp * 25.0
+        - unblocked * 45.0
+        + useful_block * 7.5
+        + player_energy * 0.5
+        + hand_count * 0.25
+        - monster_hp * 4.0
+        - monster_block * 0.75
+        - len(alive_monsters) * 60.0
+    )
+
+
+def _evaluate_aggressive(state: dict[str, Any]) -> float:
+    player = state.get("player", {})
+    monsters = state.get("monsters", [])
+    alive_monsters = [monster for monster in monsters if monster.get("alive", False)]
+    player_hp = float(player.get("hp", 0))
+    player_block = float(player.get("block", 0))
+    incoming = sum(_intent_damage(monster.get("intent")) for monster in alive_monsters)
+    monster_hp = sum(float(monster.get("hp", 0)) for monster in alive_monsters)
+    return (
+        player_hp * 8.0
+        + min(player_block, incoming) * 2.0
+        - max(0.0, incoming - player_block) * 10.0
+        - monster_hp * 9.0
+        - len(alive_monsters) * 100.0
+    )
+
+
+def _intent_damage(intent: Any) -> float:
+    if not isinstance(intent, dict):
+        return 0.0
+    if "Attack" in intent and isinstance(intent["Attack"], dict):
+        return float(intent["Attack"].get("damage", 0))
+    if "AttackBuff" in intent and isinstance(intent["AttackBuff"], dict):
+        return float(intent["AttackBuff"].get("damage", 0))
+    if "AttackDebuff" in intent and isinstance(intent["AttackDebuff"], dict):
+        return float(intent["AttackDebuff"].get("damage", 0))
+    if "AttackDefend" in intent and isinstance(intent["AttackDefend"], dict):
+        return float(intent["AttackDefend"].get("damage", 0))
+    return 0.0
 
 
 def _state(env: Any) -> dict[str, Any]:
@@ -186,6 +326,8 @@ def _is_better(
     best_variation: Sequence[Any],
     best_score: float,
 ) -> bool:
+    if candidate_variation and not best_variation:
+        return True
     if candidate_score != best_score:
         return candidate_score > best_score
     return _variation_key(candidate_variation) < _variation_key(best_variation)

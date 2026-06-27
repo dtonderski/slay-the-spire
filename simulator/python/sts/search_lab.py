@@ -1,0 +1,364 @@
+"""Deterministic non-ML combat-search benchmark helpers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import argparse
+import hashlib
+import json
+from typing import Any, Iterable
+
+from sts import omni
+from sts.search import CombatSearchConfig, SearchRecommendation, search_combat
+
+
+@dataclass(frozen=True)
+class BenchmarkRoot:
+    name: str
+    env_kind: str
+    snapshot_json: str
+    state_id: str
+    source_depth: int
+    split: str
+
+
+@dataclass(frozen=True)
+class SearchCandidate:
+    name: str
+    config: CombatSearchConfig
+
+
+@dataclass(frozen=True)
+class EpisodeResult:
+    root_name: str
+    candidate: str
+    split: str
+    won: bool
+    lost: bool
+    final_score: float
+    final_hp: float
+    monster_hp: float
+    actions: int
+    search_nodes: int
+    terminal_reason: str | None
+
+
+def default_candidates() -> list[SearchCandidate]:
+    return [
+        SearchCandidate(
+            "exhaustive_basic_d3",
+            CombatSearchConfig(max_depth=3, objective="survive_then_damage", algorithm="exhaustive"),
+        ),
+        SearchCandidate(
+            "exhaustive_tactical_d4",
+            CombatSearchConfig(max_depth=4, objective="tactical_survival", algorithm="exhaustive"),
+        ),
+        SearchCandidate(
+            "greedy_tactical_d20",
+            CombatSearchConfig(max_depth=20, objective="tactical_survival", algorithm="greedy"),
+        ),
+        SearchCandidate(
+            "beam_tactical_w4_d30",
+            CombatSearchConfig(max_depth=30, objective="tactical_survival", algorithm="beam", beam_width=4),
+        ),
+        SearchCandidate(
+            "beam_aggressive_w4_d30",
+            CombatSearchConfig(max_depth=30, objective="aggressive_lethal", algorithm="beam", beam_width=4),
+        ),
+        SearchCandidate(
+            "beam_tactical_w8_d40",
+            CombatSearchConfig(max_depth=40, objective="tactical_survival", algorithm="beam", beam_width=8),
+        ),
+    ]
+
+
+def generate_roots(max_source_depth: int = 5, max_roots: int = 48) -> list[BenchmarkRoot]:
+    starts = _synthetic_start_envs()
+    queue: list[tuple[Any, int]] = [(start, 0) for start in starts]
+    seen: set[str] = set()
+    roots: list[BenchmarkRoot] = []
+
+    while queue and len(roots) < max_roots:
+        env, depth = queue.pop(0)
+        state_id = env.snapshot_hash()
+        if state_id in seen:
+            continue
+        seen.add(state_id)
+
+        if _is_searchable(env):
+            roots.append(
+                BenchmarkRoot(
+                    name=f"combat-depth{depth}-{state_id}",
+                    env_kind="combat",
+                    snapshot_json=env.snapshot_json(),
+                    state_id=state_id,
+                    source_depth=depth,
+                    split=_split_for_state(state_id),
+                )
+            )
+
+        if depth >= max_source_depth or _terminal_reason(env):
+            continue
+        for action in _sorted_actions(env.exact_legal_actions()):
+            child = env.clone()
+            try:
+                child.step(action)
+            except Exception:
+                continue
+            if _is_searchable(child):
+                queue.append((child, depth + 1))
+
+    return roots
+
+
+def _synthetic_start_envs() -> list[Any]:
+    base = json.loads(omni.OmniCombatEnv.initial_fixture().state_json())
+    cases = []
+    for player_hp in [24, 40, 72]:
+        for monster_hp in [18, 32, 44]:
+            for incoming in [6, 12, 18]:
+                state = json.loads(json.dumps(base))
+                state["player"]["hp"] = player_hp
+                state["player"]["max_hp"] = 80
+                state["player"]["block"] = 0
+                state["player"]["energy"] = 3
+                monster = state["monsters"][0]
+                monster["hp"] = monster_hp
+                monster["block"] = 0
+                monster["alive"] = True
+                monster["intent"] = {"Attack": {"damage": incoming}}
+                state["piles"] = _starter_piles()
+                cases.append(omni.OmniCombatEnv.from_state_json(json.dumps(state)))
+    return cases
+
+
+def _starter_piles() -> dict[str, list[dict[str, Any]]]:
+    contents = [
+        1,
+        2,
+        3,
+        1,
+        2,
+        1,
+        1,
+        2,
+        1,
+        2,
+        1,
+        1,
+        2,
+        1,
+        3,
+    ]
+    cards = [
+        {"id": index + 1, "content_id": content_id, "temp_cost": None, "combat_only": False}
+        for index, content_id in enumerate(contents)
+    ]
+    return {
+        "hand": cards[:5],
+        "draw_pile": cards[5:],
+        "discard_pile": [],
+        "exhaust_pile": [],
+    }
+
+
+def evaluate_candidate(
+    root: BenchmarkRoot,
+    candidate: SearchCandidate,
+    *,
+    max_actions: int = 40,
+) -> EpisodeResult:
+    env = _env_from_root(root)
+    actions_taken = 0
+    search_nodes = 0
+    terminal = _terminal_reason(env)
+
+    while terminal is None and actions_taken < max_actions:
+        recommendation = search_combat(env, candidate.config)
+        search_nodes += recommendation.visits
+        if recommendation.best_action is None:
+            break
+        env.step(recommendation.best_action)
+        actions_taken += 1
+        terminal = _terminal_reason(env)
+
+    final_state = _state(env)
+    won = terminal == "won"
+    lost = terminal == "lost"
+    return EpisodeResult(
+        root_name=root.name,
+        candidate=candidate.name,
+        split=root.split,
+        won=won,
+        lost=lost,
+        final_score=_outcome_score(final_state, terminal),
+        final_hp=float(final_state.get("player", {}).get("hp", 0)),
+        monster_hp=_monster_hp(final_state),
+        actions=actions_taken,
+        search_nodes=search_nodes,
+        terminal_reason=terminal,
+    )
+
+
+def run_benchmark(
+    *,
+    split: str = "eval",
+    max_source_depth: int = 5,
+    max_roots: int = 48,
+    max_actions: int = 40,
+    candidates: Iterable[SearchCandidate] | None = None,
+) -> dict[str, Any]:
+    roots = [root for root in generate_roots(max_source_depth, max_roots) if split == "all" or root.split == split]
+    candidates = list(candidates or default_candidates())
+    results = [
+        evaluate_candidate(root, candidate, max_actions=max_actions)
+        for candidate in candidates
+        for root in roots
+    ]
+    return {
+        "benchmark": {
+            "split": split,
+            "roots": len(roots),
+            "max_source_depth": max_source_depth,
+            "max_actions": max_actions,
+            "root_names": [root.name for root in roots],
+        },
+        "ranking": _rank(results),
+        "episodes": [result.__dict__ for result in results],
+    }
+
+
+def _rank(results: list[EpisodeResult]) -> list[dict[str, Any]]:
+    by_candidate: dict[str, list[EpisodeResult]] = {}
+    for result in results:
+        by_candidate.setdefault(result.candidate, []).append(result)
+
+    ranking = []
+    for name, candidate_results in by_candidate.items():
+        count = len(candidate_results)
+        wins = sum(1 for result in candidate_results if result.won)
+        losses = sum(1 for result in candidate_results if result.lost)
+        ranking.append(
+            {
+                "candidate": name,
+                "episodes": count,
+                "wins": wins,
+                "losses": losses,
+                "win_rate": wins / count if count else 0.0,
+                "mean_score": _mean(result.final_score for result in candidate_results),
+                "mean_final_hp": _mean(result.final_hp for result in candidate_results),
+                "mean_monster_hp": _mean(result.monster_hp for result in candidate_results),
+                "mean_actions": _mean(result.actions for result in candidate_results),
+                "mean_search_nodes": _mean(result.search_nodes for result in candidate_results),
+            }
+        )
+    return sorted(
+        ranking,
+        key=lambda row: (
+            -float(row["win_rate"]),
+            -float(row["mean_score"]),
+            float(row["mean_search_nodes"]),
+            row["candidate"],
+        ),
+    )
+
+
+def _outcome_score(state: dict[str, Any], terminal: str | None) -> float:
+    score = float(state.get("player", {}).get("hp", 0)) * 100.0 - _monster_hp(state) * 20.0
+    if terminal == "won":
+        score += 100_000.0
+    elif terminal == "lost":
+        score -= 100_000.0
+    return score
+
+
+def _state(env: Any) -> dict[str, Any]:
+    state = json.loads(env.state_json())
+    if isinstance(state.get("combat"), dict):
+        return state["combat"]
+    if "player" in state and "monsters" in state:
+        return state
+    return {
+        "player": {"hp": state.get("player_hp", 0), "block": 0, "energy": 0},
+        "monsters": [],
+        "phase": state.get("phase"),
+    }
+
+
+def _is_searchable(env: Any) -> bool:
+    try:
+        state = _state(env)
+        return "player" in state and "monsters" in state and bool(env.exact_legal_actions())
+    except Exception:
+        return False
+
+
+def _terminal_reason(env: Any) -> str | None:
+    phase = getattr(env, "phase", lambda: None)()
+    if phase == "won":
+        return "won"
+    if phase == "lost":
+        return "lost"
+    if phase and phase not in {"combat", "waiting_for_player"}:
+        return "won"
+    state = _state(env)
+    if state.get("phase") == "Won":
+        return "won"
+    if state.get("phase") == "Lost":
+        return "lost"
+    return None
+
+
+def _env_from_root(root: BenchmarkRoot) -> Any:
+    if root.env_kind == "run_combat":
+        return omni.OmniRunEnv.from_snapshot_json(root.snapshot_json)
+    return omni.OmniCombatEnv.from_snapshot_json(root.snapshot_json)
+
+
+def _monster_hp(state: dict[str, Any]) -> float:
+    return sum(float(monster.get("hp", 0)) for monster in state.get("monsters", []) if monster.get("alive", False))
+
+
+def _sorted_actions(actions: Iterable[Any]) -> list[Any]:
+    return sorted(actions, key=lambda action: (action.kind(), action.json()))
+
+
+def _split_for_state(state_id: str) -> str:
+    digest = hashlib.sha256(state_id.encode("utf-8")).digest()[0]
+    return "eval" if digest % 5 == 0 else "dev"
+
+
+def _mean(values: Iterable[float]) -> float:
+    values = list(values)
+    return sum(values) / len(values) if values else 0.0
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Run deterministic combat search candidate benchmarks.")
+    parser.add_argument("--split", choices=["dev", "eval", "all"], default="eval")
+    parser.add_argument("--max-source-depth", type=int, default=5)
+    parser.add_argument("--max-roots", type=int, default=48)
+    parser.add_argument("--max-actions", type=int, default=40)
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    report = run_benchmark(
+        split=args.split,
+        max_source_depth=args.max_source_depth,
+        max_roots=args.max_roots,
+        max_actions=args.max_actions,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+    print(f"split={report['benchmark']['split']} roots={report['benchmark']['roots']}")
+    for index, row in enumerate(report["ranking"], start=1):
+        print(
+            f"{index}. {row['candidate']}: win_rate={row['win_rate']:.2f} "
+            f"score={row['mean_score']:.1f} hp={row['mean_final_hp']:.1f} "
+            f"monster_hp={row['mean_monster_hp']:.1f} nodes={row['mean_search_nodes']:.1f}"
+        )
+
+
+if __name__ == "__main__":
+    main()
