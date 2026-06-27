@@ -20,6 +20,34 @@ class EmptyActionEnv:
         return []
 
 
+class FakeEndTurnAction:
+    def kind(self):
+        return "end_turn"
+
+    def json(self):
+        return '{"kind":"end_turn"}'
+
+
+class InvalidStepEnv:
+    def snapshot_hash(self):
+        return "invalid-step-state"
+
+    def state_json(self):
+        return "{}"
+
+    def snapshot_json(self):
+        return "{}"
+
+    def phase(self):
+        return "combat"
+
+    def exact_legal_actions(self):
+        return [FakeEndTurnAction()]
+
+    def step(self, _action):
+        raise RuntimeError("simulator said no")
+
+
 class UiServiceTests(unittest.TestCase):
     def test_session_exposes_state_actions_and_snapshot(self):
         manager = SessionManager()
@@ -94,6 +122,25 @@ class UiServiceTests(unittest.TestCase):
         self.assertTrue(result["command_lifecycle"]["state_unchanged"])
         self.assertIn("command_id", result["command_lifecycle"])
         self.assertEqual(result["actions"], session["actions"])
+
+    def test_step_rejects_invalid_simulator_action_without_clearing_actions(self):
+        manager = SessionManager()
+        session = CombatSession(
+            id="invalid",
+            mode="test_invalid",
+            state_kind="combat",
+            env=InvalidStepEnv(),
+        )
+        manager._sessions[session.id] = session
+        before = manager.get_session(session.id)
+
+        result = manager.step(session.id, before["actions"][0])
+
+        self.assertEqual(result["state_id"], before["state_id"])
+        self.assertEqual(result["command_lifecycle"]["status"], "rejected")
+        self.assertTrue(result["command_lifecycle"]["state_unchanged"])
+        self.assertIn("simulator said no", result["command_lifecycle"]["error"])
+        self.assertEqual(result["actions"], before["actions"])
 
     def test_step_applies_action_and_regenerates_actions(self):
         manager = SessionManager()
