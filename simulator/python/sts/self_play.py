@@ -357,7 +357,9 @@ def replay_real_trace_guided(
     replayed_steps = 0
     combat_roots = 0
     anchor_count = 0
+    restoration_count = 0
     skipped_noncombat_actions = 0
+    restorations: list[dict[str, Any]] = []
     stop_reason = "trace_exhausted"
     blocker: dict[str, Any] | None = None
     start_info: dict[str, Any] | None = None
@@ -441,6 +443,7 @@ def replay_real_trace_guided(
                         diffs=diffs,
                     )
                 )
+                combat_roots += 1
                 diffs = _observed_summary_diffs(env, observed_game_state)
                 if diffs:
                     blocker = _blocker(
@@ -464,18 +467,21 @@ def replay_real_trace_guided(
             if _observed_summary(observed_game_state).get("phase") != "combat":
                 skipped_noncombat_actions += 1
                 continue
-            blocker = _blocker(
-                record,
-                command,
-                "unsupported_command_mapping",
-                "no exact OmniRunEnv action mapping for CommunicationMod command",
+            restoration = _restoration_record(
+                step=replayed_steps,
+                record=record,
+                command=command,
+                category="unsupported_command_mapping",
+                reason="no exact OmniRunEnv action mapping for CommunicationMod command",
                 simulator_phase=env.phase(),
                 simulator_decision=env.current_decision(),
                 legal_actions=[_action_record(candidate) for candidate in actions],
                 observed_summary=_observed_summary(observed_game_state),
             )
-            stop_reason = "unsupported_command_mapping"
-            break
+            restorations.append(restoration)
+            output_records.append(restoration)
+            restoration_count += 1
+            continue
 
         before_hash = env.snapshot_hash()
         before_snapshot = env.snapshot_json()
@@ -499,9 +505,18 @@ def replay_real_trace_guided(
                     error=f"step_error: {error}",
                 )
             )
-            blocker = _blocker(record, command, "step_error", str(error))
-            stop_reason = f"step_error: {error}"
-            break
+            restoration = _restoration_record(
+                step=replayed_steps,
+                record=record,
+                command=command,
+                category="step_error",
+                reason=str(error),
+                observed_summary=_observed_summary(observed_game_state),
+            )
+            restorations.append(restoration)
+            output_records.append(restoration)
+            restoration_count += 1
+            continue
 
         output_records.append(
             _step_record(
@@ -539,6 +554,7 @@ def replay_real_trace_guided(
     output_records[0]["steps"] = replayed_steps
     output_records[0]["combat_roots"] = combat_roots
     output_records[0]["anchor_count"] = anchor_count
+    output_records[0]["restoration_count"] = restoration_count
     output_records[0]["skipped_noncombat_actions"] = skipped_noncombat_actions
     output_records[0]["final_phase"] = env.phase() if env is not None else None
     output_records[0]["final_state_id"] = env.snapshot_hash() if env is not None else None
@@ -560,6 +576,8 @@ def replay_real_trace_guided(
         "steps": replayed_steps,
         "combat_roots": combat_roots,
         "anchor_count": anchor_count,
+        "restoration_count": restoration_count,
+        "restorations": restorations,
         "skipped_noncombat_actions": skipped_noncombat_actions,
         "stop_reason": stop_reason,
         "blocker": blocker,
@@ -744,6 +762,9 @@ def _single_trace_root_report(path: Path) -> dict[str, Any]:
         if record.get("type") == "step" and (record.get("before_summary") or {}).get("phase") == "combat":
             if isinstance(record.get("before_snapshot_json"), str):
                 extractable_roots += 1
+        if record.get("type") == "anchor" and (record.get("summary") or {}).get("phase") == "combat":
+            if isinstance(record.get("snapshot_json"), str):
+                extractable_roots += 1
         game_state = ((record.get("message") or {}).get("game_state") or {}) if isinstance(record, dict) else {}
         if _is_observed_combat_state(game_state):
             observed_combat_states += 1
@@ -797,22 +818,30 @@ def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
         if not verification.get("ok"):
             continue
         for record in _read_jsonl(trace_path)[1:]:
-            if record.get("type") != "step":
+            record_type = record.get("type")
+            if record_type == "step":
+                summary = record.get("before_summary") or {}
+                snapshot_json = record.get("before_snapshot_json")
+                state_id = record.get("before_hash")
+                legal_actions = record.get("legal_actions", [])
+            elif record_type == "anchor":
+                summary = record.get("summary") or {}
+                snapshot_json = record.get("snapshot_json")
+                state_id = record.get("snapshot_hash")
+                legal_actions = record.get("legal_actions", [])
+            else:
                 continue
-            summary = record.get("before_summary") or {}
             if summary.get("phase") != "combat":
                 continue
-            snapshot_json = record.get("before_snapshot_json")
-            state_id = record.get("before_hash")
             if not isinstance(snapshot_json, str) or not isinstance(state_id, str):
                 continue
-            key = f"{trace_path}:{record.get('step')}:{state_id}"
+            key = f"{trace_path}:{state_id}"
             if key in seen:
                 continue
             seen.add(key)
             legal_action_kinds = tuple(
                 str(action.get("kind", "")).lower()
-                for action in record.get("legal_actions", [])
+                for action in legal_actions
                 if isinstance(action, dict)
             )
             potion_names = tuple(str(potion) for potion in summary.get("potions") or [])
@@ -820,7 +849,7 @@ def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
                 name
                 for name in (
                     _potion_name_for_action(action, potion_names)
-                    for action in record.get("legal_actions", [])
+                    for action in legal_actions
                     if isinstance(action, dict)
                 )
                 if name is not None
@@ -1028,6 +1057,7 @@ def _anchor_record(
     observed_summary: dict[str, Any],
     diffs: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    legal_actions = env.exact_legal_actions()
     return {
         "type": "anchor",
         "step": step,
@@ -1037,8 +1067,29 @@ def _anchor_record(
         "snapshot_hash": env.snapshot_hash(),
         "snapshot_json": env.snapshot_json(),
         "summary": _summary(env),
+        "legal_actions": [_action_record(action) for action in legal_actions],
         "observed_summary": observed_summary,
         "pre_anchor_diffs": diffs,
+    }
+
+
+def _restoration_record(
+    *,
+    step: int,
+    record: dict[str, Any],
+    command: str,
+    category: str,
+    reason: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "type": "restoration",
+        "step": step,
+        "trace_step": record.get("step"),
+        "command": command,
+        "category": category,
+        "reason": reason,
+        **extra,
     }
 
 

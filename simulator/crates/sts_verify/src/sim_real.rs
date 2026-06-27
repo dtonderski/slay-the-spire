@@ -7366,16 +7366,19 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
 fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, DECAY_ID,
-        DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DOUBT_ID,
+        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
+        BURNING_PACT_ID, BURN_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID,
+        DARK_EMBRACE_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID,
         DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID,
         FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
         IMMOLATE_PLUS_ID, INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID,
         METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REGRET_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WRITHE_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, REGRET_ID,
+        RUPTURE_ID, RUPTURE_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+        SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WOUND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -7383,7 +7386,17 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Defend_R+" | "Defend+" => Some(DEFEND_R_PLUS_ID),
         "Bash" => Some(BASH_ID),
         "Bash+" | "bash+" => Some(BASH_PLUS_ID),
+        "Bludgeon" | "bludgeon" => Some(BLUDGEON_ID),
         "Burn" | "burn" => Some(BURN_ID),
+        "Burning Pact" | "burning pact" | "Burning Pact+" | "burning pact+" => {
+            Some(BURNING_PACT_ID)
+        }
+        "Combust" | "combust" | "Combust+" | "combust+" => Some(COMBUST_ID),
+        "Dark Embrace" | "dark embrace" | "Dark Embrace+" | "dark embrace+" => {
+            Some(DARK_EMBRACE_ID)
+        }
+        "Dazed" | "dazed" => Some(DAZED_ID),
+        "Wound" | "wound" => Some(WOUND_ID),
         "Slimed" | "slimed" => Some(SLIMED_ID),
         "Thunderclap" | "thunderclap" => Some(THUNDERCLAP_ID),
         "Anger" | "anger" => Some(ANGER_ID),
@@ -7439,8 +7452,16 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Writhe" | "writhe" => Some(WRITHE_ID),
         "Offering" | "offering" => Some(OFFERING_ID),
         "Demon Form" | "demon form" => Some(DEMON_FORM_ID),
+        "Double Tap" | "double tap" => Some(DOUBLE_TAP_ID),
+        "Double Tap+" | "double tap+" => Some(DOUBLE_TAP_PLUS_ID),
         "Barricade" | "barricade" => Some(BARRICADE_ID),
         "Bloodletting" | "bloodletting" => Some(BLOODLETTING_ID),
+        "Blood for Blood" | "blood for blood" => Some(BLOOD_FOR_BLOOD_ID),
+        "Blood for Blood+" | "blood for blood+" => Some(BLOOD_FOR_BLOOD_PLUS_ID),
+        "Reaper" | "reaper" => Some(REAPER_ID),
+        "Reaper+" | "reaper+" => Some(REAPER_PLUS_ID),
+        "Rupture" | "rupture" => Some(RUPTURE_ID),
+        "Rupture+" | "rupture+" => Some(RUPTURE_PLUS_ID),
         "Hemokinesis" | "hemokinesis" => Some(HEMOKINESIS_ID),
         "Dropkick" | "dropkick" => Some(DROPKICK_ID),
         "Trip" | "trip" => Some(TRIP_ID),
@@ -7451,26 +7472,34 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 fn content_key(content_id: ContentId) -> &'static str {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BODY_SLAM_ID, BURN_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        CLUMSY_ID, COMBUST_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
-        DEMON_FORM_ID, DISARM_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
-        FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID,
-        METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID,
-        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID,
-        REGRET_ID, SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
-        THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WRITHE_ID,
+        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
+        BURNING_PACT_ID, BURN_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID,
+        COMBUST_ID, DARK_EMBRACE_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID,
+        DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID,
+        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID,
+        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID,
+        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INJURY_ID, INTIMIDATE_ID,
+        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, METALLICIZE_ID,
+        METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID, PARASITE_ID,
+        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REAPER_ID,
+        REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SECRET_WEAPON_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID,
+        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+        WOUND_ID, WRITHE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID => "Strike_R",
         id if id == DEFEND_R_ID || id == DEFEND_R_PLUS_ID => "Defend_R",
         id if id == BASH_ID || id == BASH_PLUS_ID => "Bash",
+        id if id == BLUDGEON_ID => "Bludgeon",
         id if id == BURN_ID => "Burn",
+        id if id == BURNING_PACT_ID => "Burning Pact",
+        id if id == DARK_EMBRACE_ID => "Dark Embrace",
+        id if id == DAZED_ID => "Dazed",
+        id if id == WOUND_ID => "Wound",
         id if id == SLIMED_ID => "Slimed",
         id if id == THUNDERCLAP_ID => "Thunderclap",
         id if id == ANGER_ID => "Anger",
@@ -7493,6 +7522,8 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == COMBUST_ID => "Combust",
         id if id == OFFERING_ID => "Offering",
         id if id == OFFERING_PLUS_ID => "Offering+",
+        id if id == DOUBLE_TAP_ID => "Double Tap",
+        id if id == DOUBLE_TAP_PLUS_ID => "Double Tap+",
         id if id == DEEP_BREATH_ID => "Deep Breath",
         id if id == DRAMATIC_ENTRANCE_ID => "Dramatic Entrance",
         id if id == SWIFT_STRIKE_ID => "Swift Strike",
@@ -7540,6 +7571,12 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == DEMON_FORM_ID => "Demon Form",
         id if id == BARRICADE_ID => "Barricade",
         id if id == BLOODLETTING_ID => "Bloodletting",
+        id if id == BLOOD_FOR_BLOOD_ID => "Blood for Blood",
+        id if id == BLOOD_FOR_BLOOD_PLUS_ID => "Blood for Blood+",
+        id if id == REAPER_ID => "Reaper",
+        id if id == REAPER_PLUS_ID => "Reaper+",
+        id if id == RUPTURE_ID => "Rupture",
+        id if id == RUPTURE_PLUS_ID => "Rupture+",
         id if id == HEMOKINESIS_ID => "Hemokinesis",
         id if id == DROPKICK_ID => "Dropkick",
         id if id == TRIP_ID => "Trip",
@@ -7925,6 +7962,32 @@ mod tests {
 
         assert_eq!(content_id_from_card_value(&card), Some(BURN_ID));
         assert_eq!(content_key(BURN_ID), "Burn");
+    }
+
+    #[test]
+    fn long_trace_observed_cards_map_from_card_json() {
+        use sts_core::content::cards::{
+            BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BURNING_PACT_ID, COMBUST_ID, DARK_EMBRACE_ID,
+            DAZED_ID, DOUBLE_TAP_ID, REAPER_ID, RUPTURE_ID, WOUND_ID,
+        };
+
+        for (id, expected, key) in [
+            ("Blood for Blood", BLOOD_FOR_BLOOD_ID, "Blood for Blood"),
+            ("Reaper", REAPER_ID, "Reaper"),
+            ("Wound", WOUND_ID, "Wound"),
+            ("Rupture", RUPTURE_ID, "Rupture"),
+            ("Burning Pact", BURNING_PACT_ID, "Burning Pact"),
+            ("Combust", COMBUST_ID, "Combust"),
+            ("Dazed", DAZED_ID, "Dazed"),
+            ("Dark Embrace", DARK_EMBRACE_ID, "Dark Embrace"),
+            ("Bludgeon", BLUDGEON_ID, "Bludgeon"),
+            ("Double Tap", DOUBLE_TAP_ID, "Double Tap"),
+        ] {
+            let card = json!({"id": id, "name": id});
+
+            assert_eq!(content_id_from_card_value(&card), Some(expected));
+            assert_eq!(content_key(expected), key);
+        }
     }
 
     #[test]
