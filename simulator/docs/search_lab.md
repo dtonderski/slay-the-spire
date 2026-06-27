@@ -22,7 +22,7 @@ Run:
 ```powershell
 $env:PYTHONPATH = "$PWD\python"
 py -3.14 -m sts.search_lab --split dev --max-source-depth 2 --max-roots 48 --max-actions 40
-py -3.14 -m sts.search_lab --split eval --max-source-depth 2 --max-roots 128 --max-actions 40
+py -3.14 -m sts.search_lab --split eval --max-source-depth 2 --max-roots 200 --max-actions 40
 ```
 
 ## Current Candidates
@@ -42,14 +42,14 @@ The current candidate set includes:
 Current held-out eval result on balanced synthetic roots:
 
 ```text
-split=eval roots=27 mean_start_hp=47.0
-1. portfolio_rollout_d40: win_rate=1.00 score=104870.4 hp=48.7 monster_hp=0.0 nodes=33397.4
-2. beam_aggressive_w4_d30: win_rate=0.96 score=96917.0 hp=43.3 monster_hp=0.1 nodes=610.3
-3. exhaustive_tactical_d4: win_rate=0.78 score=59315.6 hp=38.2 monster_hp=3.1 nodes=2330.3
-4. exhaustive_basic_d3: win_rate=0.74 score=51836.3 hp=37.7 monster_hp=4.3 nodes=650.3
-5. beam_tactical_w8_d40: win_rate=0.70 score=44138.5 hp=35.1 monster_hp=5.5 nodes=1403.7
-6. beam_tactical_w4_d30: win_rate=0.63 score=29082.2 hp=32.8 monster_hp=6.1 nodes=820.3
-7. greedy_tactical_d20: win_rate=0.33 score=-31807.4 hp=16.9 monster_hp=8.3 nodes=287.4
+split=eval roots=34 mean_start_hp=51.4
+1. portfolio_rollout_d40: win_rate=1.00 score=105279.4 hp=52.8 monster_hp=0.0 nodes=36783.7
+2. beam_aggressive_w4_d30: win_rate=0.97 score=98813.5 hp=47.0 monster_hp=0.1 nodes=632.0
+3. exhaustive_tactical_d4: win_rate=0.79 score=62940.6 hp=41.7 monster_hp=2.8 nodes=2524.4
+4. exhaustive_basic_d3: win_rate=0.74 score=50932.9 hp=39.6 monster_hp=4.2 nodes=692.3
+5. beam_tactical_w8_d40: win_rate=0.68 score=38697.6 hp=35.1 monster_hp=5.4 nodes=1536.4
+6. beam_tactical_w4_d30: win_rate=0.56 score=14661.2 hp=30.2 monster_hp=6.4 nodes=887.9
+7. greedy_tactical_d20: win_rate=0.29 score=-39828.2 hp=15.2 monster_hp=8.8 nodes=308.3
 ```
 
 ## Current Recommendation
@@ -59,7 +59,9 @@ high-quality combat advice. It is much more expensive than
 `beam_aggressive_w4_d30`, so UI integration should either label it as a slower
 search mode or run it asynchronously. On the smaller `--max-roots 96` held-out
 eval slice, the same candidate wins all 21 roots and reaches exact
-`mean_final_hp=44.95238095238095`, one total HP below 45.
+`mean_final_hp=44.95238095238095`, one total HP below 45. On the intermediate
+`--max-roots 128` held-out eval slice, it wins all 27 roots and reaches exact
+`mean_final_hp=48.7037037037037`.
 
 Do not treat this as final combat intelligence. The benchmark is still synthetic
 and starter-deck focused. The next search-lab expansion should add potion/relic
