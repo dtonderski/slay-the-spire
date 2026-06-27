@@ -36,13 +36,14 @@ class BridgeMirror:
         stale = _is_stale(ages, self.stale_after_seconds)
         exited = status.get("status") == "exited" if isinstance(status, dict) else False
         connected = bool(status) and not status.get("missing", False) and not exited
+        pending_command = command_path.exists()
 
         return {
             "connected": connected,
             "stale": stale,
             "exited": exited,
             "session_dir": str(self.session_dir),
-            "pending_command": command_path.exists(),
+            "pending_command": pending_command,
             "client_pid": _first(status, summary, key="client_pid"),
             "trace_path": _first(status, summary, key="trace_path"),
             "last_state_step": _first(summary, status, key="step"),
@@ -51,6 +52,12 @@ class BridgeMirror:
             "status": status,
             "summary": summary,
             "current_state": current_state,
+            "bridge_actions": bridge_actions_from_status(
+                summary if isinstance(summary, dict) else {},
+                connected=connected,
+                stale=stale,
+                pending_command=pending_command,
+            ),
             "ages": ages,
             "last_error": _first(status, summary, key="error"),
         }
@@ -110,6 +117,134 @@ def command_for_descriptor(descriptor: dict[str, Any]) -> str:
     raise ValueError(f"unsupported bridge descriptor kind: {kind or '<missing>'}")
 
 
+def bridge_actions_from_status(
+    summary: dict[str, Any],
+    *,
+    connected: bool = True,
+    stale: bool = False,
+    pending_command: bool = False,
+) -> list[dict[str, Any]]:
+    available = {str(command).lower() for command in summary.get("available_commands", [])}
+    disabled_reason = _bridge_disabled_reason(
+        summary,
+        connected=connected,
+        stale=stale,
+        pending_command=pending_command,
+    )
+    actions: list[dict[str, Any]] = []
+
+    if "play" in available:
+        combat = summary.get("combat") or {}
+        monsters = [monster for monster in combat.get("monsters", []) if not monster.get("gone")]
+        for card in combat.get("hand", []):
+            if not card.get("playable", True):
+                continue
+            hand_slot = card.get("index")
+            if hand_slot is None:
+                continue
+            label = f"Play {card.get('name') or card.get('id') or hand_slot}"
+            if card.get("has_target", False):
+                for monster in monsters:
+                    target_slot = monster.get("index")
+                    if target_slot is None:
+                        continue
+                    monster_label = monster.get("name") or monster.get("id") or target_slot
+                    actions.append(
+                        _bridge_action(
+                            f"play-{hand_slot}-{target_slot}",
+                            f"{label} -> {monster_label}",
+                            {
+                                "kind": "PlayHandSlot",
+                                "hand_slot": hand_slot,
+                                "target_slot": target_slot,
+                            },
+                            disabled_reason,
+                        )
+                    )
+            else:
+                actions.append(
+                    _bridge_action(
+                        f"play-{hand_slot}",
+                        label,
+                        {"kind": "PlayHandSlot", "hand_slot": hand_slot},
+                        disabled_reason,
+                    )
+                )
+
+    if "potion" in available:
+        combat = summary.get("combat") or {}
+        monsters = [monster for monster in combat.get("monsters", []) if not monster.get("gone")]
+        for potion in summary.get("potions", []):
+            potion_slot = potion.get("index")
+            if potion_slot is None:
+                continue
+            label = f"Use {potion.get('name') or potion.get('id') or potion_slot}"
+            if potion.get("can_use"):
+                requires_target = bool(potion.get("requires_target"))
+                if requires_target and monsters:
+                    for monster in monsters:
+                        target_slot = monster.get("index")
+                        if target_slot is None:
+                            continue
+                        actions.append(
+                            _bridge_action(
+                                f"potion-{potion_slot}-{target_slot}",
+                                f"{label} -> {monster.get('name') or monster.get('id') or target_slot}",
+                                {
+                                    "kind": "UsePotionSlot",
+                                    "potion_slot": potion_slot,
+                                    "target_slot": target_slot,
+                                },
+                                disabled_reason,
+                            )
+                        )
+                else:
+                    actions.append(
+                        _bridge_action(
+                            f"potion-{potion_slot}",
+                            label,
+                            {"kind": "UsePotionSlot", "potion_slot": potion_slot},
+                            disabled_reason,
+                        )
+                    )
+            if potion.get("can_discard"):
+                actions.append(
+                    _bridge_action(
+                        f"discard-potion-{potion_slot}",
+                        f"Discard {potion.get('name') or potion.get('id') or potion_slot}",
+                        {"kind": "DiscardPotionSlot", "potion_slot": potion_slot},
+                        disabled_reason,
+                    )
+                )
+
+    if "choose" in available:
+        choices = summary.get("choices") or []
+        for index, choice in enumerate(choices):
+            actions.append(
+                _bridge_action(
+                    f"choose-{index}",
+                    str(choice),
+                    {"kind": "ChooseVisibleOption", "option_slot": index},
+                    disabled_reason,
+                )
+            )
+
+    simple_commands = [
+        ("end", "End turn", {"kind": "EndTurn"}),
+        ("confirm", "Confirm", {"kind": "ConfirmChoice"}),
+        ("cancel", "Cancel", {"kind": "CancelChoice"}),
+        ("skip", "Skip", {"kind": "SkipVisibleReward"}),
+        ("proceed", "Proceed", {"kind": "Proceed"}),
+        ("leave", "Leave", {"kind": "LeaveScreen"}),
+        ("return", "Return", {"kind": "ReturnToPreviousScreen"}),
+    ]
+    for command, label, descriptor in simple_commands:
+        if command in available:
+            actions.append(_bridge_action(command, label, descriptor, disabled_reason))
+
+    return actions
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -129,6 +264,41 @@ def _age_seconds(path: Path, now: float) -> float | None:
 def _is_stale(ages: dict[str, float | None], threshold: float) -> bool:
     observed = [age for age in ages.values() if age is not None]
     return not observed or min(observed) > threshold
+
+
+def _bridge_action(
+    action_id: str,
+    label: str,
+    descriptor: dict[str, Any],
+    disabled_reason: str | None,
+) -> dict[str, Any]:
+    command = command_for_descriptor(descriptor)
+    return {
+        "action_id": action_id,
+        "label": label,
+        "command": command,
+        "descriptor": descriptor,
+        "enabled": disabled_reason is None,
+        "disabled_reason": disabled_reason,
+    }
+
+
+def _bridge_disabled_reason(
+    summary: dict[str, Any],
+    *,
+    connected: bool,
+    stale: bool,
+    pending_command: bool,
+) -> str | None:
+    if not connected:
+        return "bridge disconnected"
+    if stale:
+        return "bridge state is stale"
+    if pending_command:
+        return "bridge command already pending"
+    if not summary.get("ready_for_command", False):
+        return "bridge is not ready for a command"
+    return None
 
 
 def _first(*values: dict[str, Any], key: str) -> Any:

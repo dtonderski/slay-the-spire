@@ -323,6 +323,32 @@ h3 {
   font-size: 0.82rem;
 }
 
+.bridge-action-section {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.bridge-action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.bridge-action-button {
+  display: grid;
+  align-content: center;
+  gap: 0.15rem;
+  min-height: 2.25rem;
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+}
+
+.bridge-action-empty {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .action-column,
 .search-column {
   min-width: 0;
