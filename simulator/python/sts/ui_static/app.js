@@ -247,7 +247,9 @@
 
     try {
       await work();
-      app.lifecycle = { kind: pending && pending.successKind || "Applied", stateId: currentStateId() };
+      if (!app.lifecycle || app.lifecycle.kind === "Submitting") {
+        app.lifecycle = { kind: pending && pending.successKind || "Applied", stateId: currentStateId() };
+      }
     } catch (error) {
       app.lastError = readableError(error);
       app.lifecycle = {
@@ -573,11 +575,12 @@
     actions.forEach((action) => {
       const button = document.createElement("button");
       const disabledReason = action.disabled_reason || action.disabledReason;
+      const pendingReason = app.inFlight ? "A command is already in flight." : "";
       button.type = "button";
       button.className = "action-button";
       button.disabled = app.inFlight || action.enabled === false;
       button.textContent = actionLabel(action);
-      button.title = disabledReason || sourceTitle(action);
+      button.title = pendingReason || disabledReason || sourceTitle(action);
       button.addEventListener("click", () => submitAction(action));
       if (disabledReason) {
         const reason = document.createElement("span");
@@ -897,19 +900,26 @@
   function lifecycleFromPayload(lifecycle) {
     if (!lifecycle || !lifecycle.status) return app.lifecycle || { kind: "Ready" };
     const status = String(lifecycle.status).toLowerCase();
+    const base = {
+      commandId: firstDefined(lifecycle.command_id, lifecycle.commandId, null),
+      sourceStateId: firstDefined(lifecycle.source_state_id, lifecycle.sourceStateId, null),
+      expectedStateId: firstDefined(lifecycle.expected_state_id, lifecycle.expectedStateId, null),
+      previousStateId: firstDefined(lifecycle.previous_state_id, lifecycle.previousStateId, null),
+      raw: lifecycle,
+    };
     if (status === "applied") {
-      return { kind: "Applied", stateId: firstDefined(lifecycle.resulting_state_id, lifecycle.resultingStateId) };
+      return Object.assign(base, { kind: "Applied", stateId: firstDefined(lifecycle.resulting_state_id, lifecycle.resultingStateId) });
     }
     if (status === "restored") {
-      return { kind: "Restored", stateId: firstDefined(lifecycle.resulting_state_id, lifecycle.resultingStateId) };
+      return Object.assign(base, { kind: "Restored", stateId: firstDefined(lifecycle.resulting_state_id, lifecycle.resultingStateId) });
     }
     if (status === "stale") {
-      return { kind: "Stale", error: lifecycle.error };
+      return Object.assign(base, { kind: "Stale", error: lifecycle.error });
     }
     if (status === "rejected") {
-      return { kind: "Rejected", error: lifecycle.error };
+      return Object.assign(base, { kind: "Rejected", error: lifecycle.error });
     }
-    return { kind: "Ready" };
+    return Object.assign(base, { kind: "Ready" });
   }
 
   function currentStateId() {
@@ -1070,11 +1080,12 @@
 
   function lifecycleText() {
     if (!app.lifecycle) return "Ready";
-    if (app.lifecycle.kind === "Submitting") return app.lifecycle.label || "Submitting";
-    if (app.lifecycle.kind === "Applied") return app.lifecycle.stateId ? `Applied to ${app.lifecycle.stateId}` : "Applied";
-    if (app.lifecycle.kind === "Restored") return app.lifecycle.stateId ? `Restored to ${app.lifecycle.stateId}` : "Restored";
-    if (app.lifecycle.kind === "Rejected") return "Rejected";
-    if (app.lifecycle.kind === "Stale") return "Stale";
+    const command = app.lifecycle.commandId ? ` #${String(app.lifecycle.commandId).slice(0, 8)}` : "";
+    if (app.lifecycle.kind === "Submitting") return `${app.lifecycle.label || "Submitting"}${command}`;
+    if (app.lifecycle.kind === "Applied") return app.lifecycle.stateId ? `Applied${command} to ${app.lifecycle.stateId}` : `Applied${command}`;
+    if (app.lifecycle.kind === "Restored") return app.lifecycle.stateId ? `Restored${command} to ${app.lifecycle.stateId}` : `Restored${command}`;
+    if (app.lifecycle.kind === "Rejected") return `Rejected${command}`;
+    if (app.lifecycle.kind === "Stale") return `Stale${command}`;
     return "Ready";
   }
 

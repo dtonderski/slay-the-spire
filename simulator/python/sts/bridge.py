@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import time
 from typing import Any
+from uuid import uuid4
 
 
 DEFAULT_STALE_AFTER_SECONDS = 20.0
@@ -28,6 +29,7 @@ class BridgeMirror:
         summary = _read_json(self.session_dir / "summary.json")
         current_state = _read_json(self.session_dir / "current_state.json")
         command_path = self.session_dir / "next_command.txt"
+        command_meta = _read_json(self.session_dir / "next_command.json") if command_path.exists() else {}
         ages = {
             "status_age_seconds": _age_seconds(self.session_dir / "status.json", now),
             "summary_age_seconds": _age_seconds(self.session_dir / "summary.json", now),
@@ -53,6 +55,8 @@ class BridgeMirror:
             "bridge_lifecycle": lifecycle,
             "session_dir": str(self.session_dir),
             "pending_command": pending_command,
+            "pending_command_meta": command_meta if pending_command else None,
+            "command_id": command_meta.get("command_id") if pending_command else None,
             "client_pid": _first(status, summary, key="client_pid"),
             "trace_path": _first(status, summary, key="trace_path"),
             "last_state_step": _first(summary, status, key="step"),
@@ -87,11 +91,24 @@ class BridgeMirror:
             raise ValueError("bridge has exited")
 
         self.session_dir.mkdir(parents=True, exist_ok=True)
+        command_id = uuid4().hex
         command_path = self.session_dir / "next_command.txt"
         command_path.write_text(f"{command}\n", encoding="utf-8")
+        (self.session_dir / "next_command.json").write_text(
+            json.dumps(
+                {
+                    "command_id": command_id,
+                    "command": command,
+                    "submitted_at": now if now is not None else time.time(),
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
         after = self.status(now=now)
         return {
             "ok": True,
+            "command_id": command_id,
             "command": command,
             "bridge_status": after,
         }

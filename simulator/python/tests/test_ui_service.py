@@ -1,6 +1,23 @@
 import unittest
 
-from sts.ui_service import SessionManager
+from sts.ui_service import CombatSession, SessionManager
+
+
+class EmptyActionEnv:
+    def snapshot_hash(self):
+        return "empty-state"
+
+    def state_json(self):
+        return "{}"
+
+    def snapshot_json(self):
+        return "{}"
+
+    def phase(self):
+        return "idle"
+
+    def exact_legal_actions(self):
+        return []
 
 
 class UiServiceTests(unittest.TestCase):
@@ -43,6 +60,40 @@ class UiServiceTests(unittest.TestCase):
         pending = manager.pending_command(session["session_id"])
         self.assertEqual(pending["command_lifecycle"]["status"], "stale")
         self.assertEqual(pending["command_lifecycle"]["expected_state_id"], session["state_id"])
+        self.assertIn("command_id", pending["command_lifecycle"])
+
+    def test_double_click_old_action_is_stale_and_recoverable(self):
+        manager = SessionManager()
+        session = manager.create_session()
+        action = session["actions"][0]
+
+        applied = manager.step(session["session_id"], action)
+        duplicate = manager.step(session["session_id"], action)
+
+        self.assertEqual(duplicate["state_id"], applied["state_id"])
+        self.assertEqual(duplicate["command_lifecycle"]["status"], "stale")
+        self.assertEqual(duplicate["command_lifecycle"]["received_state_id"], session["state_id"])
+        self.assertEqual(duplicate["command_lifecycle"]["expected_state_id"], applied["state_id"])
+        self.assertNotEqual(
+            duplicate["command_lifecycle"]["command_id"],
+            applied["command_lifecycle"]["command_id"],
+        )
+        self.assertTrue(duplicate["actions"] or duplicate["empty_action_reason"])
+
+    def test_step_rejects_unknown_action_without_clearing_actions(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        result = manager.step(
+            session["session_id"],
+            {"action_id": "missing", "source_state_id": session["state_id"]},
+        )
+
+        self.assertEqual(result["state_id"], session["state_id"])
+        self.assertEqual(result["command_lifecycle"]["status"], "rejected")
+        self.assertTrue(result["command_lifecycle"]["state_unchanged"])
+        self.assertIn("command_id", result["command_lifecycle"])
+        self.assertEqual(result["actions"], session["actions"])
 
     def test_step_applies_action_and_regenerates_actions(self):
         manager = SessionManager()
@@ -53,6 +104,7 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertNotEqual(result["state_id"], session["state_id"])
         self.assertEqual(result["command_lifecycle"]["status"], "applied")
+        self.assertIn("command_id", result["command_lifecycle"])
         self.assertTrue(result["actions"] or result["empty_action_reason"])
 
         pending = manager.pending_command(session["session_id"])
@@ -70,6 +122,7 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(restored["state_id"], snapshot["state_id"])
         self.assertEqual(restored["command_lifecycle"]["status"], "restored")
+        self.assertIn("command_id", restored["command_lifecycle"])
         self.assertEqual(restored["state_kind"], "combat")
         self.assertTrue(restored["actions"])
 
@@ -96,6 +149,22 @@ class UiServiceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             manager.restore(session["session_id"], {})
+
+    def test_empty_action_list_reports_explicit_reason(self):
+        manager = SessionManager()
+        session = CombatSession(
+            id="empty",
+            mode="test_empty",
+            state_kind="combat",
+            env=EmptyActionEnv(),
+        )
+        manager._sessions[session.id] = session
+
+        result = manager.get_session(session.id)
+
+        self.assertFalse(result["actions"])
+        self.assertEqual(result["empty_action_reason"]["kind"], "unsupported")
+        self.assertIn("no exact combat actions", result["empty_action_reason"]["reason"])
 
     def test_search_returns_best_current_action_id(self):
         manager = SessionManager()
