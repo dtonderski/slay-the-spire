@@ -225,10 +225,11 @@ def _portfolio_search(env: Any, depth: int) -> tuple[float, list[Any], int, str 
         CombatSearchConfig(
             max_depth=40, objective="tactical_survival", algorithm="beam", beam_width=8
         ),
+        CombatSearchConfig(
+            max_depth=40, objective="survive_then_damage", algorithm="beam", beam_width=12
+        ),
     ]
-    rollout_config = CombatSearchConfig(
-        max_depth=40, objective="aggressive_lethal", algorithm="beam", beam_width=12
-    )
+    rollout_configs = [policies[0], policies[1], policies[2], policies[4]]
 
     best_score = float("-inf")
     best_variation: list[Any] = []
@@ -251,8 +252,8 @@ def _portfolio_search(env: Any, depth: int) -> tuple[float, list[Any], int, str 
             variation = [action]
             rollout_nodes = 1
         else:
-            score, rollout, rollout_nodes, terminal_reason = _rollout(
-                child, rollout_config, max_actions=depth
+            score, rollout, rollout_nodes, terminal_reason = _best_rollout(
+                child, rollout_configs, max_actions=depth
             )
             variation = [action, *rollout]
         nodes += rollout_nodes
@@ -263,6 +264,28 @@ def _portfolio_search(env: Any, depth: int) -> tuple[float, list[Any], int, str 
 
     if not best_variation:
         return _beam_search(env, depth, 12, _evaluate_aggressive)
+    return best_score, best_variation, nodes, best_terminal_reason
+
+
+def _best_rollout(
+    env: Any,
+    configs: Sequence[CombatSearchConfig],
+    *,
+    max_actions: int,
+) -> tuple[float, list[Any], int, str | None]:
+    best_score = float("-inf")
+    best_variation: list[Any] = []
+    best_terminal_reason: str | None = None
+    nodes = 1
+    for config in configs:
+        score, variation, rollout_nodes, terminal_reason = _rollout(
+            env, config, max_actions=max_actions
+        )
+        nodes += rollout_nodes
+        if _is_better(variation, score, best_variation, best_score):
+            best_score = score
+            best_variation = variation
+            best_terminal_reason = terminal_reason
     return best_score, best_variation, nodes, best_terminal_reason
 
 
