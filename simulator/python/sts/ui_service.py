@@ -128,8 +128,8 @@ class SessionManager:
 
     def search(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         session = self._require_session(session_id)
-        if session.state_kind != "combat":
-            raise ValueError("combat search is only available for combat fixture sessions")
+        if not _can_search_combat(session):
+            raise ValueError("combat search is only available for combat sessions")
         max_depth = int(payload.get("max_depth", 1))
         recommendation = search_combat(session.env, CombatSearchConfig(max_depth=max_depth))
         actions = self._actions(session.env, session.env.snapshot_hash())
@@ -398,6 +398,10 @@ def _decision_substate(session: CombatSession, terminal_reason: str | None) -> s
     if session.state_kind == "run":
         return _call_optional(session.env, "current_decision") or "RunDecision"
     return "NormalCombat"
+
+
+def _can_search_combat(session: CombatSession) -> bool:
+    return session.state_kind == "combat" or session.env.phase() == "combat"
 
 
 def _call_optional(obj: Any, name: str) -> Any:

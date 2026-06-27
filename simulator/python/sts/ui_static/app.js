@@ -1057,7 +1057,7 @@
   }
 
   function isCombatSession() {
-    return stateKindText() !== "run";
+    return stateKindText() !== "run" || sessionPhaseText() === "combat";
   }
 
   function sessionModeText() {
