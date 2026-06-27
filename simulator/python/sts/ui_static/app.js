@@ -12,6 +12,7 @@
     lastError: null,
     search: null,
     bridge: null,
+    parity: null,
     activeDebugTab: "state",
   };
 
@@ -87,6 +88,7 @@
       app.search = null;
       await loadSnapshotQuietly();
       await refreshBridgeQuietly();
+      await refreshParityQuietly();
     });
   }
 
@@ -97,6 +99,7 @@
       adoptSession(session);
       await loadSnapshotQuietly();
       await refreshBridgeQuietly();
+      await refreshParityQuietly();
     });
   }
 
@@ -144,6 +147,7 @@
       adoptSession(result.session || result.state || result);
       app.search = null;
       await loadSnapshotQuietly();
+      await refreshParityQuietly();
       const lifecycle = firstDefined(result.command_lifecycle, result.commandLifecycle, null);
       if (lifecycle && (lifecycle.status === "stale" || lifecycle.status === "rejected")) {
         throw new Error(firstDefined(lifecycle.error, result.last_error, "Action was rejected."));
@@ -226,7 +230,10 @@
   }
 
   async function refreshBridge() {
-    await singleFlight("Refreshing bridge", refreshBridgeQuietly);
+    await singleFlight("Refreshing bridge", async () => {
+      await refreshBridgeQuietly();
+      await refreshParityQuietly();
+    });
   }
 
   async function refreshBridgeQuietly() {
@@ -237,6 +244,16 @@
     }
   }
 
+  async function refreshParityQuietly() {
+    if (!app.sessionId) return;
+    try {
+      const result = await requestJson(`/api/sessions/${encodeURIComponent(app.sessionId)}/parity`);
+      app.parity = result.parity || result;
+    } catch (error) {
+      app.parity = { status: "unknown", reason: readableError(error), diffs: [] };
+    }
+  }
+
   async function requestBridgeState() {
     await singleFlight("Requesting bridge state", async () => {
       const result = await requestJson("/api/bridge/command", {
@@ -244,6 +261,7 @@
         body: { command: "state" },
       });
       app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
+      await refreshParityQuietly();
     });
   }
 
@@ -251,6 +269,7 @@
     const state = payload && (payload.state || payload.ui_state || payload);
     app.sessionId = firstDefined(payload && payload.id, payload && payload.session_id, state && state.session_id, app.sessionId);
     app.state = state || null;
+    app.parity = firstDefined(payload && payload.parity, state && state.parity, app.parity);
     app.lastError = firstDefined(payload && payload.last_error, state && state.last_error, app.lastError);
     app.lifecycle = lifecycleFromPayload(firstDefined(
       payload && payload.command_lifecycle,
@@ -495,6 +514,26 @@
       msg.textContent = firstDefined(app.bridge.last_error, app.bridge.error);
       el.bridgePanel.appendChild(msg);
     }
+    if (app.parity) {
+      el.bridgePanel.append(
+        statBlock("Parity", [
+          ["Status", app.parity.status || "unknown"],
+          ["Observed step", firstDefined(app.parity.observed_step, "-")],
+          ["Diffs", arrayOf(app.parity.diffs).length],
+        ]),
+      );
+      const diffs = arrayOf(app.parity.diffs);
+      if (diffs.length) {
+        const list = document.createElement("ul");
+        list.className = "diff-list";
+        diffs.slice(0, 8).forEach((diff) => {
+          const item = document.createElement("li");
+          item.textContent = `${diff.path}: sim ${stringify(diff.simulator)} / observed ${stringify(diff.observed)}`;
+          list.appendChild(item);
+        });
+        el.bridgePanel.appendChild(list);
+      }
+    }
   }
 
   function renderDebug() {
@@ -509,7 +548,15 @@
     const payload = app.activeDebugTab === "snapshot"
       ? app.snapshot || {}
       : app.activeDebugTab === "raw"
-        ? { state: app.state, actions: app.actions, search: app.search, lifecycle: app.lifecycle, error: app.lastError }
+        ? {
+            state: app.state,
+            actions: app.actions,
+            search: app.search,
+            bridge: app.bridge,
+            parity: app.parity,
+            lifecycle: app.lifecycle,
+            error: app.lastError,
+          }
         : app.state || {};
     el.debugJson.textContent = JSON.stringify(payload, null, 2);
   }

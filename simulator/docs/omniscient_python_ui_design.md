@@ -968,6 +968,10 @@ now covers `PLAY`, `END`, `POTION`, `CHOOSE`, `CONFIRM`, `CANCEL`, `SKIP`,
 `PROCEED`, `LEAVE`, and `RETURN`. Simulator-vs-observed parity diffs remain the
 next bridge-control step.
 
+Parity status is now exposed for combat sessions. The service compares the
+simulator combat state against the observed bridge summary when available and
+reports `unknown`, `in_sync`, or `diverged` with concrete field-level diffs.
+
 ### Slice 7: Fair API
 
 - only after the omniscient/debug workflow is useful

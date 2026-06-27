@@ -51,6 +51,37 @@ class UiServiceTests(unittest.TestCase):
         self.assertIn(recommendation["best_action_id"], action_ids)
         self.assertTrue(recommendation["principal_variation"])
 
+    def test_parity_reports_unknown_without_observed_combat(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        result = manager.parity(session["session_id"], {"summary": {"missing": True}})
+
+        self.assertEqual(result["session_id"], session["session_id"])
+        self.assertEqual(result["parity"]["status"], "unknown")
+
+    def test_parity_reports_divergence_against_observed_combat(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        result = manager.parity(
+            session["session_id"],
+            {
+                "summary": {
+                    "combat": {
+                        "player_hp": 1,
+                        "player_block": 99,
+                        "energy": 0,
+                        "monsters": [{"hp": 1, "block": 0, "gone": False}],
+                    }
+                },
+                "stale": False,
+            },
+        )
+
+        self.assertEqual(result["parity"]["status"], "diverged")
+        self.assertTrue(result["parity"]["diffs"])
+
 
 if __name__ == "__main__":
     unittest.main()
