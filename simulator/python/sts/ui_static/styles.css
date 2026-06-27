@@ -545,6 +545,10 @@ h3 {
   color: var(--accent-strong);
 }
 
+.restore-button {
+  margin-left: 0.25rem;
+}
+
 .debug-facts {
   grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   margin-bottom: 0.8rem;

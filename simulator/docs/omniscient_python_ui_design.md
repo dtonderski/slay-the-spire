@@ -921,6 +921,9 @@ POST /api/sessions/{id}/search
 The service uses snapshot hashes as `state_id`, requires `source_state_id` on
 step requests, rejects stale actions without mutating state, and preserves
 available actions after rejection.
+Snapshot restore is exposed through the same session layer for combat and run
+sessions; the debug UI can restore a loaded full snapshot, regenerate actions,
+and display a `restored` command lifecycle result.
 
 ### Slice 4: Run Environment
 

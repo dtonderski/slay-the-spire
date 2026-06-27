@@ -71,6 +71,25 @@ class SessionManager:
             "snapshot_json": session.env.snapshot_json(),
         }
 
+    def restore(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = self._require_session(session_id)
+        snapshot_json = payload.get("snapshot_json")
+        if not isinstance(snapshot_json, str) or not snapshot_json.strip():
+            raise ValueError("snapshot_json is required")
+
+        previous_state_id = session.env.snapshot_hash()
+        restored_env = _env_from_snapshot(session.state_kind, snapshot_json)
+        session.env = restored_env
+        session.last_error = None
+        return self.serialize_session(
+            session,
+            command_lifecycle={
+                "status": "restored",
+                "previous_state_id": previous_state_id,
+                "resulting_state_id": session.env.snapshot_hash(),
+            },
+        )
+
     def step(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         session = self._require_session(session_id)
         state_id = session.env.snapshot_hash()
@@ -295,6 +314,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "step":
                 self._send_json(self.manager.step(parts[2], payload))
                 return
+            if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "restore":
+                self._send_json(self.manager.restore(parts[2], payload))
+                return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "search":
                 self._send_json(self.manager.search(parts[2], payload))
                 return
@@ -402,6 +424,14 @@ def _decision_substate(session: CombatSession, terminal_reason: str | None) -> s
 
 def _can_search_combat(session: CombatSession) -> bool:
     return session.state_kind == "combat" or session.env.phase() == "combat"
+
+
+def _env_from_snapshot(state_kind: str, snapshot_json: str) -> Any:
+    if state_kind == "combat":
+        return omni.OmniCombatEnv.from_snapshot_json(snapshot_json)
+    if state_kind == "run":
+        return omni.OmniRunEnv.from_snapshot_json(snapshot_json)
+    raise ValueError(f"unsupported session state kind: {state_kind}")
 
 
 def _call_optional(obj: Any, name: str) -> Any:

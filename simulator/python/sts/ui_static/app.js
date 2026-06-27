@@ -72,6 +72,7 @@
       "traceError",
       "traceMetaPanel",
       "traceRecordsPanel",
+      "restoreSnapshotButton",
       "debugSessionId",
       "debugMode",
       "debugStateKind",
@@ -96,6 +97,7 @@
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
     el.refreshTracesButton.addEventListener("click", refreshTraces);
     el.loadTraceButton.addEventListener("click", loadSelectedTrace);
+    el.restoreSnapshotButton.addEventListener("click", restoreSnapshot);
     el.traceSelect.addEventListener("change", () => {
       app.selectedTraceId = el.traceSelect.value;
       app.traceDetail = selectedTraceMetadata();
@@ -161,6 +163,41 @@
     await submitAction(best);
   }
 
+  async function restoreSnapshot() {
+    if (!app.sessionId || app.inFlight) {
+      flashPending();
+      return;
+    }
+
+    const snapshotJson = app.snapshot && app.snapshot.snapshot_json;
+    if (!snapshotJson) {
+      showError("Cannot restore because no snapshot_json is loaded.");
+      return;
+    }
+
+    const sourceStateId = currentStateId();
+    await singleFlight("Restoring snapshot", async () => {
+      const result = await requestJson(`/api/sessions/${encodeURIComponent(app.sessionId)}/restore`, {
+        method: "POST",
+        body: {
+          snapshot_json: snapshotJson,
+          source_state_id: sourceStateId || undefined,
+        },
+      });
+      adoptSession(result.session || result.state || result);
+      app.search = null;
+      await loadSnapshotQuietly();
+      await refreshParityQuietly();
+      const lifecycle = firstDefined(result.command_lifecycle, result.commandLifecycle, null);
+      if (lifecycle && (lifecycle.status === "stale" || lifecycle.status === "rejected")) {
+        throw new Error(firstDefined(lifecycle.error, result.last_error, "Snapshot restore was rejected."));
+      }
+    }, {
+      sourceStateId,
+      successKind: "Restored",
+    });
+  }
+
   async function submitAction(action) {
     if (!app.sessionId || app.inFlight) {
       flashPending();
@@ -210,7 +247,7 @@
 
     try {
       await work();
-      app.lifecycle = { kind: "Applied", stateId: currentStateId() };
+      app.lifecycle = { kind: pending && pending.successKind || "Applied", stateId: currentStateId() };
     } catch (error) {
       app.lastError = readableError(error);
       app.lifecycle = {
@@ -426,6 +463,7 @@
     el.sessionModeSelect.disabled = app.inFlight;
     el.refreshBridgeButton.disabled = app.inFlight;
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
+    el.restoreSnapshotButton.disabled = !app.sessionId || app.inFlight || !hasLoadedSnapshotJson();
 
     el.stateSummary.textContent = summarizeState();
     el.lifecycleBadge.textContent = lifecycleText();
@@ -862,6 +900,9 @@
     if (status === "applied") {
       return { kind: "Applied", stateId: firstDefined(lifecycle.resulting_state_id, lifecycle.resultingStateId) };
     }
+    if (status === "restored") {
+      return { kind: "Restored", stateId: firstDefined(lifecycle.resulting_state_id, lifecycle.resultingStateId) };
+    }
     if (status === "stale") {
       return { kind: "Stale", error: lifecycle.error };
     }
@@ -880,6 +921,10 @@
       app.snapshot && app.snapshot.snapshot_hash,
       null,
     );
+  }
+
+  function hasLoadedSnapshotJson() {
+    return Boolean(app.snapshot && app.snapshot.snapshot_json);
   }
 
   function syncTraceSelect() {
@@ -1027,6 +1072,7 @@
     if (!app.lifecycle) return "Ready";
     if (app.lifecycle.kind === "Submitting") return app.lifecycle.label || "Submitting";
     if (app.lifecycle.kind === "Applied") return app.lifecycle.stateId ? `Applied to ${app.lifecycle.stateId}` : "Applied";
+    if (app.lifecycle.kind === "Restored") return app.lifecycle.stateId ? `Restored to ${app.lifecycle.stateId}` : "Restored";
     if (app.lifecycle.kind === "Rejected") return "Rejected";
     if (app.lifecycle.kind === "Stale") return "Stale";
     return "Ready";
@@ -1036,7 +1082,7 @@
     if (!app.lifecycle) return "neutral";
     if (app.lifecycle.kind === "Rejected" || app.lifecycle.kind === "Stale") return "bad";
     if (app.lifecycle.kind === "Submitting") return "busy";
-    if (app.lifecycle.kind === "Applied") return "good";
+    if (app.lifecycle.kind === "Applied" || app.lifecycle.kind === "Restored") return "good";
     return "neutral";
   }
 
