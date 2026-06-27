@@ -960,6 +960,12 @@ available commands, and observed current-state JSON without sending commands.
 - make this the future trace-collection path once simulator and bridge state
   synchronization is reliable enough
 
+Status: first guarded control path implemented for explicit bridge commands.
+The UI can request a fresh bridge `state` command through the Python service;
+the service refuses empty commands, overlong commands, exited bridge sessions,
+and existing pending `next_command.txt` files. Descriptor-to-command expansion
+and simulator-vs-observed parity diffs remain the next bridge-control step.
+
 ### Slice 7: Fair API
 
 - only after the omniscient/debug workflow is useful

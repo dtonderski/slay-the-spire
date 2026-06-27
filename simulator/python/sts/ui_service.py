@@ -229,6 +229,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "search":
                 self._send_json(self.manager.search(parts[2], payload))
                 return
+            if parts == ["api", "bridge", "command"]:
+                self._send_json(self.bridge.send_command(str(payload.get("command", ""))))
+                return
             self.send_error(404, "not found")
         except Exception as error:
             self._send_error(error)
