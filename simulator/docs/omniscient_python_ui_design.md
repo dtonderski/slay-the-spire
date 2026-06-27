@@ -985,6 +985,10 @@ summary for combat cards, visible choices, and command families including
 `END`, `CONFIRM`, `CANCEL`, `SKIP`, `PROCEED`, `LEAVE`, and `RETURN`; stale,
 disconnected, not-ready, and pending-command bridge states disable those
 actions before they can write `next_command.txt`.
+Bridge status now includes a derived `bridge_lifecycle` summary for ready,
+disconnected, exited, stale, waiting-for-command-ack, waiting-for-next-state,
+and waiting-for-observed-state cases, and the UI renders that lifecycle
+prominently in the sync panel.
 
 ### Slice 7: Fair API
 

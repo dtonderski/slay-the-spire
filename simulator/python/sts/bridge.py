@@ -37,16 +37,27 @@ class BridgeMirror:
         exited = status.get("status") == "exited" if isinstance(status, dict) else False
         connected = bool(status) and not status.get("missing", False) and not exited
         pending_command = command_path.exists()
+        lifecycle = bridge_lifecycle_from_status(
+            status if isinstance(status, dict) else {},
+            summary if isinstance(summary, dict) else {},
+            connected=connected,
+            stale=stale,
+            exited=exited,
+            pending_command=pending_command,
+        )
 
         return {
             "connected": connected,
             "stale": stale,
             "exited": exited,
+            "bridge_lifecycle": lifecycle,
             "session_dir": str(self.session_dir),
             "pending_command": pending_command,
             "client_pid": _first(status, summary, key="client_pid"),
             "trace_path": _first(status, summary, key="trace_path"),
             "last_state_step": _first(summary, status, key="step"),
+            "last_command": status.get("command") if isinstance(status, dict) else None,
+            "command_sent_at": status.get("sent_at") if isinstance(status, dict) else None,
             "ready_for_command": summary.get("ready_for_command") if isinstance(summary, dict) else None,
             "available_commands": summary.get("available_commands", []) if isinstance(summary, dict) else [],
             "status": status,
@@ -245,6 +256,35 @@ def bridge_actions_from_status(
     return actions
 
 
+def bridge_lifecycle_from_status(
+    status: dict[str, Any],
+    summary: dict[str, Any],
+    *,
+    connected: bool,
+    stale: bool,
+    exited: bool,
+    pending_command: bool,
+) -> dict[str, str | None]:
+    raw_status = str(status.get("status") or "").lower()
+    if exited:
+        return _bridge_lifecycle("exited", "Exited", _first(status, key="reason") or _first(status, key="error"))
+    if not connected:
+        return _bridge_lifecycle("disconnected", "Disconnected", "No active bridge client")
+    if stale:
+        return _bridge_lifecycle("stale", "Stale", "Bridge files have not updated recently")
+    if pending_command:
+        return _bridge_lifecycle("waiting_for_command_ack", "Waiting for command ack", "next_command.txt is pending")
+    if raw_status == "sent":
+        command = status.get("command")
+        detail = f"Last command {command}" if command else "Command sent; waiting for observed state"
+        return _bridge_lifecycle("waiting_for_next_state", "Waiting for next state", detail)
+    if summary.get("ready_for_command") is True or raw_status == "waiting":
+        return _bridge_lifecycle("ready", "Ready", "Bridge is ready for a command")
+    if raw_status == "ready":
+        return _bridge_lifecycle("waiting_for_observed_state", "Waiting for observed state", "Bridge client is ready but no state is published yet")
+    return _bridge_lifecycle("waiting_for_observed_state", "Waiting for observed state", raw_status or None)
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -280,6 +320,14 @@ def _bridge_action(
         "descriptor": descriptor,
         "enabled": disabled_reason is None,
         "disabled_reason": disabled_reason,
+    }
+
+
+def _bridge_lifecycle(status: str, label: str, detail: Any) -> dict[str, str | None]:
+    return {
+        "status": status,
+        "label": label,
+        "detail": None if detail is None else str(detail),
     }
 
 

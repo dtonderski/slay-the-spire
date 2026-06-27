@@ -601,19 +601,16 @@
       return;
     }
     el.bridgePanel.className = "bridge-panel";
-    const state = app.bridge.connected
-      ? app.bridge.stale
-        ? "Connected / stale"
-        : "Connected"
-      : app.bridge.exited
-        ? "Exited"
-        : "Disconnected";
+    const lifecycle = bridgeLifecycle();
+    el.bridgePanel.appendChild(bridgeLifecycleSummary(lifecycle));
     el.bridgePanel.append(
       statBlock("CommunicationMod", [
-        ["State", state],
+        ["State", lifecycle.label],
         ["Step", firstDefined(app.bridge.last_state_step, "-")],
         ["Ready", firstDefined(app.bridge.ready_for_command, "-")],
         ["Pending command", app.bridge.pending_command ? "Yes" : "No"],
+        ["Last command", firstDefined(app.bridge.last_command, "-")],
+        ["Command sent", firstDefined(app.bridge.command_sent_at, "-")],
         ["Trace", firstDefined(app.bridge.trace_path, "-")],
       ]),
     );
@@ -654,6 +651,66 @@
         });
         el.bridgePanel.appendChild(list);
       }
+    }
+  }
+
+  function bridgeLifecycle() {
+    const lifecycle = app.bridge && app.bridge.bridge_lifecycle;
+    if (lifecycle && typeof lifecycle === "object") {
+      const status = firstDefined(lifecycle.status, "unknown");
+      return {
+        status,
+        label: firstDefined(lifecycle.label, humanize(status)),
+        detail: firstDefined(lifecycle.detail, ""),
+      };
+    }
+    const status = app.bridge.connected
+      ? app.bridge.stale
+        ? "stale"
+        : "ready"
+      : app.bridge.exited
+        ? "exited"
+        : "disconnected";
+    return {
+      status,
+      label: humanize(status),
+      detail: "",
+    };
+  }
+
+  function bridgeLifecycleSummary(lifecycle) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "bridge-lifecycle";
+
+    const badge = document.createElement("span");
+    badge.className = `status-badge bridge-lifecycle-badge ${bridgeLifecycleClass(lifecycle.status)}`;
+    badge.textContent = lifecycle.label;
+    wrapper.appendChild(badge);
+
+    if (lifecycle.detail) {
+      const detail = document.createElement("span");
+      detail.className = "bridge-lifecycle-detail";
+      detail.textContent = lifecycle.detail;
+      wrapper.appendChild(detail);
+    }
+
+    return wrapper;
+  }
+
+  function bridgeLifecycleClass(status) {
+    switch (status) {
+      case "ready":
+        return "good";
+      case "waiting_for_command_ack":
+      case "waiting_for_next_state":
+      case "waiting_for_observed_state":
+        return "busy";
+      case "disconnected":
+      case "exited":
+      case "stale":
+        return "bad";
+      default:
+        return "neutral";
     }
   }
 

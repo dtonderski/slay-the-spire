@@ -3,7 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sts.bridge import BridgeMirror, bridge_actions_from_status, command_for_descriptor
+from sts.bridge import (
+    BridgeMirror,
+    bridge_actions_from_status,
+    bridge_lifecycle_from_status,
+    command_for_descriptor,
+)
 
 
 class BridgeMirrorTests(unittest.TestCase):
@@ -14,6 +19,7 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertFalse(status["connected"])
         self.assertTrue(status["stale"])
         self.assertTrue(status["status"]["missing"])
+        self.assertEqual(status["bridge_lifecycle"]["status"], "disconnected")
 
     def test_reads_active_bridge_files(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -36,6 +42,7 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(status["trace_path"], "trace.jsonl")
         self.assertEqual(status["available_commands"], ["play", "end", "state"])
         self.assertIn("bridge_actions", status)
+        self.assertEqual(status["bridge_lifecycle"]["status"], "ready")
 
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -47,6 +54,7 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "state\n")
             self.assertTrue(result["bridge_status"]["pending_command"])
+            self.assertEqual(result["bridge_status"]["bridge_lifecycle"]["status"], "waiting_for_command_ack")
 
     def test_send_command_rejects_existing_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -125,6 +133,58 @@ class BridgeMirrorTests(unittest.TestCase):
         )
         self.assertTrue(all(not action["enabled"] for action in actions))
         self.assertTrue(all(action["disabled_reason"] == "bridge command already pending" for action in actions))
+
+    def test_bridge_lifecycle_names_core_states(self):
+        cases = [
+            (
+                {"status": "exited", "reason": "stdin_closed"},
+                {},
+                {"connected": False, "stale": False, "exited": True, "pending_command": False},
+                "exited",
+            ),
+            (
+                {},
+                {},
+                {"connected": False, "stale": False, "exited": False, "pending_command": False},
+                "disconnected",
+            ),
+            (
+                {"status": "waiting"},
+                {"ready_for_command": True},
+                {"connected": True, "stale": True, "exited": False, "pending_command": False},
+                "stale",
+            ),
+            (
+                {"status": "waiting"},
+                {"ready_for_command": True},
+                {"connected": True, "stale": False, "exited": False, "pending_command": True},
+                "waiting_for_command_ack",
+            ),
+            (
+                {"status": "sent", "command": "END"},
+                {"ready_for_command": False},
+                {"connected": True, "stale": False, "exited": False, "pending_command": False},
+                "waiting_for_next_state",
+            ),
+            (
+                {"status": "ready"},
+                {},
+                {"connected": True, "stale": False, "exited": False, "pending_command": False},
+                "waiting_for_observed_state",
+            ),
+            (
+                {"status": "waiting"},
+                {"ready_for_command": True},
+                {"connected": True, "stale": False, "exited": False, "pending_command": False},
+                "ready",
+            ),
+        ]
+
+        for status, summary, flags, expected in cases:
+            with self.subTest(expected=expected):
+                lifecycle = bridge_lifecycle_from_status(status, summary, **flags)
+                self.assertEqual(lifecycle["status"], expected)
+                self.assertTrue(lifecycle["label"])
 
 
 if __name__ == "__main__":
