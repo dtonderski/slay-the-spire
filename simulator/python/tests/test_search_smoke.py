@@ -117,11 +117,32 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertEqual(result.best_action.family(), "combat")
         self.assertGreaterEqual(result.nodes, 2)
 
+    def test_allowed_potions_filters_run_potion_actions(self):
+        env = self._run_combat_with_fire_potion()
+
+        blocked = search_combat(
+            env,
+            CombatSearchConfig(max_depth=1, algorithm="greedy", allowed_potions=()),
+        )
+
+        self.assertTrue(blocked.principal_variation)
+        self.assertTrue(
+            all(action.kind() != "use_potion" for action in blocked.principal_variation)
+        )
+        self.assertEqual(blocked.diagnostics["allowed_potions"], ())
+
     def test_search_rejects_run_map_fixture(self):
         env = omni.OmniRunEnv.map_fixture()
 
         with self.assertRaises(ValueError):
             search_combat(env, CombatSearchConfig(max_depth=1))
+
+    def _run_combat_with_fire_potion(self):
+        import json
+
+        state = json.loads(omni.OmniRunEnv.combat_fixture().state_json())
+        state["potions"] = ["Fire"]
+        return omni.OmniRunEnv.from_state_json(json.dumps(state))
 
 
 if __name__ == "__main__":

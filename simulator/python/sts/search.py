@@ -17,6 +17,7 @@ class CombatSearchConfig:
     objective: str = "survive_then_damage"
     algorithm: str = "exhaustive"
     beam_width: int = 8
+    allowed_potions: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -81,12 +82,14 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
 
     _state(env)
     if config.algorithm == "exhaustive":
-        score, variation, nodes, terminal_reason = _search(env.clone(), depth, evaluator)
+        score, variation, nodes, terminal_reason = _search(env.clone(), depth, evaluator, config)
     elif config.algorithm == "portfolio":
-        score, variation, nodes, terminal_reason = _portfolio_search(env.clone(), depth)
+        score, variation, nodes, terminal_reason = _portfolio_search(env.clone(), depth, config)
     else:
         width = 1 if config.algorithm == "greedy" else config.beam_width
-        score, variation, nodes, terminal_reason = _beam_search(env.clone(), depth, width, evaluator)
+        score, variation, nodes, terminal_reason = _beam_search(
+            env.clone(), depth, width, evaluator, config
+        )
     return SearchRecommendation(
         best_action=variation[0] if variation else None,
         principal_variation=tuple(variation),
@@ -100,6 +103,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
             "objective": config.objective,
             "algorithm": config.algorithm,
             "beam_width": width if config.algorithm in {"beam", "greedy"} else None,
+            "allowed_potions": config.allowed_potions,
             "unsupported_transitions": 0,
         },
         terminal_reason=terminal_reason,
@@ -120,6 +124,7 @@ def _search(
     env: Any,
     depth: int,
     evaluator: Callable[[dict[str, Any]], float],
+    config: CombatSearchConfig,
 ) -> tuple[float, list[Any], int, str | None]:
     state = _state(env)
     terminal_reason = _terminal_reason(env, state)
@@ -130,7 +135,7 @@ def _search(
     if depth <= 0:
         return evaluator(state), [], 1, None
 
-    actions = _sorted_actions(env.exact_legal_actions())
+    actions = _legal_search_actions(env, config)
     if not actions:
         return evaluator(state), [], 1, None
 
@@ -150,7 +155,7 @@ def _search(
             child_terminal_reason = child_terminal
         else:
             child_score, child_variation, child_nodes, child_terminal_reason = _search(
-                child, depth - 1, evaluator
+                child, depth - 1, evaluator, config
             )
 
         nodes += child_nodes
@@ -168,6 +173,7 @@ def _beam_search(
     depth: int,
     beam_width: int,
     evaluator: Callable[[dict[str, Any]], float],
+    config: CombatSearchConfig,
 ) -> tuple[float, list[Any], int, str | None]:
     state = _state(env)
     terminal_reason = _terminal_reason(env, state)
@@ -183,7 +189,7 @@ def _beam_search(
     for _level in range(depth):
         candidates: list[tuple[Any, list[Any], float, str | None]] = []
         for current, variation, _score, _reason in frontier:
-            actions = _sorted_actions(current.exact_legal_actions())
+            actions = _legal_search_actions(current, config)
             if not actions:
                 score = evaluator(_state(current))
                 candidates.append((current, variation, score, None))
@@ -215,18 +221,44 @@ def _beam_search(
     return best_score, best_variation, nodes, best_terminal_reason
 
 
-def _portfolio_search(env: Any, depth: int) -> tuple[float, list[Any], int, str | None]:
+def _portfolio_search(
+    env: Any,
+    depth: int,
+    config: CombatSearchConfig,
+) -> tuple[float, list[Any], int, str | None]:
     policies = [
         CombatSearchConfig(
-            max_depth=40, objective="aggressive_lethal", algorithm="beam", beam_width=12
+            max_depth=40,
+            objective="aggressive_lethal",
+            algorithm="beam",
+            beam_width=12,
+            allowed_potions=config.allowed_potions,
         ),
-        CombatSearchConfig(max_depth=3, objective="survive_then_damage", algorithm="exhaustive"),
-        CombatSearchConfig(max_depth=4, objective="tactical_survival", algorithm="exhaustive"),
         CombatSearchConfig(
-            max_depth=40, objective="tactical_survival", algorithm="beam", beam_width=8
+            max_depth=3,
+            objective="survive_then_damage",
+            algorithm="exhaustive",
+            allowed_potions=config.allowed_potions,
         ),
         CombatSearchConfig(
-            max_depth=40, objective="survive_then_damage", algorithm="beam", beam_width=12
+            max_depth=4,
+            objective="tactical_survival",
+            algorithm="exhaustive",
+            allowed_potions=config.allowed_potions,
+        ),
+        CombatSearchConfig(
+            max_depth=40,
+            objective="tactical_survival",
+            algorithm="beam",
+            beam_width=8,
+            allowed_potions=config.allowed_potions,
+        ),
+        CombatSearchConfig(
+            max_depth=40,
+            objective="survive_then_damage",
+            algorithm="beam",
+            beam_width=12,
+            allowed_potions=config.allowed_potions,
         ),
     ]
     rollout_configs = [policies[0], policies[1], policies[2], policies[4]]
@@ -263,7 +295,7 @@ def _portfolio_search(env: Any, depth: int) -> tuple[float, list[Any], int, str 
             best_terminal_reason = terminal_reason
 
     if not best_variation:
-        return _beam_search(env, depth, 12, _evaluate_aggressive)
+        return _beam_search(env, depth, 12, _evaluate_aggressive, config)
     return best_score, best_variation, nodes, best_terminal_reason
 
 
@@ -432,6 +464,52 @@ def _state(env: Any) -> dict[str, Any]:
 
 def _sorted_actions(actions: Iterable[Any]) -> list[Any]:
     return sorted(actions, key=_action_key)
+
+
+def _legal_search_actions(env: Any, config: CombatSearchConfig) -> list[Any]:
+    return _sorted_actions(_filter_allowed_potion_actions(env, env.exact_legal_actions(), config))
+
+
+def _filter_allowed_potion_actions(
+    env: Any,
+    actions: Iterable[Any],
+    config: CombatSearchConfig,
+) -> list[Any]:
+    allowed = config.allowed_potions
+    if allowed is None:
+        return list(actions)
+    allowed_names = {_normalize_potion_name(name) for name in allowed}
+    potions = _run_potion_names(env)
+    filtered = []
+    for action in actions:
+        if getattr(action, "kind", lambda: "")() != "use_potion":
+            filtered.append(action)
+            continue
+        slot = _potion_action_slot(action)
+        potion_name = potions[slot] if slot is not None and slot < len(potions) else None
+        if potion_name is not None and _normalize_potion_name(potion_name) in allowed_names:
+            filtered.append(action)
+    return filtered
+
+
+def _run_potion_names(env: Any) -> list[str]:
+    state = json.loads(env.state_json())
+    run = state.get("state", state)
+    return [str(potion) for potion in run.get("potions") or []]
+
+
+def _potion_action_slot(action: Any) -> int | None:
+    try:
+        data = json.loads(action.json())
+    except Exception:
+        return None
+    use = data.get("UsePotion") if isinstance(data, dict) else None
+    slot = use.get("slot") if isinstance(use, dict) else None
+    return int(slot) if isinstance(slot, int) else None
+
+
+def _normalize_potion_name(name: str) -> str:
+    return "".join(char.lower() for char in name if char.isalnum())
 
 
 def _is_better(
