@@ -17,6 +17,7 @@ class SearchLabTests(unittest.TestCase):
 
         names = {candidate.name for candidate in candidates}
         self.assertIn("beam_tactical_w8_d40", names)
+        self.assertIn("portfolio_rollout_d40", names)
 
     def test_run_benchmark_returns_ranked_candidates(self):
         report = run_benchmark(split="all", max_source_depth=2, max_roots=8, max_actions=12)
@@ -24,6 +25,8 @@ class SearchLabTests(unittest.TestCase):
         self.assertGreater(report["benchmark"]["roots"], 0)
         self.assertEqual(len(report["ranking"]), len(default_candidates()))
         self.assertTrue(report["episodes"])
+        self.assertIn("mean_start_hp", report["benchmark"])
+        self.assertGreater(report["benchmark"]["mean_start_hp"], 0)
         self.assertIn("candidate", report["ranking"][0])
         self.assertIn("mean_score", report["ranking"][0])
 

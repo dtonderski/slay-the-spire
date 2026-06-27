@@ -83,6 +83,25 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertEqual(result.diagnostics["algorithm"], "greedy")
         self.assertEqual(result.diagnostics["beam_width"], 1)
 
+    def test_portfolio_search_returns_action_without_mutating_root(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+        before = env.snapshot_hash()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="aggressive_lethal",
+                algorithm="portfolio",
+                beam_width=12,
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["algorithm"], "portfolio")
+        self.assertGreater(result.visits, 1)
+        self.assertEqual(env.snapshot_hash(), before)
+
     def test_exhaustive_search_rejects_runaway_depth(self):
         env = omni.OmniCombatEnv.initial_fixture()
 

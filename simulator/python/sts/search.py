@@ -72,7 +72,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
     if depth < 1:
         raise ValueError("max_depth must be at least 1")
     evaluator = _evaluator(config.objective)
-    if config.algorithm not in {"exhaustive", "beam", "greedy"}:
+    if config.algorithm not in {"exhaustive", "beam", "greedy", "portfolio"}:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
         raise ValueError("beam_width must be at least 1")
@@ -82,6 +82,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
     _state(env)
     if config.algorithm == "exhaustive":
         score, variation, nodes, terminal_reason = _search(env.clone(), depth, evaluator)
+    elif config.algorithm == "portfolio":
+        score, variation, nodes, terminal_reason = _portfolio_search(env.clone(), depth)
     else:
         width = 1 if config.algorithm == "greedy" else config.beam_width
         score, variation, nodes, terminal_reason = _beam_search(env.clone(), depth, width, evaluator)
@@ -211,6 +213,95 @@ def _beam_search(
             break
 
     return best_score, best_variation, nodes, best_terminal_reason
+
+
+def _portfolio_search(env: Any, depth: int) -> tuple[float, list[Any], int, str | None]:
+    policies = [
+        CombatSearchConfig(
+            max_depth=40, objective="aggressive_lethal", algorithm="beam", beam_width=12
+        ),
+        CombatSearchConfig(max_depth=3, objective="survive_then_damage", algorithm="exhaustive"),
+        CombatSearchConfig(max_depth=4, objective="tactical_survival", algorithm="exhaustive"),
+        CombatSearchConfig(
+            max_depth=40, objective="tactical_survival", algorithm="beam", beam_width=8
+        ),
+    ]
+    rollout_config = CombatSearchConfig(
+        max_depth=40, objective="aggressive_lethal", algorithm="beam", beam_width=12
+    )
+
+    best_score = float("-inf")
+    best_variation: list[Any] = []
+    best_terminal_reason: str | None = None
+    nodes = 1
+    seen_actions: set[str] = set()
+
+    for policy in policies:
+        recommendation = search_combat(env, policy)
+        nodes += recommendation.visits
+        action = recommendation.best_action
+        if action is None or action.json() in seen_actions:
+            continue
+        seen_actions.add(action.json())
+        child = env.clone()
+        step_result = child.step(action)
+        terminal_reason = _result_terminal_reason(step_result, child)
+        if terminal_reason:
+            score = _portfolio_outcome_score(child, terminal_reason)
+            variation = [action]
+            rollout_nodes = 1
+        else:
+            score, rollout, rollout_nodes, terminal_reason = _rollout(
+                child, rollout_config, max_actions=depth
+            )
+            variation = [action, *rollout]
+        nodes += rollout_nodes
+        if _is_better(variation, score, best_variation, best_score):
+            best_score = score
+            best_variation = variation
+            best_terminal_reason = terminal_reason
+
+    if not best_variation:
+        return _beam_search(env, depth, 12, _evaluate_aggressive)
+    return best_score, best_variation, nodes, best_terminal_reason
+
+
+def _rollout(
+    env: Any,
+    config: CombatSearchConfig,
+    *,
+    max_actions: int,
+) -> tuple[float, list[Any], int, str | None]:
+    current = env.clone()
+    variation = []
+    nodes = 1
+    terminal_reason = _terminal_reason(current, _state(current))
+    while terminal_reason is None and len(variation) < max_actions:
+        recommendation = search_combat(current, config)
+        nodes += recommendation.visits
+        action = recommendation.best_action
+        if action is None:
+            break
+        result = current.step(action)
+        variation.append(action)
+        terminal_reason = _result_terminal_reason(result, current)
+    return _portfolio_outcome_score(current, terminal_reason), variation, nodes, terminal_reason
+
+
+def _portfolio_outcome_score(env: Any, terminal_reason: str | None) -> float:
+    state = _state(env)
+    player_hp = float(state.get("player", {}).get("hp", 0))
+    monster_hp = sum(
+        float(monster.get("hp", 0))
+        for monster in state.get("monsters", [])
+        if monster.get("alive", False)
+    )
+    score = player_hp * 100.0 - monster_hp * 20.0
+    if terminal_reason == "won":
+        return 100_000.0 + score
+    if terminal_reason == "lost":
+        return -100_000.0 + score
+    return score
 
 
 def _terminal_score(

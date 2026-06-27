@@ -69,6 +69,10 @@ def default_candidates() -> list[SearchCandidate]:
             "beam_tactical_w8_d40",
             CombatSearchConfig(max_depth=40, objective="tactical_survival", algorithm="beam", beam_width=8),
         ),
+        SearchCandidate(
+            "portfolio_rollout_d40",
+            CombatSearchConfig(max_depth=40, objective="aggressive_lethal", algorithm="portfolio", beam_width=12),
+        ),
     ]
 
 
@@ -233,6 +237,7 @@ def run_benchmark(
             "roots": len(roots),
             "max_source_depth": max_source_depth,
             "max_actions": max_actions,
+            "mean_start_hp": _mean_start_hp(roots),
             "root_names": [root.name for root in roots],
         },
         "ranking": _rank(results),
@@ -331,6 +336,11 @@ def _monster_hp(state: dict[str, Any]) -> float:
     return sum(float(monster.get("hp", 0)) for monster in state.get("monsters", []) if monster.get("alive", False))
 
 
+def _mean_start_hp(roots: Iterable[BenchmarkRoot]) -> float:
+    roots = list(roots)
+    return _mean(float(_state(_env_from_root(root)).get("player", {}).get("hp", 0)) for root in roots)
+
+
 def _sorted_actions(actions: Iterable[Any]) -> list[Any]:
     return sorted(actions, key=lambda action: (action.kind(), action.json()))
 
@@ -363,7 +373,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
         return
-    print(f"split={report['benchmark']['split']} roots={report['benchmark']['roots']}")
+    print(
+        f"split={report['benchmark']['split']} roots={report['benchmark']['roots']} "
+        f"mean_start_hp={report['benchmark']['mean_start_hp']:.1f}"
+    )
     for index, row in enumerate(report["ranking"], start=1):
         print(
             f"{index}. {row['candidate']}: win_rate={row['win_rate']:.2f} "
