@@ -1,0 +1,186 @@
+{
+    "schema":  1,
+    "docStatus":  "codex_revision",
+    "comments":  [
+                     {
+                         "id":  "cmt_mqtufgx2_ocqhx",
+                         "anchor":  {
+                                        "sectionId":  "combat-matrix",
+                                        "quote":  "Public-history counters may be included if the wrapper derives them from visible events, such as cards played this turn.",
+                                        "prefix":  "unters not shown by UI.\tFull player state and all counters.\t",
+                                        "suffix":  ".\tDecide which relic/card counters are visibly shown versus ",
+                                        "lineStart":  19,
+                                        "lineEnd":  19,
+                                        "originalQuote":  "Counters inferable from public history but not directly shown"
+                                    },
+                         "status":  "resolved",
+                         "createdAt":  "2026-06-25T18:36:20.198Z",
+                         "updatedAt":  "2026-06-25T21:58:19.223Z",
+                         "thread":  [
+                                        {
+                                            "id":  "msg_mqtufgx2",
+                                            "author":  "user",
+                                            "body":  "What exactly does this mean? I don\u0027;t understand it, sorry",
+                                            "createdAt":  "2026-06-25T18:36:20.198Z"
+                                        },
+                                        {
+                                            "id":  "msg_mqtufqzv",
+                                            "author":  "user",
+                                            "body":  "??",
+                                            "createdAt":  "2026-06-25T18:36:33.259Z"
+                                        },
+                                        {
+                                            "id":  "msg_5e00a87dde50",
+                                            "author":  "codex",
+                                            "body":  "Resolved by replacing the vague phrase with explicit examples: public-history counters are values a wrapper can derive from visible events, such as cards played this turn. Raw simulator counters stay hidden unless visible or reconstructable.",
+                                            "createdAt":  "2026-06-25T21:55:49.7519942Z"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "cmt_mqtug7eg_5rlhn",
+                         "anchor":  {
+                                        "sectionId":  "combat-matrix",
+                                        "quote":  "Draw pile count and visible pile contents as an unordered/multiset-style list when the combat pile viewer exposes them.",
+                                        "prefix":  "r actions should target hand slots, not card IDs.\nDraw Pile\t",
+                                        "suffix":  ". Ordered contents only when a UI effect reveals them.\tDraw ",
+                                        "lineStart":  19,
+                                        "lineEnd":  19,
+                                        "originalQuote":  "Draw pile count"
+                                    },
+                         "status":  "resolved",
+                         "createdAt":  "2026-06-25T18:36:54.520Z",
+                         "updatedAt":  "2026-06-25T21:55:49.7519942Z",
+                         "thread":  [
+                                        {
+                                            "id":  "msg_mqtug7eg",
+                                            "author":  "user",
+                                            "body":  "Also the actual cards. right?",
+                                            "createdAt":  "2026-06-25T18:36:54.520Z"
+                                        },
+                                        {
+                                            "id":  "msg_0101c870e572",
+                                            "author":  "codex",
+                                            "body":  "Resolved: draw pile fair observation now includes visible pile contents as an unordered/multiset-style list when the pile viewer exposes them. Draw order remains hidden unless Frozen Eye reveals it.",
+                                            "createdAt":  "2026-06-25T21:55:49.7519942Z"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "cmt_mqtugpp2_ravgx",
+                         "anchor":  {
+                                        "sectionId":  "combat-matrix",
+                                        "quote":  "Discard pile count and visible contents during combat when the pile viewer exposes them.",
+                                        "prefix":  "ain exception.\nDiscard Pile\tDiscard pile count and contents ",
+                                        "suffix":  ".\tInternal IDs and any ordering/detail not exposed by UI.\tEx",
+                                        "lineStart":  19,
+                                        "lineEnd":  19,
+                                        "originalQuote":  "when the game UI exposes them"
+                                    },
+                         "status":  "resolved",
+                         "createdAt":  "2026-06-25T18:37:18.230Z",
+                         "updatedAt":  "2026-06-25T21:55:49.7519942Z",
+                         "thread":  [
+                                        {
+                                            "id":  "msg_mqtugpp2",
+                                            "author":  "user",
+                                            "body":  "so ALWAYs during combat right?",
+                                            "createdAt":  "2026-06-25T18:37:18.230Z"
+                                        },
+                                        {
+                                            "id":  "msg_5f5f0b182e83",
+                                            "author":  "codex",
+                                            "body":  "Resolved: discard and exhaust rows now say visible contents during combat via the pile viewer are fair, while internal IDs/order details remain hidden.",
+                                            "createdAt":  "2026-06-25T21:55:49.7519942Z"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "cmt_mqtuhp62_4mpkd",
+                         "anchor":  {
+                                        "sectionId":  "combat-matrix",
+                                        "quote":  "current visible intent, intent damage/count when not hidden by an effect such as",
+                                        "prefix":  "UI-visible, block, powers/debuffs, alive/dead/minion state, ",
+                                        "suffix":  ".\tFuture moves, private AI counters, hidden move history, la",
+                                        "lineStart":  19,
+                                        "lineEnd":  19,
+                                        "originalQuote":  "current visible intent, intent damage/count"
+                                    },
+                         "status":  "resolved",
+                         "createdAt":  "2026-06-25T18:38:04.202Z",
+                         "updatedAt":  "2026-06-25T21:55:49.7519942Z",
+                         "thread":  [
+                                        {
+                                            "id":  "msg_mqtuhp62",
+                                            "author":  "user",
+                                            "body":  "I think there\u0027s a relic that hides intent FYI",
+                                            "createdAt":  "2026-06-25T18:38:04.202Z"
+                                        },
+                                        {
+                                            "id":  "msg_d2ca4e0346ee",
+                                            "author":  "codex",
+                                            "body":  "Resolved: monster intent row now explicitly says intent is visible only when not hidden by effects such as Runic Dome, and the Runic Dome section remains as a special case.",
+                                            "createdAt":  "2026-06-25T21:55:49.7519942Z"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "cmt_mqtui5ou_5l8we",
+                         "anchor":  {
+                                        "sectionId":  "combat-matrix",
+                                        "quote":  "Relic pool order and simulator-only implementation counters.",
+                                        "prefix":  "s/charges, visible effects, public-history-inferable state.\t",
+                                        "suffix":  "\tFull relic counters and relic pool state.\tHidden counters a",
+                                        "lineStart":  19,
+                                        "lineEnd":  19,
+                                        "originalQuote":  "Hidden counters not shown or inferable, relic pool order."
+                                    },
+                         "status":  "resolved",
+                         "createdAt":  "2026-06-25T18:38:25.614Z",
+                         "updatedAt":  "2026-06-25T21:55:49.7519942Z",
+                         "thread":  [
+                                        {
+                                            "id":  "msg_mqtui5ou",
+                                            "author":  "user",
+                                            "body":  "Does this even exist?",
+                                            "createdAt":  "2026-06-25T18:38:25.614Z"
+                                        },
+                                        {
+                                            "id":  "msg_f439a3c40f79",
+                                            "author":  "codex",
+                                            "body":  "Resolved by softening the claim. The doc now distinguishes hidden relic pool order and simulator-only counters from per-relic counters that may be visible or inferable. It calls for a per-relic table instead of assuming all relic counters are hidden.",
+                                            "createdAt":  "2026-06-25T21:55:49.7519942Z"
+                                        }
+                                    ]
+                     },
+                     {
+                         "id":  "cmt_mqtuiw6r_ckazv",
+                         "anchor":  {
+                                        "sectionId":  "combat-matrix",
+                                        "quote":  "Entropic Brew-style refills are hidden before use, then visible as concrete filled slots afterward.",
+                                        "prefix":  "es, visible usability, currently visible generated choices.\t",
+                                        "suffix":  " shown, potion RNG.\tFull potion state and RNG.\tHidden genera",
+                                        "lineStart":  19,
+                                        "lineEnd":  19,
+                                        "originalQuote":  "Generated choices before they are"
+                                    },
+                         "status":  "resolved",
+                         "createdAt":  "2026-06-25T18:38:59.955Z",
+                         "updatedAt":  "2026-06-25T21:55:49.7519942Z",
+                         "thread":  [
+                                        {
+                                            "id":  "msg_mqtuiw6r",
+                                            "author":  "user",
+                                            "body":  "There is the entropy potion which fills out the other slots right. idk how that affects this",
+                                            "createdAt":  "2026-06-25T18:38:59.955Z"
+                                        },
+                                        {
+                                            "id":  "msg_4a08a6e491fc",
+                                            "author":  "codex",
+                                            "body":  "Resolved: potion row and a new Entropic Brew section now say random potion identities are hidden before use, then fair/visible once they appear in potion slots.",
+                                            "createdAt":  "2026-06-25T21:55:49.7519942Z"
+                                        }
+                                    ]
+                     }
+                 ]
+}
