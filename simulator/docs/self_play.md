@@ -101,3 +101,21 @@ uv run python -m sts.self_play real-trace-report --trace ..\verification\corpus\
 
 The report counts observed combat/potion combat states and explains whether
 root extraction is blocked by missing simulator snapshots.
+
+To try converting a real trace into simulator-backed roots, run trace-guided
+replay:
+
+```powershell
+uv run python -m sts.self_play replay-real-trace --trace ..\verification\corpus\communication_mod\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl --output target\trace-guided\manual01-replayed.jsonl --report-output target\trace-guided\manual01-report.json
+```
+
+This starts `OmniRunEnv` from the trace `START` command, maps supported
+CommunicationMod commands onto exact simulator actions, verifies the observed
+summary before each command, and writes a normal replayable JSONL prefix. If the
+trace reaches combat while still in sync, the generated JSONL can be passed to
+`eval` like any other simulator trace.
+
+Current limitation: the MANUAL01 clean-prefix trace stops at Neow before any
+combat roots because the Python seed-start path is still the local placeholder
+map path. The replay report should show `observed_simulator_divergence` with an
+observed `event` phase and simulator `map` phase.
