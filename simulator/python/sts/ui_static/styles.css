@@ -334,6 +334,24 @@ h3 {
   margin-top: 0.75rem;
 }
 
+.bridge-lifecycle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+}
+
+.bridge-lifecycle-badge {
+  padding: 0.42rem 0.8rem;
+}
+
+.bridge-lifecycle-detail {
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
 .bridge-action-grid {
   display: flex;
   flex-wrap: wrap;
