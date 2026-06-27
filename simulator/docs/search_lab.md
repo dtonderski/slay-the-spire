@@ -22,7 +22,7 @@ Run:
 ```powershell
 $env:PYTHONPATH = "$PWD\python"
 py -3.14 -m sts.search_lab --split dev --max-source-depth 2 --max-roots 48 --max-actions 40
-py -3.14 -m sts.search_lab --split eval --max-source-depth 2 --max-roots 48 --max-actions 40
+py -3.14 -m sts.search_lab --split eval --max-source-depth 2 --max-roots 128 --max-actions 40
 ```
 
 ## Current Candidates
@@ -36,19 +36,20 @@ The current candidate set includes:
 - `beam_aggressive_w4_d30`: lethal-biased heuristic, beam width 4.
 - `beam_tactical_w8_d40`: survival-aware heuristic, beam width 8.
 - `portfolio_rollout_d40`: asks the strongest fixed policies for candidate
-  moves, then chooses by deterministic rollout outcome.
+  moves, then chooses by the best deterministic rollout outcome across several
+  fixed rollout policies.
 
 Current held-out eval result on balanced synthetic roots:
 
 ```text
-split=eval roots=21 mean_start_hp=43.3
-1. portfolio_rollout_d40: win_rate=1.00 score=104333.3 hp=43.3 monster_hp=0.0 nodes=11419.1
-2. beam_aggressive_w4_d30: win_rate=0.95 score=94364.8 hp=38.9 monster_hp=0.1 nodes=588.4
-3. exhaustive_tactical_d4: win_rate=0.76 score=55793.3 hp=34.8 monster_hp=3.4 nodes=2449.3
-4. exhaustive_basic_d3: win_rate=0.71 score=46141.9 hp=33.8 monster_hp=4.6 nodes=665.4
-5. beam_tactical_w8_d40: win_rate=0.67 score=36259.0 hp=30.5 monster_hp=6.1 nodes=1423.5
-6. beam_tactical_w4_d30: win_rate=0.57 score=16858.1 hp=27.1 monster_hp=6.9 nodes=820.7
-7. greedy_tactical_d20: win_rate=0.29 score=-41721.0 hp=13.2 monster_hp=9.1 nodes=280.5
+split=eval roots=27 mean_start_hp=47.0
+1. portfolio_rollout_d40: win_rate=1.00 score=104870.4 hp=48.7 monster_hp=0.0 nodes=33397.4
+2. beam_aggressive_w4_d30: win_rate=0.96 score=96917.0 hp=43.3 monster_hp=0.1 nodes=610.3
+3. exhaustive_tactical_d4: win_rate=0.78 score=59315.6 hp=38.2 monster_hp=3.1 nodes=2330.3
+4. exhaustive_basic_d3: win_rate=0.74 score=51836.3 hp=37.7 monster_hp=4.3 nodes=650.3
+5. beam_tactical_w8_d40: win_rate=0.70 score=44138.5 hp=35.1 monster_hp=5.5 nodes=1403.7
+6. beam_tactical_w4_d30: win_rate=0.63 score=29082.2 hp=32.8 monster_hp=6.1 nodes=820.3
+7. greedy_tactical_d20: win_rate=0.33 score=-31807.4 hp=16.9 monster_hp=8.3 nodes=287.4
 ```
 
 ## Current Recommendation
@@ -56,13 +57,9 @@ split=eval roots=21 mean_start_hp=43.3
 `portfolio_rollout_d40` is the strongest current algorithm candidate for
 high-quality combat advice. It is much more expensive than
 `beam_aggressive_w4_d30`, so UI integration should either label it as a slower
-search mode or run it asynchronously.
-
-The current `--max-roots 96` held-out eval set has `mean_start_hp=43.3`, so an
-absolute `mean_final_hp >= 45` is not a feasible target on that exact root set
-without adding healing or changing the root distribution. On a larger
-deterministic eval sample with `--max-roots 200`, the same portfolio candidate
-reaches `mean_final_hp=51.0` over 34 eval roots.
+search mode or run it asynchronously. On the smaller `--max-roots 96` held-out
+eval slice, the same candidate wins all 21 roots and reaches exact
+`mean_final_hp=44.95238095238095`, one total HP below 45.
 
 Do not treat this as final combat intelligence. The benchmark is still synthetic
 and starter-deck focused. The next search-lab expansion should add potion/relic
