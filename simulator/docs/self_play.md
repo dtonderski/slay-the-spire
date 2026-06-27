@@ -16,24 +16,25 @@ state.
 
 ```powershell
 $env:PYTHONPATH = "$PWD\python"
-py -3.14 -m sts.self_play run --start map_fixture --random-seed 7 --max-steps 40 --output target\selfplay-map.jsonl
-py -3.14 -m sts.self_play verify target\selfplay-map.jsonl
+py -3.14 -m sts.self_play run --start seed --seed TEST --random-seed 7 --max-steps 40 --output target\selfplay-seed.jsonl
+py -3.14 -m sts.self_play verify target\selfplay-seed.jsonl
 ```
 
 The trace can include potions when the simulator run state exposes them. For
-example, the current map fixture can buy a Fire potion from the shop; the potion
-inventory is recorded in every step summary and full snapshot.
+example, `--start seed --seed 3 --random-seed 4 --max-steps 40` buys a potion
+from the placeholder seeded shop; the potion inventory is recorded in every step
+summary and full snapshot.
 
-## Current Blocker
+## Seed Fidelity
 
-True seed-start self-play is not available yet. The Python API currently raises
-an explicit unsupported-start error for:
+Seeded starts currently use the simulator-only placeholder generated map
+fixture. They are deterministic and replayable, but they are not target-game
+seed parity.
 
 ```powershell
 py -3.14 -m sts.self_play run --start seed --seed TEST --output target\selfplay-seed.jsonl
 ```
 
-The runner records that unsupported start as a metadata-only trace instead of
-pretending the run began. To play real seeded runs end-to-end, `OmniRunEnv` needs
-a seed-start constructor exposed at the Python boundary. A placeholder generated
-map fixture exists in `sts_core`, but it is not target-game seed parity.
+To play target-game seeded runs end-to-end, `OmniRunEnv` still needs a
+source-backed seed-start constructor. Until then, self-play traces should keep
+`source = "sim_selfplay"` and should not be mixed with real-game parity traces.

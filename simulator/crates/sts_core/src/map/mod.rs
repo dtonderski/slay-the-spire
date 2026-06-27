@@ -208,7 +208,8 @@ pub fn milestone8_fixture() -> MapRunState {
 }
 
 pub use generation::{
-    generate_map_placeholder, generated_map_fixture, placeholder_generated_map_fixture,
+    generate_map_placeholder, generated_map_fixture, generated_map_fixture_for_ascension,
+    placeholder_generated_map_fixture,
 };
 pub use target::{
     city_room_kinds_on_path, exordium_room_kinds_on_path, generate_city_fixed_map,

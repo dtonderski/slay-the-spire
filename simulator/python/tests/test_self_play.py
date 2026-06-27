@@ -34,7 +34,7 @@ class SelfPlayTests(unittest.TestCase):
                 all("potions" in record["before_summary"] for record in records[1:])
             )
 
-    def test_seed_start_records_explicit_unsupported_trace(self):
+    def test_seed_start_writes_replayable_placeholder_trace(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "seed.jsonl"
 
@@ -45,14 +45,32 @@ class SelfPlayTests(unittest.TestCase):
                 max_steps=4,
             )
 
-            self.assertFalse(result.verified)
-            self.assertEqual(result.steps, 0)
-            self.assertIn("unsupported_start", result.stop_reason)
+            self.assertTrue(result.verified)
+            self.assertGreater(result.steps, 0)
 
             records = self._read_jsonl(trace_path)
             self.assertEqual(records[0]["source"], "sim_selfplay")
-            self.assertIn("unsupported_start", records[0]["stop_reason"])
-            self.assertIsNone(records[0]["initial_snapshot_json"])
+            self.assertEqual(records[0]["start"], "seed")
+            self.assertEqual(records[0]["seed"], "TEST")
+            self.assertIn("initial_snapshot_json", records[0])
+
+    def test_seed_start_can_record_potion_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "seed-potion.jsonl"
+
+            result = run_self_play(
+                output=trace_path,
+                start="seed",
+                seed="3",
+                random_seed=4,
+                max_steps=40,
+            )
+
+            self.assertTrue(result.verified)
+            records = self._read_jsonl(trace_path)
+            self.assertTrue(
+                any((record.get("after_summary") or {}).get("potions") for record in records[1:])
+            )
 
     def test_verify_rejects_action_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
