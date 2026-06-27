@@ -194,15 +194,17 @@ impl PyOmniCombatEnv {
 
     #[staticmethod]
     pub fn from_state_json(json: &str) -> PyResult<Self> {
-        let state = serde_json::from_str(json)
-            .map_err(|error| PyValueError::new_err(format!("invalid combat state JSON: {error}")))?;
+        let state = serde_json::from_str(json).map_err(|error| {
+            PyValueError::new_err(format!("invalid combat state JSON: {error}"))
+        })?;
         Ok(Self { state })
     }
 
     #[staticmethod]
     pub fn from_snapshot_json(json: &str) -> PyResult<Self> {
-        let snapshot: Snapshot<CombatState> = serde_json::from_str(json)
-            .map_err(|error| PyValueError::new_err(format!("invalid combat snapshot JSON: {error}")))?;
+        let snapshot: Snapshot<CombatState> = serde_json::from_str(json).map_err(|error| {
+            PyValueError::new_err(format!("invalid combat snapshot JSON: {error}"))
+        })?;
         if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
             return Err(PyValueError::new_err(format!(
                 "unsupported snapshot schema version: expected {}, got {}",
@@ -224,10 +226,9 @@ impl PyOmniCombatEnv {
     }
 
     pub fn snapshot_json(&self) -> PyResult<String> {
-        self.state
-            .snapshot()
-            .canonical_json()
-            .map_err(|error| PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}")))
+        self.state.snapshot().canonical_json().map_err(|error| {
+            PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}"))
+        })
     }
 
     pub fn snapshot_hash(&self) -> PyResult<String> {
@@ -253,7 +254,9 @@ impl PyOmniCombatEnv {
         let previous_hash = snapshot_hash(&self.state)?;
         let action_json = to_json(&action.action)?;
         let transition = apply_combat_action_with_events(&self.state, action.action.clone())
-            .map_err(|error| PyValueError::new_err(format!("illegal exact combat action: {error:?}")))?;
+            .map_err(|error| {
+                PyValueError::new_err(format!("illegal exact combat action: {error:?}"))
+            })?;
         let resulting_hash = snapshot_hash(&transition.state)?;
         let events_json = to_json(&transition.event_log)?;
 
@@ -312,14 +315,12 @@ impl PyOmniRunEnv {
 
     #[staticmethod]
     pub fn new_ironclad(seed: Option<&str>, ascension: Option<u8>) -> PyResult<Self> {
-        if seed.is_some() {
-            return Err(PyValueError::new_err(
-                "seed-start OmniRunEnv is not exposed yet; use combat_fixture or map_fixture",
-            ));
-        }
-        Ok(Self {
-            state: RunState::combat_fixture_with_ascension(ascension.unwrap_or(0)),
-        })
+        let ascension = ascension.unwrap_or(0);
+        let state = match seed {
+            Some(seed) => RunState::placeholder_seeded_ironclad(stable_seed(seed), ascension),
+            None => RunState::combat_fixture_with_ascension(ascension),
+        };
+        Ok(Self { state })
     }
 
     #[staticmethod]
@@ -331,8 +332,9 @@ impl PyOmniRunEnv {
 
     #[staticmethod]
     pub fn from_snapshot_json(json: &str) -> PyResult<Self> {
-        let snapshot: Snapshot<RunState> = serde_json::from_str(json)
-            .map_err(|error| PyValueError::new_err(format!("invalid run snapshot JSON: {error}")))?;
+        let snapshot: Snapshot<RunState> = serde_json::from_str(json).map_err(|error| {
+            PyValueError::new_err(format!("invalid run snapshot JSON: {error}"))
+        })?;
         if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
             return Err(PyValueError::new_err(format!(
                 "unsupported snapshot schema version: expected {}, got {}",
@@ -354,9 +356,9 @@ impl PyOmniRunEnv {
     }
 
     pub fn snapshot_json(&self) -> PyResult<String> {
-        run_snapshot(&self.state)
-            .canonical_json()
-            .map_err(|error| PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}")))
+        run_snapshot(&self.state).canonical_json().map_err(|error| {
+            PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}"))
+        })
     }
 
     pub fn snapshot_hash(&self) -> PyResult<String> {
@@ -382,8 +384,9 @@ impl PyOmniRunEnv {
     pub fn step(&mut self, action: &PyExactRunAction) -> PyResult<PyExactRunStepResult> {
         let previous_hash = run_snapshot_hash(&self.state)?;
         let action_json = run_action_json(&action.action)?;
-        let next = apply_exact_run_action(&self.state, &action.action)
-            .map_err(|error| PyValueError::new_err(format!("illegal exact run action: {error:?}")))?;
+        let next = apply_exact_run_action(&self.state, &action.action).map_err(|error| {
+            PyValueError::new_err(format!("illegal exact run action: {error:?}"))
+        })?;
         let resulting_hash = run_snapshot_hash(&next)?;
 
         self.state = next;
@@ -453,6 +456,18 @@ fn run_snapshot(state: &RunState) -> Snapshot<RunState> {
     }
 }
 
+fn stable_seed(seed: &str) -> u64 {
+    if let Ok(value) = seed.parse::<u64>() {
+        return value;
+    }
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in seed.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 fn run_snapshot_hash(state: &RunState) -> PyResult<String> {
     run_snapshot(state)
         .hash()
@@ -479,7 +494,11 @@ fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
     }
 
     if state.phase == RunPhase::Reward {
-        actions.extend(legal_reward_actions(state).into_iter().map(ExactRunActionKind::Run));
+        actions.extend(
+            legal_reward_actions(state)
+                .into_iter()
+                .map(ExactRunActionKind::Run),
+        );
     }
 
     if state.phase == RunPhase::Idle {
@@ -545,7 +564,10 @@ fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
         .collect()
 }
 
-fn apply_exact_run_action(state: &RunState, action: &ExactRunActionKind) -> sts_core::SimResult<RunState> {
+fn apply_exact_run_action(
+    state: &RunState,
+    action: &ExactRunActionKind,
+) -> sts_core::SimResult<RunState> {
     match action {
         ExactRunActionKind::Combat(action) => apply_combat_action_on_run(state, action.clone()),
         ExactRunActionKind::Event(action) => apply_event_action(state, *action),
@@ -601,7 +623,9 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Run(RunAction::BuyShopPotion { .. }) => "buy_shop_potion",
         ExactRunActionKind::Run(RunAction::UsePotion { .. }) => "use_potion",
         ExactRunActionKind::Run(RunAction::DiscardPotion { .. }) => "discard_potion",
-        ExactRunActionKind::Run(RunAction::ChooseCombatCardReward { .. }) => "choose_combat_card_reward",
+        ExactRunActionKind::Run(RunAction::ChooseCombatCardReward { .. }) => {
+            "choose_combat_card_reward"
+        }
         ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. }) => "choose_hand_select",
         ExactRunActionKind::Run(RunAction::ConfirmHandSelect) => "confirm_hand_select",
         ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. }) => "choose_draw_select",
@@ -721,7 +745,10 @@ mod tests {
             .step(&PyExactCombatAction::play_card(1, Some(1)))
             .expect("child can step independently");
 
-        assert_eq!(env.snapshot_hash().expect("parent still hashes"), parent_hash);
+        assert_eq!(
+            env.snapshot_hash().expect("parent still hashes"),
+            parent_hash
+        );
         assert_ne!(child.snapshot_hash().expect("child hashes"), parent_hash);
     }
 
@@ -757,8 +784,9 @@ mod tests {
     #[test]
     fn run_map_fixture_exposes_map_actions_and_round_trips_snapshot() {
         let env = PyOmniRunEnv::map_fixture();
-        let restored = PyOmniRunEnv::from_snapshot_json(&env.snapshot_json().expect("snapshot JSON"))
-            .expect("snapshot restores");
+        let restored =
+            PyOmniRunEnv::from_snapshot_json(&env.snapshot_json().expect("snapshot JSON"))
+                .expect("snapshot restores");
 
         assert_eq!(
             restored.snapshot_hash().expect("restored hashes"),
@@ -771,12 +799,24 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_constructor_reports_current_gap() {
-        Python::initialize();
-        let error = PyOmniRunEnv::new_ironclad(Some("TEST"), Some(0))
-            .err()
-            .expect("seed start is not exposed yet");
+    fn seed_start_constructor_uses_placeholder_generated_map() {
+        let first = PyOmniRunEnv::new_ironclad(Some("TEST"), Some(0)).expect("seed starts");
+        let second = PyOmniRunEnv::new_ironclad(Some("TEST"), Some(0)).expect("seed starts");
+        let other = PyOmniRunEnv::new_ironclad(Some("OTHER"), Some(0)).expect("seed starts");
 
-        assert!(error.to_string().contains("seed-start OmniRunEnv"));
+        assert_eq!(first.phase(), "idle");
+        assert_eq!(first.current_decision(), "map");
+        assert_eq!(
+            first.snapshot_hash().expect("first hash"),
+            second.snapshot_hash().expect("second hash")
+        );
+        assert_ne!(
+            first.snapshot_hash().expect("first hash"),
+            other.snapshot_hash().expect("other hash")
+        );
+        assert!(first
+            .exact_legal_actions()
+            .iter()
+            .any(|action| action.family() == "map"));
     }
 }

@@ -10,7 +10,7 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::shop_pool::colorless_discovery_card_choices,
     ids::{CardId, ContentId, MonsterId},
-    map::{milestone8_fixture, MapRunState, RoomKind},
+    map::{generated_map_fixture_for_ascension, milestone8_fixture, MapRunState, RoomKind},
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
@@ -2135,6 +2135,26 @@ impl RunState {
             ascension: 0,
             treasure_room: None,
         }
+    }
+
+    /// Start a simulator-only seeded Ironclad run.
+    ///
+    /// Fidelity: placeholder. This uses the deterministic placeholder map
+    /// generator, not target-game seed-start parity.
+    #[must_use]
+    pub fn placeholder_seeded_ironclad(seed: u64, ascension: u8) -> Self {
+        let mut run = Self::map_fixture();
+        run.deck = crate::content::deck::ironclad_starter_deck_for_ascension(ascension);
+        run.map = Some(generated_map_fixture_for_ascension(seed, ascension));
+        run.ascension = ascension;
+        run.event_rng_seed = seed;
+        run.reward_rng_seed = seed;
+        run.treasure_rng_seed = seed;
+        run.potion_rng_seed = seed;
+        run.relic_rng_seed = seed;
+        run.merchant_rng_seed = seed;
+        run.misc_rng_seed = seed;
+        run
     }
 
     pub fn reinit_misc_rng_for_floor(&mut self) {

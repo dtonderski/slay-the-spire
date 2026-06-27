@@ -25,9 +25,16 @@ class OmniRunSmokeTests(unittest.TestCase):
         self.assertEqual(env.phase(), "idle")
         self.assertTrue(any(action.family() == "map" for action in env.exact_legal_actions()))
 
-    def test_seed_start_reports_explicit_gap(self):
-        with self.assertRaises(ValueError):
-            sts.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
+    def test_seed_start_uses_placeholder_generated_map(self):
+        first = sts.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
+        second = sts.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
+        other = sts.OmniRunEnv.new_ironclad(seed="OTHER", ascension=0)
+
+        self.assertEqual(first.phase(), "idle")
+        self.assertEqual(first.current_decision(), "map")
+        self.assertEqual(first.snapshot_hash(), second.snapshot_hash())
+        self.assertNotEqual(first.snapshot_hash(), other.snapshot_hash())
+        self.assertTrue(any(action.family() == "map" for action in first.exact_legal_actions()))
 
 
 if __name__ == "__main__":
