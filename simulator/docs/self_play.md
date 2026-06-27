@@ -68,8 +68,36 @@ policies are rolled forward from each recorded combat snapshot.
 uv run python -m sts.self_play eval --corpus-dir target\selfplay-corpus --split eval --max-roots 64 --max-actions 40 --output target\selfplay-corpus\eval.json
 ```
 
+Restrict potion use during search/eval with `--allowed-potions`. Use a
+comma-separated list, `all`/`*` for no restriction, or `none` to forbid potion
+use:
+
+```powershell
+uv run python -m sts.self_play eval --corpus-dir target\selfplay-corpus --allowed-potions "Fire,Block,FruitJuice"
+uv run python -m sts.self_play eval --corpus-dir target\selfplay-corpus --allowed-potions none
+```
+
 The eval report includes potion metadata:
 
 - `potion_roots`: recorded combat roots where the run had potions.
 - `potion_action_roots`: recorded combat roots where potion actions were legal.
+- `allowed_potion_roots`: recorded combat roots where at least one legal potion
+  action survived the allowlist.
 - per-episode `potion_count`, `legal_action_kinds`, and `has_potion_actions`.
+
+## CommunicationMod Trace Boundary
+
+`eval` consumes simulator self-play traces because those records include
+`initial_snapshot_json` and per-step `before_snapshot_json`. Long
+CommunicationMod traces contain observed game states instead. They can have many
+potions, but they are not directly replayable as simulator roots until a
+state-reconstruction adapter emits simulator snapshots.
+
+Use `real-trace-report` to inspect that boundary:
+
+```powershell
+uv run python -m sts.self_play real-trace-report --trace ..\verification\corpus\communication_mod\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl
+```
+
+The report counts observed combat/potion combat states and explains whether
+root extraction is blocked by missing simulator snapshots.

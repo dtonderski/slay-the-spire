@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import argparse
 import hashlib
@@ -50,7 +50,9 @@ class TraceCombatRoot:
     snapshot_json: str
     split: str
     potion_count: int
+    potion_names: tuple[str, ...]
     legal_action_kinds: tuple[str, ...]
+    legal_potion_names: tuple[str, ...]
 
 
 def run_self_play(
@@ -316,15 +318,20 @@ def evaluate_self_play_corpus(
     max_roots: int = 64,
     max_actions: int = 40,
     candidates: Iterable[SearchCandidate] | None = None,
+    allowed_potions: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Compare search candidates from exact combat states recorded in traces."""
 
     trace_paths = _trace_paths(corpus_dir=corpus_dir, traces=traces)
+    extraction_report = real_trace_root_report(trace_paths)
     roots = _trace_combat_roots(trace_paths)
     if split != "all":
         roots = [root for root in roots if root.split == split]
     roots = roots[:max_roots]
-    candidates = list(candidates or default_candidates())
+    candidates = [
+        _candidate_with_allowed_potions(candidate, allowed_potions)
+        for candidate in list(candidates or default_candidates())
+    ]
 
     episodes = []
     for candidate in candidates:
@@ -343,8 +350,11 @@ def evaluate_self_play_corpus(
                 "trace_step": root.step,
                 "state_id": root.state_id,
                 "potion_count": root.potion_count,
+                "potion_names": list(root.potion_names),
                 "legal_action_kinds": list(root.legal_action_kinds),
+                "legal_potion_names": list(root.legal_potion_names),
                 "has_potion_actions": any("potion" in kind for kind in root.legal_action_kinds),
+                "has_allowed_potion_actions": _has_allowed_potion_actions(root, allowed_potions),
             }
             episodes.append(row)
 
@@ -355,16 +365,41 @@ def evaluate_self_play_corpus(
         "parity": "non_parity_simulator_only",
         "split": split,
         "trace_count": len(trace_paths),
+        "trace_extraction": extraction_report,
         "roots": len(roots),
         "max_roots": max_roots,
         "max_actions": max_actions,
+        "allowed_potions": allowed_potions,
         "root_family": "trace_combat_states",
         "potion_roots": sum(1 for root in roots if root.potion_count > 0),
         "potion_action_roots": sum(
             1 for root in roots if any("potion" in kind for kind in root.legal_action_kinds)
         ),
+        "allowed_potion_roots": sum(
+            1 for root in roots if _has_allowed_potion_actions(root, allowed_potions)
+        ),
+        "groups": _group_stats(roots, episodes, allowed_potions),
         "ranking": _rank_episode_dicts(episodes),
         "episodes": episodes,
+    }
+
+
+def real_trace_root_report(traces: Iterable[Path]) -> dict[str, Any]:
+    """Explain which traces can provide simulator combat roots."""
+
+    reports = [_single_trace_root_report(Path(path)) for path in traces]
+    return {
+        "traces": len(reports),
+        "extractable_traces": sum(1 for report in reports if report["extractable_roots"] > 0),
+        "extractable_roots": sum(int(report["extractable_roots"]) for report in reports),
+        "observed_combat_states": sum(int(report["observed_combat_states"]) for report in reports),
+        "observed_potion_combat_states": sum(
+            int(report["observed_potion_combat_states"]) for report in reports
+        ),
+        "blocked_traces": [
+            report for report in reports if report["extractable_roots"] == 0 and report["block_reason"]
+        ],
+        "files": reports,
     }
 
 
@@ -429,6 +464,61 @@ def _trace_paths(*, corpus_dir: Path | None, traces: Iterable[Path] | None) -> l
     return sorted(path for path in root.glob("*.jsonl") if path.is_file())
 
 
+def _single_trace_root_report(path: Path) -> dict[str, Any]:
+    records = _read_jsonl(path)
+    metadata = records[0] if records else {}
+    extractable_roots = 0
+    observed_combat_states = 0
+    observed_potion_combat_states = 0
+    for record in records[1:]:
+        if record.get("type") == "step" and (record.get("before_summary") or {}).get("phase") == "combat":
+            if isinstance(record.get("before_snapshot_json"), str):
+                extractable_roots += 1
+        game_state = ((record.get("message") or {}).get("game_state") or {}) if isinstance(record, dict) else {}
+        if _is_observed_combat_state(game_state):
+            observed_combat_states += 1
+            if _observed_usable_potions(game_state):
+                observed_potion_combat_states += 1
+
+    source = metadata.get("source") if isinstance(metadata, dict) else None
+    block_reason = None
+    if extractable_roots == 0 and observed_combat_states > 0:
+        block_reason = "observed CommunicationMod combat states do not include simulator snapshots"
+    elif extractable_roots == 0 and source == "communication_mod":
+        block_reason = "CommunicationMod trace lacks simulator initial/before snapshots"
+    elif extractable_roots == 0:
+        block_reason = "no simulator combat root snapshots found"
+    return {
+        "path": str(path),
+        "source": source,
+        "records": len(records),
+        "extractable_roots": extractable_roots,
+        "observed_combat_states": observed_combat_states,
+        "observed_potion_combat_states": observed_potion_combat_states,
+        "block_reason": block_reason,
+    }
+
+
+def _is_observed_combat_state(game_state: dict[str, Any]) -> bool:
+    if not isinstance(game_state, dict):
+        return False
+    if str(game_state.get("screen_type", "")).upper() == "COMBAT":
+        return True
+    if str(game_state.get("room_phase", "")).upper() == "COMBAT":
+        return True
+    return bool(game_state.get("monsters")) and bool(game_state.get("hand"))
+
+
+def _observed_usable_potions(game_state: dict[str, Any]) -> list[str]:
+    potions = []
+    for potion in game_state.get("potions") or []:
+        if not isinstance(potion, dict):
+            continue
+        if potion.get("can_use"):
+            potions.append(str(potion.get("name") or potion.get("id") or "unknown"))
+    return potions
+
+
 def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
     roots: list[TraceCombatRoot] = []
     seen: set[str] = set()
@@ -455,6 +545,16 @@ def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
                 for action in record.get("legal_actions", [])
                 if isinstance(action, dict)
             )
+            potion_names = tuple(str(potion) for potion in summary.get("potions") or [])
+            legal_potion_names = tuple(
+                name
+                for name in (
+                    _potion_name_for_action(action, potion_names)
+                    for action in record.get("legal_actions", [])
+                    if isinstance(action, dict)
+                )
+                if name is not None
+            )
             roots.append(
                 TraceCombatRoot(
                     trace_path=trace_path,
@@ -462,8 +562,10 @@ def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
                     state_id=state_id,
                     snapshot_json=snapshot_json,
                     split=_split_for_state(state_id),
-                    potion_count=len(summary.get("potions") or []),
+                    potion_count=len(potion_names),
+                    potion_names=potion_names,
                     legal_action_kinds=legal_action_kinds,
+                    legal_potion_names=legal_potion_names,
                 )
             )
     roots.sort(key=lambda root: (str(root.trace_path), root.step, root.state_id))
@@ -544,6 +646,9 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "potion_roots": sum(1 for episode in candidate_episodes if episode["potion_count"] > 0),
                 "potion_action_roots": sum(
                     1 for episode in candidate_episodes if episode["has_potion_actions"]
+                ),
+                "allowed_potion_roots": sum(
+                    1 for episode in candidate_episodes if episode["has_allowed_potion_actions"]
                 ),
             }
         )
@@ -697,6 +802,80 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _candidate_with_allowed_potions(
+    candidate: SearchCandidate,
+    allowed_potions: tuple[str, ...] | None,
+) -> SearchCandidate:
+    if allowed_potions is None:
+        return candidate
+    return SearchCandidate(
+        candidate.name,
+        replace(candidate.config, allowed_potions=allowed_potions),
+    )
+
+
+def _has_allowed_potion_actions(
+    root: TraceCombatRoot,
+    allowed_potions: tuple[str, ...] | None,
+) -> bool:
+    if allowed_potions is None:
+        return bool(root.legal_potion_names)
+    allowed = {_normalize_potion_name(name) for name in allowed_potions}
+    return any(_normalize_potion_name(name) in allowed for name in root.legal_potion_names)
+
+
+def _potion_name_for_action(action: dict[str, Any], potion_names: tuple[str, ...]) -> str | None:
+    if str(action.get("kind", "")).lower() != "use_potion":
+        return None
+    action_json = action.get("json")
+    if not isinstance(action_json, str):
+        return None
+    try:
+        data = json.loads(action_json)
+    except json.JSONDecodeError:
+        return None
+    use = data.get("UsePotion") if isinstance(data, dict) else None
+    slot = use.get("slot") if isinstance(use, dict) else None
+    if not isinstance(slot, int) or slot >= len(potion_names):
+        return None
+    return potion_names[slot]
+
+
+def _group_stats(
+    roots: list[TraceCombatRoot],
+    episodes: list[dict[str, Any]],
+    allowed_potions: tuple[str, ...] | None,
+) -> dict[str, Any]:
+    return {
+        "all": _group_stat_for_roots(roots, episodes),
+        "potion": _group_stat_for_roots(
+            [root for root in roots if root.potion_count > 0],
+            episodes,
+        ),
+        "allowed_potion": _group_stat_for_roots(
+            [root for root in roots if _has_allowed_potion_actions(root, allowed_potions)],
+            episodes,
+        ),
+    }
+
+
+def _group_stat_for_roots(
+    roots: list[TraceCombatRoot],
+    episodes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    keys = {(str(root.trace_path), root.step, root.state_id) for root in roots}
+    group_episodes = [
+        episode
+        for episode in episodes
+        if (episode["trace_path"], episode["trace_step"], episode["state_id"]) in keys
+    ]
+    return {
+        "roots": len(roots),
+        "episodes": len(group_episodes),
+        "ranking": _rank_episode_dicts(group_episodes),
+    }
+
+
 def _split_for_state(state_id: str) -> str:
     digest = hashlib.sha256(state_id.encode("utf-8")).digest()[0]
     return "eval" if digest % 5 == 0 else "dev"
@@ -705,6 +884,10 @@ def _split_for_state(state_id: str) -> str:
 def _mean(values: Iterable[float]) -> float:
     values = list(values)
     return sum(values) / len(values) if values else 0.0
+
+
+def _normalize_potion_name(name: str) -> str:
+    return "".join(char.lower() for char in name if char.isalnum())
 
 
 def _safe_file_stem(value: str) -> str:
@@ -730,6 +913,16 @@ def _parse_seed_specs(specs: Iterable[str]) -> list[str]:
     return seeds
 
 
+def _parse_allowed_potions(value: str | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if value.strip().lower() in {"*", "all"}:
+        return None
+    if not value.strip() or value.strip().lower() in {"none", "no", "false"}:
+        return ()
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generate or verify simulator self-play traces.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -741,6 +934,7 @@ def main(argv: list[str] | None = None) -> None:
     run_parser.add_argument("--start", choices=["seed", "map_fixture", "combat_fixture"], default="seed")
     run_parser.add_argument("--random-seed", type=int, default=0)
     run_parser.add_argument("--max-steps", type=int, default=200)
+    run_parser.add_argument("--allowed-potions")
 
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("trace", type=Path)
@@ -752,6 +946,7 @@ def main(argv: list[str] | None = None) -> None:
     batch_parser.add_argument("--start", choices=["seed", "map_fixture", "combat_fixture"], default="seed")
     batch_parser.add_argument("--random-seed", type=int, default=0)
     batch_parser.add_argument("--max-steps", type=int, default=200)
+    batch_parser.add_argument("--allowed-potions")
 
     eval_parser = subparsers.add_parser("eval")
     eval_parser.add_argument("--corpus-dir", type=Path)
@@ -759,7 +954,11 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser.add_argument("--split", choices=["dev", "eval", "all"], default="all")
     eval_parser.add_argument("--max-roots", type=int, default=64)
     eval_parser.add_argument("--max-actions", type=int, default=40)
+    eval_parser.add_argument("--allowed-potions")
     eval_parser.add_argument("--output", type=Path)
+
+    report_parser = subparsers.add_parser("real-trace-report")
+    report_parser.add_argument("--trace", dest="traces", type=Path, action="append", required=True)
 
     args = parser.parse_args(argv)
     if args.command == "run":
@@ -770,6 +969,10 @@ def main(argv: list[str] | None = None) -> None:
             start=args.start,
             random_seed=args.random_seed,
             max_steps=args.max_steps,
+            combat_policy=replace(
+                DEFAULT_COMBAT_POLICY,
+                allowed_potions=_parse_allowed_potions(args.allowed_potions),
+            ),
         )
         print(json.dumps(result.__dict__ | {"trace_path": str(result.trace_path)}, indent=2))
     elif args.command == "verify":
@@ -782,6 +985,10 @@ def main(argv: list[str] | None = None) -> None:
             start=args.start,
             random_seed=args.random_seed,
             max_steps=args.max_steps,
+            combat_policy=replace(
+                DEFAULT_COMBAT_POLICY,
+                allowed_potions=_parse_allowed_potions(args.allowed_potions),
+            ),
         )
         print(json.dumps(result.__dict__ | {"output_dir": str(result.output_dir), "index_path": str(result.index_path)}, indent=2, sort_keys=True))
     elif args.command == "eval":
@@ -791,12 +998,15 @@ def main(argv: list[str] | None = None) -> None:
             split=args.split,
             max_roots=args.max_roots,
             max_actions=args.max_actions,
+            allowed_potions=_parse_allowed_potions(args.allowed_potions),
         )
         text = json.dumps(report, indent=2, sort_keys=True)
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(text, encoding="utf-8")
         print(text)
+    elif args.command == "real-trace-report":
+        print(json.dumps(real_trace_root_report(args.traces), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

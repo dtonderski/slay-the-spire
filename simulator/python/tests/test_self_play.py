@@ -8,6 +8,7 @@ from sts.search import CombatSearchConfig
 from sts.search_lab import SearchCandidate
 from sts.self_play import (
     evaluate_self_play_corpus,
+    real_trace_root_report,
     run_self_play,
     run_self_play_batch,
     verify_self_play_trace,
@@ -170,12 +171,72 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(report["parity"], "non_parity_simulator_only")
             self.assertGreater(report["roots"], 0)
             self.assertGreater(report["potion_action_roots"], 0)
+            self.assertGreater(report["allowed_potion_roots"], 0)
+            self.assertGreater(report["groups"]["potion"]["roots"], 0)
+            self.assertGreater(report["groups"]["allowed_potion"]["roots"], 0)
             self.assertEqual(len(report["ranking"]), 1)
             self.assertEqual(report["ranking"][0]["candidate"], "tiny_greedy")
             self.assertTrue(report["episodes"])
             self.assertEqual(report["episodes"][0]["trace_path"], str(trace_path))
             self.assertIn("legal_action_kinds", report["episodes"][0])
             self.assertTrue(report["episodes"][0]["has_potion_actions"])
+            self.assertTrue(report["episodes"][0]["has_allowed_potion_actions"])
+
+            no_potions_report = evaluate_self_play_corpus(
+                traces=[trace_path],
+                max_roots=2,
+                max_actions=2,
+                allowed_potions=(),
+                candidates=[
+                    SearchCandidate(
+                        "tiny_greedy",
+                        CombatSearchConfig(
+                            max_depth=1,
+                            objective="survive_then_damage",
+                            algorithm="greedy",
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(no_potions_report["allowed_potions"], ())
+            self.assertEqual(no_potions_report["allowed_potion_roots"], 0)
+            self.assertFalse(no_potions_report["episodes"][0]["has_allowed_potion_actions"])
+
+    def test_real_trace_report_explains_missing_simulator_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {
+                        "type": "state",
+                        "step": 1,
+                        "message": {
+                            "game_state": {
+                                "screen_type": "COMBAT",
+                                "room_phase": "COMBAT",
+                                "hand": [{"name": "Strike"}],
+                                "monsters": [{"name": "Cultist", "current_hp": 48}],
+                                "potions": [
+                                    {
+                                        "name": "Fire Potion",
+                                        "id": "Fire Potion",
+                                        "can_use": True,
+                                    }
+                                ],
+                            }
+                        },
+                    },
+                ],
+            )
+
+            report = real_trace_root_report([trace_path])
+
+            self.assertEqual(report["extractable_roots"], 0)
+            self.assertEqual(report["observed_combat_states"], 1)
+            self.assertEqual(report["observed_potion_combat_states"], 1)
+            self.assertIn("simulator snapshots", report["blocked_traces"][0]["block_reason"])
 
     def test_verify_rejects_action_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
