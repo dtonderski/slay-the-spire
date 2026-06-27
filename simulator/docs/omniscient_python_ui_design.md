@@ -905,6 +905,23 @@ py -3.14 -m unittest discover -s python/tests -v
 - expose state/actions/step/snapshot/search endpoints
 - render simulator-only combat first
 
+Status: implemented as a dependency-free local Python service in
+`sts.ui_service` plus static vanilla UI assets under `sts/ui_static`.
+
+Implemented endpoints:
+
+```text
+POST /api/sessions
+GET /api/sessions/{id}
+GET /api/sessions/{id}/snapshot
+POST /api/sessions/{id}/step
+POST /api/sessions/{id}/search
+```
+
+The service uses snapshot hashes as `state_id`, requires `source_state_id` on
+step requests, rejects stale actions without mutating state, and preserves
+available actions after rejection.
+
 ### Slice 4: Run Environment
 
 - expose `OmniRunEnv`

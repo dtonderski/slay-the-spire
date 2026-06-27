@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>STS Omniscient Combat</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Omniscient Combat</h1>
+          <p id="sessionMeta" class="subtle">No session</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="newSessionButton" class="primary" type="button">New combat fixture</button>
+          <button id="reloadButton" type="button" disabled>Reload</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="board-band" aria-labelledby="boardTitle">
+          <div class="section-head">
+            <div>
+              <h2 id="boardTitle">Board</h2>
+              <p id="stateSummary" class="subtle">Start a combat fixture to inspect simulator state.</p>
+            </div>
+            <div id="lifecycleBadge" class="status-badge neutral">Ready</div>
+          </div>
+
+          <div class="combat-grid">
+            <div id="playerPanel" class="player-panel empty">
+              <span class="empty-text">Player state will appear here.</span>
+            </div>
+            <div id="monsterPanel" class="monster-panel empty">
+              <span class="empty-text">Monsters will appear here.</span>
+            </div>
+          </div>
+
+          <div class="pile-strip" aria-label="Piles and resources">
+            <div class="pile-stat"><span>Energy</span><strong id="energyStat">-</strong></div>
+            <div class="pile-stat"><span>Draw</span><strong id="drawStat">-</strong></div>
+            <div class="pile-stat"><span>Discard</span><strong id="discardStat">-</strong></div>
+            <div class="pile-stat"><span>Exhaust</span><strong id="exhaustStat">-</strong></div>
+          </div>
+        </section>
+
+        <section class="hand-band" aria-labelledby="handTitle">
+          <div class="section-head compact">
+            <h2 id="handTitle">Hand</h2>
+            <span id="handCount" class="subtle">0 cards</span>
+          </div>
+          <div id="handPanel" class="hand-row empty">
+            <span class="empty-text">No hand data.</span>
+          </div>
+        </section>
+
+        <section class="control-band" aria-labelledby="actionsTitle">
+          <div class="action-column">
+            <div class="section-head compact">
+              <h2 id="actionsTitle">Actions</h2>
+              <span id="actionCount" class="subtle">0 available</span>
+            </div>
+            <div id="actionError" class="message error hidden" role="alert"></div>
+            <div id="pendingMessage" class="message info hidden"></div>
+            <div id="actionsPanel" class="button-grid empty">
+              <span class="empty-text">No actions loaded.</span>
+            </div>
+          </div>
+
+          <div class="search-column">
+            <div class="section-head compact">
+              <h2>Search</h2>
+              <span id="searchStatus" class="subtle">Idle</span>
+            </div>
+            <div class="search-controls">
+              <label for="maxDepthInput">Max depth</label>
+              <input id="maxDepthInput" type="number" min="1" max="80" value="8" />
+              <button id="searchButton" type="button" disabled>Run search</button>
+              <button id="applyBestButton" type="button" disabled>Apply best</button>
+            </div>
+            <div id="searchResult" class="search-result empty">
+              <span class="empty-text">No recommendation yet.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="debug-band" aria-labelledby="debugTitle">
+          <div class="section-head compact">
+            <h2 id="debugTitle">Debug</h2>
+            <div class="debug-tabs" role="tablist" aria-label="Debug views">
+              <button class="tab-button active" type="button" data-debug-tab="state">State</button>
+              <button class="tab-button" type="button" data-debug-tab="snapshot">Snapshot</button>
+              <button class="tab-button" type="button" data-debug-tab="raw">Raw</button>
+            </div>
+          </div>
+          <dl class="debug-facts">
+            <div><dt>Session</dt><dd id="debugSessionId">-</dd></div>
+            <div><dt>State</dt><dd id="debugStateId">-</dd></div>
+            <div><dt>Phase</dt><dd id="debugPhase">-</dd></div>
+            <div><dt>Hash</dt><dd id="debugHash">-</dd></div>
+          </dl>
+          <pre id="debugJson" class="debug-json">{}</pre>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
