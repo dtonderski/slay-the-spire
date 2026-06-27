@@ -929,6 +929,15 @@ available actions after rejection.
 - add exact legal-action adapters by `RunPhase`
 - return `UnsupportedPhase` for gaps
 
+Status: implemented for deterministic `combat_fixture()` and `map_fixture()`
+entrypoints, state/snapshot restore, clone, phase/current-decision reporting,
+exact legal actions, and step dispatch.
+
+The current exact action adapter covers core-backed combat, map, rest, event,
+shop, and validation-backed reward actions. Seed-start construction and some
+combat selection/potion substates are intentionally reported as explicit gaps
+until their legal-action enumeration is first-class enough for UI/search use.
+
 ### Slice 5: Bridge Mirror
 
 - replace the current trace UI with this UI; reuse only bridge plumbing that is

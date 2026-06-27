@@ -1,8 +1,11 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use sts_core::{
-    apply_combat_action_with_events, legal_combat_actions, CardId, CombatAction, CombatPhase,
-    CombatState, MonsterId, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    apply_combat_action_on_run, apply_combat_action_with_events, apply_event_action,
+    apply_map_action_on_run, apply_rest_action, apply_run_action, legal_combat_actions,
+    legal_event_actions, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, CardId,
+    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, RestAction,
+    RunAction, RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 
 #[pyclass(name = "ExactCombatAction")]
@@ -96,6 +99,82 @@ pub struct PyExactStepResult {
     pub terminal: bool,
     #[pyo3(get)]
     pub terminal_reason: Option<String>,
+}
+
+#[derive(Clone)]
+enum ExactRunActionKind {
+    Combat(CombatAction),
+    Event(EventAction),
+    Map(MapAction),
+    Rest(RestAction),
+    Run(RunAction),
+}
+
+#[pyclass(name = "ExactRunAction")]
+#[derive(Clone)]
+pub struct PyExactRunAction {
+    action: ExactRunActionKind,
+}
+
+#[pymethods]
+impl PyExactRunAction {
+    #[staticmethod]
+    pub fn skip_reward() -> Self {
+        Self {
+            action: ExactRunActionKind::Run(RunAction::SkipReward),
+        }
+    }
+
+    #[staticmethod]
+    pub fn take_gold_reward() -> Self {
+        Self {
+            action: ExactRunActionKind::Run(RunAction::TakeGoldReward),
+        }
+    }
+
+    #[staticmethod]
+    pub fn open_card_reward() -> Self {
+        Self {
+            action: ExactRunActionKind::Run(RunAction::OpenCardReward),
+        }
+    }
+
+    pub fn json(&self) -> PyResult<String> {
+        run_action_json(&self.action)
+    }
+
+    pub fn family(&self) -> &'static str {
+        run_action_family(&self.action)
+    }
+
+    pub fn kind(&self) -> String {
+        run_action_kind(&self.action).to_owned()
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!("ExactRunAction({})", self.json()?))
+    }
+}
+
+#[pyclass(name = "ExactRunStepResult")]
+#[derive(Clone)]
+pub struct PyExactRunStepResult {
+    #[pyo3(get)]
+    pub state_json: String,
+    #[pyo3(get)]
+    pub snapshot_json: String,
+    #[pyo3(get)]
+    pub snapshot_hash: String,
+    #[pyo3(get)]
+    pub phase: String,
+    #[pyo3(get)]
+    pub current_decision: String,
+    #[pyo3(get)]
+    pub exact_legal_actions: Vec<PyExactRunAction>,
+    #[pyo3(get)]
+    pub transition: PyDebugTransition,
+    #[pyo3(get)]
+    pub unsupported_reason: Option<String>,
 }
 
 #[pyclass(name = "OmniCombatEnv")]
@@ -209,12 +288,143 @@ impl PyOmniCombatEnv {
     }
 }
 
+#[pyclass(name = "OmniRunEnv")]
+#[derive(Clone)]
+pub struct PyOmniRunEnv {
+    state: RunState,
+}
+
+#[pymethods]
+impl PyOmniRunEnv {
+    #[staticmethod]
+    pub fn combat_fixture() -> Self {
+        Self {
+            state: RunState::combat_fixture(),
+        }
+    }
+
+    #[staticmethod]
+    pub fn map_fixture() -> Self {
+        Self {
+            state: RunState::map_fixture(),
+        }
+    }
+
+    #[staticmethod]
+    pub fn new_ironclad(seed: Option<&str>, ascension: Option<u8>) -> PyResult<Self> {
+        if seed.is_some() {
+            return Err(PyValueError::new_err(
+                "seed-start OmniRunEnv is not exposed yet; use combat_fixture or map_fixture",
+            ));
+        }
+        Ok(Self {
+            state: RunState::combat_fixture_with_ascension(ascension.unwrap_or(0)),
+        })
+    }
+
+    #[staticmethod]
+    pub fn from_state_json(json: &str) -> PyResult<Self> {
+        let state = serde_json::from_str(json)
+            .map_err(|error| PyValueError::new_err(format!("invalid run state JSON: {error}")))?;
+        Ok(Self { state })
+    }
+
+    #[staticmethod]
+    pub fn from_snapshot_json(json: &str) -> PyResult<Self> {
+        let snapshot: Snapshot<RunState> = serde_json::from_str(json)
+            .map_err(|error| PyValueError::new_err(format!("invalid run snapshot JSON: {error}")))?;
+        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+            return Err(PyValueError::new_err(format!(
+                "unsupported snapshot schema version: expected {}, got {}",
+                SNAPSHOT_SCHEMA_VERSION, snapshot.schema_version
+            )));
+        }
+        Ok(Self {
+            state: snapshot.state,
+        })
+    }
+
+    #[pyo3(name = "clone")]
+    pub fn clone_env(&self) -> Self {
+        self.clone()
+    }
+
+    pub fn state_json(&self) -> PyResult<String> {
+        to_json(&self.state)
+    }
+
+    pub fn snapshot_json(&self) -> PyResult<String> {
+        run_snapshot(&self.state)
+            .canonical_json()
+            .map_err(|error| PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}")))
+    }
+
+    pub fn snapshot_hash(&self) -> PyResult<String> {
+        run_snapshot_hash(&self.state)
+    }
+
+    pub fn phase(&self) -> String {
+        run_phase_name(self.state.phase).to_owned()
+    }
+
+    pub fn current_decision(&self) -> String {
+        run_current_decision(&self.state).to_owned()
+    }
+
+    pub fn unsupported_reason(&self) -> Option<String> {
+        run_unsupported_reason(&self.state).map(str::to_owned)
+    }
+
+    pub fn exact_legal_actions(&self) -> Vec<PyExactRunAction> {
+        exact_run_legal_actions(&self.state)
+    }
+
+    pub fn step(&mut self, action: &PyExactRunAction) -> PyResult<PyExactRunStepResult> {
+        let previous_hash = run_snapshot_hash(&self.state)?;
+        let action_json = run_action_json(&action.action)?;
+        let next = apply_exact_run_action(&self.state, &action.action)
+            .map_err(|error| PyValueError::new_err(format!("illegal exact run action: {error:?}")))?;
+        let resulting_hash = run_snapshot_hash(&next)?;
+
+        self.state = next;
+
+        Ok(PyExactRunStepResult {
+            state_json: self.state_json()?,
+            snapshot_json: self.snapshot_json()?,
+            snapshot_hash: resulting_hash.clone(),
+            phase: self.phase(),
+            current_decision: self.current_decision(),
+            exact_legal_actions: self.exact_legal_actions(),
+            transition: PyDebugTransition {
+                action_json,
+                previous_hash,
+                resulting_hash,
+                events_json: "[]".to_owned(),
+                rng_draws_json: "[]".to_owned(),
+                simulator_error: None,
+            },
+            unsupported_reason: self.unsupported_reason(),
+        })
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!(
+            "OmniRunEnv(phase={}, snapshot_hash={})",
+            self.phase(),
+            self.snapshot_hash()?
+        ))
+    }
+}
+
 #[pymodule]
 fn sts_omni(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyExactCombatAction>()?;
+    module.add_class::<PyExactRunAction>()?;
     module.add_class::<PyDebugTransition>()?;
     module.add_class::<PyExactStepResult>()?;
+    module.add_class::<PyExactRunStepResult>()?;
     module.add_class::<PyOmniCombatEnv>()?;
+    module.add_class::<PyOmniRunEnv>()?;
     Ok(())
 }
 
@@ -236,9 +446,208 @@ fn snapshot_hash(state: &CombatState) -> PyResult<String> {
         .map_err(|error| PyRuntimeError::new_err(format!("snapshot hashing failed: {error:?}")))
 }
 
+fn run_snapshot(state: &RunState) -> Snapshot<RunState> {
+    Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        state: state.clone(),
+    }
+}
+
+fn run_snapshot_hash(state: &RunState) -> PyResult<String> {
+    run_snapshot(state)
+        .hash()
+        .map(|hash| hash.to_string())
+        .map_err(|error| PyRuntimeError::new_err(format!("snapshot hashing failed: {error:?}")))
+}
+
 fn to_json<T: serde::Serialize>(value: &T) -> PyResult<String> {
     serde_json::to_string(value)
         .map_err(|error| PyRuntimeError::new_err(format!("JSON serialization failed: {error}")))
+}
+
+fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
+    let mut actions = Vec::new();
+
+    if state.phase == RunPhase::Combat {
+        if let Some(combat) = state.combat.as_ref() {
+            actions.extend(
+                legal_combat_actions(combat)
+                    .into_iter()
+                    .map(ExactRunActionKind::Combat),
+            );
+        }
+    }
+
+    if state.phase == RunPhase::Reward {
+        actions.extend(legal_reward_actions(state).into_iter().map(ExactRunActionKind::Run));
+    }
+
+    if state.phase == RunPhase::Idle {
+        actions.extend(
+            legal_map_actions_on_run(state)
+                .into_iter()
+                .map(ExactRunActionKind::Map),
+        );
+    }
+
+    if state.phase == RunPhase::Rest {
+        actions.extend(
+            legal_rest_actions(state)
+                .into_iter()
+                .map(ExactRunActionKind::Rest),
+        );
+    }
+
+    if state.phase == RunPhase::Event {
+        actions.extend(
+            legal_event_actions(state)
+                .into_iter()
+                .map(ExactRunActionKind::Event),
+        );
+    }
+
+    if state.phase == RunPhase::Shop {
+        actions.extend(
+            legal_shop_actions(state)
+                .into_iter()
+                .map(ExactRunActionKind::Run),
+        );
+    }
+
+    actions
+        .into_iter()
+        .map(|action| PyExactRunAction { action })
+        .collect()
+}
+
+fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
+    let mut candidates = vec![
+        RunAction::SkipReward,
+        RunAction::TakeGoldReward,
+        RunAction::TakeStolenGoldReward,
+        RunAction::TakePotionReward,
+        RunAction::TakeRelicReward,
+        RunAction::OpenCardReward,
+        RunAction::SkipPotionReward,
+        RunAction::TakeSingingBowlReward,
+    ];
+    if let Some(reward) = state.reward.as_ref() {
+        candidates.extend(
+            reward
+                .choices
+                .iter()
+                .map(|choice| RunAction::TakeCardReward { card_id: choice.id }),
+        );
+    }
+    candidates
+        .into_iter()
+        .filter(|action| state.validate_reward_action(*action).is_ok())
+        .collect()
+}
+
+fn apply_exact_run_action(state: &RunState, action: &ExactRunActionKind) -> sts_core::SimResult<RunState> {
+    match action {
+        ExactRunActionKind::Combat(action) => apply_combat_action_on_run(state, action.clone()),
+        ExactRunActionKind::Event(action) => apply_event_action(state, *action),
+        ExactRunActionKind::Map(action) => apply_map_action_on_run(state, *action),
+        ExactRunActionKind::Rest(action) => apply_rest_action(state, *action),
+        ExactRunActionKind::Run(action) => apply_run_action(state, *action),
+    }
+}
+
+fn run_action_json(action: &ExactRunActionKind) -> PyResult<String> {
+    match action {
+        ExactRunActionKind::Combat(action) => to_json(action),
+        ExactRunActionKind::Event(action) => to_json(action),
+        ExactRunActionKind::Map(action) => to_json(action),
+        ExactRunActionKind::Rest(action) => to_json(action),
+        ExactRunActionKind::Run(action) => to_json(action),
+    }
+}
+
+fn run_action_family(action: &ExactRunActionKind) -> &'static str {
+    match action {
+        ExactRunActionKind::Combat(_) => "combat",
+        ExactRunActionKind::Event(_) => "event",
+        ExactRunActionKind::Map(_) => "map",
+        ExactRunActionKind::Rest(_) => "rest",
+        ExactRunActionKind::Run(_) => "run",
+    }
+}
+
+fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
+    match action {
+        ExactRunActionKind::Combat(CombatAction::PlayCard { .. }) => "play_card",
+        ExactRunActionKind::Combat(CombatAction::EndTurn) => "end_turn",
+        ExactRunActionKind::Event(EventAction::Choose { .. }) => "event_choose",
+        ExactRunActionKind::Map(MapAction::ChooseNode { .. }) => "choose_map_node",
+        ExactRunActionKind::Rest(RestAction::Heal) => "rest_heal",
+        ExactRunActionKind::Rest(RestAction::OpenSmith) => "rest_open_smith",
+        ExactRunActionKind::Rest(RestAction::Smith { .. }) => "rest_smith",
+        ExactRunActionKind::Rest(RestAction::RemoveCard { .. }) => "rest_remove_card",
+        ExactRunActionKind::Rest(RestAction::Lift) => "rest_lift",
+        ExactRunActionKind::Rest(RestAction::Dig) => "rest_dig",
+        ExactRunActionKind::Run(RunAction::SkipReward) => "skip_reward",
+        ExactRunActionKind::Run(RunAction::TakeCardReward { .. }) => "take_card_reward",
+        ExactRunActionKind::Run(RunAction::TakeSingingBowlReward) => "take_singing_bowl_reward",
+        ExactRunActionKind::Run(RunAction::TakeGoldReward) => "take_gold_reward",
+        ExactRunActionKind::Run(RunAction::TakeStolenGoldReward) => "take_stolen_gold_reward",
+        ExactRunActionKind::Run(RunAction::TakePotionReward) => "take_potion_reward",
+        ExactRunActionKind::Run(RunAction::TakeRelicReward) => "take_relic_reward",
+        ExactRunActionKind::Run(RunAction::OpenCardReward) => "open_card_reward",
+        ExactRunActionKind::Run(RunAction::SkipPotionReward) => "skip_potion_reward",
+        ExactRunActionKind::Run(RunAction::BuyShopCard { .. }) => "buy_shop_card",
+        ExactRunActionKind::Run(RunAction::BuyShopRelic { .. }) => "buy_shop_relic",
+        ExactRunActionKind::Run(RunAction::BuyShopPotion { .. }) => "buy_shop_potion",
+        ExactRunActionKind::Run(RunAction::UsePotion { .. }) => "use_potion",
+        ExactRunActionKind::Run(RunAction::DiscardPotion { .. }) => "discard_potion",
+        ExactRunActionKind::Run(RunAction::ChooseCombatCardReward { .. }) => "choose_combat_card_reward",
+        ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. }) => "choose_hand_select",
+        ExactRunActionKind::Run(RunAction::ConfirmHandSelect) => "confirm_hand_select",
+        ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. }) => "choose_draw_select",
+        ExactRunActionKind::Run(RunAction::ConfirmDrawSelect) => "confirm_draw_select",
+        ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. }) => "choose_discard_select",
+        ExactRunActionKind::Run(RunAction::ConfirmDiscardSelect) => "confirm_discard_select",
+        ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. }) => "choose_exhaust_select",
+        ExactRunActionKind::Run(RunAction::ConfirmExhaustSelect) => "confirm_exhaust_select",
+        ExactRunActionKind::Run(RunAction::EnterShop) => "enter_shop",
+        ExactRunActionKind::Run(RunAction::LeaveShop) => "leave_shop",
+        ExactRunActionKind::Run(RunAction::OpenShopRemove) => "open_shop_remove",
+    }
+}
+
+fn run_current_decision(state: &RunState) -> &'static str {
+    if state.card_grid.is_some() {
+        return "grid";
+    }
+    match state.phase {
+        RunPhase::Combat => "combat",
+        RunPhase::Reward => "reward",
+        RunPhase::Rest => "rest",
+        RunPhase::Event => "event",
+        RunPhase::Shop => "shop",
+        RunPhase::Idle if state.map.is_some() => "map",
+        RunPhase::Idle => "idle",
+    }
+}
+
+fn run_unsupported_reason(state: &RunState) -> Option<&'static str> {
+    if exact_run_legal_actions(state).is_empty() {
+        Some("no exact run legal-action adapter for current decision")
+    } else {
+        None
+    }
+}
+
+fn run_phase_name(phase: RunPhase) -> &'static str {
+    match phase {
+        RunPhase::Combat => "combat",
+        RunPhase::Reward => "reward",
+        RunPhase::Rest => "rest",
+        RunPhase::Event => "event",
+        RunPhase::Shop => "shop",
+        RunPhase::Idle => "idle",
+    }
 }
 
 fn phase_name(phase: CombatPhase) -> &'static str {
@@ -325,5 +734,49 @@ mod tests {
         let _ = env.exact_legal_actions();
 
         assert_eq!(env.snapshot_hash().expect("hashes after"), before);
+    }
+
+    #[test]
+    fn run_combat_fixture_exposes_combat_actions_and_steps() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        let before = env.snapshot_hash().expect("run hashes before");
+        let actions = env.exact_legal_actions();
+        let strike = actions
+            .iter()
+            .find(|action| action.kind() == "play_card")
+            .expect("combat fixture has a play action")
+            .clone();
+
+        let result = env.step(&strike).expect("run combat action applies");
+
+        assert_eq!(result.transition.previous_hash, before);
+        assert_ne!(result.snapshot_hash, before);
+        assert_eq!(env.phase(), "combat");
+    }
+
+    #[test]
+    fn run_map_fixture_exposes_map_actions_and_round_trips_snapshot() {
+        let env = PyOmniRunEnv::map_fixture();
+        let restored = PyOmniRunEnv::from_snapshot_json(&env.snapshot_json().expect("snapshot JSON"))
+            .expect("snapshot restores");
+
+        assert_eq!(
+            restored.snapshot_hash().expect("restored hashes"),
+            env.snapshot_hash().expect("run hashes")
+        );
+        assert!(env
+            .exact_legal_actions()
+            .iter()
+            .any(|action| action.family() == "map"));
+    }
+
+    #[test]
+    fn seed_start_constructor_reports_current_gap() {
+        Python::initialize();
+        let error = PyOmniRunEnv::new_ironclad(Some("TEST"), Some(0))
+            .err()
+            .expect("seed start is not exposed yet");
+
+        assert!(error.to_string().contains("seed-start OmniRunEnv"));
     }
 }
