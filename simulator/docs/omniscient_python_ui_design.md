@@ -924,10 +924,13 @@ POST /api/sessions/{id}/restore
 
 The service uses snapshot hashes as `state_id`, requires `source_state_id` on
 step requests, rejects stale actions without mutating state, and preserves
-available actions after rejection.
+available actions after rejection. Simulator actions now return server-issued
+`command_id` values on applied, restored, stale, and rejected lifecycle results,
+and rejected invalid/unknown actions explicitly report `state_unchanged = true`
+while regenerating the current action list.
 Snapshot restore is exposed through the same session layer for combat and run
 sessions; the debug UI can restore a loaded full snapshot, regenerate actions,
-and display a `restored` command lifecycle result.
+and display a `restored` command lifecycle result with its own `command_id`.
 Separate state, action-list, and pending-command endpoints are available for
 clients that want the stable service DTOs instead of the combined session
 payload.
@@ -998,7 +1001,10 @@ actions before they can write `next_command.txt`.
 Bridge status now includes a derived `bridge_lifecycle` summary for ready,
 disconnected, exited, stale, waiting-for-command-ack, waiting-for-next-state,
 and waiting-for-observed-state cases, and the UI renders that lifecycle
-prominently in the sync panel.
+prominently in the sync panel. Commands sent by this service also write a small
+`next_command.json` sidecar containing a stable `command_id`, command text, and
+submission timestamp; CommunicationMod can ignore that file, while the UI can
+keep pending bridge operations identifiable and recoverable.
 
 ### Slice 7: Fair API
 

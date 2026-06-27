@@ -82,7 +82,7 @@ class SessionManager:
         return {
             "session_id": session.id,
             "state_id": session.env.snapshot_hash(),
-            "command_lifecycle": session.last_lifecycle or {"status": "ready"},
+            "command_lifecycle": session.last_lifecycle or _command_lifecycle("ready"),
         }
 
     def snapshot(self, session_id: str) -> dict[str, Any]:
@@ -105,11 +105,11 @@ class SessionManager:
         session.last_error = None
         return self.serialize_session(
             session,
-            command_lifecycle={
-                "status": "restored",
-                "previous_state_id": previous_state_id,
-                "resulting_state_id": session.env.snapshot_hash(),
-            },
+            command_lifecycle=_command_lifecycle(
+                "restored",
+                previous_state_id=previous_state_id,
+                resulting_state_id=session.env.snapshot_hash(),
+            ),
         )
 
     def step(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -122,12 +122,13 @@ class SessionManager:
             session.last_error = "stale action rejected"
             return self.serialize_session(
                 session,
-                command_lifecycle={
-                    "status": "stale",
-                    "error": session.last_error,
-                    "expected_state_id": state_id,
-                    "received_state_id": source_state_id,
-                },
+                command_lifecycle=_command_lifecycle(
+                    "stale",
+                    error=session.last_error,
+                    source_state_id=source_state_id,
+                    expected_state_id=state_id,
+                    received_state_id=source_state_id,
+                ),
             )
 
         actions = self._actions(session.env, state_id)
@@ -136,11 +137,12 @@ class SessionManager:
             session.last_error = "unknown action rejected"
             return self.serialize_session(
                 session,
-                command_lifecycle={
-                    "status": "rejected",
-                    "error": session.last_error,
-                    "source_state_id": state_id,
-                },
+                command_lifecycle=_command_lifecycle(
+                    "rejected",
+                    error=session.last_error,
+                    source_state_id=state_id,
+                    state_unchanged=True,
+                ),
             )
 
         try:
@@ -149,22 +151,23 @@ class SessionManager:
             session.last_error = f"invalid action rejected: {error}"
             return self.serialize_session(
                 session,
-                command_lifecycle={
-                    "status": "rejected",
-                    "error": session.last_error,
-                    "source_state_id": state_id,
-                },
+                command_lifecycle=_command_lifecycle(
+                    "rejected",
+                    error=session.last_error,
+                    source_state_id=state_id,
+                    state_unchanged=True,
+                ),
             )
 
         session.last_error = None
         return self.serialize_session(
             session,
-            command_lifecycle={
-                "status": "applied",
-                "previous_state_id": state_id,
-                "resulting_state_id": result.snapshot_hash,
-                "transition": _transition_to_json(result.transition),
-            },
+            command_lifecycle=_command_lifecycle(
+                "applied",
+                previous_state_id=state_id,
+                resulting_state_id=result.snapshot_hash,
+                transition=_transition_to_json(result.transition),
+            ),
         )
 
     def search(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -225,7 +228,7 @@ class SessionManager:
     ) -> dict[str, Any]:
         if command_lifecycle is not None:
             session.last_lifecycle = command_lifecycle
-        lifecycle = session.last_lifecycle or {"status": "ready"}
+        lifecycle = session.last_lifecycle or _command_lifecycle("ready")
         state_id = session.env.snapshot_hash()
         state = json.loads(session.env.state_json())
         actions = self._actions(session.env, state_id)
@@ -392,6 +395,14 @@ def run(host: str = "127.0.0.1", port: int = 8799) -> None:
     server = ThreadingHTTPServer((host, port), UiRequestHandler)
     print(f"Serving omniscient simulator UI at http://{host}:{port}/")
     server.serve_forever()
+
+
+def _command_lifecycle(status: str, **fields: Any) -> dict[str, Any]:
+    payload = {"status": status}
+    if status != "ready":
+        payload["command_id"] = uuid4().hex
+    payload.update(fields)
+    return payload
 
 
 def _public_action(action: dict[str, Any]) -> dict[str, Any]:

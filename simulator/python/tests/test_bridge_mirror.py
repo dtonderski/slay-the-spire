@@ -52,8 +52,14 @@ class BridgeMirrorTests(unittest.TestCase):
             result = BridgeMirror(root).send_command("state")
 
             self.assertTrue(result["ok"])
+            self.assertIn("command_id", result)
             self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "state\n")
+            self.assertEqual(
+                json.loads((root / "next_command.json").read_text(encoding="utf-8"))["command_id"],
+                result["command_id"],
+            )
             self.assertTrue(result["bridge_status"]["pending_command"])
+            self.assertEqual(result["bridge_status"]["command_id"], result["command_id"])
             self.assertEqual(result["bridge_status"]["bridge_lifecycle"]["status"], "waiting_for_command_ack")
 
     def test_send_command_rejects_existing_pending_command(self):
