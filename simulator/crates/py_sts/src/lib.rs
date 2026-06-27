@@ -4,7 +4,7 @@ use sts_core::{
     apply_combat_action_on_run, apply_combat_action_with_events, apply_event_action,
     apply_map_action_on_run, apply_rest_action, apply_run_action, legal_combat_actions,
     legal_event_actions, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, CardId,
-    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, RestAction,
+    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, Potion, RestAction,
     RunAction, RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 
@@ -490,6 +490,11 @@ fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
                     .into_iter()
                     .map(ExactRunActionKind::Combat),
             );
+            actions.extend(
+                legal_potion_actions_on_run(state)
+                    .into_iter()
+                    .map(ExactRunActionKind::Run),
+            );
         }
     }
 
@@ -562,6 +567,34 @@ fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
         .into_iter()
         .filter(|action| state.validate_reward_action(*action).is_ok())
         .collect()
+}
+
+fn legal_potion_actions_on_run(state: &RunState) -> Vec<RunAction> {
+    let Some(combat) = state.combat.as_ref() else {
+        return Vec::new();
+    };
+    state
+        .potions
+        .iter()
+        .enumerate()
+        .flat_map(|(slot, potion)| potion_use_candidates(slot, *potion, combat))
+        .filter(|action| apply_run_action(state, *action).is_ok())
+        .collect()
+}
+
+fn potion_use_candidates(slot: usize, potion: Potion, combat: &CombatState) -> Vec<RunAction> {
+    if potion.requires_target() {
+        return combat
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive)
+            .map(|monster| RunAction::UsePotion {
+                slot,
+                target: Some(monster.id),
+            })
+            .collect();
+    }
+    vec![RunAction::UsePotion { slot, target: None }]
 }
 
 fn apply_exact_run_action(

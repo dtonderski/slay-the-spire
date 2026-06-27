@@ -38,3 +38,39 @@ py -3.14 -m sts.self_play run --start seed --seed TEST --output target\selfplay-
 To play target-game seeded runs end-to-end, `OmniRunEnv` still needs a
 source-backed seed-start constructor. Until then, self-play traces should keep
 `source = "sim_selfplay"` and should not be mixed with real-game parity traces.
+
+## Corpus Generation
+
+Use `batch` to generate a simulator-only training/evaluation corpus. The batch
+command runs one trace per seed, verifies each trace, and writes
+`index.json` plus trace files under `traces/`.
+
+```powershell
+$env:PYTHONPATH = "$PWD\python"
+py -3.14 -m sts.self_play batch --output-dir target\selfplay-corpus --seeds 1..100 --random-seed 1000 --max-steps 200
+```
+
+The index is labeled:
+
+- `source = "sim_selfplay_corpus"`
+- `parity = "non_parity_simulator_only"`
+
+That label is intentional. This corpus is useful for search iteration and
+regression tests, but it is not evidence that the simulator matches the target
+game.
+
+## Trace-Based Search Eval
+
+Use `eval` to compare combat search candidates from exact combat states recorded
+inside the corpus traces. The original trace is the fixed eval dataset; candidate
+policies are rolled forward from each recorded combat snapshot.
+
+```powershell
+py -3.14 -m sts.self_play eval --corpus-dir target\selfplay-corpus --split eval --max-roots 64 --max-actions 40 --output target\selfplay-corpus\eval.json
+```
+
+The eval report includes potion metadata:
+
+- `potion_roots`: recorded combat roots where the run had potions.
+- `potion_action_roots`: recorded combat roots where potion actions were legal.
+- per-episode `potion_count`, `legal_action_kinds`, and `has_potion_actions`.
