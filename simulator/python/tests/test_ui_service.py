@@ -18,6 +18,16 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(snapshot["state_id"], session["state_id"])
         self.assertIn("snapshot_json", snapshot)
 
+        state = manager.state(session["session_id"])
+        self.assertEqual(state["state_id"], session["state_id"])
+
+        actions = manager.actions(session["session_id"])
+        self.assertEqual(actions["state_id"], session["state_id"])
+        self.assertEqual(actions["actions"], session["actions"])
+
+        pending = manager.pending_command(session["session_id"])
+        self.assertEqual(pending["command_lifecycle"]["status"], "ready")
+
     def test_step_rejects_stale_action_without_mutating_state(self):
         manager = SessionManager()
         session = manager.create_session()
@@ -30,6 +40,10 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["command_lifecycle"]["status"], "stale")
         self.assertTrue(result["actions"])
 
+        pending = manager.pending_command(session["session_id"])
+        self.assertEqual(pending["command_lifecycle"]["status"], "stale")
+        self.assertEqual(pending["command_lifecycle"]["expected_state_id"], session["state_id"])
+
     def test_step_applies_action_and_regenerates_actions(self):
         manager = SessionManager()
         session = manager.create_session()
@@ -40,6 +54,10 @@ class UiServiceTests(unittest.TestCase):
         self.assertNotEqual(result["state_id"], session["state_id"])
         self.assertEqual(result["command_lifecycle"]["status"], "applied")
         self.assertTrue(result["actions"] or result["empty_action_reason"])
+
+        pending = manager.pending_command(session["session_id"])
+        self.assertEqual(pending["command_lifecycle"]["status"], "applied")
+        self.assertEqual(pending["state_id"], result["state_id"])
 
     def test_restore_replaces_combat_session_from_snapshot(self):
         manager = SessionManager()
@@ -54,6 +72,10 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(restored["command_lifecycle"]["status"], "restored")
         self.assertEqual(restored["state_kind"], "combat")
         self.assertTrue(restored["actions"])
+
+        pending = manager.pending_command(session["session_id"])
+        self.assertEqual(pending["command_lifecycle"]["status"], "restored")
+        self.assertEqual(pending["state_id"], snapshot["state_id"])
 
     def test_restore_replaces_run_session_from_snapshot(self):
         manager = SessionManager()

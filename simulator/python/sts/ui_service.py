@@ -27,6 +27,7 @@ class CombatSession:
     state_kind: str
     env: Any
     last_error: str | None = None
+    last_lifecycle: dict[str, Any] | None = None
 
 
 class SessionManager:
@@ -62,6 +63,27 @@ class SessionManager:
 
     def get_session(self, session_id: str) -> dict[str, Any]:
         return self.serialize_session(self._require_session(session_id))
+
+    def state(self, session_id: str) -> dict[str, Any]:
+        return self.serialize_session(self._require_session(session_id))
+
+    def actions(self, session_id: str) -> dict[str, Any]:
+        session = self.serialize_session(self._require_session(session_id))
+        return {
+            "session_id": session["session_id"],
+            "state_id": session["state_id"],
+            "decision_substate": session["decision_substate"],
+            "actions": session["actions"],
+            "empty_action_reason": session["empty_action_reason"],
+        }
+
+    def pending_command(self, session_id: str) -> dict[str, Any]:
+        session = self._require_session(session_id)
+        return {
+            "session_id": session.id,
+            "state_id": session.env.snapshot_hash(),
+            "command_lifecycle": session.last_lifecycle or {"status": "ready"},
+        }
 
     def snapshot(self, session_id: str) -> dict[str, Any]:
         session = self._require_session(session_id)
@@ -201,6 +223,9 @@ class SessionManager:
         session: CombatSession,
         command_lifecycle: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if command_lifecycle is not None:
+            session.last_lifecycle = command_lifecycle
+        lifecycle = session.last_lifecycle or {"status": "ready"}
         state_id = session.env.snapshot_hash()
         state = json.loads(session.env.state_json())
         actions = self._actions(session.env, state_id)
@@ -230,7 +255,7 @@ class SessionManager:
             "state": state,
             "actions": [_public_action(action) for action in actions],
             "empty_action_reason": empty_reason,
-            "command_lifecycle": command_lifecycle or {"status": "ready"},
+            "command_lifecycle": lifecycle,
             "last_error": session.last_error,
         }
 
@@ -275,6 +300,15 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             query = _query_params(parsed.query)
             if parts[:2] == ["api", "sessions"] and len(parts) == 3:
                 self._send_json(self.manager.get_session(parts[2]))
+                return
+            if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "state":
+                self._send_json(self.manager.state(parts[2]))
+                return
+            if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "actions":
+                self._send_json(self.manager.actions(parts[2]))
+                return
+            if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "pending-command":
+                self._send_json(self.manager.pending_command(parts[2]))
                 return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "snapshot":
                 self._send_json(self.manager.snapshot(parts[2]))

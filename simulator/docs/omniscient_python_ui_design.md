@@ -913,9 +913,13 @@ Implemented endpoints:
 ```text
 POST /api/sessions
 GET /api/sessions/{id}
+GET /api/sessions/{id}/state
+GET /api/sessions/{id}/actions
+GET /api/sessions/{id}/pending-command
 GET /api/sessions/{id}/snapshot
 POST /api/sessions/{id}/step
 POST /api/sessions/{id}/search
+POST /api/sessions/{id}/restore
 ```
 
 The service uses snapshot hashes as `state_id`, requires `source_state_id` on
@@ -924,6 +928,9 @@ available actions after rejection.
 Snapshot restore is exposed through the same session layer for combat and run
 sessions; the debug UI can restore a loaded full snapshot, regenerate actions,
 and display a `restored` command lifecycle result.
+Separate state, action-list, and pending-command endpoints are available for
+clients that want the stable service DTOs instead of the combined session
+payload.
 
 ### Slice 4: Run Environment
 
