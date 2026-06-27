@@ -47,6 +47,21 @@ class CombatSearchSmokeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             search_combat(env, CombatSearchConfig(objective="mystery"))
 
+    def test_search_accepts_run_combat_fixture(self):
+        env = omni.OmniRunEnv.combat_fixture()
+
+        result = search_combat(env, CombatSearchConfig(max_depth=1))
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.best_action.family(), "combat")
+        self.assertGreaterEqual(result.nodes, 2)
+
+    def test_search_rejects_run_map_fixture(self):
+        env = omni.OmniRunEnv.map_fixture()
+
+        with self.assertRaises(ValueError):
+            search_combat(env, CombatSearchConfig(max_depth=1))
+
 
 if __name__ == "__main__":
     unittest.main()

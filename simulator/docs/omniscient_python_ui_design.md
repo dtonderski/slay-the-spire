@@ -941,6 +941,9 @@ The local UI service now exposes both combat-only and run-backed fixture
 sessions, including a `run_map_fixture` mode that surfaces run phase, current
 decision, unsupported reason, exact run actions, snapshots, stale-action
 rejection, and run action stepping through the same session API.
+Combat search now also accepts run-backed combat sessions, so a
+`run_combat_fixture` can use the same deterministic recommendation endpoint
+while non-combat run decisions continue to report search as unavailable.
 
 ### Slice 5: Bridge Mirror
 

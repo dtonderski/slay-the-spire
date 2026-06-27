@@ -62,9 +62,7 @@ def recommend_action(env: OmniCombatEnv, depth: int = 1) -> CombatSearchResult:
     return search_combat(env, CombatSearchConfig(max_depth=depth))
 
 
-def search_combat(
-    env: OmniCombatEnv, config: CombatSearchConfig | None = None
-) -> SearchRecommendation:
+def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchRecommendation:
     """Search combat from a branch of the supplied omniscient environment."""
 
     config = config or CombatSearchConfig()
@@ -74,6 +72,7 @@ def search_combat(
     if config.objective != "survive_then_damage":
         raise ValueError(f"unsupported objective: {config.objective}")
 
+    _state(env)
     score, variation, nodes, terminal_reason = _search(env.clone(), depth)
     return SearchRecommendation(
         best_action=variation[0] if variation else None,
@@ -93,12 +92,12 @@ def search_combat(
     )
 
 
-def _search(env: OmniCombatEnv, depth: int) -> tuple[float, list[ExactCombatAction], int, str | None]:
+def _search(env: Any, depth: int) -> tuple[float, list[Any], int, str | None]:
     state = _state(env)
-    phase = state.get("phase")
-    if phase == "Won":
+    terminal_reason = _terminal_reason(env, state)
+    if terminal_reason == "won":
         return 1_000_000.0 + _evaluate_state(state), [], 1, "won"
-    if phase == "Lost":
+    if terminal_reason == "lost":
         return -1_000_000.0 + _evaluate_state(state), [], 1, "lost"
     if depth <= 0:
         return _evaluate_state(state), [], 1, None
@@ -108,18 +107,19 @@ def _search(env: OmniCombatEnv, depth: int) -> tuple[float, list[ExactCombatActi
         return _evaluate_state(state), [], 1, None
 
     best_score = float("-inf")
-    best_variation: list[ExactCombatAction] = []
+    best_variation: list[Any] = []
     best_terminal_reason: str | None = None
     nodes = 1
 
     for action in actions:
         child = env.clone()
         result = child.step(action)
-        if result.terminal:
-            child_score = _terminal_score(result.terminal_reason, child)
-            child_variation: list[ExactCombatAction] = []
+        child_terminal = _result_terminal_reason(result, child)
+        if child_terminal:
+            child_score = _terminal_score(child_terminal, child)
+            child_variation: list[Any] = []
             child_nodes = 1
-            child_terminal_reason = result.terminal_reason
+            child_terminal_reason = child_terminal
         else:
             child_score, child_variation, child_nodes, child_terminal_reason = _search(
                 child, depth - 1
@@ -135,7 +135,7 @@ def _search(env: OmniCombatEnv, depth: int) -> tuple[float, list[ExactCombatActi
     return best_score, best_variation, nodes, best_terminal_reason
 
 
-def _terminal_score(reason: str | None, env: OmniCombatEnv) -> float:
+def _terminal_score(reason: str | None, env: Any) -> float:
     state_score = _evaluate_state(_state(env))
     if reason == "won":
         return 1_000_000.0 + state_score
@@ -165,18 +165,25 @@ def _evaluate_state(state: dict[str, Any]) -> float:
     )
 
 
-def _state(env: OmniCombatEnv) -> dict[str, Any]:
-    return json.loads(env.state_json())
+def _state(env: Any) -> dict[str, Any]:
+    state = json.loads(env.state_json())
+    if isinstance(state.get("combat"), dict):
+        if getattr(env, "phase", lambda: None)() != "combat":
+            raise ValueError("combat search requires a run session currently in combat")
+        return state["combat"]
+    if "player" in state and "monsters" in state:
+        return state
+    raise ValueError("combat search requires a combat state")
 
 
-def _sorted_actions(actions: Iterable[ExactCombatAction]) -> list[ExactCombatAction]:
+def _sorted_actions(actions: Iterable[Any]) -> list[Any]:
     return sorted(actions, key=_action_key)
 
 
 def _is_better(
-    candidate_variation: Sequence[ExactCombatAction],
+    candidate_variation: Sequence[Any],
     candidate_score: float,
-    best_variation: Sequence[ExactCombatAction],
+    best_variation: Sequence[Any],
     best_score: float,
 ) -> bool:
     if candidate_score != best_score:
@@ -184,18 +191,41 @@ def _is_better(
     return _variation_key(candidate_variation) < _variation_key(best_variation)
 
 
-def _variation_key(variation: Sequence[ExactCombatAction]) -> tuple[tuple[str, int, int], ...]:
+def _variation_key(variation: Sequence[Any]) -> tuple[tuple[str, str], ...]:
     return tuple(_action_key(action) for action in variation)
 
 
-def _action_key(action: ExactCombatAction) -> tuple[str, int, int]:
-    card_id = action.card_id()
-    target = action.target()
-    return (
-        action.kind(),
-        -1 if card_id is None else int(card_id),
-        -1 if target is None else int(target),
-    )
+def _action_key(action: Any) -> tuple[str, str]:
+    family = getattr(action, "family", lambda: "combat")()
+    return (f"{family}:{action.kind()}", action.json())
+
+
+def _terminal_reason(env: Any, state: dict[str, Any]) -> str | None:
+    phase = state.get("phase")
+    if phase == "Won":
+        return "won"
+    if phase == "Lost":
+        return "lost"
+    run_phase = getattr(env, "phase", lambda: None)()
+    if run_phase == "won":
+        return "won"
+    if run_phase == "lost":
+        return "lost"
+    return None
+
+
+def _result_terminal_reason(result: Any, child: Any) -> str | None:
+    if getattr(result, "terminal", False):
+        return result.terminal_reason
+    try:
+        return _terminal_reason(child, _state(child))
+    except ValueError:
+        run_phase = getattr(child, "phase", lambda: None)()
+        if run_phase == "lost":
+            return "lost"
+        if run_phase and run_phase != "combat":
+            return "won"
+        return None
 
 
 def _terminal_probability(reason: str | None, won: float, lost: float) -> float | None:

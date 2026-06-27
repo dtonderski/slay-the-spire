@@ -89,6 +89,16 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["parity"]["status"], "unknown")
         self.assertIn("combat parity", result["parity"]["reason"])
 
+    def test_run_combat_fixture_can_search_current_combat(self):
+        manager = SessionManager()
+        session = manager.create_session("run_combat_fixture")
+
+        result = manager.search(session["session_id"], {"max_depth": 1})
+
+        action_ids = {action["action_id"] for action in session["actions"]}
+        self.assertIn(result["recommendation"]["best_action_id"], action_ids)
+        self.assertEqual(result["recommendation"]["best_action"]["kind"], "ExactRunAction")
+
     def test_parity_reports_unknown_without_observed_combat(self):
         manager = SessionManager()
         session = manager.create_session()
