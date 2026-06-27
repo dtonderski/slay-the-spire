@@ -20,6 +20,11 @@
     traceError: null,
     traceLoading: false,
     activeDebugTab: "state",
+    mode: null,
+    stateKind: null,
+    phase: null,
+    currentDecision: null,
+    unsupportedReason: null,
   };
 
   const el = {};
@@ -33,6 +38,7 @@
   function bindElements() {
     for (const id of [
       "sessionMeta",
+      "sessionModeSelect",
       "newSessionButton",
       "reloadButton",
       "stateSummary",
@@ -67,8 +73,12 @@
       "traceMetaPanel",
       "traceRecordsPanel",
       "debugSessionId",
+      "debugMode",
+      "debugStateKind",
       "debugStateId",
       "debugPhase",
+      "debugDecision",
+      "debugUnsupported",
       "debugHash",
       "debugJson",
     ]) {
@@ -102,10 +112,11 @@
   }
 
   async function startSession() {
+    const mode = el.sessionModeSelect.value || "combat_fixture";
     await singleFlight("Starting fixture", async () => {
       const session = await requestJson("/api/sessions", {
         method: "POST",
-        body: { mode: "combat_fixture" },
+        body: { mode },
       });
       adoptSession(session);
       app.snapshot = null;
@@ -128,7 +139,7 @@
   }
 
   async function runSearch() {
-    if (!app.sessionId) return;
+    if (!app.sessionId || !isCombatSession()) return;
     const maxDepth = Number.parseInt(el.maxDepthInput.value, 10);
     await singleFlight("Searching", async () => {
       app.search = null;
@@ -359,6 +370,11 @@
     const state = payload && (payload.state || payload.ui_state || payload);
     app.sessionId = firstDefined(payload && payload.id, payload && payload.session_id, state && state.session_id, app.sessionId);
     app.state = state || null;
+    app.mode = firstDefined(payload && payload.mode, state && state.mode, app.mode);
+    app.stateKind = firstDefined(payload && payload.state_kind, payload && payload.stateKind, state && state.state_kind, state && state.stateKind, app.stateKind);
+    app.phase = firstDefined(payload && payload.phase, state && state.phase, app.phase);
+    app.currentDecision = firstDefined(payload && payload.current_decision, payload && payload.currentDecision, state && state.current_decision, state && state.currentDecision, app.currentDecision);
+    app.unsupportedReason = firstDefined(payload && payload.unsupported_reason, payload && payload.unsupportedReason, state && state.unsupported_reason, state && state.unsupportedReason, null);
     app.parity = firstDefined(payload && payload.parity, state && state.parity, app.parity);
     app.lastError = firstDefined(payload && payload.last_error, state && state.last_error, app.lastError);
     app.lifecycle = lifecycleFromPayload(firstDefined(
@@ -372,6 +388,7 @@
     const actions = firstDefined(
       payload && payload.actions,
       state && state.actions,
+      state && state.available_actions,
       state && state.visible_controls,
       state && state.exact_legal_actions,
       [],
@@ -381,6 +398,9 @@
       app.lastActions = actions;
     } else {
       app.actions = [];
+    }
+    if (!isCombatSession()) {
+      app.search = null;
     }
   }
 
@@ -398,11 +418,12 @@
   function renderChrome() {
     const stateId = currentStateId();
     el.sessionMeta.textContent = app.sessionId
-      ? `Session ${app.sessionId}${stateId ? ` / state ${stateId}` : ""}`
+      ? `Session ${app.sessionId}${sessionModeText() ? ` / ${sessionModeText()}` : ""}${stateId ? ` / state ${stateId}` : ""}`
       : "No session";
     el.reloadButton.disabled = !app.sessionId || app.inFlight;
-    el.searchButton.disabled = !app.sessionId || app.inFlight;
+    el.searchButton.disabled = !app.sessionId || app.inFlight || !isCombatSession();
     el.newSessionButton.disabled = app.inFlight;
+    el.sessionModeSelect.disabled = app.inFlight;
     el.refreshBridgeButton.disabled = app.inFlight;
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
 
@@ -531,11 +552,19 @@
   }
 
   function renderSearch() {
-    el.searchButton.disabled = !app.sessionId || app.inFlight;
+    const combatSearch = isCombatSession();
+    el.searchButton.disabled = !app.sessionId || app.inFlight || !combatSearch;
     const best = app.search && app.search.bestAction;
-    el.applyBestButton.disabled = !best || app.inFlight;
-    el.searchStatus.textContent = app.inFlight && app.lifecycle.label === "Searching" ? "Running" : app.search ? "Ready" : "Idle";
+    el.applyBestButton.disabled = !best || app.inFlight || !combatSearch;
+    el.searchStatus.textContent = !combatSearch
+      ? "Combat only"
+      : app.inFlight && app.lifecycle.label === "Searching" ? "Running" : app.search ? "Ready" : "Idle";
     clear(el.searchResult);
+
+    if (!combatSearch) {
+      empty(el.searchResult, "Search is combat-only for run sessions.");
+      return;
+    }
 
     if (!app.search) {
       empty(el.searchResult, "No recommendation yet.");
@@ -727,8 +756,12 @@
       button.classList.toggle("active", button.dataset.debugTab === app.activeDebugTab);
     });
     el.debugSessionId.textContent = app.sessionId || "-";
+    el.debugMode.textContent = sessionModeText() || "-";
+    el.debugStateKind.textContent = stateKindText() || "-";
     el.debugStateId.textContent = currentStateId() || "-";
-    el.debugPhase.textContent = firstDefined(app.state && app.state.phase, app.state && app.state.decision_substate, "-");
+    el.debugPhase.textContent = sessionPhaseText() || "-";
+    el.debugDecision.textContent = decisionText() || "-";
+    el.debugUnsupported.textContent = unsupportedText() || "-";
     el.debugHash.textContent = firstDefined(app.state && app.state.snapshot_hash, app.state && app.state.hash, app.snapshot && app.snapshot.snapshot_hash, "-");
 
     const payload = app.activeDebugTab === "snapshot"
@@ -917,11 +950,20 @@
   }
 
   function summarizeState() {
-    if (!app.state) return "Start a combat fixture to inspect simulator state.";
-    const phase = firstDefined(app.state.phase, app.state.decision_substate, "combat");
+    if (!app.state) return "Start a fixture to inspect simulator state.";
+    const kind = stateKindText();
+    const phase = sessionPhaseText() || "combat";
     const terminal = firstDefined(app.state.terminal_reason, app.state.terminalReason, null);
+    const unsupported = unsupportedText();
+    const decision = decisionText();
     if (terminal) return `${phase}: ${terminal}`;
-    return `${phase} / ${app.actions.length} legal action${app.actions.length === 1 ? "" : "s"}`;
+    if (unsupported) return `${kind ? `${kind} / ` : ""}${phase}: unsupported ${unsupported}`;
+    return [
+      kind || "",
+      phase,
+      decision ? `decision ${decision}` : "",
+      `${app.actions.length} legal action${app.actions.length === 1 ? "" : "s"}`,
+    ].filter(Boolean).join(" / ");
   }
 
   function lifecycleText() {
@@ -958,7 +1000,7 @@
 
   function emptyActionReason() {
     const terminal = app.state && firstDefined(app.state.terminal_reason, app.state.terminalReason);
-    const unsupported = app.state && firstDefined(app.state.unsupported_decision, app.state.unsupportedDecision);
+    const unsupported = unsupportedText();
     const waiting = app.state && firstDefined(app.state.waiting_for_bridge, app.state.waitingForBridge);
     const internal = app.state && firstDefined(app.state.internal_error, app.state.internalError);
     if (terminal) return `Terminal: ${terminal}`;
@@ -971,17 +1013,35 @@
 
   function actionLabel(action) {
     if (!action) return "Unknown action";
-    const descriptor = firstDefined(action.descriptor, action.ui_action, action.action, action.kind, action.type, action.name);
+    const descriptors = firstDefined(action.descriptors, action.ui_descriptors, action.uiDescriptors);
+    if (Array.isArray(descriptors) && descriptors.length) {
+      return descriptors.map((descriptor) => descriptorLabel(descriptor)).join(" / ");
+    }
+    const descriptor = firstDefined(
+      action.label,
+      action.descriptor,
+      action.ui_action,
+      action.action,
+      action.kind,
+      action.type,
+      action.name,
+      action.exact_action_json,
+      action.exactActionJson,
+    );
+    return descriptorLabel(descriptor, firstDefined(action.action_id, action.id, "Action"));
+  }
+
+  function descriptorLabel(descriptor, fallback) {
     if (typeof descriptor === "string") return descriptor;
     if (descriptor && typeof descriptor === "object") {
-      const kind = firstDefined(descriptor.kind, descriptor.type, descriptor.name, "Action");
+      const kind = firstDefined(descriptor.label, descriptor.kind, descriptor.type, descriptor.name, fallback || "Action");
       const details = Object.entries(descriptor)
-        .filter(([key]) => !["kind", "type", "name"].includes(key))
-        .map(([key, value]) => `${humanize(key)} ${value}`)
+        .filter(([key]) => !["label", "kind", "type", "name"].includes(key))
+        .map(([key, value]) => `${humanize(key)} ${stringify(value)}`)
         .join(", ");
       return details ? `${humanize(kind)} (${details})` : humanize(kind);
     }
-    return humanize(firstDefined(action.action_id, action.id, "Action"));
+    return humanize(firstDefined(fallback, "Action"));
   }
 
   function bridgeActionLabel(action) {
@@ -991,7 +1051,49 @@
 
   function sourceTitle(action) {
     const source = firstDefined(action.source_state_id, action.sourceStateId, currentStateId(), "-");
-    return `Derived from state ${source}`;
+    const exactActionJson = firstDefined(action.exact_action_json, action.exactActionJson, "");
+    const exact = exactActionJson ? ` / ${stringify(exactActionJson)}` : "";
+    return `Derived from state ${source}${exact}`;
+  }
+
+  function isCombatSession() {
+    return stateKindText() !== "run";
+  }
+
+  function sessionModeText() {
+    return firstDefined(app.mode, app.state && app.state.mode, "");
+  }
+
+  function stateKindText() {
+    return firstDefined(app.stateKind, app.state && app.state.state_kind, app.state && app.state.stateKind, "");
+  }
+
+  function sessionPhaseText() {
+    return firstDefined(app.phase, app.state && app.state.phase, app.state && app.state.decision_substate, "");
+  }
+
+  function decisionText() {
+    const decision = firstDefined(
+      app.currentDecision,
+      app.state && app.state.current_decision,
+      app.state && app.state.currentDecision,
+      app.state && app.state.decision,
+      app.state && app.state.decision_substate,
+    );
+    if (!decision) return "";
+    if (typeof decision === "string") return decision;
+    return stringify(firstDefined(decision.label, decision.kind, decision.type, decision.name, decision));
+  }
+
+  function unsupportedText() {
+    const unsupported = firstDefined(
+      app.unsupportedReason,
+      app.state && app.state.unsupported_reason,
+      app.state && app.state.unsupportedReason,
+      app.state && app.state.unsupported_decision,
+      app.state && app.state.unsupportedDecision,
+    );
+    return unsupported ? stringify(unsupported) : "";
   }
 
   function showError(message) {

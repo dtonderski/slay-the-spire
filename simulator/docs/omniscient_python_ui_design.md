@@ -937,6 +937,10 @@ The current exact action adapter covers core-backed combat, map, rest, event,
 shop, and validation-backed reward actions. Seed-start construction and some
 combat selection/potion substates are intentionally reported as explicit gaps
 until their legal-action enumeration is first-class enough for UI/search use.
+The local UI service now exposes both combat-only and run-backed fixture
+sessions, including a `run_map_fixture` mode that surfaces run phase, current
+decision, unsupported reason, exact run actions, snapshots, stale-action
+rejection, and run action stepping through the same session API.
 
 ### Slice 5: Bridge Mirror
 

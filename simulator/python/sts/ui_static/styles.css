@@ -123,6 +123,11 @@ h3 {
   flex-wrap: wrap;
 }
 
+.topbar-actions select {
+  width: auto;
+  min-width: 11rem;
+}
+
 .layout {
   display: grid;
   gap: 1rem;
@@ -523,7 +528,7 @@ h3 {
 }
 
 .debug-facts {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   margin-bottom: 0.8rem;
 }
 
@@ -578,7 +583,8 @@ h3 {
     width: 100%;
   }
 
-  .topbar-actions button {
+  .topbar-actions button,
+  .topbar-actions select {
     flex: 1 1 12rem;
   }
 
