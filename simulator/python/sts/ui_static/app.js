@@ -13,6 +13,12 @@
     search: null,
     bridge: null,
     parity: null,
+    traces: [],
+    selectedTraceId: "",
+    traceDetail: null,
+    traceRecords: [],
+    traceError: null,
+    traceLoading: false,
     activeDebugTab: "state",
   };
 
@@ -51,6 +57,15 @@
       "refreshBridgeButton",
       "requestBridgeStateButton",
       "bridgePanel",
+      "refreshTracesButton",
+      "loadTraceButton",
+      "traceSelect",
+      "traceOffsetInput",
+      "traceLimitInput",
+      "traceStatus",
+      "traceError",
+      "traceMetaPanel",
+      "traceRecordsPanel",
       "debugSessionId",
       "debugStateId",
       "debugPhase",
@@ -69,6 +84,15 @@
     el.applyBestButton.addEventListener("click", applyBestAction);
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
+    el.refreshTracesButton.addEventListener("click", refreshTraces);
+    el.loadTraceButton.addEventListener("click", loadSelectedTrace);
+    el.traceSelect.addEventListener("change", () => {
+      app.selectedTraceId = el.traceSelect.value;
+      app.traceDetail = selectedTraceMetadata();
+      app.traceRecords = [];
+      app.traceError = null;
+      renderTrace();
+    });
     el.debugTabs.forEach((button) => {
       button.addEventListener("click", () => {
         app.activeDebugTab = button.dataset.debugTab;
@@ -265,6 +289,51 @@
     });
   }
 
+  async function refreshTraces() {
+    app.traceLoading = true;
+    app.traceError = null;
+    renderTrace();
+    try {
+      const result = await requestJson("/api/traces");
+      app.traces = arrayOf(result.traces);
+      if (!app.traces.some((trace) => String(trace.id) === app.selectedTraceId)) {
+        app.selectedTraceId = app.traces.length ? String(app.traces[0].id) : "";
+      }
+      app.traceDetail = selectedTraceMetadata();
+      app.traceRecords = [];
+    } catch (error) {
+      app.traces = [];
+      app.selectedTraceId = "";
+      app.traceDetail = null;
+      app.traceRecords = [];
+      app.traceError = readableError(error);
+    } finally {
+      app.traceLoading = false;
+      renderTrace();
+    }
+  }
+
+  async function loadSelectedTrace() {
+    if (!app.selectedTraceId) return;
+    app.traceLoading = true;
+    app.traceError = null;
+    renderTrace();
+    try {
+      const offset = boundedInteger(el.traceOffsetInput.value, 0, 0, Number.MAX_SAFE_INTEGER);
+      const limit = boundedInteger(el.traceLimitInput.value, 200, 1, 1000);
+      const query = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+      const result = await requestJson(`/api/traces/${encodeURIComponent(app.selectedTraceId)}?${query}`);
+      app.traceDetail = result.trace || selectedTraceMetadata();
+      app.traceRecords = arrayOf(result.records);
+    } catch (error) {
+      app.traceRecords = [];
+      app.traceError = readableError(error);
+    } finally {
+      app.traceLoading = false;
+      renderTrace();
+    }
+  }
+
   function adoptSession(payload) {
     const state = payload && (payload.state || payload.ui_state || payload);
     app.sessionId = firstDefined(payload && payload.id, payload && payload.session_id, state && state.session_id, app.sessionId);
@@ -301,6 +370,7 @@
     renderActions();
     renderSearch();
     renderBridge();
+    renderTrace();
     renderDebug();
   }
 
@@ -536,6 +606,63 @@
     }
   }
 
+  function renderTrace() {
+    const selected = selectedTraceMetadata();
+    syncTraceSelect();
+    el.refreshTracesButton.disabled = app.traceLoading;
+    el.loadTraceButton.disabled = app.traceLoading || !app.selectedTraceId;
+    el.traceStatus.textContent = traceStatusText();
+
+    if (app.traceError) {
+      el.traceError.textContent = app.traceError;
+      el.traceError.classList.remove("hidden");
+    } else {
+      el.traceError.textContent = "";
+      el.traceError.classList.add("hidden");
+    }
+
+    clear(el.traceMetaPanel);
+    if (!selected && !app.traceDetail) {
+      empty(el.traceMetaPanel, "Refresh traces to inspect recorded commands.");
+    } else {
+      const trace = app.traceDetail || selected;
+      el.traceMetaPanel.className = "trace-meta";
+      el.traceMetaPanel.append(
+        statBlock(trace.name || trace.id || "Trace", [
+          ["Records", firstDefined(trace.records, "-")],
+          ["States", firstDefined(trace.states, "-")],
+          ["Actions", firstDefined(trace.actions, "-")],
+          ["Errors", firstDefined(trace.parse_errors, trace.parseErrors, 0)],
+          ["Steps", stepRangeText(trace)],
+          ["Modified", dateText(trace.modified_at || trace.modifiedAt)],
+          ["Size", bytesText(trace.bytes)],
+        ]),
+      );
+      const summary = firstDefined(trace.summary, "");
+      if (summary) {
+        const node = document.createElement("p");
+        node.className = "trace-summary";
+        node.textContent = stringify(summary);
+        el.traceMetaPanel.appendChild(node);
+      }
+    }
+
+    clear(el.traceRecordsPanel);
+    if (app.traceLoading && !app.traceRecords.length) {
+      empty(el.traceRecordsPanel, "Loading trace data.");
+      return;
+    }
+    if (!app.traceRecords.length) {
+      empty(el.traceRecordsPanel, app.selectedTraceId ? "No records loaded for this page." : "No trace records loaded.");
+      return;
+    }
+
+    el.traceRecordsPanel.className = "trace-records";
+    app.traceRecords.forEach((record) => {
+      el.traceRecordsPanel.appendChild(traceRecordRow(record));
+    });
+  }
+
   function renderDebug() {
     el.debugTabs.forEach((button) => {
       button.classList.toggle("active", button.dataset.debugTab === app.activeDebugTab);
@@ -554,6 +681,9 @@
             search: app.search,
             bridge: app.bridge,
             parity: app.parity,
+            traces: app.traces,
+            selectedTrace: app.traceDetail,
+            traceRecords: app.traceRecords,
             lifecycle: app.lifecycle,
             error: app.lastError,
           }
@@ -601,6 +731,130 @@
       app.snapshot && app.snapshot.snapshot_hash,
       null,
     );
+  }
+
+  function syncTraceSelect() {
+    const selected = app.selectedTraceId;
+    clear(el.traceSelect);
+    if (!app.traces.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = app.traceLoading ? "Loading traces..." : "No traces loaded";
+      el.traceSelect.appendChild(option);
+      el.traceSelect.value = "";
+      return;
+    }
+
+    app.traces.forEach((trace) => {
+      const option = document.createElement("option");
+      option.value = String(trace.id);
+      option.textContent = traceOptionLabel(trace);
+      el.traceSelect.appendChild(option);
+    });
+    el.traceSelect.value = selected;
+  }
+
+  function selectedTraceMetadata() {
+    return app.traces.find((trace) => String(trace.id) === app.selectedTraceId) || null;
+  }
+
+  function traceStatusText() {
+    if (app.traceLoading) return "Loading";
+    if (app.traceError) return "Error";
+    if (app.traceRecords.length) return `${app.traceRecords.length} record${app.traceRecords.length === 1 ? "" : "s"} shown`;
+    if (app.traces.length) return `${app.traces.length} trace${app.traces.length === 1 ? "" : "s"} available`;
+    return "Not loaded";
+  }
+
+  function traceOptionLabel(trace) {
+    const name = firstDefined(trace.name, trace.id, "Trace");
+    const records = firstDefined(trace.records, null);
+    const modified = dateText(trace.modified_at || trace.modifiedAt);
+    const suffix = [
+      records === null ? "" : `${records} rec`,
+      modified === "-" ? "" : modified,
+    ].filter(Boolean).join(" / ");
+    return suffix ? `${name} (${suffix})` : name;
+  }
+
+  function traceRecordRow(record) {
+    const row = document.createElement("article");
+    row.className = "trace-record";
+
+    const main = document.createElement("div");
+    main.className = "trace-record-main";
+    main.append(
+      traceChip(firstDefined(record.type, "record")),
+      traceCell("Line", firstDefined(record.line, "-")),
+      traceCell("Step", firstDefined(record.step, "-")),
+      traceCell("Time", timeText(record.timestamp)),
+    );
+
+    const body = document.createElement("div");
+    body.className = "trace-record-body";
+    const title = document.createElement("strong");
+    title.textContent = traceRecordTitle(record);
+    const summary = document.createElement("span");
+    summary.textContent = traceSummaryText(record.summary);
+    body.append(title);
+    if (summary.textContent && summary.textContent !== title.textContent) {
+      body.appendChild(summary);
+    }
+
+    row.append(main, body);
+    return row;
+  }
+
+  function traceRecordTitle(record) {
+    if (record.command) return record.command;
+    const summary = record.summary || {};
+    if (record.type === "state") {
+      return [
+        firstDefined(summary.screen_type, summary.room_phase, "State"),
+        summary.floor === undefined || summary.floor === null ? "" : `floor ${summary.floor}`,
+        summary.hp ? `HP ${summary.hp}` : "",
+      ].filter(Boolean).join(" / ");
+    }
+    if (record.type === "metadata") {
+      return firstDefined(summary.event, summary.source, "Trace metadata");
+    }
+    return humanize(firstDefined(record.type, "Trace record"));
+  }
+
+  function traceSummaryText(summary) {
+    if (!summary || typeof summary !== "object") return stringify(firstDefined(summary, ""));
+    const parts = [];
+    if (summary.ready_for_command !== undefined) parts.push(`ready ${summary.ready_for_command}`);
+    if (summary.available_commands && summary.available_commands.length) {
+      parts.push(`commands ${summary.available_commands.join(", ")}`);
+    }
+    if (summary.choices && summary.choices.length) {
+      parts.push(`choices ${summary.choices.join(", ")}`);
+    }
+    if (summary.combat) {
+      if (summary.combat.energy !== undefined && summary.combat.energy !== null) {
+        parts.push(`energy ${summary.combat.energy}`);
+      }
+      if (summary.combat.hand && summary.combat.hand.length) {
+        parts.push(`hand ${summary.combat.hand.join(", ")}`);
+      }
+    }
+    if (!parts.length) return stringify(summary);
+    return parts.join(" | ");
+  }
+
+  function traceChip(value) {
+    const node = document.createElement("span");
+    node.className = "trace-chip";
+    node.textContent = humanize(value);
+    return node;
+  }
+
+  function traceCell(label, value) {
+    const node = document.createElement("span");
+    node.className = "trace-cell";
+    node.textContent = `${label} ${stringify(value)}`;
+    return node;
   }
 
   function summarizeState() {
@@ -760,6 +1014,50 @@
     if (typeof value === "number") return value;
     if (value && typeof value.count === "number") return value.count;
     return "-";
+  }
+
+  function boundedInteger(value, fallback, min, max) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
+  }
+
+  function bytesText(value) {
+    if (typeof value !== "number") return "-";
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function dateText(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return stringify(value);
+    return date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function timeText(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return stringify(value);
+    return date.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+
+  function stepRangeText(trace) {
+    const first = firstDefined(trace.first_step, trace.firstStep, null);
+    const last = firstDefined(trace.last_step, trace.lastStep, null);
+    if (first === null && last === null) return "-";
+    if (first === last) return stringify(first);
+    return `${stringify(first)}-${stringify(last)}`;
   }
 
   function hpText(entity) {

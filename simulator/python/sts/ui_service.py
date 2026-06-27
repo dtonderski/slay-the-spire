@@ -14,6 +14,7 @@ from sts import omni
 from sts.bridge import BridgeMirror, command_for_descriptor
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
+from sts.trace_replay import TraceReplayStore
 
 
 UI_STATIC_DIR = Path(__file__).with_name("ui_static")
@@ -201,6 +202,7 @@ class SessionManager:
 class UiRequestHandler(SimpleHTTPRequestHandler):
     manager = SessionManager()
     bridge = BridgeMirror.default()
+    traces = TraceReplayStore.default()
 
     def __init__(self, *args: Any, static_dir: Path | None = None, **kwargs: Any) -> None:
         self._static_dir = static_dir or UI_STATIC_DIR
@@ -208,8 +210,10 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         try:
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
             parts = _path_parts(path)
+            query = _query_params(parsed.query)
             if parts[:2] == ["api", "sessions"] and len(parts) == 3:
                 self._send_json(self.manager.get_session(parts[2]))
                 return
@@ -221,6 +225,18 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "bridge"]:
                 self._send_json(self.bridge.status())
+                return
+            if parts == ["api", "traces"]:
+                self._send_json(self.traces.list_traces(_query_int(query, "limit", 50)))
+                return
+            if parts[:2] == ["api", "traces"] and len(parts) == 3:
+                self._send_json(
+                    self.traces.load_trace(
+                        parts[2],
+                        offset=_query_int(query, "offset", 0),
+                        limit=_query_int(query, "limit", 200),
+                    )
+                )
                 return
             if path == "/":
                 self.path = "/index.html"
@@ -329,6 +345,22 @@ def _terminal_reason(phase: str) -> str | None:
 
 def _path_parts(path: str) -> list[str]:
     return [part for part in path.split("/") if part]
+
+
+def _query_params(query: str) -> dict[str, list[str]]:
+    from urllib.parse import parse_qs
+
+    return parse_qs(query, keep_blank_values=True)
+
+
+def _query_int(query: dict[str, list[str]], name: str, default: int) -> int:
+    values = query.get(name)
+    if not values:
+        return default
+    try:
+        return int(values[0])
+    except ValueError:
+        return default
 
 
 if __name__ == "__main__":

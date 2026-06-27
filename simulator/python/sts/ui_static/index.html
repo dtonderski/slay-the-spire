@@ -99,6 +99,36 @@
           </div>
         </section>
 
+        <section class="trace-band" aria-labelledby="traceTitle">
+          <div class="section-head compact">
+            <div>
+              <h2 id="traceTitle">Trace Replay</h2>
+              <span id="traceStatus" class="subtle">Not loaded</span>
+            </div>
+            <div class="trace-actions">
+              <button id="refreshTracesButton" type="button">Refresh traces</button>
+              <button id="loadTraceButton" type="button" disabled>Load trace</button>
+            </div>
+          </div>
+          <div class="trace-controls">
+            <label for="traceSelect">Trace</label>
+            <select id="traceSelect">
+              <option value="">No traces loaded</option>
+            </select>
+            <label for="traceOffsetInput">Offset</label>
+            <input id="traceOffsetInput" type="number" min="0" value="0" />
+            <label for="traceLimitInput">Limit</label>
+            <input id="traceLimitInput" type="number" min="1" max="1000" value="200" />
+          </div>
+          <div id="traceError" class="message error hidden" role="alert"></div>
+          <div id="traceMetaPanel" class="trace-meta empty">
+            <span class="empty-text">Refresh traces to inspect recorded commands.</span>
+          </div>
+          <div id="traceRecordsPanel" class="trace-records empty">
+            <span class="empty-text">No trace records loaded.</span>
+          </div>
+        </section>
+
         <section class="debug-band" aria-labelledby="debugTitle">
           <div class="section-head compact">
             <h2 id="debugTitle">Debug</h2>
