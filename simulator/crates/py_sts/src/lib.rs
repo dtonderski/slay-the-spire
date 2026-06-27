@@ -340,9 +340,12 @@ impl PyOmniRunEnv {
         } else {
             serde_json::json!({ "game_state": value })
         };
-        let state = sts_verify::run_state_from_observed_combat_message(&message).ok_or_else(|| {
-            PyValueError::new_err("CommunicationMod state is not a supported observed combat state")
-        })?;
+        let state =
+            sts_verify::run_state_from_observed_combat_message(&message).ok_or_else(|| {
+                PyValueError::new_err(
+                    "CommunicationMod state is not a supported observed combat state",
+                )
+            })?;
         Ok(Self { state })
     }
 
