@@ -36,6 +36,26 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(status["trace_path"], "trace.jsonl")
         self.assertEqual(status["available_commands"], ["play", "end", "state"])
 
+    def test_send_command_writes_pending_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+
+            result = BridgeMirror(root).send_command("state")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "state\n")
+            self.assertTrue(result["bridge_status"]["pending_command"])
+
+    def test_send_command_rejects_existing_pending_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "next_command.txt").write_text("state\n", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                BridgeMirror(root).send_command("state")
+
 
 if __name__ == "__main__":
     unittest.main()

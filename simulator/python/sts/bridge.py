@@ -55,6 +55,29 @@ class BridgeMirror:
             "last_error": _first(status, summary, key="error"),
         }
 
+    def send_command(self, command: str, now: float | None = None) -> dict[str, Any]:
+        command = command.strip()
+        if not command:
+            raise ValueError("command is required")
+        if len(command) > 200:
+            raise ValueError("command is too long")
+
+        before = self.status(now=now)
+        if before["pending_command"]:
+            raise ValueError("bridge command already pending")
+        if before["exited"]:
+            raise ValueError("bridge has exited")
+
+        self.session_dir.mkdir(parents=True, exist_ok=True)
+        command_path = self.session_dir / "next_command.txt"
+        command_path.write_text(f"{command}\n", encoding="utf-8")
+        after = self.status(now=now)
+        return {
+            "ok": True,
+            "command": command,
+            "bridge_status": after,
+        }
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:

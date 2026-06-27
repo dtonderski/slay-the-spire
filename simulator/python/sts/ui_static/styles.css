@@ -112,6 +112,7 @@ h3 {
 
 .topbar-actions,
 .search-controls,
+.bridge-actions,
 .debug-tabs {
   display: flex;
   align-items: center;

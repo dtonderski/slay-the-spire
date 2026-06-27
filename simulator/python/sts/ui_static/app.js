@@ -48,6 +48,7 @@
       "searchStatus",
       "searchResult",
       "refreshBridgeButton",
+      "requestBridgeStateButton",
       "bridgePanel",
       "debugSessionId",
       "debugStateId",
@@ -66,6 +67,7 @@
     el.searchButton.addEventListener("click", runSearch);
     el.applyBestButton.addEventListener("click", applyBestAction);
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
+    el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
     el.debugTabs.forEach((button) => {
       button.addEventListener("click", () => {
         app.activeDebugTab = button.dataset.debugTab;
@@ -235,6 +237,16 @@
     }
   }
 
+  async function requestBridgeState() {
+    await singleFlight("Requesting bridge state", async () => {
+      const result = await requestJson("/api/bridge/command", {
+        method: "POST",
+        body: { command: "state" },
+      });
+      app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
+    });
+  }
+
   function adoptSession(payload) {
     const state = payload && (payload.state || payload.ui_state || payload);
     app.sessionId = firstDefined(payload && payload.id, payload && payload.session_id, state && state.session_id, app.sessionId);
@@ -281,6 +293,8 @@
     el.reloadButton.disabled = !app.sessionId || app.inFlight;
     el.searchButton.disabled = !app.sessionId || app.inFlight;
     el.newSessionButton.disabled = app.inFlight;
+    el.refreshBridgeButton.disabled = app.inFlight;
+    el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
 
     el.stateSummary.textContent = summarizeState();
     el.lifecycleBadge.textContent = lifecycleText();
