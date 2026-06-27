@@ -934,6 +934,9 @@ and display a `restored` command lifecycle result with its own `command_id`.
 Separate state, action-list, and pending-command endpoints are available for
 clients that want the stable service DTOs instead of the combined session
 payload.
+Bridge descriptor submissions also accept `source_state_id` and reject stale
+bridge actions before writing `next_command.txt`, matching the simulator stale
+click guard for live-control buttons.
 
 ### Slice 4: Run Environment
 
@@ -1005,6 +1008,10 @@ prominently in the sync panel. Commands sent by this service also write a small
 `next_command.json` sidecar containing a stable `command_id`, command text, and
 submission timestamp; CommunicationMod can ignore that file, while the UI can
 keep pending bridge operations identifiable and recoverable.
+Bridge status now includes a stable `state_id` derived from the observed bridge
+status, summary, and current-state JSON; every derived bridge action carries
+that `source_state_id` so stale live buttons can be rejected without mutating
+the pending-command files.
 
 ### Slice 7: Fair API
 

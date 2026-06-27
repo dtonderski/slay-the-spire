@@ -38,10 +38,13 @@ class BridgeMirrorTests(unittest.TestCase):
 
         self.assertTrue(status["connected"])
         self.assertFalse(status["stale"])
+        self.assertIn("state_id", status)
         self.assertEqual(status["client_pid"], 12)
         self.assertEqual(status["trace_path"], "trace.jsonl")
         self.assertEqual(status["available_commands"], ["play", "end", "state"])
         self.assertIn("bridge_actions", status)
+        self.assertTrue(status["bridge_actions"])
+        self.assertEqual(status["bridge_actions"][0]["source_state_id"], status["state_id"])
         self.assertEqual(status["bridge_lifecycle"]["status"], "ready")
 
     def test_send_command_writes_pending_command(self):
@@ -49,18 +52,39 @@ class BridgeMirrorTests(unittest.TestCase):
             root = Path(directory)
             (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
 
-            result = BridgeMirror(root).send_command("state")
+            source_state_id = BridgeMirror(root).status()["state_id"]
+            result = BridgeMirror(root).send_command("state", source_state_id=source_state_id)
 
             self.assertTrue(result["ok"])
             self.assertIn("command_id", result)
             self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "state\n")
-            self.assertEqual(
-                json.loads((root / "next_command.json").read_text(encoding="utf-8"))["command_id"],
-                result["command_id"],
-            )
+            command_meta = json.loads((root / "next_command.json").read_text(encoding="utf-8"))
+            self.assertEqual(command_meta["command_id"], result["command_id"])
+            self.assertEqual(command_meta["source_state_id"], source_state_id)
             self.assertTrue(result["bridge_status"]["pending_command"])
             self.assertEqual(result["bridge_status"]["command_id"], result["command_id"])
             self.assertEqual(result["bridge_status"]["bridge_lifecycle"]["status"], "waiting_for_command_ack")
+
+    def test_send_command_rejects_stale_bridge_source_without_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["end"], "step": 1}),
+                encoding="utf-8",
+            )
+            mirror = BridgeMirror(root, stale_after_seconds=9999)
+            old_source_state_id = mirror.status()["state_id"]
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["end"], "step": 2}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValueError):
+                mirror.send_command("END", source_state_id=old_source_state_id)
+
+            self.assertFalse((root / "next_command.txt").exists())
+            self.assertFalse((root / "next_command.json").exists())
 
     def test_send_command_rejects_existing_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -100,13 +124,15 @@ class BridgeMirrorTests(unittest.TestCase):
                 "ready_for_command": True,
                 "available_commands": ["choose", "leave", "return", "state"],
                 "choices": ["talk", "x=3"],
-            }
+            },
+            source_state_id="bridge-state",
         )
 
         labels = [action["label"] for action in actions]
         commands = [action["command"] for action in actions]
         self.assertEqual(labels[:2], ["talk", "x=3"])
         self.assertEqual(commands, ["CHOOSE 0", "CHOOSE 1", "LEAVE", "RETURN"])
+        self.assertTrue(all(action["source_state_id"] == "bridge-state" for action in actions))
         self.assertTrue(all(action["enabled"] for action in actions))
 
     def test_bridge_actions_cover_play_end_and_disabled_state(self):
