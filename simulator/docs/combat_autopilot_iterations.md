@@ -638,3 +638,57 @@ Interpretation:
 
 - The baseline is derived only from the replay trace summaries, not from external game state.
 - Negative `real_trace_hp_loss` can happen when the trace exits combat with more HP than it had at the selected root, for example from post-combat healing. Treat `hp_loss_delta_vs_trace` as an HP-delta comparison, not as proof that the policy won the full combat unless `terminal_reason` also says it won.
+
+### 16. Hard-Root Python Search Triage
+
+Change:
+
+- No policy change. Ran bounded probes after adding better eval reporting.
+
+Why:
+
+- The remaining `dev-50` losses are now the main quality blockers:
+  - Hexaghost step 91
+  - Chosen+Cultist step 190
+- Before starting Rust-side search, check whether existing heavier Python candidates or cheaper first-action variants produce a winning line.
+
+Diagnostics:
+
+| Probe | Result | Decision |
+| --- | --- | --- |
+| `dev-fast-10` batch with `portfolio_aggressive_d40`, `beam_tactical_w8_d40`, `beam_aggressive_w12_d40`, `hp_portfolio_d40` | no ranking after 60s; process stopped | rejected as too slow for replay automation |
+| two hard roots with `beam_tactical_w8_d40`, `beam_aggressive_w12_d40`, `hp_portfolio_d40` | no result after 30s; process stopped | rejected as too slow for Python-loop triage |
+| hard roots with fast greedy policies | all lost both roots | no fast-policy rescue found |
+| hard roots with no-potion variants | all lost both roots | potion waste is not the root cause |
+| principal variation inspection | first-turn choices closely match the collected trace; failures appear later-horizon | points toward deeper search/horizon, not a first-action heuristic |
+
+Fast hard-root results:
+
+| Root | Candidate | Result | Final HP | Monster HP | Potions | Seconds |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| step 91 Hexaghost | `tactical_greedy_d40` | lost | -1 | 107 | 2 | 1.324 |
+| step 91 Hexaghost | `hp_greedy_d40` | lost | -1 | 107 | 2 | 1.308 |
+| step 91 Hexaghost | `aggressive_greedy_d40` | lost | -1 | 107 | 2 | 1.356 |
+| step 91 Hexaghost | `scaling_greedy_d40` | lost | -10 | 118 | 2 | 1.099 |
+| step 190 Chosen+Cultist | `tactical_greedy_d40` | lost | -13 | 24 | 2 | 1.061 |
+| step 190 Chosen+Cultist | `hp_greedy_d40` | lost | -13 | 24 | 2 | 1.049 |
+| step 190 Chosen+Cultist | `aggressive_greedy_d40` | lost | -13 | 23 | 2 | 1.052 |
+| step 190 Chosen+Cultist | `scaling_greedy_d40` | lost | -1 | 52 | 2 | 0.820 |
+
+No-potion hard-root results:
+
+| Root | Candidate | Result | Final HP | Monster HP | Potions | Seconds |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| step 91 Hexaghost | `trace_probe_no_potions_d40` | lost | -3 | 107 | 0 | 1.231 |
+| step 91 Hexaghost | `aggressive_no_potions_d40` | lost | -3 | 107 | 0 | 0.417 |
+| step 91 Hexaghost | `scaling_no_potions_d40` | lost | -12 | 118 | 0 | 0.327 |
+| step 190 Chosen+Cultist | `trace_probe_no_potions_d40` | lost | -13 | 31 | 0 | 1.134 |
+| step 190 Chosen+Cultist | `aggressive_no_potions_d40` | lost | -13 | 30 | 0 | 0.401 |
+| step 190 Chosen+Cultist | `scaling_no_potions_d40` | lost | -1 | 59 | 0 | 0.316 |
+
+Interpretation:
+
+- The Python policy stack is now evidence-limited on the remaining hard `dev-50` losses.
+- The collected trace wins from these roots, so the simulator state is not obviously unwinnable.
+- The first turn is not the obvious failure; the current policies need better long-horizon planning through later turns.
+- The next meaningful quality iteration should move search closer to Rust or add a bounded Rust-side rollout primitive exposed to Python. More broad Python beam/portfolio attempts are likely to be too slow unless the candidate set and clone/step loop are drastically reduced.
