@@ -118,6 +118,8 @@ def _evaluator(objective: str) -> Callable[[dict[str, Any]], float]:
         return _evaluate_basic
     if objective == "tactical_survival":
         return _evaluate_tactical_survival
+    if objective == "scaling_survival":
+        return _evaluate_scaling_survival
     if objective == "hp_preserving_lethal":
         return _evaluate_hp_preserving_lethal
     if objective == "aggressive_lethal":
@@ -430,6 +432,26 @@ def _select_screen_recommendation(
     if not select_actions or len(select_actions) != len(actions):
         return None
 
+    preferred_action = _preferred_select_action(env, select_actions)
+    if preferred_action is not None:
+        child = env.clone()
+        result = child.step(preferred_action)
+        terminal_reason = _result_terminal_reason(result, child)
+        score = (
+            _terminal_score(terminal_reason, child, evaluator)
+            if terminal_reason
+            else evaluator(_state(child))
+        )
+        variation = [preferred_action]
+        return _recommendation_from_select_shortcut(
+            variation=variation,
+            visits=2,
+            value=score - _variation_penalty(variation),
+            terminal_reason=terminal_reason,
+            depth=depth,
+            config=config,
+        )
+
     confirm_actions = [action for action in select_actions if action.kind().startswith("confirm_")]
     if confirm_actions:
         action = _sorted_actions(confirm_actions)[0]
@@ -480,6 +502,60 @@ def _select_screen_recommendation(
         depth=depth,
         config=config,
     )
+
+
+_BAD_EXHAUST_CONTENT_IDS = {
+    4,  # Wound
+    5,  # Dazed
+    6,  # Burn
+    7,  # Slimed
+    61,  # Ascender's Bane
+    62,  # Regret
+    63,  # Doubt
+    64,  # Curse of the Bell
+    65,  # Clumsy
+    66,  # Decay
+    67,  # Injury
+    68,  # Normality
+    69,  # Pain
+    70,  # Parasite
+    71,  # Shame
+    72,  # Writhe
+}
+
+
+def _preferred_select_action(env: Any, actions: Sequence[Any]) -> Any | None:
+    choose_exhaust_actions = [
+        action for action in actions if action.kind() == "choose_exhaust_select"
+    ]
+    if not choose_exhaust_actions:
+        return None
+
+    state = _state(env)
+    selected_indices = set(
+        ((state.get("exhaust_select") or {}).get("selected_hand_indices")) or []
+    )
+    hand = ((state.get("piles") or {}).get("hand")) or []
+    bad_indices = {
+        index
+        for index, card in enumerate(hand)
+        if int(card.get("content_id", -1)) in _BAD_EXHAUST_CONTENT_IDS
+    }
+    for action in _sorted_actions(choose_exhaust_actions):
+        index = _select_action_index(action, "ChooseExhaustSelect")
+        if index in bad_indices and index not in selected_indices:
+            return action
+    return None
+
+
+def _select_action_index(action: Any, key: str) -> int | None:
+    try:
+        data = json.loads(action.json())
+    except Exception:
+        return None
+    select = data.get(key) if isinstance(data, dict) else None
+    index = select.get("index") if isinstance(select, dict) else None
+    return int(index) if isinstance(index, int) else None
 
 
 def _resolve_select_screens(
@@ -659,6 +735,29 @@ def _evaluate_tactical_survival(state: dict[str, Any]) -> float:
         - monster_block * 0.75
         - len(alive_monsters) * 60.0
     )
+
+
+def _evaluate_scaling_survival(state: dict[str, Any]) -> float:
+    player = state.get("player", {})
+    powers = player.get("powers") or {}
+    monsters = state.get("monsters", [])
+    alive_monsters = [monster for monster in monsters if monster.get("alive", False)]
+    monster_hp = sum(float(monster.get("hp", 0)) for monster in alive_monsters)
+    debuff_value = sum(
+        float((monster.get("powers") or {}).get("vulnerable", 0)) * 35.0
+        + float((monster.get("powers") or {}).get("weak", 0)) * 25.0
+        for monster in alive_monsters
+    )
+    scaling_value = (
+        float(powers.get("strength", 0)) * 45.0
+        + float(player.get("temp_strength", 0)) * 12.0
+        + float(powers.get("ritual", 0)) * (220.0 + min(monster_hp, 250.0) * 2.0)
+        + float(powers.get("metallicize", 0)) * 30.0
+        + float(powers.get("plated_armor", 0)) * 35.0
+        + float(powers.get("feel_no_pain", 0)) * 25.0
+        + float(powers.get("dark_embrace", 0)) * 20.0
+    )
+    return _evaluate_tactical_survival(state) + scaling_value + debuff_value
 
 
 def _evaluate_aggressive(state: dict[str, Any]) -> float:

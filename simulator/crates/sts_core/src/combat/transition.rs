@@ -7098,10 +7098,11 @@ mod tests {
 
         let bash = next_turn
             .piles
-            .discard_pile
+            .hand
             .iter()
+            .chain(next_turn.piles.discard_pile.iter())
             .find(|card| card.content_id == BASH_ID)
-            .expect("Bash discarded at end of turn");
+            .expect("Bash remains in a post-turn pile");
         assert_eq!(bash.temp_cost, None);
         assert!(!bash.temp_cost_turn_only);
     }
@@ -7129,10 +7130,11 @@ mod tests {
 
         let bash = next_turn
             .piles
-            .discard_pile
+            .hand
             .iter()
+            .chain(next_turn.piles.discard_pile.iter())
             .find(|card| card.content_id == BASH_ID)
-            .expect("Bash discarded at end of turn");
+            .expect("Bash remains in a post-turn pile");
         assert_eq!(bash.temp_cost, Some(1));
         assert!(!bash.temp_cost_turn_only);
     }

@@ -103,24 +103,6 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             "hp_greedy_d40",
             CombatSearchConfig(max_depth=40, objective="hp_preserving_lethal", algorithm="greedy"),
         ),
-        SearchCandidate(
-            "hp_beam_w4_d30",
-            CombatSearchConfig(
-                max_depth=30,
-                objective="hp_preserving_lethal",
-                algorithm="beam",
-                beam_width=4,
-            ),
-        ),
-        SearchCandidate(
-            "beam_tactical_w4_d20",
-            CombatSearchConfig(
-                max_depth=20,
-                objective="tactical_survival",
-                algorithm="beam",
-                beam_width=4,
-            ),
-        ),
     ]
 
 

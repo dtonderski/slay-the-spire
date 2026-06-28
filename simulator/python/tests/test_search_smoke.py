@@ -83,6 +83,21 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertEqual(result.diagnostics["algorithm"], "greedy")
         self.assertEqual(result.diagnostics["beam_width"], 1)
 
+    def test_scaling_survival_objective_is_supported(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=4,
+                objective="scaling_survival",
+                algorithm="greedy",
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["objective"], "scaling_survival")
+
     def test_hp_preserving_greedy_still_returns_painful_legal_action(self):
         import json
 
@@ -203,6 +218,41 @@ class CombatSearchSmokeTests(unittest.TestCase):
 
         self.assertIsNotNone(result.best_action)
         self.assertEqual(result.best_action.kind(), "confirm_exhaust_select")
+        self.assertTrue(result.diagnostics["select_screen_shortcut"])
+
+    def test_elixir_select_shortcut_exhausts_bad_cards_before_confirming(self):
+        import json
+
+        state = json.loads(self._run_combat_with_potion("Elixir").state_json())
+        state["combat"]["piles"]["hand"] = [
+            {"id": 100, "content_id": 67, "temp_cost": None, "combat_only": False},
+            {"id": 101, "content_id": 62, "temp_cost": None, "combat_only": False},
+            {"id": 102, "content_id": 1, "temp_cost": None, "combat_only": False},
+        ]
+        env = omni.OmniRunEnv.from_state_json(json.dumps(state))
+        elixir = next(action for action in env.exact_legal_actions() if action.kind() == "use_potion")
+        env.step(elixir)
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=40,
+                objective="aggressive_lethal",
+                algorithm="beam",
+                beam_width=8,
+                allowed_potions=("Elixir",),
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.best_action.kind(), "choose_exhaust_select")
+        self.assertIn(
+            result.best_action.json(),
+            {
+                '{"ChooseExhaustSelect":{"index":0}}',
+                '{"ChooseExhaustSelect":{"index":1}}',
+            },
+        )
         self.assertTrue(result.diagnostics["select_screen_shortcut"])
 
     def test_search_rejects_run_map_fixture(self):

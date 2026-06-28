@@ -889,9 +889,6 @@ def _trace_combat_roots(
     seen: set[str] = set()
     seen_combat_start_keys: set[str] = set()
     for trace_path in trace_paths:
-        verification = verify_self_play_trace(trace_path)
-        if not verification.get("ok"):
-            continue
         for record in _read_jsonl(trace_path)[1:]:
             record_type = record.get("type")
             if record_type == "step":
