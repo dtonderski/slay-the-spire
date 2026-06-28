@@ -271,6 +271,13 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(eval_set_report["root_scope"], "combat_start")
             self.assertGreaterEqual(eval_set_report["available_roots"], eval_set_report["roots"])
             self.assertFalse(eval_set_report["held_out"])
+            self.assertEqual(len(eval_set_report["root_manifest"]), eval_set_report["roots"])
+            self.assertEqual(
+                eval_set_report["root_manifest"][0]["trace_step"],
+                eval_set_report["episodes"][0]["trace_step"],
+            )
+            self.assertIn("state_id", eval_set_report["root_manifest"][0])
+            self.assertIn("real_trace_hp_loss", eval_set_report["root_manifest"][0])
 
     def test_trace_eval_candidate_name_filter_accepts_comma_and_repeated_values(self):
         names = _parse_candidate_names(["tactical_greedy_d40,hp_greedy_d40", "tactical_greedy_d40"])

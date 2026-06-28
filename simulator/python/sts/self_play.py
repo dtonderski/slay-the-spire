@@ -761,6 +761,7 @@ def evaluate_self_play_corpus(
         "allowed_potion_roots": sum(
             1 for root in roots if _has_allowed_potion_actions(root, allowed_potions)
         ),
+        "root_manifest": _root_manifest(roots, allowed_potions),
         "groups": _group_stats(roots, episodes, allowed_potions),
         "ranking": _rank_episode_dicts(episodes),
         "episodes": episodes,
@@ -1768,6 +1769,27 @@ def _group_stats(
             episodes,
         ),
     }
+
+
+def _root_manifest(
+    roots: list[TraceCombatRoot],
+    allowed_potions: tuple[str, ...] | None,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "trace_path": str(root.trace_path),
+            "trace_step": root.step,
+            "state_id": root.state_id,
+            "split": root.split,
+            "potion_count": root.potion_count,
+            "potion_names": list(root.potion_names),
+            "legal_action_kinds": list(root.legal_action_kinds),
+            "legal_potion_names": list(root.legal_potion_names),
+            "has_allowed_potion_actions": _has_allowed_potion_actions(root, allowed_potions),
+            "real_trace_hp_loss": root.real_trace_hp_loss,
+        }
+        for root in roots
+    ]
 
 
 def _group_stat_for_roots(
