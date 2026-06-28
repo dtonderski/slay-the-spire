@@ -520,3 +520,43 @@ Interpretation:
 - Keep `trace_probe_potion_rescue_d40` as the current practical default candidate: same quality as `trace_probe_d40`, slightly less potion use, and much lower full-323 runtime.
 - This does not solve the hard roots. The remaining `dev-50` losses are still the same difficult states around steps 91, 158, and 190.
 - The next real quality iteration should target those failure fixtures directly; more generic potion gating mainly improves waste/runtime, not win rate.
+
+### 12. Aggressive Rescue Trace Probe
+
+Change:
+
+- Added `aggressive_rescue_trace_probe`, a guarded rescue policy:
+  - first run `potion_rescue_trace_probe`
+  - if that pass finds a terminal win, keep it
+  - otherwise run aggressive greedy search
+  - take aggressive only if it finds a terminal win
+- Added `trace_probe_aggressive_rescue_d40` as a first-class trace autopilot candidate.
+
+Why:
+
+- Direct failure-fixture probing showed:
+  - Hexaghost step 91: trace, rescue, no-potion, scaling, aggressive, HP, and beam variants all still lost
+  - Book of Stabbing step 158: aggressive greedy won with no potion where trace/rescue lost
+  - Chosen+Cultist step 190: tested variants still lost
+- The rescue is guarded so aggressive play cannot replace already-winning trace lines.
+
+Results:
+
+| Eval Set | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-50` | 17 | 15 | 2 | 0 | 28.06 | 23.0 | 73.4 | 4 | 2.26 | 2519.71 |
+| `val-50` | 4 | 4 | 0 | 0 | 20.0 | 18.0 | 40.4 | 0 | 1.20 | 1481.75 |
+| `full-323` | 323 | 291 | 7 | 25 | 21.29 | 14.0 | 63.9 | 18 | 1.43 | 1571.90 |
+
+Comparison against the previous best:
+
+| Candidate | `dev-50` Wins | `val-50` Wins | `full-323` Wins | Full Losses | Full Nonterminal | Full Potion Uses | Full Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `trace_probe_potion_rescue_d40` | 14/17 | 4/4 | 281/323 | 12 | 30 | 29 | 1.42 |
+| `trace_probe_aggressive_rescue_d40` | 15/17 | 4/4 | 291/323 | 7 | 25 | 18 | 1.43 |
+
+Interpretation:
+
+- `trace_probe_aggressive_rescue_d40` is the new best current policy on the frozen trace-derived evals.
+- The improvement is objective and broad enough to keep: +1 win on candidate-selection `dev-50`, no held-out `val-50` regression, +10 wins on `full-323`, fewer losses, fewer nonterminals, and fewer potions.
+- Remaining known dev losses are Hexaghost step 91 and Chosen+Cultist step 190. The quick fixture sweep did not find a Python-side policy variant that wins either, so the next iteration should inspect whether these need deeper Rust-side search, better long-horizon enemy modeling, or more specific simulator mechanic fixes.
