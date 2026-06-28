@@ -1699,3 +1699,40 @@ Interpretation:
 - The delta mean is computed over the 253 roots with same-combat trace baselines. The other 70 roots still run for policy win/loss validation, but the replay does not contain a trustworthy combat endpoint for human HP-delta comparison.
 - This did not require a new combat policy. The decisive fix was metric semantics: compare combat roots only to endpoints from the same combat.
 - Remaining policy work should now be judged against the corrected report, not the contaminated under-5 report.
+
+### 36. Strict Comparable Baselines and Portfolio Rescue
+
+Change:
+
+- Tightened trace HP-baseline extraction again: a same-floor combat anchor that changes player HP now invalidates the human HP baseline for that root.
+- Kept trace-used potion permissions independent from HP-baseline validity. A repaired combat window can still tell the policy which potion names the trace used, but it no longer contributes a human HP delta.
+- Added a bounded-selector portfolio rescue. When the selected winning bounded line still predicts HP loss, the selector also tries the existing Rust terminal portfolio branch and lets the existing win-first/final-HP comparator choose it only if it is also a terminal win with better final HP.
+
+Why:
+
+- After the cross-combat fix, the largest positive deltas were still dominated by in-combat trace repair anchors:
+  - floor 10 jumped from 41 HP to an observed 59 HP combat anchor before lethal,
+  - floor 22 jumped from 71 HP to an observed 83 HP combat anchor after an enemy turn,
+  - similar smaller repairs appeared in later fights.
+- Those are useful trace-repair facts, but they are not clean combat-policy performance baselines.
+- Once repaired HP baselines were removed, the remaining strict comparable set was close: the bounded selector was `+0.1571` HP/combat worse than the trace over 70 roots.
+- A 70-root candidate probe showed the existing Rust terminal portfolio could save 13 total HP on the strict comparable roots, enough to cross the beat-human threshold.
+
+Validation:
+
+```powershell
+uv run python -m unittest python.tests.test_self_play python.tests.test_search_smoke -v
+uv run python -m sts.self_play eval --trace target\trace-guided\manual01-replayed.jsonl --eval-set full-323 --max-actions 80 --allowed-potions-mode trace_used --candidate rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40 --jobs 8 --output target\search-lab\trace-used-full323-beat-human.json
+```
+
+Results:
+
+| Candidate | Roots | Strict Trace Baselines | Missing Baselines | Wins | Losses | Nonterminal | Mean HP Loss | Mean Real Trace HP Loss | Mean Delta vs Trace | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40` | 323 | 70 | 253 | 323 | 0 | 0 | 4.41 | -0.20 | -0.13 | 0.0 | 31.9 | 41 | 0.367 |
+
+Interpretation:
+
+- The current goal gate is met on the strict corrected benchmark: mean HP loss delta vs trace is `-0.1286` over roots with clean same-combat HP baselines.
+- The full policy still wins every frozen root: `323/323`, with no losses and no nonterminals.
+- The comparable-root count is now lower because repaired in-combat HP jumps are no longer treated as human performance baselines. They remain useful fidelity/debug signals, but not policy-eval labels.
