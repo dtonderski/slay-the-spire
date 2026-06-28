@@ -615,3 +615,26 @@ Interpretation:
 
 - This does not change policy behavior.
 - It tightens the frozen eval/reporting layer before the next algorithm iteration, especially for comparing potion-aware candidates.
+
+### 15. Real-Trace HP Baseline Reporting
+
+Change:
+
+- Added replay-derived real-trace HP baselines to trace eval roots.
+- Episode rows now include `real_trace_final_hp`, `real_trace_hp_loss`, `real_trace_terminal_phase`, and `hp_loss_delta_vs_trace`.
+- Ranking rows now include `mean_real_trace_hp_loss` and `mean_hp_loss_delta_vs_trace`.
+
+Why:
+
+- The search policy metrics need a stable comparison against the actual long trace, not only absolute simulator outcomes.
+- This lets us see whether a policy is preserving more HP than the collected trace on the same combat-start root, while still tracking wins/losses separately.
+
+Verification:
+
+- `uv run python -m unittest python.tests.test_self_play -v`
+- Smoke eval on `dev-fast-10` with `trace_probe_aggressive_rescue_d40` wrote real-trace baseline fields in episode and ranking rows.
+
+Interpretation:
+
+- The baseline is derived only from the replay trace summaries, not from external game state.
+- Negative `real_trace_hp_loss` can happen when the trace exits combat with more HP than it had at the selected root, for example from post-combat healing. Treat `hp_loss_delta_vs_trace` as an HP-delta comparison, not as proof that the policy won the full combat unless `terminal_reason` also says it won.
