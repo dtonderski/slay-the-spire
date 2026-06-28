@@ -967,3 +967,95 @@ Interpretation:
 - It is not finished. The full-set failures show two clusters: a mid-run lethal-planning cluster around steps 168 and 191-193, and a late cluster where Power Potion lines stall or leave too much monster HP.
 - The policy spends many Elixirs on full coverage because the eval starts from many intermediate roots from the same real combat. This is useful for per-root combat advice, but it overstates whole-run potion consumption.
 - Next iteration should target the saved full-set failure fixtures, especially the step 191-193 cluster and the Power Potion nonterminals, before claiming the autopilot is ready to drive large-scale trace replay.
+
+### 22. Adaptive Width-128 No-Power Rescue
+
+Change:
+
+- Added trace candidates:
+  - `rust_beam_terminal_w128_d40`
+  - `rust_beam_terminal_w128_no_power_d40`
+  - `rust_terminal_rescue_w32_w128_no_power_d40`
+- Added the `rust_terminal_rescue` search algorithm.
+- The rescue algorithm runs the current width-32 terminal beam first.
+- If width 32 predicts a win, rescue returns that result unchanged.
+- If width 32 predicts a loss or nonterminal, rescue runs a width-128 terminal beam with Power Potion removed from the allowed potion set.
+- Rescue only selects the width-128 no-Power result when that result predicts a win; otherwise it keeps the width-32 result.
+
+Why:
+
+- Parallel failure inspection split the full-set failures into two clusters:
+  - steps 168 and 191-193 were beam-pruning failures; wider terminal beams found winning lines.
+  - steps 279 and 284-287 were Power Potion-heavy nonterminals; blindly banning Power Potion helped step 279 but turned steps 284-287 into losses.
+- A blanket width-128 policy was worse than width 32 on `dev-fast-10` and `dev-50`: it was slower and gave up a little HP.
+- A blanket no-Power policy was unsafe on the late cluster.
+- The adaptive rule keeps the cheap dev-selected policy in normal states and only pays for wider search when the primary line is already predicted to fail.
+
+Failure-fixture diagnostics before implementation:
+
+| Trace Step | Width 32 | Width 64 | Width 128 | Width 128 No Power |
+| ---: | --- | --- | --- | --- |
+| 168 | lost, HP -14, monster 21 | won, HP 19 | won, HP 21 | won, HP 21 |
+| 191 | lost, HP -16, monster 4 | won, HP 16 | won, HP 12 | won, HP 12 |
+| 192 | lost, HP -16, monster 4 | lost, HP -16, monster 4 | won, HP 12 | won, HP 12 |
+| 193 | lost, HP -10, monster 12 | lost, HP -10, monster 12 | won, HP 20 | won, HP 20 |
+| 279 | nonterminal, HP 2, monster 13 | won, HP 8 | won, HP 22 | won, HP 22 |
+| 284 | nonterminal, HP 1, monster 65 | nonterminal | nonterminal | lost, HP -6 |
+| 285 | nonterminal, HP 8, monster 49 | nonterminal | nonterminal | lost, HP -6 |
+| 286 | nonterminal, HP 8, monster 61 | nonterminal | nonterminal | lost, HP -8 |
+| 287 | nonterminal, HP 4, monster 96 | nonterminal | nonterminal | lost, HP -3 |
+
+Dev comparison:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-fast-10` | `rust_beam_terminal_w32_d40` | 10 | 10 | 0 | 0 | 17.1 | 7.5 | 51.2 | 5.6 | 7 | 0.00219 | 0.034 | 18224.7 |
+| `dev-fast-10` | `rust_beam_terminal_w128_d40` | 10 | 10 | 0 | 0 | 18.7 | 13.0 | 48.5 | 5.6 | 7 | 0.00834 | 0.103 | 50308.3 |
+| `dev-fast-10` | `rust_beam_terminal_w128_no_power_d40` | 10 | 10 | 0 | 0 | 18.7 | 13.0 | 48.5 | 5.6 | 7 | 0.00738 | 0.095 | 50308.3 |
+| `dev-50` | `rust_beam_terminal_w32_d40` | 17 | 17 | 0 | 0 | 19.29 | 12.0 | 57.6 | 6.35 | 12 | 0.00248 | 0.037 | 16245.35 |
+| `dev-50` | `rust_beam_terminal_w128_no_power_d40` | 17 | 17 | 0 | 0 | 19.82 | 15.0 | 57.6 | 6.35 | 10 | 0.00844 | 0.103 | 47857.29 |
+| `dev-50` | `rust_terminal_rescue_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 19.24 | 12.0 | 56.8 | 6.35 | 12 | 0.00366 | 0.064 | 34442.82 |
+
+Held-out validation:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `val-50` | `rust_beam_terminal_w32_d40` | 4 | 4 | 0 | 0 | 15.5 | 7.0 | 42.45 | 4.0 | 0 | 0.00334 | 0.064 | 19814.0 |
+| `val-50` | `rust_terminal_rescue_w32_w128_no_power_d40` | 4 | 4 | 0 | 0 | 12.0 | 12.5 | 19.1 | 4.0 | 0 | 0.00359 | 0.061 | 22030.5 |
+
+Full coverage sanity:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full-323` | `rust_beam_terminal_w32_d40` | 323 | 314 | 4 | 5 | 14.43 | 7.0 | 59.0 | -1.02 | 130 | 0.00182 | 0.029 | 11741.55 |
+| `full-323` | `rust_terminal_rescue_w32_w128_no_power_d40` | 323 | 318 | 1 | 4 | 14.09 | 8.0 | 55.9 | -1.02 | 124 | 0.00282 | 0.045 | 19591.73 |
+
+Full-set potion use for rescue:
+
+| Potion | Uses |
+| --- | ---: |
+| Cultist | 1 |
+| DistilledChaos | 17 |
+| Elixir | 75 |
+| Explosive | 3 |
+| Flex | 1 |
+| Power | 4 |
+| Weak | 23 |
+
+Remaining full-set failure fixtures:
+
+| Trace Step | Result | Final HP | Monster HP | Actions | Potions Used |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 191 | lost | -16 | 4 | 15 | Elixir, DistilledChaos |
+| 284 | nonterminal | 1 | 65 | 16 | Power |
+| 285 | nonterminal | 8 | 49 | 8 | Power |
+| 286 | nonterminal | 8 | 61 | 6 | Power |
+| 287 | nonterminal | 4 | 96 | 9 | Power |
+
+Interpretation:
+
+- `rust_terminal_rescue_w32_w128_no_power_d40` is the new selected baseline from `dev-50`: it keeps 17/17 wins with zero nonterminals, slightly improves mean HP loss and p95 HP loss, and remains fast enough for replay automation.
+- The full-set result improves from 314/323 wins to 318/323 wins, reducing losses from 4 to 1 and total unresolved fixtures from 9 to 5.
+- The remaining step 191 loss is likely a repeated-decision/path issue: the single-root diagnostic showed width-128 no-Power can win that root, but the closed-loop policy still later drifts into the losing line.
+- The remaining step 284-287 nonterminals need a Power Potion-specific evaluator or generated-card handling. Blanket Power Potion removal is unsafe because it turns those roots into losses.
+- Next iteration should focus on Power Potion card-choice valuation and on preserving the step 191 winning line across subsequent closed-loop decisions.
