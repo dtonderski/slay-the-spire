@@ -36,6 +36,7 @@ class SearchLabTests(unittest.TestCase):
         self.assertGreater(report["benchmark"]["mean_start_hp"], 0)
         self.assertIn("candidate", report["ranking"][0])
         self.assertIn("mean_score", report["ranking"][0])
+        self.assertIn("potion_use_counts", report["ranking"][0])
 
 
 if __name__ == "__main__":

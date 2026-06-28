@@ -1066,6 +1066,7 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     float(episode["potion_uses"]) for episode in candidate_episodes
                 ),
                 "total_potion_uses": sum(int(episode["potion_uses"]) for episode in candidate_episodes),
+                "potion_use_counts": _episode_potion_use_counts(candidate_episodes),
                 "mean_seconds_per_combat": _mean(
                     float(episode["search_seconds"]) for episode in candidate_episodes
                 ),
@@ -1150,6 +1151,7 @@ def _failure_fixtures(
                 "hp_loss": episode.get("hp_loss"),
                 "monster_hp": episode.get("monster_hp"),
                 "potion_uses": episode.get("potion_uses"),
+                "potion_use_names": list(episode.get("potion_use_names") or []),
                 "search_seconds": episode.get("search_seconds"),
                 "mean_seconds_per_decision": episode.get("mean_seconds_per_decision"),
                 "potion_names": list(root.potion_names),
@@ -1173,6 +1175,15 @@ def _failure_fixture_name(episode: dict[str, Any]) -> str:
     trace_step = episode.get("trace_step", 0)
     reason = _safe_file_stem(str(episode.get("terminal_reason") or "nonterminal"))
     return f"{candidate}-step{trace_step}-{state_id}-{reason}"
+
+
+def _episode_potion_use_counts(episodes: Iterable[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for episode in episodes:
+        for name in episode.get("potion_use_names") or []:
+            potion_name = str(name)
+            counts[potion_name] = counts.get(potion_name, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _metadata(

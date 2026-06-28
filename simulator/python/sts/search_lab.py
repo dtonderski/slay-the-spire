@@ -44,6 +44,7 @@ class EpisodeResult:
     actions: int
     search_nodes: int
     potion_uses: int
+    potion_use_names: tuple[str, ...]
     search_seconds: float
     mean_seconds_per_decision: float
     p50_seconds_per_decision: float
@@ -247,7 +248,7 @@ def evaluate_candidate(
     initial_hp = float(_state(env).get("player", {}).get("hp", 0))
     actions_taken = 0
     search_nodes = 0
-    potion_uses = 0
+    potion_use_names: list[str] = []
     decision_seconds: list[float] = []
     terminal = _terminal_reason(env)
 
@@ -259,7 +260,7 @@ def evaluate_candidate(
         if recommendation.best_action is None:
             break
         if getattr(recommendation.best_action, "kind", lambda: "")() == "use_potion":
-            potion_uses += 1
+            potion_use_names.append(_potion_name_for_action(env, recommendation.best_action))
         env.step(recommendation.best_action)
         actions_taken += 1
         terminal = _terminal_reason(env)
@@ -280,7 +281,8 @@ def evaluate_candidate(
         monster_hp=_monster_hp(final_state),
         actions=actions_taken,
         search_nodes=search_nodes,
-        potion_uses=potion_uses,
+        potion_uses=len(potion_use_names),
+        potion_use_names=tuple(potion_use_names),
         search_seconds=sum(decision_seconds),
         mean_seconds_per_decision=_mean(decision_seconds),
         p50_seconds_per_decision=_percentile(decision_seconds, 50),
@@ -351,6 +353,7 @@ def _rank(results: list[EpisodeResult]) -> list[dict[str, Any]]:
                 "mean_actions": _mean(result.actions for result in candidate_results),
                 "mean_potion_uses": _mean(result.potion_uses for result in candidate_results),
                 "total_potion_uses": sum(result.potion_uses for result in candidate_results),
+                "potion_use_counts": _potion_use_counts(candidate_results),
                 "mean_seconds_per_combat": _mean(
                     result.search_seconds for result in candidate_results
                 ),
@@ -458,6 +461,41 @@ def _mean_start_hp(roots: Iterable[BenchmarkRoot]) -> float:
 
 def _sorted_actions(actions: Iterable[Any]) -> list[Any]:
     return sorted(actions, key=lambda action: (action.kind(), action.json()))
+
+
+def _potion_use_counts(results: Iterable[EpisodeResult]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for result in results:
+        for name in result.potion_use_names:
+            counts[name] = counts.get(name, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _potion_name_for_action(env: Any, action: Any) -> str:
+    data = _action_json_data(action)
+    use = data.get("UsePotion") if isinstance(data, dict) else None
+    slot = use.get("slot") if isinstance(use, dict) else None
+    if not isinstance(slot, int):
+        return "unknown"
+    state = _raw_state(env)
+    potions = state.get("potions") or []
+    if 0 <= slot < len(potions):
+        return str(potions[slot])
+    return "unknown"
+
+
+def _raw_state(env: Any) -> dict[str, Any]:
+    state = json.loads(env.state_json())
+    run = state.get("state")
+    return run if isinstance(run, dict) else state
+
+
+def _action_json_data(action: Any) -> dict[str, Any]:
+    try:
+        data = json.loads(action.json())
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _split_for_state(state_id: str) -> str:

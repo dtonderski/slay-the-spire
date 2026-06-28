@@ -592,3 +592,26 @@ Interpretation:
   - a more explicit long-horizon combat solver for boss/elite-like roots
   - simulator/mechanics inspection for these exact roots, especially Hexaghost and low-HP Chosen+Cultist
 - Do not keep adding broad Python rescue passes until one of these diagnostics finds a winning line; otherwise runtime grows without evidence of better replay quality.
+
+### 14. Potion Use Count Reporting
+
+Change:
+
+- Added per-potion use tracking to search episodes and trace-derived eval reports.
+- Ranking rows now include `potion_use_counts`, alongside total and mean potion uses.
+- Failure fixtures now include `potion_use_names` so hard roots preserve which potion types the candidate actually spent before failing.
+
+Why:
+
+- The objective evals need to distinguish "spent two potions" from "spent Elixir plus Cultist Potion".
+- The current validation boundary uses the real trace potion types as an allowlist, so reports should make potion waste and potion-type dependence directly auditable.
+
+Verification:
+
+- `uv run python -m unittest python.tests.test_search_lab python.tests.test_self_play -v`
+- Smoke eval on `dev-fast-10` with `trace_probe_aggressive_rescue_d40` wrote `potion_use_counts` in the ranking and `potion_use_names` in episode/failure rows.
+
+Interpretation:
+
+- This does not change policy behavior.
+- It tightens the frozen eval/reporting layer before the next algorithm iteration, especially for comparing potion-aware candidates.

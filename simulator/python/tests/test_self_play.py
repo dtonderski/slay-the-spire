@@ -187,6 +187,7 @@ class SelfPlayTests(unittest.TestCase):
             self.assertIn("p95_seconds_per_decision", report["ranking"][0])
             self.assertIn("mean_seconds_per_combat", report["ranking"][0])
             self.assertIn("mean_potion_uses", report["ranking"][0])
+            self.assertIn("potion_use_counts", report["ranking"][0])
             self.assertIn("p95_search_nodes", report["ranking"][0])
             self.assertTrue(report["episodes"])
             self.assertEqual(report["episodes"][0]["trace_path"], str(trace_path))
@@ -194,6 +195,7 @@ class SelfPlayTests(unittest.TestCase):
             self.assertIn("search_seconds", report["episodes"][0])
             self.assertIn("decision_seconds", report["episodes"][0])
             self.assertIn("potion_uses", report["episodes"][0])
+            self.assertIn("potion_use_names", report["episodes"][0])
             self.assertTrue(report["episodes"][0]["has_potion_actions"])
             self.assertTrue(report["episodes"][0]["has_allowed_potion_actions"])
 
@@ -242,6 +244,7 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(fixtures["type"], "combat_autopilot_failure_fixtures")
             self.assertIn("snapshot_json", fixtures["fixtures"][0])
             self.assertIn("search_seconds", fixtures["fixtures"][0])
+            self.assertIn("potion_use_names", fixtures["fixtures"][0])
 
             eval_set_report = evaluate_self_play_corpus(
                 traces=[trace_path],
