@@ -7,6 +7,8 @@ from sts import omni
 from sts.search import CombatSearchConfig
 from sts.search_lab import SearchCandidate
 from sts.self_play import (
+    _parse_candidate_names,
+    _trace_candidates_by_name,
     evaluate_self_play_corpus,
     real_trace_root_report,
     replay_real_trace_guided,
@@ -258,6 +260,19 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(eval_set_report["eval_set"], "dev-fast-10")
             self.assertEqual(eval_set_report["eval_set_spec"]["max_roots"], 10)
             self.assertEqual(eval_set_report["root_scope"], "combat_start")
+
+    def test_trace_eval_candidate_name_filter_accepts_comma_and_repeated_values(self):
+        names = _parse_candidate_names(["tactical_greedy_d40,hp_greedy_d40", "tactical_greedy_d40"])
+        self.assertEqual(
+            names,
+            ("tactical_greedy_d40", "hp_greedy_d40", "tactical_greedy_d40"),
+        )
+
+        candidates = _trace_candidates_by_name(["hp_greedy_d40"])
+
+        self.assertEqual([candidate.name for candidate in candidates], ["hp_greedy_d40"])
+        with self.assertRaises(ValueError):
+            _trace_candidates_by_name(["missing"])
             self.assertGreaterEqual(eval_set_report["available_roots"], eval_set_report["roots"])
             self.assertFalse(eval_set_report["held_out"])
 

@@ -363,7 +363,7 @@ Selected policy:
 
 - `tactical_greedy_d40`, because it tied `hp_greedy_d40` on dev-50 and had better HP/runtime on held-out val-50.
 
-Last completed `full-323` coverage sanity for selected policy:
+`full-323` coverage sanity for selected policy:
 
 | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -371,8 +371,10 @@ Last completed `full-323` coverage sanity for selected policy:
 
 Note:
 
-- The `dev-fast-10`, `dev-50`, and `val-50` reports above were refreshed after the scoped no-RNG fallback.
-- A selected-policy `full-323` refresh after the scoped fallback was stopped after running longer than the previous full pass without progress output. The saved full report above is therefore the last completed full-323 sanity report and should be refreshed with progress-visible batching before treating it as final evidence.
+- The `dev-fast-10`, `dev-50`, `val-50`, and selected-policy `full-323` reports above were refreshed after the scoped no-RNG fallback.
+- The first selected-policy `full-323` refresh attempt was stopped because it had no progress output. The eval CLI now supports `--candidate` and `--progress-every`, and the progress-visible rerun completed.
+- Useful command:
+  - `uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --eval-set full-323 --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Power Potion,Explosive Potion" --candidate tactical_greedy_d40 --progress-every 25 --output target/trace-guided/eval-full-323-tactical-greedy.json --failure-output target/trace-guided/eval-full-323-tactical-greedy-failures.json`
 
 Interpretation:
 
