@@ -12,6 +12,7 @@ from sts.self_play import (
     _action_for_communication_command,
     _candidate_with_allowed_potions,
     _combat_policy_from_name,
+    _real_trace_combat_baselines,
     _parse_candidate_names,
     _trace_candidates_by_name,
     evaluate_self_play_corpus,
@@ -172,7 +173,7 @@ class SelfPlayTests(unittest.TestCase):
                         "after_hash": result.snapshot_hash,
                         "after_snapshot_json": result.snapshot_json,
                         "after_summary": {
-                            "phase": result.phase,
+                            "phase": "combat_reward",
                             "player_hp": 80,
                             "potions": [],
                         },
@@ -225,6 +226,8 @@ class SelfPlayTests(unittest.TestCase):
             self.assertIn("mean_seconds_per_combat", report["ranking"][0])
             self.assertIn("mean_potion_uses", report["ranking"][0])
             self.assertIn("potion_use_counts", report["ranking"][0])
+            self.assertIn("real_trace_baseline_roots", report["ranking"][0])
+            self.assertIn("missing_real_trace_baseline_roots", report["ranking"][0])
             self.assertIn("mean_real_trace_hp_loss", report["ranking"][0])
             self.assertIn("mean_hp_loss_delta_vs_trace", report["ranking"][0])
             self.assertIn("p95_search_nodes", report["ranking"][0])
@@ -348,6 +351,55 @@ class SelfPlayTests(unittest.TestCase):
             )
             self.assertIn("state_id", eval_set_report["root_manifest"][0])
             self.assertIn("real_trace_hp_loss", eval_set_report["root_manifest"][0])
+
+    def test_real_trace_baseline_does_not_cross_into_next_combat(self):
+        records = [
+            {"type": "metadata", "schema": 1},
+            {
+                "type": "step",
+                "step": 0,
+                "before_hash": "root",
+                "before_summary": {
+                    "phase": "combat",
+                    "floor": 33,
+                    "player_hp": 24,
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 13},
+                        ],
+                    },
+                },
+                "after_summary": {
+                    "phase": "combat",
+                    "floor": 33,
+                    "player_hp": 24,
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 7},
+                        ],
+                    },
+                },
+            },
+            {
+                "type": "anchor",
+                "step": 1,
+                "snapshot_hash": "next",
+                "summary": {
+                    "phase": "combat",
+                    "floor": 35,
+                    "player_hp": 90,
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 96},
+                        ],
+                    },
+                },
+            },
+        ]
+
+        baselines = _real_trace_combat_baselines(records)
+
+        self.assertNotIn("root", baselines)
 
     def test_trace_eval_candidate_name_filter_accepts_comma_and_repeated_values(self):
         names = _parse_candidate_names(["tactical_greedy_d40,hp_greedy_d40", "tactical_greedy_d40"])

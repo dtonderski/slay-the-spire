@@ -1625,7 +1625,7 @@ Why:
   - steps 164-165 needed a wider no-potion terminal branch,
   - step 94 needed a wider Cultist-enabled nonterminal rescue,
   - the Power cluster looked tempting, but committing Power-adjacent long PVs caused regressions on steps 277-289.
-- The trace's real mean HP loss is much better partly because it is a human full-run line with strategic context and post-combat healing effects. The eval is stricter/different: it starts from every distinct combat state, scores each root independently, and replays a combat-local policy without knowing the human's long-run plan.
+- Later analysis showed that this explanation was too broad. The large trace delta was mostly caused by baseline extraction crossing from one combat into a later combat anchor when the trace skipped intervening non-combat records. See iteration 35.
 - Python threads did not help because the eval loop crosses Python/PyO3 enough that the GIL and scheduling overhead dominate. Process parallelism works because each root evaluation is independent.
 
 Validation:
@@ -1665,3 +1665,37 @@ Interpretation:
 - The current milestone target is met on the frozen `full-323` trace-used eval: mean HP loss is below 5 with no losses or nonterminals.
 - Remaining worst roots still show obvious future work, especially steps 166-167 and the late Power Potion cluster, but they no longer block the under-5 gate.
 - Rust/Rayon parallelism may still be useful later for single-combat UI latency. For offline validation, process-level root parallelism is the right first layer because it is deterministic, simple, and already gives most of the practical speedup.
+
+### 35. Fix Cross-Combat Trace Baselines
+
+Change:
+
+- Changed trace baseline extraction so `_real_trace_combat_end_summary` only accepts a same-combat terminal/non-combat endpoint.
+- If a replay jumps directly from one combat floor to another combat floor, the earlier combat root no longer borrows HP from the later combat anchor.
+- Added a regression test for the observed shape: floor 33 combat at 24 HP followed by a floor 35 combat anchor at 90 HP must not create a fake `real_trace_hp_loss = -66`.
+
+Why:
+
+- The full-323 delta was dominated by roots where `real_trace_hp_loss` was strongly negative.
+- The worst cluster around steps 293-305 was not a search policy failing to reproduce a 90 HP combat finish. The replay had no intervening non-combat endpoint, and the baseline helper treated the next combat's floor-35 anchor as the previous floor-33 combat result.
+- That polluted both `mean_real_trace_hp_loss` and `mean_hp_loss_delta_vs_trace`, and it also caused trace-used potion permissions to leak across the combat boundary.
+
+Validation:
+
+```powershell
+uv run python -m unittest python.tests.test_self_play python.tests.test_search_smoke -v
+uv run python -m sts.self_play eval --trace target\trace-guided\manual01-replayed.jsonl --eval-set full-323 --max-actions 80 --allowed-potions-mode trace_used --candidate rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40 --jobs 8 --output target\search-lab\trace-used-full323-baseline-fixed.json
+```
+
+Results:
+
+| Candidate | Roots | Trace Baselines | Missing Baselines | Wins | Losses | Nonterminal | Mean HP Loss | Mean Real Trace HP Loss | Mean Delta vs Trace | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40` | 323 | 253 | 70 | 323 | 0 | 0 | 5.61 | 4.18 | 0.94 | 2.0 | 31.9 | 35 | 0.128 |
+
+Interpretation:
+
+- The current goal gate is met on the corrected full-323 trace-used benchmark: mean HP loss delta vs trace is `0.9368`, with no losses and no nonterminals.
+- The delta mean is computed over the 253 roots with same-combat trace baselines. The other 70 roots still run for policy win/loss validation, but the replay does not contain a trustworthy combat endpoint for human HP-delta comparison.
+- This did not require a new combat policy. The decisive fix was metric semantics: compare combat roots only to endpoints from the same combat.
+- Remaining policy work should now be judged against the corrected report, not the contaminated under-5 report.
