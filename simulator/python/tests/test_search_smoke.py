@@ -246,6 +246,19 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertIsNotNone(terminal.best_action)
         self.assertEqual(terminal.diagnostics["objective"], "terminal_tactical")
 
+        portfolio = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_portfolio",
+            ),
+        )
+
+        self.assertIsNotNone(portfolio.best_action)
+        self.assertEqual(portfolio.diagnostics["algorithm"], "rust_terminal_portfolio")
+        self.assertGreaterEqual(len(portfolio.diagnostics["portfolio_candidates"]), 3)
+
     def test_allowed_potions_filters_run_potion_actions(self):
         env = self._run_combat_with_fire_potion()
 

@@ -829,3 +829,42 @@ Interpretation:
 - It is not ready for held-out `val-50` promotion yet because the two remaining nonterminals are important hard roots, including Hexaghost at step 91 and Chosen+Cultist at step 190.
 - Width 32 reduces HP loss and potion use, but wins fewer roots on dev-50 because it leaves more combats nonterminal. More width alone is not the next lever.
 - The next iteration should target the remaining terminal failures directly: either compose terminal beam with a late rescue policy, add a lethal-finisher objective when monster HP is low, or extend Rust beam with rollout/portfolio selection instead of a single static objective.
+
+### 20. Rust Terminal Portfolio
+
+Change:
+
+- Added `rust_terminal_portfolio_d40`.
+- At each decision it asks three Rust-side beam candidates for a rollout:
+  - `terminal_tactical`, width 16
+  - `terminal_tactical`, width 32
+  - `tactical_survival`, width 16
+- The selector prefers predicted wins, then nonterminal rollouts with lower remaining monster HP, then final player HP.
+
+Why:
+
+- The terminal-pressure variants had complementary failure patterns.
+- The first selector tried value-first tie-breaking and did not help: on `dev-50` it stayed at 15/17 and often preferred safer stalled lines.
+- Switching nonterminal tie-breaking toward monster HP produced the intended late-combat pressure.
+
+Results:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-fast-10` | `rust_beam_terminal_w16_d40` | 10 | 9 | 0 | 1 | 12.7 | 5.0 | 42.5 | 5.6 | 7 | 0.011 | 6313.2 |
+| `dev-fast-10` | `rust_terminal_portfolio_d40` | 10 | 10 | 0 | 0 | 17.1 | 8.0 | 49.3 | 5.6 | 11 | 0.053 | 32461.0 |
+| `dev-50` | `rust_beam_terminal_w16_d40` | 17 | 15 | 0 | 2 | 15.94 | 7.0 | 59.6 | 6.35 | 11 | 0.016 | 6831.0 |
+| `dev-50` | `rust_terminal_portfolio_d40` | 17 | 16 | 0 | 1 | 17.12 | 7.0 | 54.0 | 6.35 | 15 | 0.075 | 35046.71 |
+
+Remaining `dev-50` failure:
+
+| Candidate | Trace Step | Result | Final HP | Monster HP | Potions |
+| --- | ---: | --- | ---: | ---: | --- |
+| `rust_terminal_portfolio_d40` | 190 | nonterminal | 17 | 32 | DistilledChaos, Elixir |
+
+Interpretation:
+
+- This is the best current dev-50 policy by completion: 16/17 wins, zero losses, one nonterminal.
+- It is also the first candidate to reach 10/10 on `dev-fast-10`.
+- The tradeoff is real: it spends more potions and HP than the single terminal beam, and it is roughly 4-5x more expensive. The runtime is still small enough for replay automation on these roots.
+- Do not touch held-out `val-50` yet. One known dev-50 root still fails: step 190 Chosen+Cultist. The next iteration should target that root specifically, ideally with a lethal finisher or extended max-action rescue rather than another broad static heuristic.
