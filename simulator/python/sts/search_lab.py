@@ -244,6 +244,14 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             ),
         ),
         SearchCandidate(
+            "rust_terminal_hp_selector_w32_w64_w128_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_hp_selector",
+            ),
+        ),
+        SearchCandidate(
             "rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40",
             CombatSearchConfig(
                 max_depth=40,
@@ -412,21 +420,32 @@ def evaluate_candidate(
                 )
             )
             break
-        potion_name = None
-        if getattr(recommendation.best_action, "kind", lambda: "")() == "use_potion":
-            potion_name = _potion_name_for_action(env, recommendation.best_action)
-            potion_use_names.append(potion_name)
-        decision_trace.append(
-            _decision_trace_row(
-                actions_taken,
-                recommendation,
-                elapsed,
-                potion_name=potion_name,
-            )
+        actions_to_apply = (
+            tuple(recommendation.principal_variation)
+            if recommendation.diagnostics.get("follow_principal_variation")
+            else (recommendation.best_action,)
         )
-        env.step(recommendation.best_action)
-        actions_taken += 1
-        terminal = _terminal_reason(env)
+        remaining_actions = max_actions - actions_taken
+        for planned_index, action in enumerate(actions_to_apply[:remaining_actions]):
+            potion_name = None
+            if getattr(action, "kind", lambda: "")() == "use_potion":
+                potion_name = _potion_name_for_action(env, action)
+                potion_use_names.append(potion_name)
+            decision_trace.append(
+                _decision_trace_row(
+                    actions_taken,
+                    recommendation,
+                    elapsed if planned_index == 0 else 0.0,
+                    potion_name=potion_name,
+                    action=action,
+                    planned_index=planned_index,
+                )
+            )
+            env.step(action)
+            actions_taken += 1
+            terminal = _terminal_reason(env)
+            if terminal is not None:
+                break
 
     final_state = _state(env)
     won = terminal == "won"
@@ -462,15 +481,15 @@ def _decision_trace_row(
     seconds: float,
     *,
     potion_name: str | None,
+    action: Any | None = None,
+    planned_index: int = 0,
 ) -> dict[str, Any]:
     diagnostics = recommendation.diagnostics
+    action = recommendation.best_action if action is None else action
     return {
         "index": index,
-        "best_action": (
-            recommendation.best_action.json()
-            if recommendation.best_action is not None
-            else None
-        ),
+        "best_action": action.json() if action is not None else None,
+        "planned_index": planned_index,
         "potion_name": potion_name,
         "terminal_reason": recommendation.terminal_reason,
         "value": recommendation.value,
