@@ -88,6 +88,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_terminal_rescue",
         "rust_terminal_rescue_keyed",
         "rust_terminal_win_hp_selector",
+        "rust_terminal_rollout_selector",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
@@ -121,6 +122,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         return _rust_terminal_portfolio_search(env, config)
     elif config.algorithm == "rust_terminal_win_hp_selector":
         return _rust_terminal_win_hp_selector_search(env, config)
+    elif config.algorithm == "rust_terminal_rollout_selector":
+        return _rust_terminal_rollout_selector_search(env, config)
     elif config.algorithm == "rust_terminal_rescue":
         return _rust_terminal_rescue_search(env, config, select_nonterminal_rescue=False)
     elif config.algorithm == "rust_terminal_rescue_keyed":
@@ -294,6 +297,190 @@ def _rust_terminal_win_hp_selector_search(env: Any, config: CombatSearchConfig) 
         diagnostics=diagnostics,
         terminal_reason=best.terminal_reason,
     )
+
+
+def _rust_terminal_rollout_selector_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
+    candidates = _rust_terminal_selector_candidates(env, config)
+    nodes = sum(recommendation.visits for recommendation in candidates)
+    selector_best = sorted(candidates, key=_rust_portfolio_key, reverse=True)[0]
+    if not _should_rollout_rust_terminal_candidate(selector_best):
+        diagnostics = _rust_terminal_selector_diagnostics(
+            config.algorithm,
+            selector_best,
+            candidates,
+        )
+        diagnostics["rollout_attempted"] = False
+        return _recommendation_from_rust_selection(selector_best, nodes, diagnostics)
+
+    rollout_configs = [
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=32,
+            allowed_potions=config.allowed_potions,
+        ),
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=128,
+            allowed_potions=_without_power_potion(config.allowed_potions, env),
+        ),
+    ]
+    best = selector_best
+    best_score = float("-inf")
+    best_variation: list[Any] = []
+    best_terminal_reason: str | None = None
+    rollout_diagnostics = []
+    seen_actions: set[str] = set()
+
+    for candidate in candidates:
+        action = candidate.best_action
+        if action is None:
+            continue
+        action_key = action.json()
+        if action_key in seen_actions:
+            continue
+        seen_actions.add(action_key)
+
+        child = env.clone()
+        result = child.step(action)
+        terminal_reason = _result_terminal_reason(result, child)
+        variation = [action]
+        select_nodes = 0
+        if terminal_reason is None:
+            select_variation, select_nodes, terminal_reason = _resolve_select_screens(
+                child,
+                _evaluate_tactical_survival,
+                config,
+                config.max_depth,
+            )
+            variation.extend(select_variation)
+        nodes += select_nodes
+
+        if terminal_reason:
+            rollout_score = _hp_preserving_outcome_score(child, terminal_reason)
+            rollout_nodes = 1
+        else:
+            rollout_score, rollout, rollout_nodes, terminal_reason = _best_rollout(
+                child,
+                rollout_configs,
+                max_actions=8,
+                outcome_score=_hp_preserving_outcome_score,
+            )
+            variation.extend(rollout)
+        nodes += rollout_nodes
+        rollout_score -= _variation_penalty(variation)
+        rollout_diagnostics.append(
+            {
+                "first_action": action.json(),
+                "terminal_reason": terminal_reason,
+                "score": rollout_score,
+                "nodes": rollout_nodes + select_nodes,
+                "variation_length": len(variation),
+            }
+        )
+        if _is_better(variation, rollout_score, best_variation, best_score):
+            best = candidate
+            best_score = rollout_score
+            best_variation = variation
+            best_terminal_reason = terminal_reason
+
+    diagnostics = _rust_terminal_selector_diagnostics(
+        config.algorithm,
+        best,
+        candidates,
+    )
+    diagnostics.update(
+        {
+            "rollout_attempted": True,
+            "rollout_selected": best is not selector_best,
+            "rollout_max_actions": 8,
+            "rollout_candidates": rollout_diagnostics,
+            "selector_best": _rust_rescue_candidate_diagnostics(selector_best),
+        }
+    )
+    if best_variation:
+        return SearchRecommendation(
+            best_action=best_variation[0],
+            principal_variation=tuple(best_variation),
+            visits=nodes,
+            value=best_score,
+            win_probability=_terminal_probability(best_terminal_reason, won=1.0, lost=0.0),
+            expected_hp_delta=None,
+            terminal_rate=1.0 if best_terminal_reason else 0.0,
+            diagnostics=diagnostics,
+            terminal_reason=best_terminal_reason,
+        )
+    return _recommendation_from_rust_selection(selector_best, nodes, diagnostics)
+
+
+def _rust_terminal_selector_candidates(
+    env: Any,
+    config: CombatSearchConfig,
+) -> list[SearchRecommendation]:
+    configs = [
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=32,
+            allowed_potions=config.allowed_potions,
+        ),
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=128,
+            allowed_potions=_without_power_potion(config.allowed_potions, env),
+        ),
+    ]
+    return [_rust_search(env, candidate) for candidate in configs]
+
+
+def _rust_terminal_selector_diagnostics(
+    algorithm: str,
+    selected: SearchRecommendation,
+    candidates: Sequence[SearchRecommendation],
+) -> dict[str, Any]:
+    diagnostics = dict(selected.diagnostics)
+    diagnostics.update(
+        {
+            "algorithm": algorithm,
+            "selector_candidates": [
+                _rust_rescue_candidate_diagnostics(recommendation)
+                for recommendation in candidates
+            ],
+        }
+    )
+    return diagnostics
+
+
+def _recommendation_from_rust_selection(
+    selected: SearchRecommendation,
+    visits: int,
+    diagnostics: dict[str, Any],
+) -> SearchRecommendation:
+    return SearchRecommendation(
+        best_action=selected.best_action,
+        principal_variation=selected.principal_variation,
+        visits=visits,
+        value=selected.value,
+        win_probability=selected.win_probability,
+        expected_hp_delta=selected.expected_hp_delta,
+        terminal_rate=selected.terminal_rate,
+        diagnostics=diagnostics,
+        terminal_reason=selected.terminal_reason,
+    )
+
+
+def _should_rollout_rust_terminal_candidate(
+    recommendation: SearchRecommendation,
+) -> bool:
+    if recommendation.terminal_reason != "won":
+        return True
+    return float(recommendation.diagnostics.get("rust_final_hp") or 0.0) < 20.0
 
 
 def _rust_terminal_rescue_search(

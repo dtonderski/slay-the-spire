@@ -350,6 +350,16 @@ class SelfPlayTests(unittest.TestCase):
             "rust_terminal_win_hp_selector",
         )
 
+        rollout_selector_candidates = _trace_candidates_by_name(
+            ["rust_terminal_rollout_selector_w32_w128_no_power_d40"]
+        )
+
+        self.assertEqual(len(rollout_selector_candidates), 1)
+        self.assertEqual(
+            rollout_selector_candidates[0].config.algorithm,
+            "rust_terminal_rollout_selector",
+        )
+
     def test_real_trace_report_explains_missing_simulator_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"
