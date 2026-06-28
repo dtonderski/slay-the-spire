@@ -180,6 +180,15 @@ class SelfPlayTests(unittest.TestCase):
             self.assertGreater(report["groups"]["allowed_potion"]["roots"], 0)
             self.assertEqual(len(report["ranking"]), 1)
             self.assertEqual(report["ranking"][0]["candidate"], "tiny_greedy")
+            self.assertEqual(report["top_candidates"], report["ranking"][:3])
+            self.assertEqual(report["candidate_manifest"]["tiny_greedy"]["algorithm"], "greedy")
+            self.assertEqual(
+                report["candidate_manifest"]["tiny_greedy"]["objective"],
+                "survive_then_damage",
+            )
+            self.assertEqual(report["ranking"][0]["algorithm"], "greedy")
+            self.assertEqual(report["ranking"][0]["objective"], "survive_then_damage")
+            self.assertEqual(report["ranking"][0]["max_depth"], 1)
             self.assertIn("nonterminal", report["ranking"][0])
             self.assertIn("median_hp_loss", report["ranking"][0])
             self.assertIn("p95_hp_loss", report["ranking"][0])
