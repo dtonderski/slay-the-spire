@@ -356,6 +356,7 @@ def replay_real_trace_guided(
     output_records: list[dict[str, Any]] = []
     replayed_steps = 0
     combat_roots = 0
+    combat_root_state_ids: set[str] = set()
     anchor_count = 0
     restoration_count = 0
     skipped_noncombat_actions = 0
@@ -443,7 +444,10 @@ def replay_real_trace_guided(
                         diffs=diffs,
                     )
                 )
-                combat_roots += 1
+                anchor_hash = env.snapshot_hash()
+                if anchor_hash not in combat_root_state_ids:
+                    combat_root_state_ids.add(anchor_hash)
+                    combat_roots += 1
                 diffs = _observed_summary_diffs(env, observed_game_state)
                 if diffs:
                     blocker = _blocker(
@@ -487,7 +491,9 @@ def replay_real_trace_guided(
         before_snapshot = env.snapshot_json()
         before_summary = _summary(env)
         if before_summary.get("phase") == "combat":
-            combat_roots += 1
+            if before_hash not in combat_root_state_ids:
+                combat_root_state_ids.add(before_hash)
+                combat_roots += 1
 
         try:
             result = env.step(action)
@@ -755,16 +761,18 @@ def _trace_paths(*, corpus_dir: Path | None, traces: Iterable[Path] | None) -> l
 def _single_trace_root_report(path: Path) -> dict[str, Any]:
     records = _read_jsonl(path)
     metadata = records[0] if records else {}
-    extractable_roots = 0
+    extractable_root_ids: set[str] = set()
     observed_combat_states = 0
     observed_potion_combat_states = 0
     for record in records[1:]:
         if record.get("type") == "step" and (record.get("before_summary") or {}).get("phase") == "combat":
-            if isinstance(record.get("before_snapshot_json"), str):
-                extractable_roots += 1
+            state_id = record.get("before_hash")
+            if isinstance(record.get("before_snapshot_json"), str) and isinstance(state_id, str):
+                extractable_root_ids.add(state_id)
         if record.get("type") == "anchor" and (record.get("summary") or {}).get("phase") == "combat":
-            if isinstance(record.get("snapshot_json"), str):
-                extractable_roots += 1
+            state_id = record.get("snapshot_hash")
+            if isinstance(record.get("snapshot_json"), str) and isinstance(state_id, str):
+                extractable_root_ids.add(state_id)
         game_state = ((record.get("message") or {}).get("game_state") or {}) if isinstance(record, dict) else {}
         if _is_observed_combat_state(game_state):
             observed_combat_states += 1
@@ -772,6 +780,7 @@ def _single_trace_root_report(path: Path) -> dict[str, Any]:
                 observed_potion_combat_states += 1
 
     source = metadata.get("source") if isinstance(metadata, dict) else None
+    extractable_roots = len(extractable_root_ids)
     block_reason = None
     if extractable_roots == 0 and observed_combat_states > 0:
         block_reason = "observed CommunicationMod combat states do not include simulator snapshots"

@@ -174,6 +174,9 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::DealDamage { info } => {
+            if living_monster_mut_opt(state, info.target).is_none() {
+                return Ok(Vec::new());
+            }
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
@@ -266,6 +269,9 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::DealDamageAndHealUnblocked { info } => {
+            if living_monster_mut_opt(state, info.target).is_none() {
+                return Ok(Vec::new());
+            }
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
@@ -316,6 +322,9 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::DealFeedDamage { info, max_hp_gain } => {
+            if living_monster_mut_opt(state, info.target).is_none() {
+                return Ok(Vec::new());
+            }
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
@@ -11909,6 +11918,26 @@ mod tests {
         assert_eq!(after_strike.player.energy, state.player.energy - 2);
         assert_eq!(after_strike.double_tap_pending, 0);
         assert_eq!(after_strike.piles.discard_pile.len(), 2);
+    }
+
+    #[test]
+    fn double_tap_replayed_targeted_attack_fizzles_if_target_dies() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].hp = 6;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), DOUBLE_TAP_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+        ];
+
+        let after_double_tap =
+            apply_combat_action(&state, double_tap_action(&state)).expect("Double Tap applies");
+        let after_strike = apply_combat_action(&after_double_tap, strike_action(&after_double_tap))
+            .expect("Strike applies even when replay target dies");
+
+        assert_eq!(after_strike.monsters[0].hp, 0);
+        assert!(!after_strike.monsters[0].alive);
+        assert_eq!(after_strike.double_tap_pending, 0);
+        assert_eq!(after_strike.phase, CombatPhase::Won);
     }
 
     #[test]
