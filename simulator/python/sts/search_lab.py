@@ -150,6 +150,24 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
                 beam_width=16,
             ),
         ),
+        SearchCandidate(
+            "rust_beam_terminal_w16_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_beam",
+                beam_width=16,
+            ),
+        ),
+        SearchCandidate(
+            "rust_beam_terminal_w32_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_beam",
+                beam_width=32,
+            ),
+        ),
     ]
 
 

@@ -233,6 +233,19 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertGreater(result.nodes, 1)
         self.assertIn("rust_final_hp", result.diagnostics)
 
+        terminal = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_beam",
+                beam_width=4,
+            ),
+        )
+
+        self.assertIsNotNone(terminal.best_action)
+        self.assertEqual(terminal.diagnostics["objective"], "terminal_tactical")
+
     def test_allowed_potions_filters_run_potion_actions(self):
         env = self._run_combat_with_fire_potion()
 

@@ -313,6 +313,12 @@ class SelfPlayTests(unittest.TestCase):
         self.assertEqual(candidates[0].config.algorithm, "rust_beam")
         self.assertEqual(candidates[0].config.beam_width, 16)
 
+        terminal_candidates = _trace_candidates_by_name(["rust_beam_terminal_w32_d40"])
+
+        self.assertEqual(len(terminal_candidates), 1)
+        self.assertEqual(terminal_candidates[0].config.objective, "terminal_tactical")
+        self.assertEqual(terminal_candidates[0].config.beam_width, 32)
+
     def test_real_trace_report_explains_missing_simulator_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"
