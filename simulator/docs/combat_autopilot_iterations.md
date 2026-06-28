@@ -1197,3 +1197,57 @@ Interpretation:
 - The held-out `val-50` roots strongly favor `rust_beam_terminal_w128_no_power_d40` on HP preservation, but the validation set is only four roots from this single trace, so this is evidence for keeping it as a top candidate rather than enough evidence to replace every default.
 - `rust_beam_terminal_w128_no_power_d40` uses fewer potions on `full-323` than keyed rescue and wins the same 319/323 roots, but it has worse full-set HP loss, worse p95 HP loss, and roughly double the runtime.
 - The persistent step 284-287 losses remain a mid-combat recovery problem, not a combat-start replay problem. More beam width alone has not solved them.
+
+### 26. Winning-Line HP Selector
+
+Change:
+
+- Added `rust_terminal_win_hp_selector_w32_w128_no_power_d40`.
+- The selector runs:
+  - width-32 `terminal_tactical` with the configured potion allowlist
+  - width-128 `terminal_tactical` with Power Potion removed from the allowlist
+- It does not change Rust scoring. Instead, it selects between completed Rust recommendations with the existing terminal-first portfolio key, so HP only breaks ties after terminal success is already secured.
+
+Why:
+
+- A trial Rust `hp_preserving_lethal` terminal-pressure objective regressed `dev-50` to 16/17 wins. That made direct HP-pressure scoring unsafe.
+- The safer next shape is to compare already-winning lines rather than steer beam expansion with a new objective.
+- This is intentionally a candidate, not a global replacement for every UI/search path, because it is slower than width-32 and does not solve the four mid-combat Giant Head recovery failures.
+
+Candidate-selection pass on `dev-50`:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 17.24 | 12.0 | 57.6 | 6.35 | 12 | 0.00942 | 0.127 | 64957.2 | 177492.0 |
+| `rust_beam_terminal_w32_d40` | 17 | 17 | 0 | 0 | 19.47 | 12.0 | 57.6 | 6.35 | 12 | 0.00243 | 0.036 | 16230.5 | 49352.0 |
+| `rust_beam_terminal_w128_no_power_d40` | 17 | 17 | 0 | 0 | 19.82 | 15.0 | 57.6 | 6.35 | 10 | 0.00804 | 0.098 | 47857.3 | 124954.6 |
+
+Held-out validation:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_beam_terminal_w128_no_power_d40` | 4 | 4 | 0 | 0 | 14.25 | 17.0 | 20.0 | 4.00 | 1 | 0.00913 | 0.134 | 37320.5 | 85516.7 |
+| `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 4 | 4 | 0 | 0 | 14.25 | 17.0 | 20.0 | 4.00 | 1 | 0.01113 | 0.178 | 62545.8 | 137309.1 |
+| `rust_beam_terminal_w32_d40` | 4 | 4 | 0 | 0 | 24.75 | 25.5 | 48.0 | 4.00 | 1 | 0.00269 | 0.050 | 16465.0 | 39495.8 |
+
+Full coverage sanity:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Win Rate | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Mean Final HP | Mean Monster HP | Potion Uses | Mean Seconds / Decision | P50 Seconds / Decision | P95 Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full-323` | `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 323 | 319 | 4 | 0 | 0.988 | 13.58 | 8.0 | 56.0 | -1.02 | 53.50 | 0.78 | 151 | 0.00818 | 0.00728 | 0.04555 | 0.119 | 46462.44 | 176371.9 |
+
+Remaining full-set failures:
+
+| Trace Step | Result | Final HP | Monster HP | Actions | Potions Used |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 284 | lost | -6 | 55 | 19 | Power |
+| 285 | lost | -6 | 49 | 11 | Power |
+| 286 | lost | -8 | 61 | 9 | Power |
+| 287 | lost | -3 | 86 | 12 | Power |
+
+Interpretation:
+
+- The selector is the best current `dev-50` candidate among the tested terminal Rust policies and improves full-set HP loss versus the previous keyed-rescue baseline.
+- Held-out `val-50` ties `rust_beam_terminal_w128_no_power_d40` on win rate and HP preservation, while costing more runtime. With only four held-out combat-start roots, this is not enough to remove the cheaper candidate; both should remain available.
+- The candidate is practical for replay automation: the full-set mean is about 0.119 search seconds per combat, with p95 decision latency about 0.046 seconds.
+- The step 284-287 failures persist unchanged and should be treated as a separate mid-combat recovery/horizon problem.
