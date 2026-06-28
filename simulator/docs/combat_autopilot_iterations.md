@@ -1251,3 +1251,40 @@ Interpretation:
 - Held-out `val-50` ties `rust_beam_terminal_w128_no_power_d40` on win rate and HP preservation, while costing more runtime. With only four held-out combat-start roots, this is not enough to remove the cheaper candidate; both should remain available.
 - The candidate is practical for replay automation: the full-set mean is about 0.119 search seconds per combat, with p95 decision latency about 0.046 seconds.
 - The step 284-287 failures persist unchanged and should be treated as a separate mid-combat recovery/horizon problem.
+
+### 27. Bounded Rust Terminal Rollout Selector
+
+Change:
+
+- Added `rust_terminal_rollout_selector_w32_w128_no_power_d40`.
+- The candidate starts from the same two beams as `rust_terminal_win_hp_selector_w32_w128_no_power_d40`:
+  - width-32 `terminal_tactical` with the configured potion allowlist
+  - width-128 `terminal_tactical` with Power Potion removed from the allowlist
+- If the selected Rust beam is a high-HP terminal win, it returns the existing selector result.
+- If the selected Rust beam is nonterminal, lost, or wins below 20 HP, it replays each unique candidate first action and runs an 8-action continuation rollout using the same two Rust beam policies. The continued line is selected with an HP-preserving terminal outcome score.
+
+Why:
+
+- The previous selector improved HP preservation without changing Rust scoring, but it still had horizon optimism on low-HP/mid-combat recovery states.
+- This prototype keeps the search bounded and Python-only while asking a more concrete question: "after this first action, can the same policy family actually finish the fight from the resulting state?"
+- This was tuned only on `dev-fast-10` and `dev-50`; held-out `val-50` was not used for candidate selection.
+
+Dev-fast sanity:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_rollout_selector_w32_w128_no_power_d40` | 10 | 10 | 0 | 0 | 15.80 | 40.75 | 7 | 0.354 | 204564.3 |
+| `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 10 | 10 | 0 | 0 | 15.90 | 41.30 | 7 | 0.139 | 74461.6 |
+
+Candidate-selection pass on `dev-50`:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_rollout_selector_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 17.18 | 12.0 | 56.8 | 6.82 | 11 | 0.02279 | 0.381 | 206701.5 | 832561.2 |
+| `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 17.24 | 12.0 | 57.6 | 6.82 | 12 | 0.01071 | 0.143 | 64957.2 | 177492.0 |
+
+Interpretation:
+
+- The continuation candidate preserved the `dev-50` win rate and very slightly improved mean and p95 HP loss.
+- The runtime and node cost are much worse, so this is not an obvious replacement for the committed selector.
+- The useful next implementation shape is to make the continuation trigger narrower or target known recovery roots, then run `full-323` only if the dev advantage becomes larger than noise.

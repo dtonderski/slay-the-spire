@@ -302,6 +302,23 @@ class CombatSearchSmokeTests(unittest.TestCase):
         )
         self.assertEqual(len(selector.diagnostics["selector_candidates"]), 2)
 
+        rollout_selector = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_rollout_selector",
+            ),
+        )
+
+        self.assertIsNotNone(rollout_selector.best_action)
+        self.assertEqual(
+            rollout_selector.diagnostics["algorithm"],
+            "rust_terminal_rollout_selector",
+        )
+        self.assertEqual(len(rollout_selector.diagnostics["selector_candidates"]), 2)
+        self.assertIn("rollout_attempted", rollout_selector.diagnostics)
+
     def test_allowed_potions_filters_run_potion_actions(self):
         env = self._run_combat_with_fire_potion()
 
