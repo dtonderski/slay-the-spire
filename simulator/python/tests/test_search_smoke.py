@@ -83,6 +83,28 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertEqual(result.diagnostics["algorithm"], "greedy")
         self.assertEqual(result.diagnostics["beam_width"], 1)
 
+    def test_hp_preserving_greedy_still_returns_painful_legal_action(self):
+        import json
+
+        state = json.loads(omni.OmniCombatEnv.initial_fixture().state_json())
+        state["piles"]["hand"] = []
+        state["player"]["block"] = 0
+        state["monsters"][0]["intent"] = {"Attack": {"damage": 6}}
+        env = omni.OmniCombatEnv.from_state_json(json.dumps(state))
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=8,
+                objective="hp_preserving_lethal",
+                algorithm="greedy",
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.best_action.kind(), "end_turn")
+        self.assertEqual(result.diagnostics["objective"], "hp_preserving_lethal")
+
     def test_portfolio_search_returns_action_without_mutating_root(self):
         env = omni.OmniCombatEnv.initial_fixture()
         before = env.snapshot_hash()

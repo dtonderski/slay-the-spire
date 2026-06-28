@@ -115,6 +115,8 @@ def _evaluator(objective: str) -> Callable[[dict[str, Any]], float]:
         return _evaluate_basic
     if objective == "tactical_survival":
         return _evaluate_tactical_survival
+    if objective == "hp_preserving_lethal":
+        return _evaluate_hp_preserving_lethal
     if objective == "aggressive_lethal":
         return _evaluate_aggressive
     raise ValueError(f"unsupported objective: {objective}")
@@ -181,7 +183,7 @@ def _beam_search(
         return _terminal_score(terminal_reason, env, evaluator), [], 1, terminal_reason
 
     frontier: list[tuple[Any, list[Any], float, str | None]] = [(env, [], evaluator(state), None)]
-    best_score = frontier[0][2]
+    best_score = float("-inf")
     best_variation: list[Any] = []
     best_terminal_reason: str | None = None
     nodes = 1
@@ -226,42 +228,81 @@ def _portfolio_search(
     depth: int,
     config: CombatSearchConfig,
 ) -> tuple[float, list[Any], int, str | None]:
-    policies = [
-        CombatSearchConfig(
-            max_depth=40,
-            objective="aggressive_lethal",
-            algorithm="beam",
-            beam_width=12,
-            allowed_potions=config.allowed_potions,
-        ),
-        CombatSearchConfig(
-            max_depth=3,
-            objective="survive_then_damage",
-            algorithm="exhaustive",
-            allowed_potions=config.allowed_potions,
-        ),
-        CombatSearchConfig(
-            max_depth=4,
-            objective="tactical_survival",
-            algorithm="exhaustive",
-            allowed_potions=config.allowed_potions,
-        ),
-        CombatSearchConfig(
-            max_depth=40,
-            objective="tactical_survival",
-            algorithm="beam",
-            beam_width=8,
-            allowed_potions=config.allowed_potions,
-        ),
-        CombatSearchConfig(
-            max_depth=40,
-            objective="survive_then_damage",
-            algorithm="beam",
-            beam_width=12,
-            allowed_potions=config.allowed_potions,
-        ),
-    ]
-    rollout_configs = [policies[0], policies[1], policies[2], policies[4]]
+    if config.objective == "hp_preserving_lethal":
+        policies = [
+            CombatSearchConfig(
+                max_depth=40,
+                objective="hp_preserving_lethal",
+                algorithm="greedy",
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=20,
+                objective="hp_preserving_lethal",
+                algorithm="beam",
+                beam_width=8,
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=4,
+                objective="tactical_survival",
+                algorithm="exhaustive",
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=3,
+                objective="survive_then_damage",
+                algorithm="exhaustive",
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=30,
+                objective="aggressive_lethal",
+                algorithm="beam",
+                beam_width=4,
+                allowed_potions=config.allowed_potions,
+            ),
+        ]
+        rollout_configs = [policies[0], policies[1], policies[2], policies[3]]
+        outcome_score = _hp_preserving_outcome_score
+    else:
+        policies = [
+            CombatSearchConfig(
+                max_depth=40,
+                objective="aggressive_lethal",
+                algorithm="beam",
+                beam_width=12,
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=3,
+                objective="survive_then_damage",
+                algorithm="exhaustive",
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=4,
+                objective="tactical_survival",
+                algorithm="exhaustive",
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=40,
+                objective="tactical_survival",
+                algorithm="beam",
+                beam_width=8,
+                allowed_potions=config.allowed_potions,
+            ),
+            CombatSearchConfig(
+                max_depth=40,
+                objective="survive_then_damage",
+                algorithm="beam",
+                beam_width=12,
+                allowed_potions=config.allowed_potions,
+            ),
+        ]
+        rollout_configs = [policies[0], policies[1], policies[2], policies[4]]
+        outcome_score = _portfolio_outcome_score
 
     best_score = float("-inf")
     best_variation: list[Any] = []
@@ -280,12 +321,12 @@ def _portfolio_search(
         step_result = child.step(action)
         terminal_reason = _result_terminal_reason(step_result, child)
         if terminal_reason:
-            score = _portfolio_outcome_score(child, terminal_reason)
+            score = outcome_score(child, terminal_reason)
             variation = [action]
             rollout_nodes = 1
         else:
             score, rollout, rollout_nodes, terminal_reason = _best_rollout(
-                child, rollout_configs, max_actions=depth
+                child, rollout_configs, max_actions=depth, outcome_score=outcome_score
             )
             variation = [action, *rollout]
         nodes += rollout_nodes
@@ -304,14 +345,16 @@ def _best_rollout(
     configs: Sequence[CombatSearchConfig],
     *,
     max_actions: int,
+    outcome_score: Callable[[Any, str | None], float] | None = None,
 ) -> tuple[float, list[Any], int, str | None]:
+    outcome_score = outcome_score or _portfolio_outcome_score
     best_score = float("-inf")
     best_variation: list[Any] = []
     best_terminal_reason: str | None = None
     nodes = 1
     for config in configs:
         score, variation, rollout_nodes, terminal_reason = _rollout(
-            env, config, max_actions=max_actions
+            env, config, max_actions=max_actions, outcome_score=outcome_score
         )
         nodes += rollout_nodes
         if _is_better(variation, score, best_variation, best_score):
@@ -326,7 +369,9 @@ def _rollout(
     config: CombatSearchConfig,
     *,
     max_actions: int,
+    outcome_score: Callable[[Any, str | None], float] | None = None,
 ) -> tuple[float, list[Any], int, str | None]:
+    outcome_score = outcome_score or _portfolio_outcome_score
     current = env.clone()
     variation = []
     nodes = 1
@@ -340,7 +385,7 @@ def _rollout(
         result = current.step(action)
         variation.append(action)
         terminal_reason = _result_terminal_reason(result, current)
-    return _portfolio_outcome_score(current, terminal_reason), variation, nodes, terminal_reason
+    return outcome_score(current, terminal_reason), variation, nodes, terminal_reason
 
 
 def _portfolio_outcome_score(env: Any, terminal_reason: str | None) -> float:
@@ -363,6 +408,36 @@ def _portfolio_outcome_score(env: Any, terminal_reason: str | None) -> float:
         return 100_000.0 + score
     if terminal_reason == "lost":
         return -100_000.0 + score
+    return score
+
+
+def _hp_preserving_outcome_score(env: Any, terminal_reason: str | None) -> float:
+    try:
+        state = _state(env)
+    except ValueError:
+        if terminal_reason == "won":
+            return 1_000_000.0
+        if terminal_reason == "lost":
+            return -1_000_000.0
+        raise
+    player_hp = float(state.get("player", {}).get("hp", 0))
+    player_block = float(state.get("player", {}).get("block", 0))
+    alive_monsters = [
+        monster for monster in state.get("monsters", []) if monster.get("alive", False)
+    ]
+    incoming = sum(_intent_damage(monster.get("intent")) for monster in alive_monsters)
+    monster_hp = sum(float(monster.get("hp", 0)) for monster in alive_monsters)
+    score = (
+        player_hp * 500.0
+        + min(player_block, incoming) * 25.0
+        - max(0.0, incoming - player_block) * 150.0
+        - monster_hp * 8.0
+        - len(alive_monsters) * 1_000.0
+    )
+    if terminal_reason == "won":
+        return 1_000_000.0 + score
+    if terminal_reason == "lost":
+        return -1_000_000.0 + score
     return score
 
 
@@ -448,6 +523,33 @@ def _evaluate_aggressive(state: dict[str, Any]) -> float:
         - max(0.0, incoming - player_block) * 10.0
         - monster_hp * 9.0
         - len(alive_monsters) * 100.0
+    )
+
+
+def _evaluate_hp_preserving_lethal(state: dict[str, Any]) -> float:
+    player = state.get("player", {})
+    monsters = state.get("monsters", [])
+    alive_monsters = [monster for monster in monsters if monster.get("alive", False)]
+
+    player_hp = float(player.get("hp", 0))
+    player_block = float(player.get("block", 0))
+    player_energy = float(player.get("energy", 0))
+    incoming = sum(_intent_damage(monster.get("intent")) for monster in alive_monsters)
+    unblocked = max(0.0, incoming - player_block)
+    useful_block = min(player_block, incoming)
+    monster_hp = sum(float(monster.get("hp", 0)) for monster in alive_monsters)
+    monster_block = sum(float(monster.get("block", 0)) for monster in alive_monsters)
+    hand_count = len(((state.get("piles") or {}).get("hand")) or [])
+
+    return (
+        player_hp * 120.0
+        + useful_block * 20.0
+        - unblocked * 160.0
+        + player_energy * 1.0
+        + hand_count * 0.5
+        - monster_hp * 6.0
+        - monster_block * 0.5
+        - len(alive_monsters) * 300.0
     )
 
 
