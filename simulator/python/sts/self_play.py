@@ -1083,21 +1083,27 @@ def _real_trace_combat_baselines(records: list[dict[str, Any]]) -> dict[str, dic
         indexed.append((index, state_id, summary))
 
     for index, state_id, summary in indexed:
+        baseline = {
+            "potion_use_names": _real_trace_potion_use_names(records, index),
+        }
         initial_hp = _summary_player_hp(summary)
         if initial_hp is None:
+            baselines[state_id] = baseline
             continue
         final_summary = _real_trace_combat_end_summary(records, index, summary)
         if final_summary is None:
+            baselines[state_id] = baseline
             continue
         final_hp = _summary_player_hp(final_summary)
         if final_hp is None:
+            baselines[state_id] = baseline
             continue
-        baselines[state_id] = {
+        baseline |= {
             "final_hp": final_hp,
             "hp_loss": initial_hp - final_hp,
             "terminal_phase": final_summary.get("phase"),
-            "potion_use_names": _real_trace_potion_use_names(records, index),
         }
+        baselines[state_id] = baseline
     return baselines
 
 
@@ -1149,19 +1155,19 @@ def _real_trace_combat_end_summary(
     last_combat_summary: dict[str, Any] | None = None
     start_floor = start_summary.get("floor")
     for record in records[start_index:]:
-        summaries: list[dict[str, Any]] = []
+        summaries: list[tuple[dict[str, Any], bool]] = []
         if record.get("type") == "step":
             before = record.get("before_summary")
             after = record.get("after_summary")
             if isinstance(before, dict):
-                summaries.append(before)
+                summaries.append((before, False))
             if isinstance(after, dict):
-                summaries.append(after)
+                summaries.append((after, False))
         elif record.get("type") == "anchor":
             summary = record.get("summary")
             if isinstance(summary, dict):
-                summaries.append(summary)
-        for summary in summaries:
+                summaries.append((summary, True))
+        for summary, is_anchor in summaries:
             if summary.get("phase") == "combat":
                 if (
                     last_combat_summary is not None
@@ -1169,6 +1175,12 @@ def _real_trace_combat_end_summary(
                     and summary.get("floor") != start_floor
                 ):
                     return _terminal_combat_summary(last_combat_summary)
+                if (
+                    is_anchor
+                    and last_combat_summary is not None
+                    and _summary_player_hp(summary) != _summary_player_hp(last_combat_summary)
+                ):
+                    return None
                 last_combat_summary = summary
                 continue
             if last_combat_summary is not None:

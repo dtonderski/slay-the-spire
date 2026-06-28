@@ -413,6 +413,10 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
             )
         )
         best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+    portfolio_rescue = _portfolio_rescue_candidate(env, config, best)
+    if portfolio_rescue is not None:
+        recommendations.append(portfolio_rescue)
+        best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
     nodes = sum(recommendation.visits for recommendation in recommendations)
     diagnostics = dict(best.diagnostics)
     follow_principal_variation = _should_follow_rust_principal_variation(env, config, best)
@@ -453,6 +457,29 @@ def _predicted_hp_loss(env: Any, recommendation: SearchRecommendation) -> float 
     if final_hp is None:
         return None
     return float(_state(env)["player"]["hp"]) - float(final_hp)
+
+
+def _portfolio_rescue_candidate(
+    env: Any,
+    config: CombatSearchConfig,
+    recommendation: SearchRecommendation,
+) -> SearchRecommendation | None:
+    if config.algorithm != "rust_terminal_hp_commit_bounded_selector":
+        return None
+    if recommendation.terminal_reason != "won":
+        return None
+    predicted_hp_loss = _predicted_hp_loss(env, recommendation)
+    if predicted_hp_loss is None or predicted_hp_loss <= 0:
+        return None
+    return _rust_terminal_portfolio_search(
+        env,
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_terminal_portfolio",
+            allowed_potions=config.allowed_potions,
+        ),
+    )
 
 
 def _wide_terminal_rescue_allowed_potions(

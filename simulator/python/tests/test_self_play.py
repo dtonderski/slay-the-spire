@@ -399,7 +399,131 @@ class SelfPlayTests(unittest.TestCase):
 
         baselines = _real_trace_combat_baselines(records)
 
-        self.assertNotIn("root", baselines)
+        self.assertNotIn("hp_loss", baselines["root"])
+
+    def test_real_trace_baseline_rejects_same_combat_hp_repair_anchor(self):
+        records = [
+            {"type": "metadata", "schema": 1},
+            {
+                "type": "step",
+                "step": 0,
+                "before_hash": "root",
+                "before_summary": {
+                    "phase": "combat",
+                    "floor": 10,
+                    "player_hp": 59,
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 2},
+                        ],
+                    },
+                },
+                "after_summary": {
+                    "phase": "combat",
+                    "floor": 10,
+                    "player_hp": 41,
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 2},
+                        ],
+                    },
+                },
+            },
+            {
+                "type": "anchor",
+                "step": 1,
+                "snapshot_hash": "repaired",
+                "summary": {
+                    "phase": "combat",
+                    "floor": 10,
+                    "player_hp": 59,
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 2},
+                        ],
+                    },
+                },
+            },
+            {
+                "type": "step",
+                "step": 1,
+                "before_hash": "repaired",
+                "before_summary": {
+                    "phase": "combat",
+                    "floor": 10,
+                    "player_hp": 59,
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 2},
+                        ],
+                    },
+                },
+                "after_summary": {
+                    "phase": "reward",
+                    "floor": 10,
+                    "player_hp": 65,
+                },
+            },
+        ]
+
+        baselines = _real_trace_combat_baselines(records)
+
+        self.assertNotIn("hp_loss", baselines["root"])
+
+    def test_invalid_hp_baseline_can_still_record_trace_potion_use(self):
+        records = [
+            {"type": "metadata", "schema": 1},
+            {
+                "type": "step",
+                "step": 0,
+                "before_hash": "root",
+                "before_summary": {
+                    "phase": "combat",
+                    "floor": 16,
+                    "player_hp": 60,
+                    "potions": ["Cultist"],
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 50},
+                        ],
+                    },
+                },
+                "action_kind": "use_potion",
+                "action_json": '{"UsePotion":{"slot":0,"target":null}}',
+                "after_summary": {
+                    "phase": "combat",
+                    "floor": 16,
+                    "player_hp": 60,
+                    "potions": [],
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 50},
+                        ],
+                    },
+                },
+            },
+            {
+                "type": "anchor",
+                "step": 1,
+                "snapshot_hash": "repaired",
+                "summary": {
+                    "phase": "combat",
+                    "floor": 16,
+                    "player_hp": 45,
+                    "potions": [],
+                    "combat": {
+                        "monsters": [
+                            {"id": 1, "alive": True, "hp": 40},
+                        ],
+                    },
+                },
+            },
+        ]
+
+        baselines = _real_trace_combat_baselines(records)
+
+        self.assertNotIn("hp_loss", baselines["root"])
+        self.assertEqual(baselines["root"]["potion_use_names"], ("Cultist",))
 
     def test_trace_eval_candidate_name_filter_accepts_comma_and_repeated_values(self):
         names = _parse_candidate_names(["tactical_greedy_d40,hp_greedy_d40", "tactical_greedy_d40"])
