@@ -286,6 +286,22 @@ class CombatSearchSmokeTests(unittest.TestCase):
             keyed_rescue.diagnostics["algorithm"], "rust_terminal_rescue_keyed"
         )
 
+        selector = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_win_hp_selector",
+            ),
+        )
+
+        self.assertIsNotNone(selector.best_action)
+        self.assertEqual(
+            selector.diagnostics["algorithm"],
+            "rust_terminal_win_hp_selector",
+        )
+        self.assertEqual(len(selector.diagnostics["selector_candidates"]), 2)
+
     def test_allowed_potions_filters_run_potion_actions(self):
         env = self._run_combat_with_fire_potion()
 

@@ -87,6 +87,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_terminal_portfolio",
         "rust_terminal_rescue",
         "rust_terminal_rescue_keyed",
+        "rust_terminal_win_hp_selector",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
@@ -118,6 +119,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         )
     elif config.algorithm == "rust_terminal_portfolio":
         return _rust_terminal_portfolio_search(env, config)
+    elif config.algorithm == "rust_terminal_win_hp_selector":
+        return _rust_terminal_win_hp_selector_search(env, config)
     elif config.algorithm == "rust_terminal_rescue":
         return _rust_terminal_rescue_search(env, config, select_nonterminal_rescue=False)
     elif config.algorithm == "rust_terminal_rescue_keyed":
@@ -233,6 +236,49 @@ def _rust_terminal_portfolio_search(env: Any, config: CombatSearchConfig) -> Sea
                     "rust_monster_hp": recommendation.diagnostics.get("rust_monster_hp"),
                     "nodes": recommendation.visits,
                 }
+                for recommendation in recommendations
+            ],
+        }
+    )
+    return SearchRecommendation(
+        best_action=best.best_action,
+        principal_variation=best.principal_variation,
+        visits=nodes,
+        value=best.value,
+        win_probability=best.win_probability,
+        expected_hp_delta=best.expected_hp_delta,
+        terminal_rate=best.terminal_rate,
+        diagnostics=diagnostics,
+        terminal_reason=best.terminal_reason,
+    )
+
+
+def _rust_terminal_win_hp_selector_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
+    configs = [
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=32,
+            allowed_potions=config.allowed_potions,
+        ),
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=128,
+            allowed_potions=_without_power_potion(config.allowed_potions, env),
+        ),
+    ]
+    recommendations = [_rust_search(env, candidate) for candidate in configs]
+    nodes = sum(recommendation.visits for recommendation in recommendations)
+    best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+    diagnostics = dict(best.diagnostics)
+    diagnostics.update(
+        {
+            "algorithm": config.algorithm,
+            "selector_candidates": [
+                _rust_rescue_candidate_diagnostics(recommendation)
                 for recommendation in recommendations
             ],
         }
