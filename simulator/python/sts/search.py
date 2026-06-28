@@ -81,6 +81,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "terminal_probe",
         "trace_probe",
         "potion_rescue_trace_probe",
+        "aggressive_rescue_trace_probe",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
@@ -104,6 +105,10 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         score, variation, nodes, terminal_reason = _trace_probe_search(env.clone(), depth, config)
     elif config.algorithm == "potion_rescue_trace_probe":
         score, variation, nodes, terminal_reason = _potion_rescue_trace_probe_search(
+            env.clone(), depth, config
+        )
+    elif config.algorithm == "aggressive_rescue_trace_probe":
+        score, variation, nodes, terminal_reason = _aggressive_rescue_trace_probe_search(
             env.clone(), depth, config
         )
     else:
@@ -379,6 +384,59 @@ def _potion_rescue_trace_probe_search(
         list(no_potion.principal_variation),
         nodes,
         no_potion.terminal_reason,
+    )
+
+
+def _aggressive_rescue_trace_probe_search(
+    env: Any,
+    depth: int,
+    config: CombatSearchConfig,
+) -> tuple[float, list[Any], int, str | None]:
+    rescue_config = CombatSearchConfig(
+        max_depth=depth,
+        objective=config.objective,
+        algorithm="potion_rescue_trace_probe",
+        beam_width=config.beam_width,
+        allowed_potions=config.allowed_potions,
+    )
+    rescue = search_combat(env, rescue_config)
+    nodes = rescue.visits + 1
+    if rescue.terminal_reason == "won" and rescue.best_action is not None:
+        return (
+            rescue.value,
+            list(rescue.principal_variation),
+            nodes,
+            rescue.terminal_reason,
+        )
+
+    aggressive_config = CombatSearchConfig(
+        max_depth=depth,
+        objective="aggressive_lethal",
+        algorithm="greedy",
+        beam_width=config.beam_width,
+        allowed_potions=config.allowed_potions,
+    )
+    aggressive = search_combat(env, aggressive_config)
+    nodes += aggressive.visits
+    if aggressive.terminal_reason == "won" and aggressive.best_action is not None:
+        return (
+            aggressive.value,
+            list(aggressive.principal_variation),
+            nodes,
+            aggressive.terminal_reason,
+        )
+    if rescue.best_action is not None:
+        return (
+            rescue.value,
+            list(rescue.principal_variation),
+            nodes,
+            rescue.terminal_reason,
+        )
+    return (
+        aggressive.value,
+        list(aggressive.principal_variation),
+        nodes,
+        aggressive.terminal_reason,
     )
 
 
