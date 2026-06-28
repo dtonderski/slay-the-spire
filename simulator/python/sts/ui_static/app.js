@@ -55,6 +55,7 @@
       "actionError",
       "pendingMessage",
       "actionsPanel",
+      "searchPolicySelect",
       "maxDepthInput",
       "searchButton",
       "applyBestButton",
@@ -143,6 +144,7 @@
   async function runSearch() {
     if (!app.sessionId || !isCombatSession()) return;
     const maxDepth = Number.parseInt(el.maxDepthInput.value, 10);
+    const candidate = el.searchPolicySelect.value;
     await singleFlight("Searching", async () => {
       app.search = null;
       renderSearch();
@@ -150,7 +152,10 @@
         `/api/sessions/${encodeURIComponent(app.sessionId)}/search`,
         {
           method: "POST",
-          body: { max_depth: Number.isFinite(maxDepth) ? maxDepth : undefined },
+          body: {
+            candidate,
+            max_depth: Number.isFinite(maxDepth) ? maxDepth : undefined,
+          },
         },
       );
       app.search = normalizeSearch(recommendation);
@@ -622,6 +627,7 @@
         ["Value", firstDefined(app.search.value, "-")],
         ["Visits", firstDefined(app.search.visits, "-")],
         ["Win", percentText(app.search.win_probability)],
+        ["Policy", searchPolicyLabel(app.search.config)],
       ]),
     );
 
@@ -898,7 +904,17 @@
       value: recommendation.value,
       win_probability: recommendation.win_probability,
       diagnostics: recommendation.diagnostics,
+      config: recommendation.config,
     };
+  }
+
+  function searchPolicyLabel(config) {
+    if (!config) return "-";
+    const algorithm = firstDefined(config.algorithm, "-");
+    const objective = firstDefined(config.objective, "-");
+    const depth = firstDefined(config.max_depth, config.maxDepth, "-");
+    const width = firstDefined(config.beam_width, config.beamWidth, "-");
+    return `${algorithm} / ${objective} / d${depth} / w${width}`;
   }
 
   function lifecycleFromPayload(lifecycle) {

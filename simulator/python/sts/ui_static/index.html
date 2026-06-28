@@ -80,8 +80,15 @@
               <span id="searchStatus" class="subtle">Idle</span>
             </div>
             <div class="search-controls">
+              <label for="searchPolicySelect">Policy</label>
+              <select id="searchPolicySelect">
+                <option value="rust_terminal_win_hp_selector_w32_w128_no_power_d40">Win/HP selector</option>
+                <option value="rust_beam_terminal_w32_d40">Fast terminal beam</option>
+                <option value="rust_beam_terminal_w128_no_power_d40">Wide no-Power beam</option>
+                <option value="rust_terminal_rollout_selector_w32_w128_no_power_d40">Experimental rollout</option>
+              </select>
               <label for="maxDepthInput">Max depth</label>
-              <input id="maxDepthInput" type="number" min="1" max="80" value="8" />
+              <input id="maxDepthInput" type="number" min="1" max="80" value="40" />
               <button id="searchButton" type="button" disabled>Run search</button>
               <button id="applyBestButton" type="button" disabled>Apply best</button>
             </div>

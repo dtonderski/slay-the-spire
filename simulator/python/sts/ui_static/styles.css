@@ -646,6 +646,7 @@ h3 {
   }
 
   .search-controls input,
+  .search-controls select,
   .search-controls button,
   .trace-controls input,
   .trace-controls select {

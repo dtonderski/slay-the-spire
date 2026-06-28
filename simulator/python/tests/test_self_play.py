@@ -7,7 +7,10 @@ from sts import omni
 from sts.search import CombatSearchConfig
 from sts.search_lab import SearchCandidate
 from sts.self_play import (
+    DEFAULT_COMBAT_POLICY,
+    DEFAULT_COMBAT_POLICY_NAME,
     _candidate_with_allowed_potions,
+    _combat_policy_from_name,
     _parse_candidate_names,
     _trace_candidates_by_name,
     evaluate_self_play_corpus,
@@ -20,6 +23,22 @@ from sts.self_play import (
 
 
 class SelfPlayTests(unittest.TestCase):
+    def test_default_combat_policy_uses_selected_trace_candidate(self):
+        self.assertEqual(
+            DEFAULT_COMBAT_POLICY_NAME,
+            "rust_terminal_win_hp_selector_w32_w128_no_power_d40",
+        )
+        self.assertEqual(DEFAULT_COMBAT_POLICY.algorithm, "rust_terminal_win_hp_selector")
+
+        overridden = _combat_policy_from_name(
+            "rust_beam_terminal_w32_d40",
+            ("Weak Potion",),
+        )
+
+        self.assertEqual(overridden.algorithm, "rust_beam")
+        self.assertEqual(overridden.beam_width, 32)
+        self.assertEqual(overridden.allowed_potions, ("Weak Potion",))
+
     def test_map_fixture_self_play_writes_replayable_trace(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "selfplay.jsonl"

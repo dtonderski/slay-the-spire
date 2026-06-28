@@ -16,18 +16,16 @@ from sts import omni
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import (
     BenchmarkRoot,
+    SELECTED_COMBAT_AUTOPILOT_CANDIDATE,
     SearchCandidate,
     evaluate_candidate,
+    trace_autopilot_candidate_by_name,
     trace_autopilot_candidates,
 )
 
 
-DEFAULT_COMBAT_POLICY = CombatSearchConfig(
-    max_depth=40,
-    objective="aggressive_lethal",
-    algorithm="portfolio",
-    beam_width=12,
-)
+DEFAULT_COMBAT_POLICY_NAME = SELECTED_COMBAT_AUTOPILOT_CANDIDATE
+DEFAULT_COMBAT_POLICY = trace_autopilot_candidate_by_name(DEFAULT_COMBAT_POLICY_NAME).config
 
 
 TRACE_EVAL_SET_SPECS: dict[str, dict[str, Any]] = {
@@ -1917,12 +1915,17 @@ def _trace_candidates_by_name(names: Iterable[str]) -> list[SearchCandidate]:
     requested = tuple(names)
     if not requested:
         return trace_autopilot_candidates()
-    available = {candidate.name: candidate for candidate in trace_autopilot_candidates()}
-    unknown = [name for name in requested if name not in available]
-    if unknown:
-        choices = ", ".join(sorted(available))
-        raise ValueError(f"unknown trace eval candidate(s): {', '.join(unknown)}; choices: {choices}")
-    return [available[name] for name in requested]
+    return [trace_autopilot_candidate_by_name(name) for name in requested]
+
+
+def _combat_policy_from_name(
+    name: str,
+    allowed_potions: tuple[str, ...] | None,
+) -> CombatSearchConfig:
+    return replace(
+        trace_autopilot_candidate_by_name(name).config,
+        allowed_potions=allowed_potions,
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1937,6 +1940,7 @@ def main(argv: list[str] | None = None) -> None:
     run_parser.add_argument("--random-seed", type=int, default=0)
     run_parser.add_argument("--max-steps", type=int, default=200)
     run_parser.add_argument("--allowed-potions")
+    run_parser.add_argument("--combat-policy", default=DEFAULT_COMBAT_POLICY_NAME)
 
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("trace", type=Path)
@@ -1949,6 +1953,7 @@ def main(argv: list[str] | None = None) -> None:
     batch_parser.add_argument("--random-seed", type=int, default=0)
     batch_parser.add_argument("--max-steps", type=int, default=200)
     batch_parser.add_argument("--allowed-potions")
+    batch_parser.add_argument("--combat-policy", default=DEFAULT_COMBAT_POLICY_NAME)
 
     eval_parser = subparsers.add_parser("eval")
     eval_parser.add_argument("--corpus-dir", type=Path)
@@ -1982,9 +1987,9 @@ def main(argv: list[str] | None = None) -> None:
             start=args.start,
             random_seed=args.random_seed,
             max_steps=args.max_steps,
-            combat_policy=replace(
-                DEFAULT_COMBAT_POLICY,
-                allowed_potions=_parse_allowed_potions(args.allowed_potions),
+            combat_policy=_combat_policy_from_name(
+                args.combat_policy,
+                _parse_allowed_potions(args.allowed_potions),
             ),
         )
         print(json.dumps(result.__dict__ | {"trace_path": str(result.trace_path)}, indent=2))
@@ -1998,9 +2003,9 @@ def main(argv: list[str] | None = None) -> None:
             start=args.start,
             random_seed=args.random_seed,
             max_steps=args.max_steps,
-            combat_policy=replace(
-                DEFAULT_COMBAT_POLICY,
-                allowed_potions=_parse_allowed_potions(args.allowed_potions),
+            combat_policy=_combat_policy_from_name(
+                args.combat_policy,
+                _parse_allowed_potions(args.allowed_potions),
             ),
         )
         print(json.dumps(result.__dict__ | {"output_dir": str(result.output_dir), "index_path": str(result.index_path)}, indent=2, sort_keys=True))

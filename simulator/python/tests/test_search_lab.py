@@ -1,6 +1,13 @@
 import unittest
 
-from sts.search_lab import default_candidates, generate_roots, run_benchmark, trace_autopilot_candidates
+from sts.search_lab import (
+    SELECTED_COMBAT_AUTOPILOT_CANDIDATE,
+    default_candidates,
+    generate_roots,
+    run_benchmark,
+    trace_autopilot_candidate_by_name,
+    trace_autopilot_candidates,
+)
 
 
 class SearchLabTests(unittest.TestCase):
@@ -18,6 +25,13 @@ class SearchLabTests(unittest.TestCase):
         names = {candidate.name for candidate in candidates}
         self.assertIn("beam_tactical_w8_d40", names)
         self.assertIn("portfolio_rollout_d40", names)
+
+    def test_selected_trace_candidate_is_registered(self):
+        candidate = trace_autopilot_candidate_by_name(SELECTED_COMBAT_AUTOPILOT_CANDIDATE)
+
+        self.assertEqual(candidate.config.algorithm, "rust_terminal_win_hp_selector")
+        with self.assertRaises(ValueError):
+            trace_autopilot_candidate_by_name("missing")
 
     def test_run_benchmark_returns_ranked_candidates(self):
         candidates = trace_autopilot_candidates()[:2]

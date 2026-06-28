@@ -1288,3 +1288,49 @@ Interpretation:
 - The continuation candidate preserved the `dev-50` win rate and very slightly improved mean and p95 HP loss.
 - The runtime and node cost are much worse, so this is not an obvious replacement for the committed selector.
 - The useful next implementation shape is to make the continuation trigger narrower or target known recovery roots, then run `full-323` only if the dev advantage becomes larger than noise.
+
+### 28. Selected Policy Wired Into Replay and UI
+
+Change:
+
+- Promoted `rust_terminal_win_hp_selector_w32_w128_no_power_d40` into a named selected combat autopilot constant.
+- `sts.self_play run` and `sts.self_play batch` now default to that selected candidate and expose `--combat-policy` for overrides.
+- The local UI search panel now defaults to the selected policy, exposes the top practical/experimental candidates by name, and sends the selected candidate to `/search`.
+- `/search` accepts named candidates, max-depth/objective/algorithm/beam overrides, and an explicit potion allowlist.
+- Rust-backed policies fall back to the Python beam path only for legacy in-memory env objects that do not expose Rust search methods; real run/replay envs still exercise the Rust policy.
+
+Why:
+
+- The selector is the current best practical default from the frozen trace-derived evals: it preserves the zero-failure combat-start behavior, improves HP loss versus width-32 on `dev-50`, and keeps full-set runtime acceptable.
+- Keeping the other top candidates selectable lets the UI act as a comparison/debug surface without changing the replay default.
+- The fallback prevents old UI fixture sessions from failing noisily while keeping diagnostics explicit (`rust_search_unavailable`, `fallback_algorithm`).
+
+Validation:
+
+```powershell
+uv run python -m unittest python.tests.test_ui_service python.tests.test_self_play python.tests.test_search_lab python.tests.test_search_smoke -v
+
+uv run python -m sts.self_play eval `
+  --trace target/trace-guided/manual01-replayed.jsonl `
+  --root-scope combat_start `
+  --split all `
+  --candidate rust_terminal_win_hp_selector_w32_w128_no_power_d40 `
+  --max-actions 40 `
+  --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" `
+  --output target/trace-guided/eval-combat-start-all-win-hp-selector-ui-default.json `
+  --failure-output target/trace-guided/eval-combat-start-all-win-hp-selector-ui-default-failures.json
+```
+
+Focused tests: 59 passed.
+
+Combat-start-all selected-policy gate:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Win Rate | Mean HP Loss | Median HP Loss | P95 HP Loss | Mean Final HP | Mean Monster HP | Potion Uses | Mean Seconds / Decision | P50 Seconds / Decision | P95 Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `combat_start/all` | `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 21 | 21 | 0 | 0 | 1.000 | 16.67 | 14.0 | 53.0 | 59.29 | 0.0 | 13 | 0.01077 | 0.00931 | 0.03146 | 0.148 | 64497.9 | 171024.0 |
+
+Interpretation:
+
+- The selected policy is now usable as the default combat autopilot in replay/self-play and UI search.
+- The combat-start replay gate is clean: every combat-start root from `manual01-replayed` wins with no nonterminal failures.
+- Full-323 still has the known four mid-combat Giant Head recovery losses from section 26; those remain a separate horizon/recovery milestone, not a blocker for combat-start replay automation.

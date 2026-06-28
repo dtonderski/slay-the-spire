@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from typing import Any, Callable, Iterable, Sequence
 
@@ -100,6 +100,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
     select_recommendation = _select_screen_recommendation(env, evaluator, config, depth)
     if select_recommendation is not None:
         return select_recommendation
+    if _requires_rust_search(config.algorithm) and not _has_rust_search(env, config.algorithm):
+        return _rust_unavailable_fallback(env, config)
     if config.algorithm == "exhaustive":
         score, variation, nodes, terminal_reason = _search(env.clone(), depth, evaluator, config)
     elif config.algorithm == "portfolio":
@@ -152,6 +154,47 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
             "unsupported_transitions": 0,
         },
         terminal_reason=terminal_reason,
+    )
+
+
+def _requires_rust_search(algorithm: str) -> bool:
+    return algorithm.startswith("rust_")
+
+
+def _has_rust_search(env: Any, algorithm: str) -> bool:
+    if algorithm == "rust_greedy":
+        return hasattr(env, "rust_greedy_combat_search")
+    return hasattr(env, "rust_beam_combat_search")
+
+
+def _rust_unavailable_fallback(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
+    if config.algorithm == "rust_greedy":
+        fallback = replace(config, algorithm="greedy", beam_width=1)
+    elif config.algorithm == "rust_beam":
+        fallback = replace(config, algorithm="beam")
+    else:
+        fallback = replace(config, algorithm="beam", beam_width=32)
+
+    recommendation = search_combat(env, fallback)
+    diagnostics = dict(recommendation.diagnostics)
+    diagnostics.update(
+        {
+            "algorithm": config.algorithm,
+            "fallback_algorithm": fallback.algorithm,
+            "fallback_beam_width": fallback.beam_width,
+            "rust_search_unavailable": True,
+        }
+    )
+    return SearchRecommendation(
+        best_action=recommendation.best_action,
+        principal_variation=recommendation.principal_variation,
+        visits=recommendation.visits,
+        value=recommendation.value,
+        win_probability=recommendation.win_probability,
+        expected_hp_delta=recommendation.expected_hp_delta,
+        terminal_rate=recommendation.terminal_rate,
+        diagnostics=diagnostics,
+        terminal_reason=recommendation.terminal_reason,
     )
 
 
