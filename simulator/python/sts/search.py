@@ -81,6 +81,9 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         raise ValueError("exhaustive search max_depth is capped at 8")
 
     _state(env)
+    select_recommendation = _select_screen_recommendation(env, evaluator, config, depth)
+    if select_recommendation is not None:
+        return select_recommendation
     if config.algorithm == "exhaustive":
         score, variation, nodes, terminal_reason = _search(env.clone(), depth, evaluator, config)
     elif config.algorithm == "portfolio":
@@ -150,6 +153,12 @@ def _search(
         child = env.clone()
         result = child.step(action)
         child_terminal = _result_terminal_reason(result, child)
+        select_variation: list[Any] = []
+        select_nodes = 0
+        if child_terminal is None:
+            select_variation, select_nodes, child_terminal = _resolve_select_screens(
+                child, evaluator, config, depth
+            )
         if child_terminal:
             child_score = _terminal_score(child_terminal, child, evaluator)
             child_variation: list[Any] = []
@@ -160,8 +169,9 @@ def _search(
                 child, depth - 1, evaluator, config
             )
 
-        nodes += child_nodes
-        candidate_variation = [action, *child_variation]
+        nodes += child_nodes + select_nodes
+        candidate_variation = [action, *select_variation, *child_variation]
+        child_score -= _variation_penalty([action, *select_variation])
         if _is_better(candidate_variation, child_score, best_variation, best_score):
             best_score = child_score
             best_variation = candidate_variation
@@ -193,7 +203,7 @@ def _beam_search(
         for current, variation, _score, _reason in frontier:
             actions = _legal_search_actions(current, config)
             if not actions:
-                score = evaluator(_state(current))
+                score = evaluator(_state(current)) - _variation_penalty(variation)
                 candidates.append((current, variation, score, None))
                 continue
             for action in actions:
@@ -201,12 +211,21 @@ def _beam_search(
                 result = child.step(action)
                 nodes += 1
                 child_terminal = _result_terminal_reason(result, child)
+                select_variation: list[Any] = []
+                select_nodes = 0
+                if child_terminal is None:
+                    select_variation, select_nodes, child_terminal = _resolve_select_screens(
+                        child, evaluator, config, depth
+                    )
+                    nodes += select_nodes
+                child_variation = [*variation, action, *select_variation]
                 score = (
                     _terminal_score(child_terminal, child, evaluator)
                     if child_terminal
                     else evaluator(_state(child))
                 )
-                candidates.append((child, [*variation, action], score, child_terminal))
+                score -= _variation_penalty(child_variation)
+                candidates.append((child, child_variation, score, child_terminal))
 
         if not candidates:
             break
@@ -321,14 +340,15 @@ def _portfolio_search(
         step_result = child.step(action)
         terminal_reason = _result_terminal_reason(step_result, child)
         if terminal_reason:
-            score = outcome_score(child, terminal_reason)
             variation = [action]
+            score = outcome_score(child, terminal_reason) - _variation_penalty(variation)
             rollout_nodes = 1
         else:
             score, rollout, rollout_nodes, terminal_reason = _best_rollout(
                 child, rollout_configs, max_actions=depth, outcome_score=outcome_score
             )
             variation = [action, *rollout]
+            score -= _action_penalty(action)
         nodes += rollout_nodes
         if _is_better(variation, score, best_variation, best_score):
             best_score = score
@@ -385,7 +405,139 @@ def _rollout(
         result = current.step(action)
         variation.append(action)
         terminal_reason = _result_terminal_reason(result, current)
-    return outcome_score(current, terminal_reason), variation, nodes, terminal_reason
+        if terminal_reason is None:
+            select_variation, select_nodes, terminal_reason = _resolve_select_screens(
+                current, _evaluator(config.objective), config, config.max_depth
+            )
+            variation.extend(select_variation)
+            nodes += select_nodes
+    return (
+        outcome_score(current, terminal_reason) - _variation_penalty(variation),
+        variation,
+        nodes,
+        terminal_reason,
+    )
+
+
+def _select_screen_recommendation(
+    env: Any,
+    evaluator: Callable[[dict[str, Any]], float],
+    config: CombatSearchConfig,
+    depth: int,
+) -> SearchRecommendation | None:
+    actions = _legal_search_actions(env, config)
+    select_actions = [action for action in actions if _is_select_action(action)]
+    if not select_actions or len(select_actions) != len(actions):
+        return None
+
+    confirm_actions = [action for action in select_actions if action.kind().startswith("confirm_")]
+    if confirm_actions:
+        action = _sorted_actions(confirm_actions)[0]
+        child = env.clone()
+        result = child.step(action)
+        terminal_reason = _result_terminal_reason(result, child)
+        score = (
+            _terminal_score(terminal_reason, child, evaluator)
+            if terminal_reason
+            else evaluator(_state(child))
+        )
+        variation = [action]
+        return _recommendation_from_select_shortcut(
+            variation=variation,
+            visits=2,
+            value=score,
+            terminal_reason=terminal_reason,
+            depth=depth,
+            config=config,
+        )
+
+    best_score = float("-inf")
+    best_variation: list[Any] = []
+    best_terminal_reason: str | None = None
+    nodes = 1
+    for action in select_actions:
+        child = env.clone()
+        result = child.step(action)
+        nodes += 1
+        terminal_reason = _result_terminal_reason(result, child)
+        score = (
+            _terminal_score(terminal_reason, child, evaluator)
+            if terminal_reason
+            else evaluator(_state(child))
+        )
+        variation = [action]
+        score -= _variation_penalty(variation)
+        if _is_better(variation, score, best_variation, best_score):
+            best_score = score
+            best_variation = variation
+            best_terminal_reason = terminal_reason
+
+    return _recommendation_from_select_shortcut(
+        variation=best_variation,
+        visits=nodes,
+        value=best_score,
+        terminal_reason=best_terminal_reason,
+        depth=depth,
+        config=config,
+    )
+
+
+def _resolve_select_screens(
+    env: Any,
+    evaluator: Callable[[dict[str, Any]], float],
+    config: CombatSearchConfig,
+    depth: int,
+    *,
+    max_steps: int = 12,
+) -> tuple[list[Any], int, str | None]:
+    variation: list[Any] = []
+    nodes = 0
+    terminal_reason: str | None = None
+    for _ in range(max_steps):
+        actions = _legal_search_actions(env, config)
+        if not actions or any(not _is_select_action(action) for action in actions):
+            break
+        recommendation = _select_screen_recommendation(env, evaluator, config, depth)
+        nodes += recommendation.visits if recommendation is not None else 1
+        action = recommendation.best_action if recommendation is not None else None
+        if action is None:
+            break
+        result = env.step(action)
+        variation.append(action)
+        terminal_reason = _result_terminal_reason(result, env)
+        if terminal_reason:
+            break
+    return variation, nodes, terminal_reason
+
+
+def _recommendation_from_select_shortcut(
+    *,
+    variation: list[Any],
+    visits: int,
+    value: float,
+    terminal_reason: str | None,
+    depth: int,
+    config: CombatSearchConfig,
+) -> SearchRecommendation:
+    return SearchRecommendation(
+        best_action=variation[0] if variation else None,
+        principal_variation=tuple(variation),
+        visits=visits,
+        value=value,
+        win_probability=_terminal_probability(terminal_reason, won=1.0, lost=0.0),
+        expected_hp_delta=None,
+        terminal_rate=1.0 if terminal_reason else 0.0,
+        diagnostics={
+            "max_depth": depth,
+            "objective": config.objective,
+            "algorithm": config.algorithm,
+            "beam_width": config.beam_width if config.algorithm in {"beam", "greedy"} else None,
+            "allowed_potions": config.allowed_potions,
+            "unsupported_transitions": 0,
+            "select_screen_shortcut": True,
+        },
+        terminal_reason=terminal_reason,
+    )
 
 
 def _portfolio_outcome_score(env: Any, terminal_reason: str | None) -> float:
@@ -625,7 +777,31 @@ def _potion_action_slot(action: Any) -> int | None:
 
 
 def _normalize_potion_name(name: str) -> str:
-    return "".join(char.lower() for char in name if char.isalnum())
+    normalized = "".join(char.lower() for char in name if char.isalnum())
+    return normalized.removesuffix("potion")
+
+
+def _variation_penalty(variation: Sequence[Any]) -> float:
+    return sum(_action_penalty(action) for action in variation)
+
+
+def _action_penalty(action: Any) -> float:
+    kind = getattr(action, "kind", lambda: "")()
+    if kind == "use_potion":
+        return 5_000.0
+    if kind.startswith("choose_") and kind.endswith("_select"):
+        return 2.0
+    return 0.0
+
+
+def _is_select_action(action: Any) -> bool:
+    kind = getattr(action, "kind", lambda: "")()
+    return (
+        kind.startswith("choose_")
+        and kind.endswith("_select")
+        or kind.startswith("confirm_")
+        and kind.endswith("_select")
+    )
 
 
 def _is_better(
@@ -656,6 +832,11 @@ def _terminal_reason(env: Any, state: dict[str, Any]) -> str | None:
         return "won"
     if phase == "Lost":
         return "lost"
+    if float(state.get("player", {}).get("hp", 1)) <= 0:
+        return "lost"
+    monsters = state.get("monsters", [])
+    if monsters and not any(monster.get("alive", False) for monster in monsters):
+        return "won"
     run_phase = getattr(env, "phase", lambda: None)()
     if run_phase == "won":
         return "won"

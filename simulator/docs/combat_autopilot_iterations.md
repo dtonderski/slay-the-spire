@@ -245,3 +245,63 @@ Interpretation:
 - The timing metrics make `beam_tactical_w8_d40` look much more practical than rollout portfolio for live automation.
 - The 5/10 win rate is still nowhere near good enough.
 - The next useful work is not more generic depth; it is targeted failure-driven policy improvement.
+
+### 7. Potion/Select Branch Stabilization
+
+Current working-tree changes after commit `6420095`:
+
+- Normalized potion allowlists so trace/UI names like `Fire Potion` match simulator inventory names like `Fire`.
+- Exposed combat selection actions from `OmniRunEnv.exact_legal_actions()`:
+  - hand select
+  - draw select
+  - discard select
+  - exhaust select
+- Added a local select-screen shortcut in Python search so selection screens are handled as small UI decisions instead of full combat futures.
+- Added branch-level select auto-resolution so hypothetical potion/card branches that open a select screen do not explode the search tree.
+- Added explicit action costs:
+  - potion actions are expensive, so non-lethal heuristic branches should not spend them casually
+  - choose-select actions have a tiny cost, so optional selection screens prefer minimal choices
+- Added terminal detection for combat states with player HP at or below zero, even if the run phase still says `combat`.
+- Split candidate families:
+  - `default_candidates()` remains the historical synthetic search-lab set, including expensive portfolio variants.
+  - `trace_autopilot_candidates()` is now the practical default for `sts.self_play eval`.
+
+Why:
+
+- After selection actions became visible, trace eval could spend minutes exploring branches like Elixir -> exhaust selection.
+- The old default trace eval candidate list mixed synthetic benchmark experiments with practical replay candidates.
+- Search could continue evaluating states where the player was already dead because terminal loss was not inferred from HP.
+
+Verification:
+
+```text
+uv run maturin develop
+uv run python -m unittest discover -s python\tests -v
+```
+
+Result:
+
+- Python suite passed: 66 tests.
+- `sts.self_play eval --eval-set dev-fast-10` now completes with the practical trace candidate set.
+
+Current `dev-fast-10` trace-autopilot ranking with allowed trace potions:
+
+| Candidate | Wins | Losses | Mean HP Loss | Potion Uses | Mean Seconds / Combat | Mean Seconds / Decision |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `beam_tactical_w4_d20` | 5/10 | 5 | 47.1 | 8 | 2.19 | 0.138 |
+| `hp_beam_w4_d30` | 5/10 | 5 | 47.1 | 8 | 2.11 | 0.147 |
+| `tactical_greedy_d40` | 5/10 | 5 | 47.8 | 8 | 0.568 | 0.044 |
+| `hp_greedy_d40` | 5/10 | 5 | 47.9 | 8 | 0.567 | 0.045 |
+
+No-potion diagnostic:
+
+- `tactical_greedy_d40` with `allowed_potions=()` also reached 5/10 wins, 5 losses.
+- It was much faster: mean seconds per combat about `0.215`, mean seconds per decision about `0.019`.
+- This suggests the current policy is not getting meaningful value from potions yet; it mostly spends them in already-bad fights.
+
+Interpretation:
+
+- The eval harness is usable again, but the policy quality is still poor.
+- The current candidate family finishes fights instead of stalling, but it loses too many hard roots.
+- The next algorithm work should focus on tactical survival quality, not merely deeper beam search.
+- Potion usage needs a smarter gate, probably "only use potion if the searched no-potion baseline cannot survive or the potion line wins immediately/with clear HP value."
