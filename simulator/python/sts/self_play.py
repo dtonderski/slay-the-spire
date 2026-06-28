@@ -613,12 +613,14 @@ def evaluate_self_play_corpus(
     max_actions: int = 40,
     candidates: Iterable[SearchCandidate] | None = None,
     allowed_potions: tuple[str, ...] | None = None,
+    root_scope: str = "all",
+    failure_output: Path | None = None,
 ) -> dict[str, Any]:
     """Compare search candidates from exact combat states recorded in traces."""
 
     trace_paths = _trace_paths(corpus_dir=corpus_dir, traces=traces)
     extraction_report = real_trace_root_report(trace_paths)
-    roots = _trace_combat_roots(trace_paths)
+    roots = _trace_combat_roots(trace_paths, root_scope=root_scope)
     if split != "all":
         roots = [root for root in roots if root.split == split]
     roots = roots[:max_roots]
@@ -652,6 +654,11 @@ def evaluate_self_play_corpus(
             }
             episodes.append(row)
 
+    failures = _failure_fixtures(roots, episodes)
+    if failure_output is not None:
+        failure_output.parent.mkdir(parents=True, exist_ok=True)
+        failure_output.write_text(json.dumps(failures, indent=2, sort_keys=True), encoding="utf-8")
+
     return {
         "type": "self_play_trace_eval",
         "schema": 1,
@@ -663,8 +670,11 @@ def evaluate_self_play_corpus(
         "roots": len(roots),
         "max_roots": max_roots,
         "max_actions": max_actions,
+        "root_scope": root_scope,
         "allowed_potions": allowed_potions,
         "root_family": "trace_combat_states",
+        "failure_fixture_count": len(failures["fixtures"]),
+        "failure_output": str(failure_output) if failure_output is not None else None,
         "potion_roots": sum(1 for root in roots if root.potion_count > 0),
         "potion_action_roots": sum(
             1 for root in roots if any("potion" in kind for kind in root.legal_action_kinds)
@@ -819,9 +829,16 @@ def _observed_usable_potions(game_state: dict[str, Any]) -> list[str]:
     return potions
 
 
-def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
+def _trace_combat_roots(
+    trace_paths: Iterable[Path],
+    *,
+    root_scope: str = "all",
+) -> list[TraceCombatRoot]:
+    if root_scope not in {"all", "combat_start"}:
+        raise ValueError(f"unsupported root_scope: {root_scope}")
     roots: list[TraceCombatRoot] = []
     seen: set[str] = set()
+    seen_combat_start_keys: set[str] = set()
     for trace_path in trace_paths:
         verification = verify_self_play_trace(trace_path)
         if not verification.get("ok"):
@@ -840,10 +857,19 @@ def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
                 legal_actions = record.get("legal_actions", [])
             else:
                 continue
-            if summary.get("phase") != "combat":
+            phase = summary.get("phase")
+            if phase != "combat":
                 continue
             if not isinstance(snapshot_json, str) or not isinstance(state_id, str):
                 continue
+            key = f"{trace_path}:{state_id}"
+            if key in seen:
+                continue
+            if root_scope == "combat_start":
+                encounter_key = _trace_encounter_key(trace_path, summary, record)
+                if encounter_key in seen_combat_start_keys:
+                    continue
+                seen_combat_start_keys.add(encounter_key)
             key = f"{trace_path}:{state_id}"
             if key in seen:
                 continue
@@ -878,6 +904,20 @@ def _trace_combat_roots(trace_paths: Iterable[Path]) -> list[TraceCombatRoot]:
             )
     roots.sort(key=lambda root: (str(root.trace_path), root.step, root.state_id))
     return roots
+
+
+def _trace_encounter_key(
+    trace_path: Path,
+    summary: dict[str, Any],
+    record: dict[str, Any],
+) -> str:
+    floor = summary.get("floor")
+    act = summary.get("act")
+    if floor is not None:
+        return f"{trace_path}:act{act}:floor{floor}"
+    trace_step = record.get("trace_step")
+    step = record.get("step")
+    return f"{trace_path}:trace_step{trace_step}:step{step}"
 
 
 def _choose_action(
@@ -945,6 +985,7 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "losses": losses,
                 "win_rate": wins / count if count else 0.0,
                 "mean_score": _mean(float(episode["final_score"]) for episode in candidate_episodes),
+                "mean_hp_loss": _mean(float(episode["hp_loss"]) for episode in candidate_episodes),
                 "mean_final_hp": _mean(float(episode["final_hp"]) for episode in candidate_episodes),
                 "mean_monster_hp": _mean(float(episode["monster_hp"]) for episode in candidate_episodes),
                 "mean_actions": _mean(float(episode["actions"]) for episode in candidate_episodes),
@@ -969,6 +1010,63 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row["candidate"],
         ),
     )
+
+
+def _failure_fixtures(
+    roots: list[TraceCombatRoot],
+    episodes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    roots_by_key = {
+        (str(root.trace_path), root.step, root.state_id): root
+        for root in roots
+    }
+    fixtures = []
+    for episode in episodes:
+        if episode.get("won"):
+            continue
+        key = (
+            str(episode.get("trace_path")),
+            int(episode.get("trace_step", 0)),
+            str(episode.get("state_id")),
+        )
+        root = roots_by_key.get(key)
+        if root is None:
+            continue
+        fixtures.append(
+            {
+                "name": _failure_fixture_name(episode),
+                "trace_path": str(root.trace_path),
+                "trace_step": root.step,
+                "state_id": root.state_id,
+                "candidate": episode.get("candidate"),
+                "split": root.split,
+                "terminal_reason": episode.get("terminal_reason"),
+                "actions": episode.get("actions"),
+                "initial_hp": episode.get("initial_hp"),
+                "final_hp": episode.get("final_hp"),
+                "hp_loss": episode.get("hp_loss"),
+                "monster_hp": episode.get("monster_hp"),
+                "potion_names": list(root.potion_names),
+                "legal_action_kinds": list(root.legal_action_kinds),
+                "legal_potion_names": list(root.legal_potion_names),
+                "snapshot_json": root.snapshot_json,
+            }
+        )
+    return {
+        "type": "combat_autopilot_failure_fixtures",
+        "schema": 1,
+        "source": "sim_selfplay_trace_eval",
+        "fixture_count": len(fixtures),
+        "fixtures": fixtures,
+    }
+
+
+def _failure_fixture_name(episode: dict[str, Any]) -> str:
+    candidate = _safe_file_stem(str(episode.get("candidate") or "candidate"))
+    state_id = _safe_file_stem(str(episode.get("state_id") or "state"))[:16]
+    trace_step = episode.get("trace_step", 0)
+    reason = _safe_file_stem(str(episode.get("terminal_reason") or "nonterminal"))
+    return f"{candidate}-step{trace_step}-{state_id}-{reason}"
 
 
 def _metadata(
@@ -1553,7 +1651,9 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser.add_argument("--max-roots", type=int, default=64)
     eval_parser.add_argument("--max-actions", type=int, default=40)
     eval_parser.add_argument("--allowed-potions")
+    eval_parser.add_argument("--root-scope", choices=["all", "combat_start"], default="all")
     eval_parser.add_argument("--output", type=Path)
+    eval_parser.add_argument("--failure-output", type=Path)
 
     report_parser = subparsers.add_parser("real-trace-report")
     report_parser.add_argument("--trace", dest="traces", type=Path, action="append", required=True)
@@ -1603,6 +1703,8 @@ def main(argv: list[str] | None = None) -> None:
             max_roots=args.max_roots,
             max_actions=args.max_actions,
             allowed_potions=_parse_allowed_potions(args.allowed_potions),
+            root_scope=args.root_scope,
+            failure_output=args.failure_output,
         )
         text = json.dumps(report, indent=2, sort_keys=True)
         if args.output:
