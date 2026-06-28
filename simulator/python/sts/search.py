@@ -88,6 +88,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_terminal_rescue",
         "rust_terminal_rescue_keyed",
         "rust_terminal_hp_selector",
+        "rust_terminal_hp_commit_won_selector",
+        "rust_terminal_hp_commit_bounded_selector",
         "rust_terminal_win_hp_selector",
         "rust_terminal_low_hp_rollout_selector",
         "rust_terminal_rollout_selector",
@@ -124,7 +126,11 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         )
     elif config.algorithm == "rust_terminal_portfolio":
         return _rust_terminal_portfolio_search(env, config)
-    elif config.algorithm == "rust_terminal_hp_selector":
+    elif config.algorithm in {
+        "rust_terminal_hp_selector",
+        "rust_terminal_hp_commit_won_selector",
+        "rust_terminal_hp_commit_bounded_selector",
+    }:
         return _rust_terminal_hp_selector_search(env, config)
     elif config.algorithm == "rust_terminal_win_hp_selector":
         return _rust_terminal_win_hp_selector_search(env, config)
@@ -394,9 +400,11 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
     nodes = sum(recommendation.visits for recommendation in recommendations)
     best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
     diagnostics = dict(best.diagnostics)
+    follow_principal_variation = _should_follow_rust_principal_variation(env, config, best)
     diagnostics.update(
         {
             "algorithm": config.algorithm,
+            "follow_principal_variation": follow_principal_variation,
             "selector_candidates": [
                 _rust_rescue_candidate_diagnostics(recommendation)
                 for recommendation in recommendations
@@ -414,6 +422,39 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
         diagnostics=diagnostics,
         terminal_reason=best.terminal_reason,
     )
+
+
+def _variation_uses_potion(actions: Sequence[Any]) -> bool:
+    return any(getattr(action, "kind", lambda: "")() == "use_potion" for action in actions)
+
+
+_COMMIT_BOUNDED_MAX_PREDICTED_HP_LOSS = 31.0
+
+
+def _should_follow_rust_principal_variation(
+    env: Any,
+    config: CombatSearchConfig,
+    recommendation: SearchRecommendation,
+) -> bool:
+    if config.algorithm not in {
+        "rust_terminal_hp_commit_won_selector",
+        "rust_terminal_hp_commit_bounded_selector",
+    }:
+        return False
+    if recommendation.terminal_reason != "won":
+        return False
+    if _variation_uses_potion(recommendation.principal_variation):
+        return False
+    if config.algorithm == "rust_terminal_hp_commit_won_selector":
+        return True
+
+    if config.allowed_potions:
+        return False
+    final_hp = recommendation.diagnostics.get("rust_final_hp")
+    if final_hp is None:
+        return False
+    predicted_hp_loss = float(_state(env)["player"]["hp"]) - float(final_hp)
+    return predicted_hp_loss <= _COMMIT_BOUNDED_MAX_PREDICTED_HP_LOSS
 
 
 def _rust_terminal_rollout_selector_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
