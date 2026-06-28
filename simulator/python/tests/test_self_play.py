@@ -429,6 +429,26 @@ class SelfPlayTests(unittest.TestCase):
             "rust_terminal_hp_selector",
         )
 
+        hp_commit_selector_candidates = _trace_candidates_by_name(
+            ["rust_terminal_hp_commit_won_selector_w32_w64_w128_d40"]
+        )
+
+        self.assertEqual(len(hp_commit_selector_candidates), 1)
+        self.assertEqual(
+            hp_commit_selector_candidates[0].config.algorithm,
+            "rust_terminal_hp_commit_won_selector",
+        )
+
+        hp_commit_bounded_selector_candidates = _trace_candidates_by_name(
+            ["rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40"]
+        )
+
+        self.assertEqual(len(hp_commit_bounded_selector_candidates), 1)
+        self.assertEqual(
+            hp_commit_bounded_selector_candidates[0].config.algorithm,
+            "rust_terminal_hp_commit_bounded_selector",
+        )
+
         low_hp_recovery_candidates = _trace_candidates_by_name(
             ["rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40"]
         )

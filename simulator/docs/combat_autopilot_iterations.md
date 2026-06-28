@@ -1554,3 +1554,57 @@ Interpretation:
 - Trace-used potion evaluation is now the correct baseline for combat policy work.
 - The HP selector is a real improvement over the selected policy under the corrected potion constraint, but it does not meet the current `<5 mean HP loss` target.
 - Remaining loss is concentrated in a small number of high-damage roots, so the next iteration should focus on those fixtures instead of broadening the beam blindly.
+
+### 33. Bounded Principal-Variation Commitment
+
+Change:
+
+- Added `rust_terminal_hp_commit_won_selector_w32_w64_w128_d40`, a diagnostic candidate that follows a Rust principal variation when the selected line is a winning no-potion line.
+- Added `rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40`, a safer variant that only follows a winning no-potion principal variation when:
+  - the root has no trace-used potion permission,
+  - the line itself uses no potion,
+  - the predicted HP loss is at most 31.
+- Kept trace-used potion evaluation semantics: each root only allows the potion names the real trace used in that combat window. This mirrors the intended UI boundary where the human chooses whether potions are allowed for a combat.
+
+Why:
+
+- Pure single-action replanning often drifts away from a found winning line.
+- Blindly following every found winning line improves many roots but badly regresses some potion-enabled or long-plan roots.
+- A bounded commit rule is cheap and deterministic, and it avoids treating potion-enabled roots as safe to commit.
+
+Validation:
+
+```powershell
+uv run python -m unittest python.tests.test_self_play python.tests.test_search_smoke -v
+uv run python -m sts.self_play eval --trace target\trace-guided\manual01-replayed.jsonl --eval-set full-323 --max-actions 80 --allowed-potions-mode trace_used --candidate rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40 --output target\search-lab\trace-used-full323-commit-bounded.json
+```
+
+Results:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_hp_selector_w32_w64_w128_d40` | 323 | 323 | 0 | 0 | 6.88 | 4.0 | 36.0 | 36 | 0.0233 | 0.327 | 122880 |
+| `rust_terminal_hp_commit_won_selector_w32_w64_w128_d40` | 323 | 323 | 0 | 0 | 6.24 | 3.0 | 39.9 | 23 | 0.0392 | 0.0468 | 18226 |
+| `rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40` | 323 | 323 | 0 | 0 | 5.36 | 2.0 | 31.9 | 36 | 0.0324 | 0.259 | 85117 |
+
+Rejected probes:
+
+| Probe | Result | Decision |
+| --- | --- | --- |
+| Always width-256 terminal beam, depth 60 | mean HP loss 12.64, 322 wins, 1 loss | too poor globally |
+| Always width-256 HP beam, depth 60 | mean HP loss 10.09, 322 wins, 1 loss | too poor globally |
+| Always-on selector with width-256 terminal branch | stopped after it ran too long for a practical UI policy | too expensive as an unconditional branch |
+
+Remaining high-loss clusters for the bounded policy:
+
+| Trace Steps | Notes |
+| --- | --- |
+| 164-172 | Mostly no-potion roots. Bounded commit still loses 49-54 HP on several roots; single-action HP selector is sometimes better, especially 168/171. |
+| 94-101 | Cultist/no-potion cluster. Width-256 terminal helps some roots, but is not safe globally. |
+| 293-296 | Trace-used Power Potion cluster. Current policy often wins without spending the Power Potion and loses 46-52 HP. |
+
+Interpretation:
+
+- The bounded commit candidate is the best current full-323 trace-used policy by mean HP loss, but it still misses the `<5` target.
+- The gap is now small enough that a selector-level improvement could plausibly close it, but broad width increases are not the answer.
+- Next iteration should target the listed clusters with cheap conditional rescue rules or better terminal scoring, and should avoid always-on high-width search.

@@ -252,6 +252,22 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             ),
         ),
         SearchCandidate(
+            "rust_terminal_hp_commit_won_selector_w32_w64_w128_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_hp_commit_won_selector",
+            ),
+        ),
+        SearchCandidate(
+            "rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_hp_commit_bounded_selector",
+            ),
+        ),
+        SearchCandidate(
             "rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40",
             CombatSearchConfig(
                 max_depth=40,
