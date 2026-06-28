@@ -481,3 +481,42 @@ Interpretation:
 - `trace_probe_no_potions_d40` is not the selected strongest full-323 candidate because it loses one extra full root and has more full losses.
 - It is still a useful replay/collection mode: same combat-start dev/val wins, zero potion consumption, and materially lower runtime.
 - The next potion-aware policy should probably be a conditional two-pass policy: try no-potion first, then allow potions only when the no-potion rollout cannot win or leaves a clearly worse terminal result.
+
+### 11. Potion-Rescue Trace Probe
+
+Change:
+
+- Added `potion_rescue_trace_probe`, a two-pass trace probe:
+  - first search with `allowed_potions=()`
+  - if that pass finds a terminal win, take the no-potion action
+  - otherwise rerun `trace_probe` with the configured allowed potion list
+- Added `trace_probe_potion_rescue_d40` as a first-class trace autopilot candidate.
+
+Why:
+
+- The no-potion probe tied the potion-allowed probe on combat-start dev/val, but lost one extra full-323 root and had more full-323 losses.
+- The potion-allowed probe still used potions on some roots where no-potion already had a win.
+- A conditional policy should preserve no-potion wins while retaining the current rescue path for hard roots.
+
+Results:
+
+| Eval Set | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-fast-10` | 10 | 9 | 1 | 0 | 28.2 | 19.0 | 68.95 | 2 | 1.29 | 1821.2 |
+| `dev-50` | 17 | 14 | 3 | 0 | 28.82 | 23.0 | 76.0 | 5 | 2.16 | 2352.88 |
+| `val-50` | 4 | 4 | 0 | 0 | 20.0 | 18.0 | 40.4 | 0 | 1.27 | 1462.25 |
+| `full-323` | 323 | 281 | 12 | 30 | 21.63 | 14.0 | 64.0 | 29 | 1.42 | 1559.66 |
+
+Comparison against current trace candidates:
+
+| Candidate | `dev-50` Wins | `val-50` Wins | `full-323` Wins | Full Losses | Full Nonterminal | Full Potion Uses | Full Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `trace_probe_d40` | 14/17 | 4/4 | 281/323 | 12 | 30 | 30 | 1.99 |
+| `trace_probe_potion_rescue_d40` | 14/17 | 4/4 | 281/323 | 12 | 30 | 29 | 1.42 |
+| `trace_probe_no_potions_d40` | 14/17 | 4/4 | 280/323 | 23 | 20 | 0 | 1.16 |
+
+Interpretation:
+
+- Keep `trace_probe_potion_rescue_d40` as the current practical default candidate: same quality as `trace_probe_d40`, slightly less potion use, and much lower full-323 runtime.
+- This does not solve the hard roots. The remaining `dev-50` losses are still the same difficult states around steps 91, 158, and 190.
+- The next real quality iteration should target those failure fixtures directly; more generic potion gating mainly improves waste/runtime, not win rate.

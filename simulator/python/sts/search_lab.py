@@ -108,6 +108,14 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             CombatSearchConfig(max_depth=40, objective="tactical_survival", algorithm="trace_probe"),
         ),
         SearchCandidate(
+            "trace_probe_potion_rescue_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="tactical_survival",
+                algorithm="potion_rescue_trace_probe",
+            ),
+        ),
+        SearchCandidate(
             "trace_probe_no_potions_d40",
             CombatSearchConfig(
                 max_depth=40,
