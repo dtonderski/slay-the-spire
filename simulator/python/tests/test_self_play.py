@@ -9,6 +9,7 @@ from sts.search_lab import SearchCandidate, probe_failure_fixture_oracles
 from sts.self_play import (
     DEFAULT_COMBAT_POLICY,
     DEFAULT_COMBAT_POLICY_NAME,
+    _action_for_communication_command,
     _candidate_with_allowed_potions,
     _combat_policy_from_name,
     _parse_candidate_names,
@@ -154,7 +155,11 @@ class SelfPlayTests(unittest.TestCase):
                         "step": 0,
                         "before_hash": before_hash,
                         "before_snapshot_json": before_snapshot,
-                        "before_summary": {"phase": "combat", "potions": ["Fire"]},
+                        "before_summary": {
+                            "phase": "combat",
+                            "player_hp": 80,
+                            "potions": ["Fire"],
+                        },
                         "legal_actions": [
                             {"family": action.family(), "kind": action.kind(), "json": action.json()}
                             for action in actions
@@ -166,7 +171,11 @@ class SelfPlayTests(unittest.TestCase):
                         "policy_diagnostics": {},
                         "after_hash": result.snapshot_hash,
                         "after_snapshot_json": result.snapshot_json,
-                        "after_summary": {"phase": result.phase, "potions": []},
+                        "after_summary": {
+                            "phase": result.phase,
+                            "player_hp": 80,
+                            "potions": [],
+                        },
                         "transition": None,
                         "unsupported_reason": result.unsupported_reason,
                         "error": None,
@@ -250,6 +259,29 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(no_potions_report["allowed_potions"], ())
             self.assertEqual(no_potions_report["allowed_potion_roots"], 0)
             self.assertFalse(no_potions_report["episodes"][0]["has_allowed_potion_actions"])
+
+            trace_used_report = evaluate_self_play_corpus(
+                traces=[trace_path],
+                max_roots=2,
+                max_actions=2,
+                allowed_potions_mode="trace_used",
+                candidates=[
+                    SearchCandidate(
+                        "tiny_greedy",
+                        CombatSearchConfig(
+                            max_depth=1,
+                            objective="survive_then_damage",
+                            algorithm="greedy",
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(trace_used_report["allowed_potions_mode"], "trace_used")
+            self.assertEqual(trace_used_report["episodes"][0]["allowed_potions"], ("Fire",))
+            self.assertEqual(
+                trace_used_report["root_manifest"][0]["real_trace_potion_use_names"],
+                ["Fire"],
+            )
 
             failure_output = Path(directory) / "failures.json"
             failure_report = evaluate_self_play_corpus(
@@ -345,6 +377,14 @@ class SelfPlayTests(unittest.TestCase):
 
         self.assertEqual(updated.config.allowed_potions, ())
 
+    def test_trace_potion_use_command_maps_to_potion_action(self):
+        env = self._combat_env_with_fire_potion()
+
+        action = _action_for_communication_command(env, "POTION USE 0 0", {})
+
+        self.assertIsNotNone(action)
+        self.assertEqual(action.kind(), "use_potion")
+
     def test_trace_candidate_list_includes_no_potion_variant(self):
         candidates = _trace_candidates_by_name(["trace_probe_no_potions_d40"])
 
@@ -377,6 +417,16 @@ class SelfPlayTests(unittest.TestCase):
         self.assertEqual(
             selector_candidates[0].config.algorithm,
             "rust_terminal_win_hp_selector",
+        )
+
+        hp_selector_candidates = _trace_candidates_by_name(
+            ["rust_terminal_hp_selector_w32_w64_w128_d40"]
+        )
+
+        self.assertEqual(len(hp_selector_candidates), 1)
+        self.assertEqual(
+            hp_selector_candidates[0].config.algorithm,
+            "rust_terminal_hp_selector",
         )
 
         low_hp_recovery_candidates = _trace_candidates_by_name(

@@ -1511,3 +1511,46 @@ Interpretation:
 - After relic repair and replay regeneration, the selected default policy wins every frozen `full-323` root with zero failure fixtures.
 - The named combat-start sets changed size because the repaired replay now exposes 326 extractable combat roots; current MANUAL01 contributes 16 dev combat-start roots and 5 held-out validation combat-start roots.
 - The validation set is still too small to claim broad generalization. More real traces remain useful, but there is no longer a known MANUAL01 combat-autopilot blocker.
+
+### 32. Trace-Used Potions and HP-Plan Selector
+
+Change:
+
+- Fixed trace-guided replay parsing for CommunicationMod commands shaped like `POTION USE <slot> [target]`.
+- Added conservative potion command fallbacks for targetless potion actions and compacted observed slots.
+- Added `allowed_potions_mode="trace_used"` for trace evaluation. In this mode each combat root only allows the potion names the real trace later used in that same combat window.
+- Exposed Rust search principal variations through `RustSearchRecommendation.principal_variation`.
+- Added `rust_terminal_hp_selector_w32_w64_w128_d40`.
+- Tried a committed principal-variation-following variant; after fixing its diagnostics flag, it introduced a dev-set loss and was not retained as a named lab candidate.
+- Kept Power Potion out of speculative HP-preserving/high-width selector branches after a Power-generated line produced one full-set loss.
+
+Why:
+
+- The previous full-set eval used a global potion allowlist and therefore let the policy use many potions the real trace did not spend in that combat.
+- The regenerated replay previously mapped zero simulator `use_potion` steps even though the raw trace had seven `POTION USE` commands.
+- The current UI plan is for a human to choose whether potions are allowed per combat; trace eval should mirror that boundary by using the trace's own potion decisions only.
+
+Validation:
+
+```powershell
+uv run maturin develop --release
+uv run python -m unittest python.tests.test_self_play python.tests.test_search_smoke -v
+uv run python -m sts.self_play replay-real-trace --trace ..\verification\corpus\communication_mod\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl --output target\trace-guided\manual01-replayed.jsonl --report-output target\trace-guided\manual01-report.json
+uv run python -m sts.self_play eval --trace target\trace-guided\manual01-replayed.jsonl --eval-set full-323 --max-actions 80 --allowed-potions-mode trace_used --candidate rust_terminal_hp_selector_w32_w64_w128_d40 --output target\search-lab\trace-used-full323-hp-selector-nopower.json
+```
+
+Results:
+
+- Focused Python tests: 38 passed.
+- Regenerated MANUAL01 replay: verified, `trace_exhausted`, 334 steps, 326 extractable roots.
+- Potion replay repair: all seven raw trace potion commands are now simulator `use_potion` steps; potion restorations are zero.
+- Honest selected-policy baseline with trace-used potions on `full-323`: 323 wins, 0 losses, 0 nonterminal, mean HP loss 10.18, median 7.0, p95 42.0, 32 potion uses.
+- HP selector before Power safety: mean HP loss 6.79, but 1 loss from a Power Potion line.
+- HP selector after Power safety: 323 wins, 0 losses, 0 nonterminal, mean HP loss 6.88, median 4.0, p95 36.0, 36 potion uses, mean seconds per decision 0.0233.
+- Principal-variation-following experiment after the diagnostics flag fix: on `dev-50`, 15 wins, 1 loss, mean HP loss 8.06. It is not currently safe enough to keep as a normal candidate.
+
+Interpretation:
+
+- Trace-used potion evaluation is now the correct baseline for combat policy work.
+- The HP selector is a real improvement over the selected policy under the corrected potion constraint, but it does not meet the current `<5 mean HP loss` target.
+- Remaining loss is concentrated in a small number of high-damage roots, so the next iteration should focus on those fixtures instead of broadening the beam blindly.

@@ -183,6 +183,8 @@ pub struct PyRustSearchRecommendation {
     #[pyo3(get)]
     pub best_action: Option<PyExactRunAction>,
     #[pyo3(get)]
+    pub principal_variation: Vec<PyExactRunAction>,
+    #[pyo3(get)]
     pub value: f64,
     #[pyo3(get)]
     pub actions: usize,
@@ -632,6 +634,7 @@ fn rust_greedy_combat_search(
     });
     let mut current = state.clone();
     let mut best_first_action: Option<ExactRunActionKind> = None;
+    let mut principal_variation: Vec<ExactRunActionKind> = Vec::new();
     let mut actions_taken = 0usize;
     let mut nodes = 1usize;
     let mut terminal_reason = run_terminal_reason(&current);
@@ -661,6 +664,7 @@ fn rust_greedy_combat_search(
         if best_first_action.is_none() {
             best_first_action = Some(action.clone());
         }
+        principal_variation.push(action.clone());
         current = apply_exact_run_action(&current, &action).map_err(|error| {
             PyValueError::new_err(format!("rust greedy selected illegal action: {error:?}"))
         })?;
@@ -672,6 +676,10 @@ fn rust_greedy_combat_search(
     let (final_hp, monster_hp) = run_combat_hp(&current);
     Ok(PyRustSearchRecommendation {
         best_action: best_first_action.map(|action| PyExactRunAction { action }),
+        principal_variation: principal_variation
+            .into_iter()
+            .map(|action| PyExactRunAction { action })
+            .collect(),
         value,
         actions: actions_taken,
         nodes,
@@ -685,6 +693,7 @@ fn rust_greedy_combat_search(
 struct RustBeamNode {
     state: RunState,
     first_action: Option<ExactRunActionKind>,
+    principal_variation: Vec<ExactRunActionKind>,
     actions: usize,
     score: f64,
     terminal_reason: Option<String>,
@@ -712,6 +721,7 @@ fn rust_beam_combat_search(
     let mut best = RustBeamNode {
         state: state.clone(),
         first_action: None,
+        principal_variation: Vec::new(),
         actions: 0,
         score: initial_score,
         terminal_reason,
@@ -745,9 +755,12 @@ fn rust_beam_combat_search(
                 let terminal_reason = run_terminal_reason(&next_state);
                 let score = rust_run_score(&next_state, terminal_reason.as_deref(), objective)?
                     - rust_action_penalty(&action);
+                let mut principal_variation = node.principal_variation.clone();
+                principal_variation.push(action.clone());
                 let child = RustBeamNode {
                     state: next_state,
                     first_action: node.first_action.clone().or_else(|| Some(action)),
+                    principal_variation,
                     actions: node.actions + 1,
                     score,
                     terminal_reason,
@@ -775,6 +788,11 @@ fn rust_beam_combat_search(
     let (final_hp, monster_hp) = run_combat_hp(&best.state);
     Ok(PyRustSearchRecommendation {
         best_action: best.first_action.map(|action| PyExactRunAction { action }),
+        principal_variation: best
+            .principal_variation
+            .into_iter()
+            .map(|action| PyExactRunAction { action })
+            .collect(),
         value: best.score,
         actions: best.actions,
         nodes,

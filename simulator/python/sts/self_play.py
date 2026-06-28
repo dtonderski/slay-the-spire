@@ -100,6 +100,7 @@ class TraceCombatRoot:
     potion_names: tuple[str, ...]
     legal_action_kinds: tuple[str, ...]
     legal_potion_names: tuple[str, ...]
+    real_trace_potion_use_names: tuple[str, ...] = ()
     real_trace_final_hp: float | None = None
     real_trace_hp_loss: float | None = None
     real_trace_terminal_phase: str | None = None
@@ -653,6 +654,7 @@ def evaluate_self_play_corpus(
     max_actions: int = 40,
     candidates: Iterable[SearchCandidate] | None = None,
     allowed_potions: tuple[str, ...] | None = None,
+    allowed_potions_mode: str = "global",
     root_scope: str = "all",
     failure_output: Path | None = None,
     eval_set: str | None = None,
@@ -660,6 +662,9 @@ def evaluate_self_play_corpus(
     progress_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """Compare search candidates from exact combat states recorded in traces."""
+
+    if allowed_potions_mode not in {"global", "trace_used"}:
+        raise ValueError(f"unsupported allowed_potions_mode: {allowed_potions_mode}")
 
     eval_set_spec = _trace_eval_set_spec(eval_set)
     if eval_set_spec is not None:
@@ -674,16 +679,24 @@ def evaluate_self_play_corpus(
         roots = [root for root in roots if root.split == split]
     available_roots = len(roots)
     roots = roots[:max_roots]
-    candidates = [
-        _candidate_with_allowed_potions(candidate, allowed_potions)
-        for candidate in list(candidates or trace_autopilot_candidates())
-    ]
+    candidates = list(candidates or trace_autopilot_candidates())
+    if allowed_potions_mode == "global":
+        candidates = [
+            _candidate_with_allowed_potions(candidate, allowed_potions)
+            for candidate in candidates
+        ]
 
     episodes = []
     completed = 0
     total = len(candidates) * len(roots)
     for candidate in candidates:
         for root in roots:
+            root_allowed_potions = _allowed_potions_for_root(
+                root,
+                allowed_potions=allowed_potions,
+                mode=allowed_potions_mode,
+            )
+            root_candidate = _candidate_with_allowed_potions(candidate, root_allowed_potions)
             benchmark_root = BenchmarkRoot(
                 name=f"{root.trace_path.stem}:step{root.step}:{root.state_id}",
                 env_kind="run_combat",
@@ -692,7 +705,7 @@ def evaluate_self_play_corpus(
                 source_depth=root.step,
                 split=root.split,
             )
-            result = evaluate_candidate(benchmark_root, candidate, max_actions=max_actions)
+            result = evaluate_candidate(benchmark_root, root_candidate, max_actions=max_actions)
             row = result.__dict__ | {
                 "trace_path": str(root.trace_path),
                 "trace_step": root.step,
@@ -701,8 +714,13 @@ def evaluate_self_play_corpus(
                 "potion_names": list(root.potion_names),
                 "legal_action_kinds": list(root.legal_action_kinds),
                 "legal_potion_names": list(root.legal_potion_names),
+                "allowed_potions": root_allowed_potions,
+                "allowed_potions_mode": allowed_potions_mode,
+                "real_trace_potion_use_names": list(root.real_trace_potion_use_names),
                 "has_potion_actions": any("potion" in kind for kind in root.legal_action_kinds),
-                "has_allowed_potion_actions": _has_allowed_potion_actions(root, allowed_potions),
+                "has_allowed_potion_actions": _has_allowed_potion_actions(
+                    root, root_allowed_potions
+                ),
                 "real_trace_final_hp": root.real_trace_final_hp,
                 "real_trace_hp_loss": root.real_trace_hp_loss,
                 "real_trace_terminal_phase": root.real_trace_terminal_phase,
@@ -752,6 +770,7 @@ def evaluate_self_play_corpus(
         "eval_set_spec": eval_set_spec,
         "held_out": bool(eval_set_spec.get("held_out")) if eval_set_spec else split == "eval",
         "allowed_potions": allowed_potions,
+        "allowed_potions_mode": allowed_potions_mode,
         "root_family": "trace_combat_states",
         "failure_fixture_count": len(failures["fixtures"]),
         "failure_output": str(failure_output) if failure_output is not None else None,
@@ -762,10 +781,21 @@ def evaluate_self_play_corpus(
             1 for root in roots if any("potion" in kind for kind in root.legal_action_kinds)
         ),
         "allowed_potion_roots": sum(
-            1 for root in roots if _has_allowed_potion_actions(root, allowed_potions)
+            1
+            for root in roots
+            if _has_allowed_potion_actions(
+                root,
+                _allowed_potions_for_root(
+                    root, allowed_potions=allowed_potions, mode=allowed_potions_mode
+                ),
+            )
         ),
-        "root_manifest": _root_manifest(roots, allowed_potions),
-        "groups": _group_stats(roots, episodes, allowed_potions),
+        "root_manifest": _root_manifest(
+            roots, allowed_potions, allowed_potions_mode=allowed_potions_mode
+        ),
+        "groups": _group_stats(
+            roots, episodes, allowed_potions, allowed_potions_mode=allowed_potions_mode
+        ),
         "ranking": ranking,
         "episodes": episodes,
     }
@@ -983,6 +1013,7 @@ def _trace_combat_roots(
                     potion_names=potion_names,
                     legal_action_kinds=legal_action_kinds,
                     legal_potion_names=legal_potion_names,
+                    real_trace_potion_use_names=tuple(baseline.get("potion_use_names", ())),
                     real_trace_final_hp=baseline.get("final_hp"),
                     real_trace_hp_loss=baseline.get("hp_loss"),
                     real_trace_terminal_phase=baseline.get("terminal_phase"),
@@ -1022,8 +1053,49 @@ def _real_trace_combat_baselines(records: list[dict[str, Any]]) -> dict[str, dic
             "final_hp": final_hp,
             "hp_loss": initial_hp - final_hp,
             "terminal_phase": final_summary.get("phase"),
+            "potion_use_names": _real_trace_potion_use_names(records, index),
         }
     return baselines
+
+
+def _real_trace_potion_use_names(records: list[dict[str, Any]], start_index: int) -> tuple[str, ...]:
+    names: list[str] = []
+    for record in records[start_index:]:
+        before_summary: dict[str, Any] | None = None
+        after_summary: dict[str, Any] | None = None
+        if record.get("type") == "step":
+            before = record.get("before_summary")
+            after = record.get("after_summary")
+            if isinstance(before, dict):
+                before_summary = before
+            if isinstance(after, dict):
+                after_summary = after
+        elif record.get("type") == "anchor":
+            summary = record.get("summary")
+            if isinstance(summary, dict):
+                before_summary = summary
+        if before_summary is not None and before_summary.get("phase") != "combat":
+            return tuple(names)
+
+        if record.get("type") == "step" and record.get("action_kind") == "use_potion":
+            potions = before_summary.get("potions") if isinstance(before_summary, dict) else None
+            if isinstance(potions, list):
+                name = _potion_name_for_step_record(
+                    record, tuple(str(potion) for potion in potions)
+                )
+                if name is not None:
+                    names.append(name)
+
+        if after_summary is not None and after_summary.get("phase") != "combat":
+            return tuple(names)
+    return tuple(names)
+
+
+def _potion_name_for_step_record(record: dict[str, Any], potion_names: tuple[str, ...]) -> str | None:
+    action_json = record.get("action_json")
+    if not isinstance(action_json, str):
+        return None
+    return _potion_name_for_action({"kind": "use_potion", "json": action_json}, potion_names)
 
 
 def _real_trace_combat_end_summary(
@@ -1787,9 +1859,15 @@ def _action_for_communication_command(env: Any, command: str, observed: dict[str
         return _play_action_for_indices(env, actions, hand_index, target_index)
     if verb == "POTION" and len(parts) >= 2:
         try:
-            slot = int(parts[1])
-            target_index = int(parts[2]) if len(parts) >= 3 else None
+            if parts[1].upper() == "USE":
+                slot = int(parts[2])
+                target_index = int(parts[3]) if len(parts) >= 4 else None
+            else:
+                slot = int(parts[1])
+                target_index = int(parts[2]) if len(parts) >= 3 else None
         except ValueError:
+            return None
+        except IndexError:
             return None
         return _potion_action_for_indices(env, actions, slot, target_index)
     if verb in {"STATE", "WAIT"}:
@@ -1852,14 +1930,23 @@ def _potion_action_for_indices(
     target_id = None
     if target_index is not None:
         target_id = target_index + 1
+    same_slot_targetless = None
+    legal_potion_actions = []
     for action in actions:
         if getattr(action, "kind", lambda: "")() != "use_potion":
             continue
+        legal_potion_actions.append(action)
         use = _action_json_data(action).get("UsePotion")
         if not isinstance(use, dict) or use.get("slot") != slot:
             continue
         if target_id is None or use.get("target") == target_id:
             return action
+        if use.get("target") is None:
+            same_slot_targetless = action
+    if same_slot_targetless is not None:
+        return same_slot_targetless
+    if len(legal_potion_actions) == 1:
+        return legal_potion_actions[0]
     return None
 
 
@@ -1998,6 +2085,19 @@ def _candidate_with_allowed_potions(
     )
 
 
+def _allowed_potions_for_root(
+    root: TraceCombatRoot,
+    *,
+    allowed_potions: tuple[str, ...] | None,
+    mode: str,
+) -> tuple[str, ...] | None:
+    if mode == "global":
+        return allowed_potions
+    if mode == "trace_used":
+        return root.real_trace_potion_use_names
+    raise ValueError(f"unsupported allowed_potions_mode: {mode}")
+
+
 def _has_allowed_potion_actions(
     root: TraceCombatRoot,
     allowed_potions: tuple[str, ...] | None,
@@ -2029,6 +2129,8 @@ def _group_stats(
     roots: list[TraceCombatRoot],
     episodes: list[dict[str, Any]],
     allowed_potions: tuple[str, ...] | None,
+    *,
+    allowed_potions_mode: str = "global",
 ) -> dict[str, Any]:
     return {
         "all": _group_stat_for_roots(roots, episodes),
@@ -2037,7 +2139,16 @@ def _group_stats(
             episodes,
         ),
         "allowed_potion": _group_stat_for_roots(
-            [root for root in roots if _has_allowed_potion_actions(root, allowed_potions)],
+            [
+                root
+                for root in roots
+                if _has_allowed_potion_actions(
+                    root,
+                    _allowed_potions_for_root(
+                        root, allowed_potions=allowed_potions, mode=allowed_potions_mode
+                    ),
+                )
+            ],
             episodes,
         ),
     }
@@ -2046,6 +2157,8 @@ def _group_stats(
 def _root_manifest(
     roots: list[TraceCombatRoot],
     allowed_potions: tuple[str, ...] | None,
+    *,
+    allowed_potions_mode: str = "global",
 ) -> list[dict[str, Any]]:
     return [
         {
@@ -2057,7 +2170,17 @@ def _root_manifest(
             "potion_names": list(root.potion_names),
             "legal_action_kinds": list(root.legal_action_kinds),
             "legal_potion_names": list(root.legal_potion_names),
-            "has_allowed_potion_actions": _has_allowed_potion_actions(root, allowed_potions),
+            "allowed_potions": _allowed_potions_for_root(
+                root, allowed_potions=allowed_potions, mode=allowed_potions_mode
+            ),
+            "allowed_potions_mode": allowed_potions_mode,
+            "has_allowed_potion_actions": _has_allowed_potion_actions(
+                root,
+                _allowed_potions_for_root(
+                    root, allowed_potions=allowed_potions, mode=allowed_potions_mode
+                ),
+            ),
+            "real_trace_potion_use_names": list(root.real_trace_potion_use_names),
             "real_trace_hp_loss": root.real_trace_hp_loss,
         }
         for root in roots
@@ -2213,6 +2336,11 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser.add_argument("--max-roots", type=int, default=64)
     eval_parser.add_argument("--max-actions", type=int, default=40)
     eval_parser.add_argument("--allowed-potions")
+    eval_parser.add_argument(
+        "--allowed-potions-mode",
+        choices=["global", "trace_used"],
+        default="global",
+    )
     eval_parser.add_argument("--root-scope", choices=["all", "combat_start"], default="all")
     eval_parser.add_argument("--eval-set", choices=sorted(TRACE_EVAL_SET_SPECS))
     eval_parser.add_argument("--candidate", dest="candidate_names", action="append")
@@ -2268,6 +2396,7 @@ def main(argv: list[str] | None = None) -> None:
             max_roots=args.max_roots,
             max_actions=args.max_actions,
             allowed_potions=_parse_allowed_potions(args.allowed_potions),
+            allowed_potions_mode=args.allowed_potions_mode,
             candidates=_trace_candidates_by_name(_parse_candidate_names(args.candidate_names)),
             root_scope=args.root_scope,
             failure_output=args.failure_output,
