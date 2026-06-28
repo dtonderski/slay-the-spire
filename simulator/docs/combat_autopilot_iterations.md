@@ -1059,3 +1059,68 @@ Interpretation:
 - The remaining step 191 loss is likely a repeated-decision/path issue: the single-root diagnostic showed width-128 no-Power can win that root, but the closed-loop policy still later drifts into the losing line.
 - The remaining step 284-287 nonterminals need a Power Potion-specific evaluator or generated-card handling. Blanket Power Potion removal is unsafe because it turns those roots into losses.
 - Next iteration should focus on Power Potion card-choice valuation and on preserving the step 191 winning line across subsequent closed-loop decisions.
+
+### 23. Keyed Nonterminal Rescue and Combat Reward Legal Actions
+
+Changes:
+
+- Added `rust_terminal_rescue_keyed` and registered `rust_terminal_rescue_keyed_w32_w128_no_power_d40`.
+- The keyed rescue still starts with the width-32 terminal beam and only runs the width-128 no-Power rescue when the primary line is not already a predicted win.
+- Unlike `rust_terminal_rescue`, it can select a better nonterminal rescue line by comparing the same portfolio key used by the terminal portfolio. This fixes the step 191 closed-loop drift where the win-only guard rejected the Distilled Chaos first line.
+- Fixed the Python/Rust omniscient legal-action adapter so open combat card rewards expose modal `ChooseCombatCardReward { index }` actions. This covers Power Potion, Discovery, and Toolbox style combat rewards.
+- Added a smoke test that a combat card reward modal returns only `choose_combat_card_reward` actions.
+
+Why:
+
+- The step 191 failure was not a missing card implementation. Width-128 no-Power had a better nonterminal line, but `rust_terminal_rescue` only accepted rescue when it already predicted `won`.
+- The Power Potion cluster was an adapter fidelity bug first: after using Power Potion, the core simulator opened valid choices, but `exact_run_legal_action_kinds` only exposed more potion actions. After rebuilding the PyO3 extension, the generated choices are visible.
+- Once choices were visible, the same cluster became explicit losses instead of nonterminals. That is a fidelity improvement, not a solved policy.
+
+Verification:
+
+- `uv run maturin develop --release`
+- Direct probe from step 284 after Power Potion now exposes:
+  - `ChooseCombatCardReward { index: 0 }`
+  - `ChooseCombatCardReward { index: 1 }`
+  - `ChooseCombatCardReward { index: 2 }`
+- `uv run python -m unittest discover -s python\tests -v`: 79 tests passed.
+- A direct `cargo test --manifest-path simulator/Cargo.toml -p py_sts legal --lib` compiled but the pyo3 test binary failed to launch in this shell with `STATUS_DLL_NOT_FOUND`; the rebuilt Python extension tests are the authoritative smoke check for this path.
+
+Rebuilt-extension evaluation:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Win Rate | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Mean Final HP | Mean Monster HP | Potion Uses | Mean Seconds / Decision | P50 Seconds / Decision | P95 Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-50` | `rust_terminal_rescue_keyed_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 1.000 | 19.71 | 12.0 | 57.6 | 6.35 | 54.35 | 0.00 | 12 | 0.00382 | 0.00196 | 0.02436 | 0.065 | 32032.06 | 91524.0 |
+| `val-50` | `rust_terminal_rescue_keyed_w32_w128_no_power_d40` | 4 | 4 | 0 | 0 | 1.000 | 21.25 | 17.0 | 43.8 | 4.00 | 62.75 | 0.00 | 1 | 0.00354 | 0.00290 | 0.01210 | 0.057 | 18681.50 | 40279.1 |
+| `full-323` | `rust_terminal_rescue_keyed_w32_w128_no_power_d40` | 323 | 319 | 4 | 0 | 0.988 | 14.55 | 8.0 | 58.9 | -1.02 | 52.53 | 0.78 | 152 | 0.00266 | 0.00155 | 0.01739 | 0.043 | 19242.89 | 83467.5 |
+
+Full-set comparison after the legal-action fix:
+
+| Candidate | Wins | Losses | Nonterminal | Mean HP Loss | P95 HP Loss | Potion Uses | Power Uses | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_rescue_keyed_w32_w128_no_power_d40` | 319 | 4 | 0 | 14.55 | 58.9 | 152 | 31 | 0.043 | 19242.89 |
+| `rust_terminal_rescue_w32_w128_no_power_d40` | 317 | 6 | 0 | 14.70 | 59.0 | 151 | 31 | 0.044 | 19439.70 |
+| `rust_beam_terminal_w32_d40` | 315 | 8 | 0 | 15.05 | 59.0 | 158 | 33 | 0.028 | 11580.01 |
+
+Remaining full-set failures for keyed rescue:
+
+| Trace Step | Result | Final HP | Monster HP | Actions | Potions Used |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 284 | lost | -6 | 55 | 19 | Power |
+| 285 | lost | -6 | 49 | 11 | Power |
+| 286 | lost | -8 | 61 | 9 | Power |
+| 287 | lost | -3 | 86 | 12 | Power |
+
+Power-cluster diagnostics:
+
+- Power Potion choices are `[Juggernaut, Rupture, Berserk]`.
+- The policy chooses Juggernaut in all four remaining failures.
+- Existing registry candidates and simple potion constraints do not win these roots, including width-128 no-Power, old rescue, terminal portfolio, no-potion trace probe, no-Power global, only Blessing, only Dexterity, and only Blessing plus Dexterity.
+- Wider/deeper direct probes up to width 512 and depth 80 also lose all four roots, both with Power allowed and with Power removed.
+
+Interpretation:
+
+- The keyed rescue candidate remains the best current coverage candidate: it removes the step 191 loss and is better than the older rescue and plain width-32 after rebuilding the extension.
+- The combat reward adapter fix is still important even though the four Power fixtures now become losses. The verifier/search can no longer silently stall with hidden generated-card choices.
+- The remaining cluster is not solved by more beam width alone. It is likely a late Giant Head style tactical-ordering/search-quality issue around high incoming damage and delayed lethal, with Power Potion/Juggernaut being a symptom rather than a simple oracle.
+- Next work should either add a stronger late-fight tactical objective/candidate that can value debuff-before-burst lines, or move the Rust beam toward principal-variation following / better rollout evaluation. Treat these four failures as the next fixed diagnostic set.

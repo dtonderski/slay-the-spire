@@ -203,6 +203,14 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             ),
         ),
         SearchCandidate(
+            "rust_terminal_rescue_keyed_w32_w128_no_power_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_rescue_keyed",
+            ),
+        ),
+        SearchCandidate(
             "rust_terminal_portfolio_d40",
             CombatSearchConfig(
                 max_depth=40,

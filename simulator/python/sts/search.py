@@ -86,6 +86,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_beam",
         "rust_terminal_portfolio",
         "rust_terminal_rescue",
+        "rust_terminal_rescue_keyed",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
@@ -118,7 +119,9 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
     elif config.algorithm == "rust_terminal_portfolio":
         return _rust_terminal_portfolio_search(env, config)
     elif config.algorithm == "rust_terminal_rescue":
-        return _rust_terminal_rescue_search(env, config)
+        return _rust_terminal_rescue_search(env, config, select_nonterminal_rescue=False)
+    elif config.algorithm == "rust_terminal_rescue_keyed":
+        return _rust_terminal_rescue_search(env, config, select_nonterminal_rescue=True)
     elif config.algorithm in {"rust_greedy", "rust_beam"}:
         return _rust_search(env, config)
     else:
@@ -247,7 +250,12 @@ def _rust_terminal_portfolio_search(env: Any, config: CombatSearchConfig) -> Sea
     )
 
 
-def _rust_terminal_rescue_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
+def _rust_terminal_rescue_search(
+    env: Any,
+    config: CombatSearchConfig,
+    *,
+    select_nonterminal_rescue: bool,
+) -> SearchRecommendation:
     primary_config = CombatSearchConfig(
         max_depth=config.max_depth,
         objective="terminal_tactical",
@@ -280,13 +288,21 @@ def _rust_terminal_rescue_search(env: Any, config: CombatSearchConfig) -> Search
         allowed_potions=_without_power_potion(config.allowed_potions, env),
     )
     rescue = _rust_search(env, rescue_config)
-    selected = rescue if rescue.terminal_reason == "won" else primary
+    if select_nonterminal_rescue:
+        selected = (
+            rescue
+            if _rust_portfolio_key(rescue) > _rust_portfolio_key(primary)
+            else primary
+        )
+    else:
+        selected = rescue if rescue.terminal_reason == "won" else primary
     diagnostics = dict(selected.diagnostics)
     diagnostics.update(
         {
             "algorithm": config.algorithm,
             "rescue_attempted": True,
             "rescue_selected": selected is rescue,
+            "select_nonterminal_rescue": select_nonterminal_rescue,
             "primary": _rust_rescue_candidate_diagnostics(primary),
             "rescue": _rust_rescue_candidate_diagnostics(rescue),
         }
