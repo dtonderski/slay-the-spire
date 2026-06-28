@@ -83,6 +83,36 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertEqual(result.diagnostics["algorithm"], "greedy")
         self.assertEqual(result.diagnostics["beam_width"], 1)
 
+    def test_terminal_probe_search_returns_action(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=4,
+                objective="tactical_survival",
+                algorithm="terminal_probe",
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["algorithm"], "terminal_probe")
+
+    def test_trace_probe_search_returns_action(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=4,
+                objective="tactical_survival",
+                algorithm="trace_probe",
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["algorithm"], "trace_probe")
+
     def test_scaling_survival_objective_is_supported(self):
         env = omni.OmniCombatEnv.initial_fixture()
 

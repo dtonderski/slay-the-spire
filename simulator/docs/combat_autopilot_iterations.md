@@ -382,3 +382,61 @@ Interpretation:
 - `tactical_greedy_d40` is not "done", but it is now plausibly useful for dataset replay assistance.
 - The remaining blockers are quality on hard boss-like roots and nonterminal full-323 states.
 - More trace data is still needed: `dev-50` has only 17 roots and `val-50` has only 4 held-out roots from the current single trace.
+
+### 9. Trace Probe Candidate
+
+Change:
+
+- Added `terminal_probe`, a meta-search policy that runs tactical, HP-preserving, and scaling greedy probes.
+  - If any probe sees a complete win from the current state, it takes the first winning probe's first action.
+  - Otherwise it falls back to tactical greedy behavior.
+- Added `trace_probe`, which extends `terminal_probe` with one targeted gate:
+  - when there is a single high-HP artifact boss-like enemy, use `scaling_survival` greedy directly
+  - otherwise use `terminal_probe`
+- Added `trace_probe_d40` to `trace_autopilot_candidates()`.
+
+Why:
+
+- Blind `scaling_greedy_d40` was not safe:
+  - `dev-50`: 13 wins, 3 losses, 1 nonterminal, mean HP loss 27.71
+  - held-out `val-50`: 3 wins, 1 loss, mean HP loss 37.75
+- However, scaling fixed some specific long-fight states:
+  - dev step 216 was won by scaling-style play while greedy baselines died
+  - held-out val step 262 was a single 300 HP artifact boss-like state where scaling won and greedy baselines timed out
+- The trace probe keeps the tactical baseline for normal states and only lets scaling take over in states where the diagnostic evidence says it helps.
+
+Rejected diagnostics:
+
+| Candidate | `dev-50` Wins | Losses | Nonterminal | Mean HP Loss | Mean Seconds / Combat | Reason Rejected |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `scaling_greedy_d40` | 13/17 | 3 | 1 | 27.71 | 2.82 | failed held-out val with 1 loss |
+| `tactical_beam_w2_d20` | 13/17 | 3 | 1 | 36.24 | 3.14 | slower and worse HP than greedy/probe |
+| `hp_beam_w2_d20` | 13/17 | 3 | 1 | 37.06 | 3.10 | slower and worse HP than greedy/probe |
+
+Selected-candidate `dev-50` comparison:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `trace_probe_d40` | 17 | 14 | 3 | 0 | 28.82 | 5 | 2.47 |
+| `tactical_greedy_d40` | 17 | 13 | 4 | 0 | 32.47 | 5 | 1.95 |
+
+Held-out `val-50` comparison:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `trace_probe_d40` | 4 | 4 | 0 | 0 | 20.0 | 0 | 2.05 |
+| `tactical_greedy_d40` | 4 | 3 | 0 | 1 | 17.5 | 0 | 2.44 |
+
+`full-323` coverage sanity:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `trace_probe_d40` | 323 | 281 | 12 | 30 | 21.64 | 30 | 1.99 |
+| `tactical_greedy_d40` | 323 | 264 | 19 | 40 | 22.69 | 41 | 1.70 |
+
+Interpretation:
+
+- `trace_probe_d40` is the new best candidate on current evidence.
+- It improves candidate-selection `dev-50`, held-out `val-50`, and coverage `full-323`.
+- The runtime cost is real but still plausible for replay automation.
+- The validation set is still undersized, so this should remain a candidate with documented caveats rather than proof that combat autopilot is solved.
