@@ -88,6 +88,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_terminal_rescue",
         "rust_terminal_rescue_keyed",
         "rust_terminal_win_hp_selector",
+        "rust_terminal_low_hp_rollout_selector",
         "rust_terminal_rollout_selector",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
@@ -124,6 +125,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         return _rust_terminal_portfolio_search(env, config)
     elif config.algorithm == "rust_terminal_win_hp_selector":
         return _rust_terminal_win_hp_selector_search(env, config)
+    elif config.algorithm == "rust_terminal_low_hp_rollout_selector":
+        return _rust_terminal_low_hp_rollout_selector_search(env, config)
     elif config.algorithm == "rust_terminal_rollout_selector":
         return _rust_terminal_rollout_selector_search(env, config)
     elif config.algorithm == "rust_terminal_rescue":
@@ -378,7 +381,11 @@ def _rust_terminal_rollout_selector_search(env: Any, config: CombatSearchConfig)
     rollout_diagnostics = []
     seen_actions: set[str] = set()
 
-    for candidate in candidates:
+    ordered_candidates = [
+        selector_best,
+        *(candidate for candidate in candidates if candidate is not selector_best),
+    ]
+    for candidate in ordered_candidates:
         action = candidate.best_action
         if action is None:
             continue
@@ -441,6 +448,129 @@ def _rust_terminal_rollout_selector_search(env: Any, config: CombatSearchConfig)
             "rollout_selected": best is not selector_best,
             "rollout_max_actions": 8,
             "rollout_candidates": rollout_diagnostics,
+            "selector_best": _rust_rescue_candidate_diagnostics(selector_best),
+        }
+    )
+    if best_variation:
+        return SearchRecommendation(
+            best_action=best_variation[0],
+            principal_variation=tuple(best_variation),
+            visits=nodes,
+            value=best_score,
+            win_probability=_terminal_probability(best_terminal_reason, won=1.0, lost=0.0),
+            expected_hp_delta=None,
+            terminal_rate=1.0 if best_terminal_reason else 0.0,
+            diagnostics=diagnostics,
+            terminal_reason=best_terminal_reason,
+        )
+    return _recommendation_from_rust_selection(selector_best, nodes, diagnostics)
+
+
+_LOW_HP_RECOVERY_THRESHOLD = 8.0
+_LOW_HP_RECOVERY_MAX_ACTIONS = 4
+
+
+def _rust_terminal_low_hp_rollout_selector_search(
+    env: Any,
+    config: CombatSearchConfig,
+) -> SearchRecommendation:
+    candidates = _rust_terminal_selector_candidates(env, config)
+    nodes = sum(recommendation.visits for recommendation in candidates)
+    selector_best = sorted(candidates, key=_rust_portfolio_key, reverse=True)[0]
+    diagnostics = _rust_terminal_selector_diagnostics(
+        config.algorithm,
+        selector_best,
+        candidates,
+    )
+    diagnostics.update(
+        {
+            "recovery_threshold_hp": _LOW_HP_RECOVERY_THRESHOLD,
+            "recovery_max_actions": _LOW_HP_RECOVERY_MAX_ACTIONS,
+        }
+    )
+    if not _should_recover_rust_terminal_candidate(
+        selector_best,
+        hp_threshold=_LOW_HP_RECOVERY_THRESHOLD,
+    ):
+        diagnostics["recovery_attempted"] = False
+        return _recommendation_from_rust_selection(selector_best, nodes, diagnostics)
+
+    rollout_configs = [
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=32,
+            allowed_potions=config.allowed_potions,
+        )
+    ]
+    best = selector_best
+    best_score = float("-inf")
+    best_variation: list[Any] = []
+    best_terminal_reason: str | None = None
+    recovery_diagnostics = []
+    seen_actions: set[str] = set()
+
+    for candidate in candidates:
+        action = candidate.best_action
+        if action is None:
+            continue
+        action_key = action.json()
+        if action_key in seen_actions:
+            continue
+        seen_actions.add(action_key)
+
+        child = env.clone()
+        result = child.step(action)
+        terminal_reason = _result_terminal_reason(result, child)
+        variation = [action]
+        select_nodes = 0
+        if terminal_reason is None:
+            select_variation, select_nodes, terminal_reason = _resolve_select_screens(
+                child,
+                _evaluate_tactical_survival,
+                config,
+                config.max_depth,
+            )
+            variation.extend(select_variation)
+        nodes += select_nodes
+
+        if terminal_reason:
+            rollout_score = _hp_preserving_outcome_score(child, terminal_reason)
+            rollout_nodes = 1
+        else:
+            rollout_score, rollout, rollout_nodes, terminal_reason = _best_rollout(
+                child,
+                rollout_configs,
+                max_actions=_LOW_HP_RECOVERY_MAX_ACTIONS,
+                outcome_score=_hp_preserving_outcome_score,
+            )
+            variation.extend(rollout)
+        nodes += rollout_nodes
+        rollout_score -= _variation_penalty(variation)
+        recovery_diagnostics.append(
+            {
+                "first_action": action.json(),
+                "terminal_reason": terminal_reason,
+                "score": rollout_score,
+                "nodes": rollout_nodes + select_nodes,
+                "variation_length": len(variation),
+            }
+        )
+        if _is_better(variation, rollout_score, best_variation, best_score):
+            best = candidate
+            best_score = rollout_score
+            best_variation = variation
+            best_terminal_reason = terminal_reason
+
+    diagnostics = _rust_terminal_selector_diagnostics(config.algorithm, best, candidates)
+    diagnostics.update(
+        {
+            "recovery_attempted": True,
+            "recovery_selected": best is not selector_best,
+            "recovery_threshold_hp": _LOW_HP_RECOVERY_THRESHOLD,
+            "recovery_max_actions": _LOW_HP_RECOVERY_MAX_ACTIONS,
+            "recovery_candidates": recovery_diagnostics,
             "selector_best": _rust_rescue_candidate_diagnostics(selector_best),
         }
     )
@@ -524,6 +654,16 @@ def _should_rollout_rust_terminal_candidate(
     if recommendation.terminal_reason != "won":
         return True
     return float(recommendation.diagnostics.get("rust_final_hp") or 0.0) < 20.0
+
+
+def _should_recover_rust_terminal_candidate(
+    recommendation: SearchRecommendation,
+    *,
+    hp_threshold: float,
+) -> bool:
+    if recommendation.terminal_reason != "won":
+        return True
+    return float(recommendation.diagnostics.get("rust_final_hp") or 0.0) <= hp_threshold
 
 
 def _rust_terminal_rescue_search(

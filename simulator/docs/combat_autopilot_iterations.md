@@ -1334,3 +1334,70 @@ Interpretation:
 - The selected policy is now usable as the default combat autopilot in replay/self-play and UI search.
 - The combat-start replay gate is clean: every combat-start root from `manual01-replayed` wins with no nonterminal failures.
 - Full-323 still has the known four mid-combat Giant Head recovery losses from section 26; those remain a separate horizon/recovery milestone, not a blocker for combat-start replay automation.
+
+### 29. Low-HP Recovery Rollout Candidate
+
+Change:
+
+- Added `rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40`.
+- The candidate starts from the same two Rust beams as `rust_terminal_win_hp_selector_w32_w128_no_power_d40`.
+- It only attempts a continuation rollout when the selected line is lost, nonterminal, or reports a terminal win at 8 HP or lower.
+- The continuation rollout is intentionally narrow: width-32 Rust beam, capped at 4 additional actions.
+- Failure fixtures now include a per-decision `decision_trace` with selected action JSON, selector candidates, Rust final HP/monster HP, nodes, timing, and fallback diagnostics.
+
+Why:
+
+- The known full-set failures are one mid-combat recovery cluster, not normal combat-start failures.
+- Previous broad rollout improved HP slightly but was too expensive to promote. This tries the same idea with a much narrower trigger and cheaper continuation.
+- Richer failure diagnostics let future experiments distinguish "the first action was bad" from "the selected line looked survivable but later collapsed."
+
+Validation:
+
+```powershell
+uv run python -m unittest python.tests.test_search_smoke python.tests.test_search_lab python.tests.test_self_play -v
+
+uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --eval-set dev-50 --candidate rust_terminal_win_hp_selector_w32_w128_no_power_d40 --candidate rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40 --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" --output target/trace-guided/eval-dev-50-low-hp-rollout.json --failure-output target/trace-guided/eval-dev-50-low-hp-rollout-failures.json
+
+uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --eval-set val-50 --candidate rust_terminal_win_hp_selector_w32_w128_no_power_d40 --candidate rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40 --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" --output target/trace-guided/eval-val-50-low-hp-rollout.json --failure-output target/trace-guided/eval-val-50-low-hp-rollout-failures.json
+
+uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --eval-set full-323 --candidate rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40 --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" --output target/trace-guided/eval-full-323-low-hp-rollout.json --failure-output target/trace-guided/eval-full-323-low-hp-rollout-failures.json
+```
+
+Focused tests: 40 passed.
+
+Dev-50:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 17.18 | 12.0 | 56.8 | 11 | 0.01146 | 0.164 | 84605.2 | 243790.0 |
+| `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 17.24 | 12.0 | 57.6 | 12 | 0.01093 | 0.146 | 64957.2 | 177492.0 |
+
+Held-out `val-50`:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40` | 4 | 4 | 0 | 0 | 14.25 | 17.0 | 20.0 | 1 | 0.01066 | 0.172 | 62545.8 | 137309.1 |
+| `rust_terminal_win_hp_selector_w32_w128_no_power_d40` | 4 | 4 | 0 | 0 | 14.25 | 17.0 | 20.0 | 1 | 0.01369 | 0.208 | 62545.8 | 137309.1 |
+
+Full coverage sanity:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Win Rate | Mean HP Loss | Median HP Loss | P95 HP Loss | Mean Final HP | Mean Monster HP | Potion Uses | Mean Seconds / Decision | P50 Seconds / Decision | P95 Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full-323` | `rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40` | 323 | 319 | 4 | 0 | 0.988 | 13.66 | 8.0 | 55.8 | 53.42 | 0.78 | 149 | 0.00865 | 0.00741 | 0.04585 | 0.128 | 51733.8 | 190892.4 |
+
+Remaining full-set failures for the low-HP rollout candidate:
+
+| Trace Step | State ID | Split | Result | Final HP | Monster HP | Actions | Potions Used |
+| ---: | --- | --- | --- | ---: | ---: | ---: | --- |
+| 286 | `1fa07cf0a648af57` | dev | lost | -6 | 55 | 19 | Power |
+| 287 | `ac65a0d4bd9a5f9a` | dev | lost | -6 | 49 | 8 | none |
+| 288 | `ae92813c259ea269` | eval | lost | -8 | 61 | 6 | none |
+| 289 | `7997bc68c3ac7354` | eval | lost | -3 | 86 | 12 | Power |
+
+Interpretation:
+
+- The narrow rollout is a valid experimental candidate, but it does not solve the recovery cluster.
+- It slightly improves `dev-50` HP/potion metrics and slightly improves full-set p95 HP loss/potion use, but costs more nodes and full-set runtime than the selected default.
+- `val-50` ties the selected default on all outcome/HP/potion metrics.
+- Do not promote this candidate. Keep it available for diagnostics and future targeted recovery experiments.
+- The next useful direction is likely not another shallow rollout wrapper. The failure fixtures suggest either a truly doomed reconstructed state, trace/replay drift around the same fight, or a need for a bounded oracle/branch-and-bound solver over this exact cluster.

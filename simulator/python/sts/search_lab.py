@@ -50,6 +50,7 @@ class EpisodeResult:
     p50_seconds_per_decision: float
     p95_seconds_per_decision: float
     decision_seconds: tuple[float, ...]
+    decision_trace: tuple[dict[str, Any], ...]
     terminal_reason: str | None
 
 
@@ -222,6 +223,14 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             ),
         ),
         SearchCandidate(
+            "rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_low_hp_rollout_selector",
+            ),
+        ),
+        SearchCandidate(
             "rust_terminal_rollout_selector_w32_w128_no_power_d40",
             CombatSearchConfig(
                 max_depth=40,
@@ -363,17 +372,37 @@ def evaluate_candidate(
     search_nodes = 0
     potion_use_names: list[str] = []
     decision_seconds: list[float] = []
+    decision_trace: list[dict[str, Any]] = []
     terminal = _terminal_reason(env)
 
     while terminal is None and actions_taken < max_actions:
         started_at = time.perf_counter()
         recommendation = search_combat(env, candidate.config)
-        decision_seconds.append(time.perf_counter() - started_at)
+        elapsed = time.perf_counter() - started_at
+        decision_seconds.append(elapsed)
         search_nodes += recommendation.visits
         if recommendation.best_action is None:
+            decision_trace.append(
+                _decision_trace_row(
+                    actions_taken,
+                    recommendation,
+                    elapsed,
+                    potion_name=None,
+                )
+            )
             break
+        potion_name = None
         if getattr(recommendation.best_action, "kind", lambda: "")() == "use_potion":
-            potion_use_names.append(_potion_name_for_action(env, recommendation.best_action))
+            potion_name = _potion_name_for_action(env, recommendation.best_action)
+            potion_use_names.append(potion_name)
+        decision_trace.append(
+            _decision_trace_row(
+                actions_taken,
+                recommendation,
+                elapsed,
+                potion_name=potion_name,
+            )
+        )
         env.step(recommendation.best_action)
         actions_taken += 1
         terminal = _terminal_reason(env)
@@ -401,8 +430,42 @@ def evaluate_candidate(
         p50_seconds_per_decision=_percentile(decision_seconds, 50),
         p95_seconds_per_decision=_percentile(decision_seconds, 95),
         decision_seconds=tuple(decision_seconds),
+        decision_trace=tuple(decision_trace),
         terminal_reason=terminal,
     )
+
+
+def _decision_trace_row(
+    index: int,
+    recommendation: SearchRecommendation,
+    seconds: float,
+    *,
+    potion_name: str | None,
+) -> dict[str, Any]:
+    diagnostics = recommendation.diagnostics
+    return {
+        "index": index,
+        "best_action": (
+            recommendation.best_action.json()
+            if recommendation.best_action is not None
+            else None
+        ),
+        "potion_name": potion_name,
+        "terminal_reason": recommendation.terminal_reason,
+        "value": recommendation.value,
+        "nodes": recommendation.visits,
+        "seconds": seconds,
+        "algorithm": diagnostics.get("algorithm"),
+        "objective": diagnostics.get("objective"),
+        "beam_width": diagnostics.get("beam_width"),
+        "rust_final_hp": diagnostics.get("rust_final_hp"),
+        "rust_monster_hp": diagnostics.get("rust_monster_hp"),
+        "rust_actions": diagnostics.get("rust_actions"),
+        "selector_candidates": diagnostics.get("selector_candidates"),
+        "portfolio_candidates": diagnostics.get("portfolio_candidates"),
+        "fallback_algorithm": diagnostics.get("fallback_algorithm"),
+        "rust_search_unavailable": diagnostics.get("rust_search_unavailable"),
+    }
 
 
 def run_benchmark(

@@ -302,6 +302,26 @@ class CombatSearchSmokeTests(unittest.TestCase):
         )
         self.assertEqual(len(selector.diagnostics["selector_candidates"]), 2)
 
+        low_hp_recovery_selector = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_low_hp_rollout_selector",
+            ),
+        )
+
+        self.assertIsNotNone(low_hp_recovery_selector.best_action)
+        self.assertEqual(
+            low_hp_recovery_selector.diagnostics["algorithm"],
+            "rust_terminal_low_hp_rollout_selector",
+        )
+        self.assertEqual(
+            len(low_hp_recovery_selector.diagnostics["selector_candidates"]),
+            2,
+        )
+        self.assertIn("recovery_attempted", low_hp_recovery_selector.diagnostics)
+
         rollout_selector = search_combat(
             env,
             CombatSearchConfig(
