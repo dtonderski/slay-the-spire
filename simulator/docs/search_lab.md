@@ -74,8 +74,6 @@ Trace replay evaluation now uses a smaller practical candidate set by default:
 
 - `tactical_greedy_d40`
 - `hp_greedy_d40`
-- `hp_beam_w4_d30`
-- `beam_tactical_w4_d20`
 
 These are intentionally separate from the historical synthetic benchmark
 defaults. Expensive candidates such as `portfolio_rollout_d40` are still useful

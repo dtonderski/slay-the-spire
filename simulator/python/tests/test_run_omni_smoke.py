@@ -17,6 +17,27 @@ class OmniRunSmokeTests(unittest.TestCase):
         self.assertEqual(result.transition.previous_hash, before)
         self.assertEqual(child.phase(), "combat")
 
+    def test_no_rng_combat_draws_from_discard_on_next_turn(self):
+        import json
+
+        state = json.loads(sts.OmniRunEnv.combat_fixture().state_json())
+        state["combat"]["piles"]["hand"] = []
+        state["combat"]["piles"]["draw_pile"] = []
+        state["combat"]["piles"]["discard_pile"] = [
+            {"id": 900, "content_id": 1, "temp_cost": None, "combat_only": False}
+        ]
+        state["combat"]["shuffle_rng"] = None
+        state["combat"]["card_random_rng"] = None
+        env = sts.OmniRunEnv.from_state_json(json.dumps(state))
+
+        end_turn = next(action for action in env.exact_legal_actions() if action.kind() == "end_turn")
+        env.step(end_turn)
+        combat = json.loads(env.state_json())["combat"]
+
+        self.assertEqual([card["id"] for card in combat["piles"]["hand"]], [900])
+        self.assertEqual(combat["piles"]["draw_pile"], [])
+        self.assertEqual(combat["piles"]["discard_pile"], [])
+
     def test_map_fixture_round_trips_snapshot_and_exposes_map_actions(self):
         env = sts.OmniRunEnv.map_fixture()
         restored = sts.OmniRunEnv.from_snapshot_json(env.snapshot_json())

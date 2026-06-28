@@ -305,3 +305,78 @@ Interpretation:
 - The current candidate family finishes fights instead of stalling, but it loses too many hard roots.
 - The next algorithm work should focus on tactical survival quality, not merely deeper beam search.
 - Potion usage needs a smarter gate, probably "only use potion if the searched no-potion baseline cannot survive or the potion line wins immediately/with clear HP value."
+
+### 8. No-RNG Reshuffle Fallback and Greedy Candidate Selection
+
+Current working-tree changes after commit `f461292`:
+
+- Added a deterministic no-RNG reshuffle fallback for anchored combat states.
+  - Before: trace-derived roots with no `shuffle_rng` drew until `draw_pile` was empty, then stopped drawing forever.
+  - After: during end-turn draw only the discard cards that already existed before the hand was discarded may cycle into draw.
+  - This avoids the old fixture-breaking behavior where the just-ended hand could be immediately redrawn in no-RNG mode.
+- Removed the strict replay-verification gate from trace root extraction.
+  - Root snapshots remain useful even when old recorded after-hashes no longer match improved simulator mechanics.
+- Added `scaling_survival` as an experimental heuristic that values long-fight setup such as strength, ritual, metallicize, and debuffs.
+- Improved Elixir/exhaust select handling:
+  - exhaust-select now chooses curses/statuses before confirming
+  - selected indices are ignored so the shortcut cannot loop on the same selected card
+- Trimmed default trace autopilot candidates to the two practical greedy candidates:
+  - `tactical_greedy_d40`
+  - `hp_greedy_d40`
+
+Why:
+
+- The old no-RNG behavior was a simulator coverage bug masquerading as bad search. Long fights became impossible because the deck stopped cycling.
+- The heavy beam/scaling/default candidate set became too slow once fights played out correctly.
+- Elixir had been effectively wasted because the select shortcut confirmed immediately.
+
+Diagnostics:
+
+- Forced early Cultist Potion on the remaining `dev-fast-10` boss-like loss did not win.
+- Forced early Elixir exhausting initial Injury/Regret also did not win.
+- `scaling_survival` played Demon Form on that root but performed worse, so it is kept as an explicit experiment rather than a default trace candidate.
+
+`dev-fast-10` after scoped no-RNG reshuffle fallback:
+
+| Candidate | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `tactical_greedy_d40` | 9/10 | 1 | 0 | 28.2 | 2 | 1.98 |
+| `hp_greedy_d40` | 9/10 | 1 | 0 | 30.1 | 2 | 2.01 |
+| `beam_tactical_w4_d20` | 9/10 | 1 | 0 | 58.2 | 2 | 5.58 |
+| `hp_beam_w4_d30` | 9/10 | 1 | 0 | 58.2 | 2 | 6.96 |
+
+`dev-50` selected-candidate result:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `hp_greedy_d40` | 17 | 13 | 4 | 0 | 32.47 | 5 | 1.94 |
+| `tactical_greedy_d40` | 17 | 13 | 4 | 0 | 32.47 | 5 | 2.01 |
+
+Held-out `val-50` result:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `tactical_greedy_d40` | 4 | 3 | 0 | 1 | 17.5 | 0 | 2.54 |
+| `hp_greedy_d40` | 4 | 3 | 0 | 1 | 22.25 | 0 | 2.69 |
+
+Selected policy:
+
+- `tactical_greedy_d40`, because it tied `hp_greedy_d40` on dev-50 and had better HP/runtime on held-out val-50.
+
+Last completed `full-323` coverage sanity for selected policy:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `tactical_greedy_d40` | 323 | 264 | 19 | 40 | 22.69 | 41 | 1.70 |
+
+Note:
+
+- The `dev-fast-10`, `dev-50`, and `val-50` reports above were refreshed after the scoped no-RNG fallback.
+- A selected-policy `full-323` refresh after the scoped fallback was stopped after running longer than the previous full pass without progress output. The saved full report above is therefore the last completed full-323 sanity report and should be refreshed with progress-visible batching before treating it as final evidence.
+
+Interpretation:
+
+- The no-RNG reshuffle fallback was the largest improvement so far.
+- `tactical_greedy_d40` is not "done", but it is now plausibly useful for dataset replay assistance.
+- The remaining blockers are quality on hard boss-like roots and nonterminal full-323 states.
+- More trace data is still needed: `dev-50` has only 17 roots and `val-50` has only 4 held-out roots from the current single trace.

@@ -32,6 +32,11 @@ const HAND_SIZE: usize = 5;
 pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
     let started_with_living_monster = state.monsters.iter().any(|monster| monster.alive);
+    let no_rng_discard_len_before_end_turn = if state.shuffle_rng.is_none() {
+        Some(state.piles.discard_pile.len())
+    } else {
+        None
+    };
 
     apply_end_of_player_turn_powers(&mut next);
     resolve_end_of_turn_hand(&mut next);
@@ -53,7 +58,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
         return next;
     }
 
-    start_player_turn(&mut next);
+    start_player_turn_with_no_rng_discard_limit(&mut next, no_rng_discard_len_before_end_turn);
     next
 }
 
@@ -66,6 +71,13 @@ fn clear_living_monster_block(state: &mut CombatState) {
 }
 
 pub fn start_player_turn(state: &mut CombatState) {
+    start_player_turn_with_no_rng_discard_limit(state, None);
+}
+
+fn start_player_turn_with_no_rng_discard_limit(
+    state: &mut CombatState,
+    no_rng_discard_len_before_end_turn: Option<usize>,
+) {
     crate::relic::reset_turn_relic_counters(state);
     reset_turn_only_temp_costs(state);
     if !crate::relic::preserves_energy_between_turns(&state.relics) {
@@ -90,7 +102,7 @@ pub fn start_player_turn(state: &mut CombatState) {
         return;
     }
     apply_start_of_turn_magnetism(state);
-    draw_next_hand_without_shuffle(state);
+    draw_next_hand_without_shuffle(state, no_rng_discard_len_before_end_turn);
     apply_start_of_turn_mayhem(state);
     if state.player.hp <= 0 {
         state.phase = CombatPhase::Lost;
@@ -392,12 +404,15 @@ fn apply_attack_heal_self_after_player_damage(
     }
 }
 
-fn draw_next_hand_without_shuffle(state: &mut CombatState) {
+fn draw_next_hand_without_shuffle(
+    state: &mut CombatState,
+    no_rng_discard_len_before_end_turn: Option<usize>,
+) {
     if let Some(mut rng) = state.shuffle_rng.take() {
         draw_next_hand_with_sts_rng(state, &mut rng);
         state.shuffle_rng = Some(rng);
     } else {
-        draw_next_hand_without_rng(state);
+        draw_next_hand_without_rng(state, no_rng_discard_len_before_end_turn);
     }
 }
 
@@ -423,8 +438,26 @@ fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::St
     }
 }
 
-fn draw_next_hand_without_rng(state: &mut CombatState) {
+fn draw_next_hand_without_rng(
+    state: &mut CombatState,
+    no_rng_discard_len_before_end_turn: Option<usize>,
+) {
+    let mut no_rng_discard_remaining = no_rng_discard_len_before_end_turn;
     for _ in 0..target_hand_size(state) {
+        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
+            if let Some(limit) = no_rng_discard_remaining {
+                if limit == 0 {
+                    break;
+                }
+                let available = limit.min(state.piles.discard_pile.len());
+                state.piles.draw_pile = state.piles.discard_pile.drain(..available).collect();
+                no_rng_discard_remaining = Some(limit - available);
+                crate::relic::apply_shuffle_relics(state);
+            } else {
+                break;
+            }
+        }
+
         if state.piles.draw_pile.is_empty() {
             break;
         }
