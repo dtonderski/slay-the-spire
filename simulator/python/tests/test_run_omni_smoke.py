@@ -61,6 +61,21 @@ class OmniRunSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(recommendation.actions, 0)
         self.assertIsInstance(recommendation.value, float)
 
+    def test_combat_card_reward_modal_exposes_choices(self):
+        import json
+
+        state = json.loads(sts.OmniRunEnv.combat_fixture().state_json())
+        state["combat"]["potion_card_reward"] = [
+            {"id": 900, "content_id": 147, "temp_cost": None, "combat_only": True},
+            {"id": 901, "content_id": 129, "temp_cost": None, "combat_only": True},
+            {"id": 902, "content_id": 145, "temp_cost": None, "combat_only": True},
+        ]
+        env = sts.OmniRunEnv.from_state_json(json.dumps(state))
+
+        actions = env.exact_legal_actions()
+
+        self.assertEqual([action.kind() for action in actions], ["choose_combat_card_reward"] * 3)
+
     def test_seed_start_uses_placeholder_generated_map(self):
         first = sts.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
         second = sts.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)

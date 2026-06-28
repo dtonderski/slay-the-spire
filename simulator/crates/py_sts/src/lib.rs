@@ -919,24 +919,19 @@ fn rust_run_score(
     let alive_count = alive_monsters.len() as f64;
     let state_score = match objective {
         "survive_then_damage" => {
-            player_hp * 10.0 + player_block * 1.5
-                + player_energy * 0.25
+            player_hp * 10.0 + player_block * 1.5 + player_energy * 0.25
                 - monster_hp * 3.0
                 - monster_block * 0.5
                 - alive_count * 25.0
         }
         "tactical_survival" => {
-            player_hp * 25.0 - unblocked * 45.0
-                + useful_block * 7.5
-                + player_energy * 0.5
+            player_hp * 25.0 - unblocked * 45.0 + useful_block * 7.5 + player_energy * 0.5
                 - monster_hp * 4.0
                 - monster_block * 0.75
                 - alive_count * 60.0
         }
         "terminal_tactical" => {
-            player_hp * 22.0 - unblocked * 42.0
-                + useful_block * 6.0
-                + player_energy * 0.5
+            player_hp * 22.0 - unblocked * 42.0 + useful_block * 6.0 + player_energy * 0.5
                 - monster_hp * 12.0
                 - monster_block
                 - alive_count * 250.0
@@ -948,9 +943,7 @@ fn rust_run_score(
                 - alive_count * 100.0
         }
         "hp_preserving_lethal" => {
-            player_hp * 120.0 + useful_block * 20.0
-                - unblocked * 160.0
-                + player_energy
+            player_hp * 120.0 + useful_block * 20.0 - unblocked * 160.0 + player_energy
                 - monster_hp * 6.0
                 - monster_block * 0.5
                 - alive_count * 300.0
@@ -1006,6 +999,18 @@ fn intent_damage(intent: MonsterIntent) -> i32 {
 }
 
 fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) -> Vec<RunAction> {
+    if let Some(choices) = combat
+        .potion_card_reward
+        .as_ref()
+        .or(combat.toolbox_card_reward.as_ref())
+        .or(combat.discovery_card_reward.as_ref())
+    {
+        return (0..choices.len())
+            .map(|index| RunAction::ChooseCombatCardReward { index })
+            .filter(|action| apply_run_action(state, *action).is_ok())
+            .collect();
+    }
+
     let mut candidates = Vec::new();
     if combat.hand_select.is_some() {
         candidates.extend(
