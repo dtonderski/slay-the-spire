@@ -188,6 +188,8 @@ def _evaluator(objective: str) -> Callable[[dict[str, Any]], float]:
         return _evaluate_basic
     if objective == "tactical_survival":
         return _evaluate_tactical_survival
+    if objective == "terminal_tactical":
+        return _evaluate_tactical_survival
     if objective == "scaling_survival":
         return _evaluate_scaling_survival
     if objective == "hp_preserving_lethal":

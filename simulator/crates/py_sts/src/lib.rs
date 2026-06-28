@@ -927,6 +927,14 @@ fn rust_run_score(
                 - monster_block * 0.75
                 - alive_count * 60.0
         }
+        "terminal_tactical" => {
+            player_hp * 22.0 - unblocked * 42.0
+                + useful_block * 6.0
+                + player_energy * 0.5
+                - monster_hp * 12.0
+                - monster_block
+                - alive_count * 250.0
+        }
         "aggressive_lethal" => {
             player_hp * 8.0 + useful_block * 2.0
                 - unblocked * 10.0
@@ -947,10 +955,15 @@ fn rust_run_score(
             )))
         }
     };
+    let terminal_adjustment = if objective == "terminal_tactical" && terminal_reason.is_none() {
+        -10_000.0
+    } else {
+        0.0
+    };
     Ok(match terminal_reason {
         Some("won") => 1_000_000.0 + state_score,
         Some("lost") => -1_000_000.0 + state_score,
-        _ => state_score,
+        _ => state_score + terminal_adjustment,
     })
 }
 

@@ -777,3 +777,55 @@ Interpretation:
 - Do not promote `rust_beam_tactical_w16_d40` as the selected policy yet: on the candidate-selection set it wins fewer roots than the current best and leaves 4 nonterminals.
 - Keep the Rust beam path. It is fast enough to iterate on and materially improves HP preservation, but it needs stronger terminal pressure, better long-horizon damage planning, and probably a guarded rescue composition with the current trace probe.
 - The next Rust-side iteration should use `dev-50` only and try terminal-pressure variants before any held-out `val-50` comparison.
+
+### 19. Terminal-Pressure Rust Beam
+
+Change:
+
+- Added a Rust-side `terminal_tactical` objective for beam search.
+- The objective keeps the tactical survival terms, increases pressure against monster HP and live monsters, and applies a nonterminal penalty when the rollout reaches `max_actions` without ending combat.
+- Added trace candidates:
+  - `rust_beam_terminal_w16_d40`
+  - `rust_beam_terminal_w32_d40`
+
+Why:
+
+- `rust_beam_tactical_w16_d40` preserved HP well, but often drifted into nonterminal rollouts with substantial monster HP remaining.
+- The next hypothesis was that the beam needed stronger terminal pressure, not merely more width.
+
+Results:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-fast-10` | `trace_probe_aggressive_rescue_d40` | 10 | 9 | 1 | 0 | 29.3 | 19.0 | 70.45 | 5.6 | 2 | 0.260 | 2507.9 |
+| `dev-fast-10` | `rust_beam_tactical_w16_d40` | 10 | 8 | 0 | 2 | 18.3 | 3.5 | 58.15 | 5.6 | 8 | 0.016 | 10218.2 |
+| `dev-fast-10` | `rust_beam_terminal_w16_d40` | 10 | 9 | 0 | 1 | 12.7 | 5.0 | 42.5 | 5.6 | 7 | 0.010 | 6313.2 |
+| `dev-fast-10` | `rust_beam_terminal_w32_d40` | 10 | 8 | 0 | 2 | 9.5 | 2.0 | 39.5 | 5.6 | 3 | 0.023 | 13657.3 |
+| `dev-50` | `trace_probe_aggressive_rescue_d40` | 17 | 14 | 2 | 1 | 26.88 | 23.0 | 63.0 | 6.35 | 4 | 0.395 | 2996.0 |
+| `dev-50` | `rust_beam_tactical_w16_d40` | 17 | 13 | 0 | 4 | 11.41 | 1.0 | 53.6 | 6.35 | 10 | 0.023 | 10383.82 |
+| `dev-50` | `rust_beam_terminal_w16_d40` | 17 | 15 | 0 | 2 | 15.94 | 7.0 | 59.6 | 6.35 | 11 | 0.015 | 6831.0 |
+| `dev-50` | `rust_beam_terminal_w32_d40` | 17 | 14 | 0 | 3 | 10.35 | 3.0 | 39.4 | 6.35 | 7 | 0.027 | 12856.65 |
+
+`dev-50` failure fixtures:
+
+| Candidate | Trace Step | Result | Final HP | Monster HP | Potions |
+| --- | ---: | --- | ---: | ---: | --- |
+| `trace_probe_aggressive_rescue_d40` | 91 | lost | 0 | 62 | Cultist, Elixir |
+| `trace_probe_aggressive_rescue_d40` | 190 | lost | -13 | 24 | DistilledChaos, Elixir |
+| `trace_probe_aggressive_rescue_d40` | 216 | nonterminal | 48 | 10 | none |
+| `rust_beam_tactical_w16_d40` | 34 | nonterminal | 29 | 28 | Elixir, Weak |
+| `rust_beam_tactical_w16_d40` | 91 | nonterminal | 60 | 217 | none |
+| `rust_beam_tactical_w16_d40` | 158 | nonterminal | 85 | 131 | none |
+| `rust_beam_tactical_w16_d40` | 190 | nonterminal | 28 | 78 | DistilledChaos |
+| `rust_beam_terminal_w16_d40` | 91 | nonterminal | 60 | 217 | none |
+| `rust_beam_terminal_w16_d40` | 190 | nonterminal | 18 | 39 | DistilledChaos, Elixir |
+| `rust_beam_terminal_w32_d40` | 34 | nonterminal | 80 | 89 | none |
+| `rust_beam_terminal_w32_d40` | 69 | nonterminal | 73 | 90 | none |
+| `rust_beam_terminal_w32_d40` | 158 | nonterminal | 85 | 131 | none |
+
+Interpretation:
+
+- `rust_beam_terminal_w16_d40` is the best current dev-50 candidate by wins: 15/17, zero losses, two nonterminals.
+- It is not ready for held-out `val-50` promotion yet because the two remaining nonterminals are important hard roots, including Hexaghost at step 91 and Chosen+Cultist at step 190.
+- Width 32 reduces HP loss and potion use, but wins fewer roots on dev-50 because it leaves more combats nonterminal. More width alone is not the next lever.
+- The next iteration should target the remaining terminal failures directly: either compose terminal beam with a late rescue policy, add a lethal-finisher objective when monster HP is low, or extend Rust beam with rollout/portfolio selection instead of a single static objective.
