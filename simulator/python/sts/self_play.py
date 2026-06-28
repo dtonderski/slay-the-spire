@@ -1608,7 +1608,7 @@ def _candidate_with_allowed_potions(
     candidate: SearchCandidate,
     allowed_potions: tuple[str, ...] | None,
 ) -> SearchCandidate:
-    if allowed_potions is None:
+    if allowed_potions is None or candidate.config.allowed_potions is not None:
         return candidate
     return SearchCandidate(
         candidate.name,

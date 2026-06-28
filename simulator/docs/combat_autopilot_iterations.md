@@ -440,3 +440,44 @@ Interpretation:
 - It improves candidate-selection `dev-50`, held-out `val-50`, and coverage `full-323`.
 - The runtime cost is real but still plausible for replay automation.
 - The validation set is still undersized, so this should remain a candidate with documented caveats rather than proof that combat autopilot is solved.
+
+### 10. No-Potion Trace Probe Candidate
+
+Change:
+
+- Added `trace_probe_no_potions_d40` as a first-class trace autopilot candidate.
+- Updated trace eval candidate handling so explicit per-candidate potion constraints are not overwritten by a global `--allowed-potions` list.
+
+Why:
+
+- Several remaining dev failures spent potions and still died.
+- A no-potion diagnostic showed almost identical combat quality on combat-start dev/val, much lower runtime, and zero potion waste.
+
+No-potion `trace_probe` result:
+
+| Eval Set | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Potion Uses | Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-fast-10` | 10 | 9 | 1 | 0 | 28.4 | 0 | 0.88 |
+| `dev-50` | 17 | 14 | 3 | 0 | 28.94 | 0 | 1.44 |
+| `val-50` | 4 | 4 | 0 | 0 | 20.0 | 0 | 1.24 |
+| `full-323` | 323 | 280 | 23 | 20 | 21.94 | 0 | 1.16 |
+
+Comparison against potion-allowed `trace_probe_d40`:
+
+| Candidate | `dev-50` Wins | `val-50` Wins | `full-323` Wins | Full Losses | Full Nonterminal | Full Potion Uses | Full Mean Seconds / Combat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `trace_probe_d40` | 14/17 | 4/4 | 281/323 | 12 | 30 | 30 | 1.99 |
+| `trace_probe_no_potions_d40` | 14/17 | 4/4 | 280/323 | 23 | 20 | 0 | 1.16 |
+
+Rejected diagnostic:
+
+- Book-of-Stabbing-specific `aggressive_beam_w2_d20` looked good on the dev combat-start Book root, but it regressed the broader Book subset:
+  - `trace_probe_d40` on 21 Book roots: 16 wins, 5 losses, mean HP loss 55.19, 5 potion uses
+  - `aggressive_beam_w2_d20` on 21 Book roots: 15 wins, 6 losses, mean HP loss 60.62, 6 potion uses
+- Do not add a Book-wide beam gate without a narrower, better-validated condition.
+
+Interpretation:
+
+- `trace_probe_no_potions_d40` is not the selected strongest full-323 candidate because it loses one extra full root and has more full losses.
+- It is still a useful replay/collection mode: same combat-start dev/val wins, zero potion consumption, and materially lower runtime.
+- The next potion-aware policy should probably be a conditional two-pass policy: try no-potion first, then allow potions only when the no-potion rollout cannot win or leaves a clearly worse terminal result.
