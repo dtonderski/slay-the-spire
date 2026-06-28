@@ -692,3 +692,46 @@ Interpretation:
 - The collected trace wins from these roots, so the simulator state is not obviously unwinnable.
 - The first turn is not the obvious failure; the current policies need better long-horizon planning through later turns.
 - The next meaningful quality iteration should move search closer to Rust or add a bounded Rust-side rollout primitive exposed to Python. More broad Python beam/portfolio attempts are likely to be too slow unless the candidate set and clone/step loop are drastically reduced.
+
+### 17. First Rust-Side Greedy Rollout Primitive
+
+Change:
+
+- Added `OmniRunEnv.rust_greedy_combat_search(max_actions, objective, allowed_potions)` in the PyO3 crate.
+- Added a Python-visible `RustSearchRecommendation` result with:
+  - `best_action`
+  - `value`
+  - `actions`
+  - `nodes`
+  - `terminal_reason`
+  - `final_hp`
+  - `monster_hp`
+- Exposed the result class through `sts.omni`.
+
+Why:
+
+- Broad Python beam/portfolio probes are too slow because every candidate repeatedly crosses the Python/Rust boundary, clones environments, serializes actions, and calls back into Python scoring.
+- A Rust-side primitive proves the next architecture: keep rollout state, action enumeration, stepping, and simple scoring inside Rust, then expose only the recommendation summary to Python.
+
+Verification:
+
+- `cargo check -p py_sts`
+- `uv run maturin develop --release`
+- `uv run python -m unittest python.tests.test_run_omni_smoke -v`
+
+Hard-root benchmark:
+
+| Root | Objective | Terminal | Final HP | Monster HP | Actions | Nodes |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| step 91 Hexaghost | `tactical_survival` | nonterminal | 60 | 217 | 40 | 127 |
+| step 91 Hexaghost | `aggressive_lethal` | nonterminal | 60 | 217 | 40 | 127 |
+| step 91 Hexaghost | `hp_preserving_lethal` | nonterminal | 60 | 217 | 40 | 127 |
+| step 190 Chosen+Cultist | `tactical_survival` | nonterminal | 28 | 78 | 40 | 134 |
+| step 190 Chosen+Cultist | `aggressive_lethal` | nonterminal | 28 | 78 | 40 | 134 |
+| step 190 Chosen+Cultist | `hp_preserving_lethal` | nonterminal | 28 | 78 | 40 | 134 |
+
+Interpretation:
+
+- This primitive is fast enough to be useful as a building block, but it is not strong enough to promote as an autopilot candidate.
+- The first version is a one-step greedy rollout with simple Rust scoring. It does not yet do candidate-generation plus rollout, beam retention, terminal probing, or strong select-screen strategy.
+- The next Rust-side search iteration should add a bounded beam or portfolio over this Rust rollout core, then compare it on `dev-fast-10` and `dev-50` before touching held-out `val-50`.

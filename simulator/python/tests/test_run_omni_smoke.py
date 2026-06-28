@@ -46,6 +46,21 @@ class OmniRunSmokeTests(unittest.TestCase):
         self.assertEqual(env.phase(), "idle")
         self.assertTrue(any(action.family() == "map" for action in env.exact_legal_actions()))
 
+    def test_rust_greedy_combat_search_returns_action(self):
+        env = sts.OmniRunEnv.combat_fixture()
+
+        recommendation = env.rust_greedy_combat_search(
+            12,
+            "tactical_survival",
+            [],
+        )
+
+        self.assertIsNotNone(recommendation.best_action)
+        self.assertIsInstance(recommendation, sts.RustSearchRecommendation)
+        self.assertGreater(recommendation.nodes, 0)
+        self.assertGreaterEqual(recommendation.actions, 0)
+        self.assertIsInstance(recommendation.value, float)
+
     def test_seed_start_uses_placeholder_generated_map(self):
         first = sts.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
         second = sts.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)

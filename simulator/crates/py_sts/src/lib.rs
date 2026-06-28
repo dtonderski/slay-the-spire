@@ -4,8 +4,8 @@ use sts_core::{
     apply_combat_action_on_run, apply_combat_action_with_events, apply_event_action,
     apply_map_action_on_run, apply_rest_action, apply_run_action, legal_combat_actions,
     legal_event_actions, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, CardId,
-    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, Potion, RestAction,
-    RunAction, RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, MonsterIntent,
+    Potion, RestAction, RunAction, RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 
 #[pyclass(name = "ExactCombatAction")]
@@ -175,6 +175,25 @@ pub struct PyExactRunStepResult {
     pub transition: PyDebugTransition,
     #[pyo3(get)]
     pub unsupported_reason: Option<String>,
+}
+
+#[pyclass(name = "RustSearchRecommendation")]
+#[derive(Clone)]
+pub struct PyRustSearchRecommendation {
+    #[pyo3(get)]
+    pub best_action: Option<PyExactRunAction>,
+    #[pyo3(get)]
+    pub value: f64,
+    #[pyo3(get)]
+    pub actions: usize,
+    #[pyo3(get)]
+    pub nodes: usize,
+    #[pyo3(get)]
+    pub terminal_reason: Option<String>,
+    #[pyo3(get)]
+    pub final_hp: f64,
+    #[pyo3(get)]
+    pub monster_hp: f64,
 }
 
 #[pyclass(name = "OmniCombatEnv")]
@@ -429,6 +448,15 @@ impl PyOmniRunEnv {
         })
     }
 
+    pub fn rust_greedy_combat_search(
+        &self,
+        max_actions: usize,
+        objective: Option<&str>,
+        allowed_potions: Option<Vec<String>>,
+    ) -> PyResult<PyRustSearchRecommendation> {
+        rust_greedy_combat_search(&self.state, max_actions, objective, allowed_potions)
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "OmniRunEnv(phase={}, snapshot_hash={})",
@@ -445,6 +473,7 @@ fn sts_omni(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyDebugTransition>()?;
     module.add_class::<PyExactStepResult>()?;
     module.add_class::<PyExactRunStepResult>()?;
+    module.add_class::<PyRustSearchRecommendation>()?;
     module.add_class::<PyOmniCombatEnv>()?;
     module.add_class::<PyOmniRunEnv>()?;
     Ok(())
@@ -500,6 +529,13 @@ fn to_json<T: serde::Serialize>(value: &T) -> PyResult<String> {
 }
 
 fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
+    exact_run_legal_action_kinds(state)
+        .into_iter()
+        .map(|action| PyExactRunAction { action })
+        .collect()
+}
+
+fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
     let mut actions = Vec::new();
 
     if state.phase == RunPhase::Combat {
@@ -507,10 +543,7 @@ fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
             let select_actions = legal_combat_select_actions_on_run(state, combat);
             if !select_actions.is_empty() {
                 actions.extend(select_actions.into_iter().map(ExactRunActionKind::Run));
-                return actions
-                    .into_iter()
-                    .map(|action| PyExactRunAction { action })
-                    .collect();
+                return actions;
             }
             actions.extend(
                 legal_combat_actions(combat)
@@ -566,9 +599,232 @@ fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
     }
 
     actions
+}
+
+fn rust_greedy_combat_search(
+    state: &RunState,
+    max_actions: usize,
+    objective: Option<&str>,
+    allowed_potions: Option<Vec<String>>,
+) -> PyResult<PyRustSearchRecommendation> {
+    let objective = objective.unwrap_or("tactical_survival");
+    let allowed_potions = allowed_potions.map(|names| {
+        names
+            .into_iter()
+            .map(|name| normalize_potion_name(&name))
+            .collect::<Vec<_>>()
+    });
+    let mut current = state.clone();
+    let mut best_first_action: Option<ExactRunActionKind> = None;
+    let mut actions_taken = 0usize;
+    let mut nodes = 1usize;
+    let mut terminal_reason = run_terminal_reason(&current);
+
+    while terminal_reason.is_none() && actions_taken < max_actions {
+        let actions = filtered_run_actions(&current, allowed_potions.as_deref());
+        if actions.is_empty() {
+            break;
+        }
+        let mut best_action: Option<ExactRunActionKind> = None;
+        let mut best_score = f64::NEG_INFINITY;
+        for action in actions {
+            let Ok(next) = apply_exact_run_action(&current, &action) else {
+                continue;
+            };
+            nodes += 1;
+            let reason = run_terminal_reason(&next);
+            let score = rust_run_score(&next, reason.as_deref(), objective)?;
+            if best_action.is_none() || score > best_score {
+                best_score = score;
+                best_action = Some(action);
+            }
+        }
+        let Some(action) = best_action else {
+            break;
+        };
+        if best_first_action.is_none() {
+            best_first_action = Some(action.clone());
+        }
+        current = apply_exact_run_action(&current, &action).map_err(|error| {
+            PyValueError::new_err(format!("rust greedy selected illegal action: {error:?}"))
+        })?;
+        actions_taken += 1;
+        terminal_reason = run_terminal_reason(&current);
+    }
+
+    let value = rust_run_score(&current, terminal_reason.as_deref(), objective)?;
+    let (final_hp, monster_hp) = run_combat_hp(&current);
+    Ok(PyRustSearchRecommendation {
+        best_action: best_first_action.map(|action| PyExactRunAction { action }),
+        value,
+        actions: actions_taken,
+        nodes,
+        terminal_reason,
+        final_hp,
+        monster_hp,
+    })
+}
+
+fn filtered_run_actions(
+    state: &RunState,
+    allowed_potions: Option<&[String]>,
+) -> Vec<ExactRunActionKind> {
+    exact_run_legal_action_kinds(state)
         .into_iter()
-        .map(|action| PyExactRunAction { action })
+        .filter(|action| rust_action_allowed(state, action, allowed_potions))
         .collect()
+}
+
+fn rust_action_allowed(
+    state: &RunState,
+    action: &ExactRunActionKind,
+    allowed_potions: Option<&[String]>,
+) -> bool {
+    let Some(allowed_potions) = allowed_potions else {
+        return true;
+    };
+    let ExactRunActionKind::Run(RunAction::UsePotion { slot, .. }) = action else {
+        return true;
+    };
+    state
+        .potions
+        .get(*slot)
+        .map(|potion| {
+            allowed_potions
+                .iter()
+                .any(|allowed| *allowed == normalize_potion_name(&format!("{potion:?}")))
+        })
+        .unwrap_or(false)
+}
+
+fn normalize_potion_name(name: &str) -> String {
+    let normalized: String = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect();
+    normalized
+        .strip_suffix("potion")
+        .unwrap_or(&normalized)
+        .to_owned()
+}
+
+fn run_terminal_reason(state: &RunState) -> Option<String> {
+    if let Some(combat) = state.combat.as_ref() {
+        if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
+            return Some("lost".to_owned());
+        }
+        if combat.phase == CombatPhase::Won {
+            return Some("won".to_owned());
+        }
+    }
+    if state.phase != RunPhase::Combat {
+        return Some("won".to_owned());
+    }
+    None
+}
+
+fn rust_run_score(
+    state: &RunState,
+    terminal_reason: Option<&str>,
+    objective: &str,
+) -> PyResult<f64> {
+    let Some(combat) = state.combat.as_ref() else {
+        return Ok(match terminal_reason {
+            Some("won") => 1_000_000.0,
+            Some("lost") => -1_000_000.0,
+            _ => 0.0,
+        });
+    };
+    let player_hp = f64::from(combat.player.hp);
+    let player_block = f64::from(combat.player.block);
+    let player_energy = f64::from(combat.player.energy);
+    let alive_monsters: Vec<_> = combat
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .collect();
+    let incoming: f64 = alive_monsters
+        .iter()
+        .map(|monster| f64::from(intent_damage(monster.intent)))
+        .sum();
+    let unblocked = (incoming - player_block).max(0.0);
+    let useful_block = player_block.min(incoming);
+    let monster_hp: f64 = alive_monsters
+        .iter()
+        .map(|monster| f64::from(monster.hp))
+        .sum();
+    let monster_block: f64 = alive_monsters
+        .iter()
+        .map(|monster| f64::from(monster.block))
+        .sum();
+    let alive_count = alive_monsters.len() as f64;
+    let state_score = match objective {
+        "tactical_survival" => {
+            player_hp * 25.0 - unblocked * 45.0
+                + useful_block * 7.5
+                + player_energy * 0.5
+                - monster_hp * 4.0
+                - monster_block * 0.75
+                - alive_count * 60.0
+        }
+        "aggressive_lethal" => {
+            player_hp * 8.0 + useful_block * 2.0
+                - unblocked * 10.0
+                - monster_hp * 9.0
+                - alive_count * 100.0
+        }
+        "hp_preserving_lethal" => {
+            player_hp * 120.0 + useful_block * 20.0
+                - unblocked * 160.0
+                + player_energy
+                - monster_hp * 6.0
+                - monster_block * 0.5
+                - alive_count * 300.0
+        }
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "unsupported rust greedy objective: {objective}"
+            )))
+        }
+    };
+    Ok(match terminal_reason {
+        Some("won") => 1_000_000.0 + state_score,
+        Some("lost") => -1_000_000.0 + state_score,
+        _ => state_score,
+    })
+}
+
+fn run_combat_hp(state: &RunState) -> (f64, f64) {
+    let Some(combat) = state.combat.as_ref() else {
+        return (f64::from(state.player_hp), 0.0);
+    };
+    let monster_hp = combat
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| f64::from(monster.hp))
+        .sum();
+    (f64::from(combat.player.hp), monster_hp)
+}
+
+fn intent_damage(intent: MonsterIntent) -> i32 {
+    match intent {
+        MonsterIntent::Attack { damage }
+        | MonsterIntent::AttackAndBlock { damage, .. }
+        | MonsterIntent::AttackApplyPlayerWeak { damage, .. }
+        | MonsterIntent::AttackApplyPlayerVulnerable { damage, .. }
+        | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { damage, .. }
+        | MonsterIntent::AttackApplyPlayerFrailAndWeak { damage, .. }
+        | MonsterIntent::AttackApplyPlayerFrail { damage, .. }
+        | MonsterIntent::AttackHealSelf { damage }
+        | MonsterIntent::AttackAddWoundsToDiscard { damage, .. }
+        | MonsterIntent::AttackAddSlimedToDiscard { damage, .. }
+        | MonsterIntent::AttackStealGold { damage, .. } => damage,
+        MonsterIntent::AttackMultiple { damage, hits } => damage * hits,
+        MonsterIntent::AddBurnToDiscard { damage, .. } => damage,
+        _ => 0,
+    }
 }
 
 fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) -> Vec<RunAction> {

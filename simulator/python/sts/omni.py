@@ -8,6 +8,7 @@ from sts.sts_omni import (
     ExactStepResult,
     OmniCombatEnv,
     OmniRunEnv,
+    RustSearchRecommendation,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "ExactStepResult",
     "OmniCombatEnv",
     "OmniRunEnv",
+    "RustSearchRecommendation",
 ]
