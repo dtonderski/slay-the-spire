@@ -102,6 +102,9 @@ class TraceCombatRoot:
     potion_names: tuple[str, ...]
     legal_action_kinds: tuple[str, ...]
     legal_potion_names: tuple[str, ...]
+    real_trace_final_hp: float | None = None
+    real_trace_hp_loss: float | None = None
+    real_trace_terminal_phase: str | None = None
 
 
 def run_self_play(
@@ -701,6 +704,14 @@ def evaluate_self_play_corpus(
                 "legal_potion_names": list(root.legal_potion_names),
                 "has_potion_actions": any("potion" in kind for kind in root.legal_action_kinds),
                 "has_allowed_potion_actions": _has_allowed_potion_actions(root, allowed_potions),
+                "real_trace_final_hp": root.real_trace_final_hp,
+                "real_trace_hp_loss": root.real_trace_hp_loss,
+                "real_trace_terminal_phase": root.real_trace_terminal_phase,
+                "hp_loss_delta_vs_trace": (
+                    result.hp_loss - root.real_trace_hp_loss
+                    if root.real_trace_hp_loss is not None
+                    else None
+                ),
             }
             episodes.append(row)
             completed += 1
@@ -908,7 +919,9 @@ def _trace_combat_roots(
     seen: set[str] = set()
     seen_combat_start_keys: set[str] = set()
     for trace_path in trace_paths:
-        for record in _read_jsonl(trace_path)[1:]:
+        records = _read_jsonl(trace_path)
+        real_trace_baselines = _real_trace_combat_baselines(records)
+        for record in records[1:]:
             record_type = record.get("type")
             if record_type == "step":
                 summary = record.get("before_summary") or {}
@@ -954,6 +967,7 @@ def _trace_combat_roots(
                 )
                 if name is not None
             )
+            baseline = real_trace_baselines.get(state_id, {})
             roots.append(
                 TraceCombatRoot(
                     trace_path=trace_path,
@@ -965,10 +979,81 @@ def _trace_combat_roots(
                     potion_names=potion_names,
                     legal_action_kinds=legal_action_kinds,
                     legal_potion_names=legal_potion_names,
+                    real_trace_final_hp=baseline.get("final_hp"),
+                    real_trace_hp_loss=baseline.get("hp_loss"),
+                    real_trace_terminal_phase=baseline.get("terminal_phase"),
                 )
             )
     roots.sort(key=lambda root: (str(root.trace_path), root.step, root.state_id))
     return roots
+
+
+def _real_trace_combat_baselines(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    baselines: dict[str, dict[str, Any]] = {}
+    indexed: list[tuple[int, str, dict[str, Any]]] = []
+    for index, record in enumerate(records[1:], start=1):
+        if record.get("type") == "step":
+            summary = record.get("before_summary") or {}
+            state_id = record.get("before_hash")
+        elif record.get("type") == "anchor":
+            summary = record.get("summary") or {}
+            state_id = record.get("snapshot_hash")
+        else:
+            continue
+        if summary.get("phase") != "combat" or not isinstance(state_id, str):
+            continue
+        indexed.append((index, state_id, summary))
+
+    for index, state_id, summary in indexed:
+        initial_hp = _summary_player_hp(summary)
+        if initial_hp is None:
+            continue
+        final_summary = _real_trace_combat_end_summary(records, index)
+        if final_summary is None:
+            continue
+        final_hp = _summary_player_hp(final_summary)
+        if final_hp is None:
+            continue
+        baselines[state_id] = {
+            "final_hp": final_hp,
+            "hp_loss": initial_hp - final_hp,
+            "terminal_phase": final_summary.get("phase"),
+        }
+    return baselines
+
+
+def _real_trace_combat_end_summary(
+    records: list[dict[str, Any]],
+    start_index: int,
+) -> dict[str, Any] | None:
+    last_combat_summary: dict[str, Any] | None = None
+    for record in records[start_index:]:
+        summaries: list[dict[str, Any]] = []
+        if record.get("type") == "step":
+            before = record.get("before_summary")
+            after = record.get("after_summary")
+            if isinstance(before, dict):
+                summaries.append(before)
+            if isinstance(after, dict):
+                summaries.append(after)
+        elif record.get("type") == "anchor":
+            summary = record.get("summary")
+            if isinstance(summary, dict):
+                summaries.append(summary)
+        for summary in summaries:
+            if summary.get("phase") == "combat":
+                last_combat_summary = summary
+                continue
+            if last_combat_summary is not None:
+                return summary
+    return last_combat_summary
+
+
+def _summary_player_hp(summary: dict[str, Any]) -> float | None:
+    hp = summary.get("player_hp")
+    if isinstance(hp, int | float):
+        return float(hp)
+    return None
 
 
 def _trace_encounter_key(
@@ -1067,6 +1152,16 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 ),
                 "total_potion_uses": sum(int(episode["potion_uses"]) for episode in candidate_episodes),
                 "potion_use_counts": _episode_potion_use_counts(candidate_episodes),
+                "mean_real_trace_hp_loss": _mean(
+                    float(episode["real_trace_hp_loss"])
+                    for episode in candidate_episodes
+                    if episode.get("real_trace_hp_loss") is not None
+                ),
+                "mean_hp_loss_delta_vs_trace": _mean(
+                    float(episode["hp_loss_delta_vs_trace"])
+                    for episode in candidate_episodes
+                    if episode.get("hp_loss_delta_vs_trace") is not None
+                ),
                 "mean_seconds_per_combat": _mean(
                     float(episode["search_seconds"]) for episode in candidate_episodes
                 ),
@@ -1154,6 +1249,9 @@ def _failure_fixtures(
                 "potion_use_names": list(episode.get("potion_use_names") or []),
                 "search_seconds": episode.get("search_seconds"),
                 "mean_seconds_per_decision": episode.get("mean_seconds_per_decision"),
+                "real_trace_final_hp": root.real_trace_final_hp,
+                "real_trace_hp_loss": root.real_trace_hp_loss,
+                "hp_loss_delta_vs_trace": episode.get("hp_loss_delta_vs_trace"),
                 "potion_names": list(root.potion_names),
                 "legal_action_kinds": list(root.legal_action_kinds),
                 "legal_potion_names": list(root.legal_potion_names),
