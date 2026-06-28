@@ -8,8 +8,9 @@ import argparse
 import hashlib
 import json
 import random
+import sys
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, TextIO
 
 from sts import omni
 from sts.search import CombatSearchConfig, search_combat
@@ -653,6 +654,8 @@ def evaluate_self_play_corpus(
     root_scope: str = "all",
     failure_output: Path | None = None,
     eval_set: str | None = None,
+    progress_every: int = 0,
+    progress_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """Compare search candidates from exact combat states recorded in traces."""
 
@@ -675,6 +678,8 @@ def evaluate_self_play_corpus(
     ]
 
     episodes = []
+    completed = 0
+    total = len(candidates) * len(roots)
     for candidate in candidates:
         for root in roots:
             benchmark_root = BenchmarkRoot(
@@ -698,6 +703,20 @@ def evaluate_self_play_corpus(
                 "has_allowed_potion_actions": _has_allowed_potion_actions(root, allowed_potions),
             }
             episodes.append(row)
+            completed += 1
+            if progress_every > 0 and progress_stream is not None:
+                if completed == total or completed % progress_every == 0:
+                    print(
+                        (
+                            f"eval progress {completed}/{total}: "
+                            f"{candidate.name} {root.trace_path.name}:step{root.step} "
+                            f"won={result.won} lost={result.lost} "
+                            f"terminal={result.terminal_reason or 'nonterminal'} "
+                            f"seconds={result.search_seconds:.2f}"
+                        ),
+                        file=progress_stream,
+                        flush=True,
+                    )
 
     failures = _failure_fixtures(roots, episodes)
     if failure_output is not None:
@@ -1728,6 +1747,30 @@ def _parse_allowed_potions(value: str | None) -> tuple[str, ...] | None:
     return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
+def _parse_candidate_names(values: Iterable[str] | None) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    names: list[str] = []
+    for value in values:
+        for part in value.split(","):
+            part = part.strip()
+            if part:
+                names.append(part)
+    return tuple(names)
+
+
+def _trace_candidates_by_name(names: Iterable[str]) -> list[SearchCandidate]:
+    requested = tuple(names)
+    if not requested:
+        return trace_autopilot_candidates()
+    available = {candidate.name: candidate for candidate in trace_autopilot_candidates()}
+    unknown = [name for name in requested if name not in available]
+    if unknown:
+        choices = ", ".join(sorted(available))
+        raise ValueError(f"unknown trace eval candidate(s): {', '.join(unknown)}; choices: {choices}")
+    return [available[name] for name in requested]
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generate or verify simulator self-play traces.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1762,6 +1805,8 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser.add_argument("--allowed-potions")
     eval_parser.add_argument("--root-scope", choices=["all", "combat_start"], default="all")
     eval_parser.add_argument("--eval-set", choices=sorted(TRACE_EVAL_SET_SPECS))
+    eval_parser.add_argument("--candidate", dest="candidate_names", action="append")
+    eval_parser.add_argument("--progress-every", type=int, default=0)
     eval_parser.add_argument("--output", type=Path)
     eval_parser.add_argument("--failure-output", type=Path)
 
@@ -1813,9 +1858,12 @@ def main(argv: list[str] | None = None) -> None:
             max_roots=args.max_roots,
             max_actions=args.max_actions,
             allowed_potions=_parse_allowed_potions(args.allowed_potions),
+            candidates=_trace_candidates_by_name(_parse_candidate_names(args.candidate_names)),
             root_scope=args.root_scope,
             failure_output=args.failure_output,
             eval_set=args.eval_set,
+            progress_every=args.progress_every,
+            progress_stream=sys.stderr if args.progress_every > 0 else None,
         )
         text = json.dumps(report, indent=2, sort_keys=True)
         if args.output:
