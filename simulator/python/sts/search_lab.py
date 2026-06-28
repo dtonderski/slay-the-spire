@@ -169,6 +169,40 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             ),
         ),
         SearchCandidate(
+            "rust_beam_terminal_w128_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_beam",
+                beam_width=128,
+            ),
+        ),
+        SearchCandidate(
+            "rust_beam_terminal_w128_no_power_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_beam",
+                beam_width=128,
+                allowed_potions=(
+                    "Weak Potion",
+                    "Cultist Potion",
+                    "Flex Potion",
+                    "Elixir",
+                    "Distilled Chaos",
+                    "Explosive Potion",
+                ),
+            ),
+        ),
+        SearchCandidate(
+            "rust_terminal_rescue_w32_w128_no_power_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_rescue",
+            ),
+        ),
+        SearchCandidate(
             "rust_terminal_portfolio_d40",
             CombatSearchConfig(
                 max_depth=40,

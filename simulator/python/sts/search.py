@@ -85,6 +85,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_greedy",
         "rust_beam",
         "rust_terminal_portfolio",
+        "rust_terminal_rescue",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
@@ -116,6 +117,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         )
     elif config.algorithm == "rust_terminal_portfolio":
         return _rust_terminal_portfolio_search(env, config)
+    elif config.algorithm == "rust_terminal_rescue":
+        return _rust_terminal_rescue_search(env, config)
     elif config.algorithm in {"rust_greedy", "rust_beam"}:
         return _rust_search(env, config)
     else:
@@ -242,6 +245,91 @@ def _rust_terminal_portfolio_search(env: Any, config: CombatSearchConfig) -> Sea
         diagnostics=diagnostics,
         terminal_reason=best.terminal_reason,
     )
+
+
+def _rust_terminal_rescue_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
+    primary_config = CombatSearchConfig(
+        max_depth=config.max_depth,
+        objective="terminal_tactical",
+        algorithm="rust_beam",
+        beam_width=32,
+        allowed_potions=config.allowed_potions,
+    )
+    primary = _rust_search(env, primary_config)
+    if primary.terminal_reason == "won":
+        diagnostics = dict(primary.diagnostics)
+        diagnostics["algorithm"] = config.algorithm
+        diagnostics["rescue_attempted"] = False
+        return SearchRecommendation(
+            best_action=primary.best_action,
+            principal_variation=primary.principal_variation,
+            visits=primary.visits,
+            value=primary.value,
+            win_probability=primary.win_probability,
+            expected_hp_delta=primary.expected_hp_delta,
+            terminal_rate=primary.terminal_rate,
+            diagnostics=diagnostics,
+            terminal_reason=primary.terminal_reason,
+        )
+
+    rescue_config = CombatSearchConfig(
+        max_depth=config.max_depth,
+        objective="terminal_tactical",
+        algorithm="rust_beam",
+        beam_width=128,
+        allowed_potions=_without_power_potion(config.allowed_potions, env),
+    )
+    rescue = _rust_search(env, rescue_config)
+    selected = rescue if rescue.terminal_reason == "won" else primary
+    diagnostics = dict(selected.diagnostics)
+    diagnostics.update(
+        {
+            "algorithm": config.algorithm,
+            "rescue_attempted": True,
+            "rescue_selected": selected is rescue,
+            "primary": _rust_rescue_candidate_diagnostics(primary),
+            "rescue": _rust_rescue_candidate_diagnostics(rescue),
+        }
+    )
+    return SearchRecommendation(
+        best_action=selected.best_action,
+        principal_variation=selected.principal_variation,
+        visits=primary.visits + rescue.visits,
+        value=selected.value,
+        win_probability=selected.win_probability,
+        expected_hp_delta=selected.expected_hp_delta,
+        terminal_rate=selected.terminal_rate,
+        diagnostics=diagnostics,
+        terminal_reason=selected.terminal_reason,
+    )
+
+
+def _without_power_potion(
+    allowed_potions: tuple[str, ...] | None,
+    env: Any,
+) -> tuple[str, ...]:
+    if allowed_potions is None:
+        allowed_potions = tuple(_run_potion_names(env))
+    return tuple(
+        potion
+        for potion in allowed_potions
+        if _normalize_potion_name(potion) != "power"
+    )
+
+
+def _rust_rescue_candidate_diagnostics(
+    recommendation: SearchRecommendation,
+) -> dict[str, Any]:
+    return {
+        "terminal_reason": recommendation.terminal_reason,
+        "value": recommendation.value,
+        "nodes": recommendation.visits,
+        "beam_width": recommendation.diagnostics.get("beam_width"),
+        "allowed_potions": recommendation.diagnostics.get("allowed_potions"),
+        "rust_final_hp": recommendation.diagnostics.get("rust_final_hp"),
+        "rust_monster_hp": recommendation.diagnostics.get("rust_monster_hp"),
+        "rust_actions": recommendation.diagnostics.get("rust_actions"),
+    }
 
 
 def _rust_portfolio_key(recommendation: SearchRecommendation) -> tuple[float, float, float, float]:
