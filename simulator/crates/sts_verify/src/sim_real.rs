@@ -5021,47 +5021,84 @@ fn relic_keys_from_value(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
-fn observed_pen_nib_counter(game: &Value) -> Option<u32> {
-    let relics = game.get("relics").and_then(Value::as_array)?;
-    relics.iter().find_map(|relic| {
-        let name = relic
-            .get("name")
-            .or_else(|| relic.get("id"))
-            .and_then(Value::as_str)?;
-        if relic_key_from_trace_name(name) != Some(RelicKey::PenNib) {
-            return None;
-        }
-        let counter = relic.get("counter").and_then(Value::as_i64)?;
-        u32::try_from(counter).ok()
-    })
-}
-
 fn observed_combat_relics_and_counters(game: &Value) -> (Vec<Relic>, RelicCounters) {
     let mut relics = Vec::new();
     let mut counters = RelicCounters::default();
-    if observed_has_relic(game, RelicKey::MummifiedHand) {
-        relics.push(Relic::MummifiedHand);
+
+    for relic in observed_relic_entries(game) {
+        let Some(observed) = relic_from_trace_name(relic.name) else {
+            continue;
+        };
+        if !relics.contains(&observed) {
+            relics.push(observed);
+        }
+
+        let Some(counter) = relic.counter else {
+            continue;
+        };
+        match observed {
+            Relic::InkBottle => counters.ink_bottle_cards_played = counter,
+            Relic::Nunchaku => counters.nunchaku_attacks_played = counter,
+            Relic::PenNib => counters.pen_nib_attacks_played = counter,
+            Relic::Shuriken => counters.shuriken_attacks_this_turn = counter,
+            Relic::Kunai => counters.kunai_attacks_this_turn = counter,
+            Relic::LetterOpener => counters.letter_opener_skills_this_turn = counter,
+            Relic::Pocketwatch => counters.cards_played_this_turn = counter,
+            Relic::HappyFlower => counters.happy_flower_turns = counter,
+            Relic::StoneCalendar => counters.player_turns_started = counter,
+            Relic::IncenseBurner => counters.incense_burner_counter = counter,
+            _ => {}
+        }
     }
-    if let Some(counter) = observed_pen_nib_counter(game) {
-        relics.push(Relic::PenNib);
-        counters.pen_nib_attacks_played = counter;
-    }
+
     (relics, counters)
 }
 
-fn observed_has_relic(game: &Value, key: RelicKey) -> bool {
-    game.get("relics")
-        .and_then(Value::as_array)
-        .is_some_and(|relics| {
-            relics.iter().any(|relic| {
-                relic
-                    .get("name")
-                    .or_else(|| relic.get("id"))
-                    .and_then(Value::as_str)
-                    .and_then(relic_key_from_trace_name)
-                    == Some(key)
-            })
+struct ObservedRelicEntry<'a> {
+    name: &'a str,
+    counter: Option<u32>,
+}
+
+fn observed_relic_entries(game: &Value) -> Vec<ObservedRelicEntry<'_>> {
+    let Some(relics) = game.get("relics").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    relics
+        .iter()
+        .filter_map(|relic| {
+            let name = relic
+                .get("name")
+                .or_else(|| relic.get("id"))
+                .and_then(Value::as_str)?;
+            let counter = relic
+                .get("counter")
+                .and_then(Value::as_i64)
+                .and_then(|counter| u32::try_from(counter).ok());
+            Some(ObservedRelicEntry { name, counter })
         })
+        .collect()
+}
+
+fn observed_energy_per_turn(relics: &[Relic]) -> i32 {
+    if relics.iter().any(|relic| {
+        matches!(
+            relic,
+            Relic::CoffeeDripper
+                | Relic::CursedKey
+                | Relic::Ectoplasm
+                | Relic::FusionHammer
+                | Relic::MarkOfPain
+                | Relic::PhilosophersStone
+                | Relic::RunicDome
+                | Relic::Sozu
+                | Relic::VelvetChoker
+        )
+    }) {
+        4
+    } else {
+        3
+    }
 }
 
 fn choice_list_from_value(value: Option<&Value>) -> Vec<String> {
@@ -5122,45 +5159,124 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
 }
 
 fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
-    match name {
-        "Burning Blood" => Some(RelicKey::BurningBlood),
-        "Dream Catcher" => Some(RelicKey::DreamCatcher),
-        "Toxic Egg" => Some(RelicKey::ToxicEgg),
-        "Frozen Egg" => Some(RelicKey::FrozenEgg),
-        "Mummified Hand" => Some(RelicKey::MummifiedHand),
-        "Ceramic Fish" => Some(RelicKey::CeramicFish),
-        "Pen Nib" => Some(RelicKey::PenNib),
-        "Membership Card" => Some(RelicKey::MembershipCard),
-        "Whetstone" => Some(RelicKey::Whetstone),
-        "Orichalcum" => Some(RelicKey::Orichalcum),
-        "Toy Ornithopter" => Some(RelicKey::ToyOrnithopter),
-        "Lantern" => Some(RelicKey::Lantern),
-        "Stone Calendar" => Some(RelicKey::StoneCalendar),
-        "Ice Cream" => Some(RelicKey::IceCream),
-        "Cursed Key" => Some(RelicKey::CursedKey),
-        "Fusion Hammer" => Some(RelicKey::FusionHammer),
-        "Velvet Choker" => Some(RelicKey::VelvetChoker),
-        "Runic Dome" => Some(RelicKey::RunicDome),
-        "Slaver's Collar" => Some(RelicKey::SlaversCollar),
-        "Snecko Eye" => Some(RelicKey::SneckoEye),
-        "Pandora's Box" => Some(RelicKey::PandorasBox),
-        "Busted Crown" => Some(RelicKey::BustedCrown),
-        "Ectoplasm" => Some(RelicKey::Ectoplasm),
-        "Tiny House" => Some(RelicKey::TinyHouse),
-        "Sozu" => Some(RelicKey::Sozu),
-        "Philosopher's Stone" => Some(RelicKey::PhilosophersStone),
-        "Astrolabe" => Some(RelicKey::Astrolabe),
-        "Black Star" => Some(RelicKey::BlackStar),
-        "Sacred Bark" => Some(RelicKey::SacredBark),
-        "Empty Cage" => Some(RelicKey::EmptyCage),
-        "Runic Pyramid" => Some(RelicKey::RunicPyramid),
-        "Calling Bell" => Some(RelicKey::CallingBell),
-        "Coffee Dripper" => Some(RelicKey::CoffeeDripper),
-        "Black Blood" => Some(RelicKey::BlackBlood),
-        "Mark of Pain" => Some(RelicKey::MarkOfPain),
-        "Runic Cube" => Some(RelicKey::RunicCube),
+    match normalized_trace_relic_name(name).as_str() {
+        "burningblood" => Some(RelicKey::BurningBlood),
+        "dreamcatcher" => Some(RelicKey::DreamCatcher),
+        "toxicegg" => Some(RelicKey::ToxicEgg),
+        "frozenegg" | "frozenegg2" => Some(RelicKey::FrozenEgg),
+        "mummifiedhand" => Some(RelicKey::MummifiedHand),
+        "ceramicfish" => Some(RelicKey::CeramicFish),
+        "pennib" => Some(RelicKey::PenNib),
+        "membershipcard" => Some(RelicKey::MembershipCard),
+        "whetstone" => Some(RelicKey::Whetstone),
+        "orichalcum" => Some(RelicKey::Orichalcum),
+        "toyornithopter" => Some(RelicKey::ToyOrnithopter),
+        "lantern" => Some(RelicKey::Lantern),
+        "pocketwatch" => Some(RelicKey::Pocketwatch),
+        "stonecalendar" => Some(RelicKey::StoneCalendar),
+        "icecream" => Some(RelicKey::IceCream),
+        "cursedkey" => Some(RelicKey::CursedKey),
+        "fusionhammer" => Some(RelicKey::FusionHammer),
+        "velvetchoker" => Some(RelicKey::VelvetChoker),
+        "runicdome" => Some(RelicKey::RunicDome),
+        "slaverscollar" => Some(RelicKey::SlaversCollar),
+        "sneckoeye" => Some(RelicKey::SneckoEye),
+        "pandorasbox" => Some(RelicKey::PandorasBox),
+        "bustedcrown" => Some(RelicKey::BustedCrown),
+        "ectoplasm" => Some(RelicKey::Ectoplasm),
+        "tinyhouse" => Some(RelicKey::TinyHouse),
+        "sozu" => Some(RelicKey::Sozu),
+        "philosophersstone" => Some(RelicKey::PhilosophersStone),
+        "astrolabe" => Some(RelicKey::Astrolabe),
+        "blackstar" => Some(RelicKey::BlackStar),
+        "sacredbark" => Some(RelicKey::SacredBark),
+        "emptycage" => Some(RelicKey::EmptyCage),
+        "runicpyramid" => Some(RelicKey::RunicPyramid),
+        "callingbell" => Some(RelicKey::CallingBell),
+        "coffeedripper" => Some(RelicKey::CoffeeDripper),
+        "blackblood" => Some(RelicKey::BlackBlood),
+        "markofpain" => Some(RelicKey::MarkOfPain),
+        "runiccube" => Some(RelicKey::RunicCube),
+        "pear" => Some(RelicKey::Pear),
+        "eternalfeather" => Some(RelicKey::EternalFeather),
+        "championbelt" => Some(RelicKey::ChampionBelt),
+        "goldenidol" => Some(RelicKey::GoldenIdol),
+        "duvudoll" => Some(RelicKey::DuVuDoll),
+        "medicalkit" => Some(RelicKey::MedicalKit),
+        "warpaint" => Some(RelicKey::WarPaint),
+        "letteropener" => Some(RelicKey::LetterOpener),
+        "nunchaku" => Some(RelicKey::Nunchaku),
+        "inkbottle" => Some(RelicKey::InkBottle),
+        "shuriken" => Some(RelicKey::Shuriken),
+        "kunai" => Some(RelicKey::Kunai),
+        "happyflower" => Some(RelicKey::HappyFlower),
+        "incenseburner" => Some(RelicKey::IncenseBurner),
         _ => None,
     }
+}
+
+fn relic_from_trace_name(name: &str) -> Option<Relic> {
+    match normalized_trace_relic_name(name).as_str() {
+        "burningblood" => Some(Relic::BurningBlood),
+        "dreamcatcher" => Some(Relic::DreamCatcher),
+        "toxicegg" => Some(Relic::ToxicEgg),
+        "frozenegg" | "frozenegg2" => Some(Relic::FrozenEgg),
+        "mummifiedhand" => Some(Relic::MummifiedHand),
+        "ceramicfish" => Some(Relic::CeramicFish),
+        "pennib" => Some(Relic::PenNib),
+        "membershipcard" => Some(Relic::MembershipCard),
+        "whetstone" => Some(Relic::Whetstone),
+        "orichalcum" => Some(Relic::Orichalcum),
+        "toyornithopter" => Some(Relic::ToyOrnithopter),
+        "lantern" => Some(Relic::Lantern),
+        "pocketwatch" => Some(Relic::Pocketwatch),
+        "stonecalendar" => Some(Relic::StoneCalendar),
+        "icecream" => Some(Relic::IceCream),
+        "cursedkey" => Some(Relic::CursedKey),
+        "fusionhammer" => Some(Relic::FusionHammer),
+        "velvetchoker" => Some(Relic::VelvetChoker),
+        "runicdome" => Some(Relic::RunicDome),
+        "slaverscollar" => Some(Relic::SlaversCollar),
+        "sneckoeye" => Some(Relic::SneckoEye),
+        "pandorasbox" => Some(Relic::PandorasBox),
+        "bustedcrown" => Some(Relic::BustedCrown),
+        "ectoplasm" => Some(Relic::Ectoplasm),
+        "tinyhouse" => Some(Relic::TinyHouse),
+        "sozu" => Some(Relic::Sozu),
+        "philosophersstone" => Some(Relic::PhilosophersStone),
+        "astrolabe" => Some(Relic::Astrolabe),
+        "blackstar" => Some(Relic::BlackStar),
+        "sacredbark" => Some(Relic::SacredBark),
+        "emptycage" => Some(Relic::EmptyCage),
+        "runicpyramid" => Some(Relic::RunicPyramid),
+        "callingbell" => Some(Relic::CallingBell),
+        "coffeedripper" => Some(Relic::CoffeeDripper),
+        "blackblood" => Some(Relic::BlackBlood),
+        "markofpain" => Some(Relic::MarkOfPain),
+        "runiccube" => Some(Relic::RunicCube),
+        "pear" => Some(Relic::Pear),
+        "eternalfeather" => Some(Relic::EternalFeather),
+        "championbelt" => Some(Relic::ChampionBelt),
+        "goldenidol" => Some(Relic::GoldenIdol),
+        "duvudoll" => Some(Relic::DuVuDoll),
+        "medicalkit" => Some(Relic::MedicalKit),
+        "warpaint" => Some(Relic::WarPaint),
+        "letteropener" => Some(Relic::LetterOpener),
+        "nunchaku" => Some(Relic::Nunchaku),
+        "inkbottle" => Some(Relic::InkBottle),
+        "shuriken" => Some(Relic::Shuriken),
+        "kunai" => Some(Relic::Kunai),
+        "happyflower" => Some(Relic::HappyFlower),
+        "incenseburner" => Some(Relic::IncenseBurner),
+        _ => None,
+    }
+}
+
+fn normalized_trace_relic_name(name: &str) -> String {
+    name.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn potion_from_trace_name(name: &str) -> Option<Potion> {
@@ -6426,13 +6542,14 @@ fn run_from_observed_combat_impl(
         card_instances_from_array(game.get("deck"), 1)
     };
     let (relics, relic_counters) = observed_combat_relics_and_counters(game);
+    let energy_per_turn = observed_energy_per_turn(&relics);
     let combat_state = CombatState {
         player: PlayerState {
             hp: int(player, "current_hp"),
             max_hp: int(player, "max_hp"),
             block: int(player, "block"),
             energy: int(player, "energy"),
-            max_energy: 3,
+            max_energy: energy_per_turn,
             powers: player_powers,
             cannot_draw: false,
             temp_strength: player_temp_strength,
@@ -6488,7 +6605,7 @@ fn run_from_observed_combat_impl(
         player_hp: int(game, "current_hp"),
         player_max_hp: int(game, "max_hp"),
         gold: int(game, "gold"),
-        energy_per_turn: 3,
+        energy_per_turn,
         deck,
         map: None,
         current_room_override: None,
@@ -7991,12 +8108,22 @@ mod tests {
     }
 
     #[test]
-    fn observed_combat_reconstruction_bridges_mummified_hand_and_only_pen_nib_counter() {
+    fn observed_combat_reconstruction_bridges_observed_relics_and_supported_counters() {
         let message = json!({
             "game_state": {
                 "deck": [],
                 "relics": [
-                    {"name": "Burning Blood", "id": "Burning Blood", "counter": 4},
+                    {"name": "Burning Blood", "id": "Burning Blood", "counter": -1},
+                    {"name": "Pocketwatch", "id": "Pocketwatch", "counter": 1},
+                    {"name": "Frozen Egg", "id": "Frozen Egg 2", "counter": -1},
+                    {"name": "Champion Belt", "id": "Champion Belt", "counter": -1},
+                    {"name": "Golden Idol", "id": "Golden Idol", "counter": -1},
+                    {"name": "Du-Vu Doll", "id": "Du-Vu Doll", "counter": 1},
+                    {"name": "Mark of Pain", "id": "Mark of Pain", "counter": -1},
+                    {"name": "Medical Kit", "id": "Medical Kit", "counter": -1},
+                    {"name": "War Paint", "id": "War Paint", "counter": -1},
+                    {"name": "Letter Opener", "id": "Letter Opener", "counter": 1},
+                    {"name": "Stone Calendar", "id": "StoneCalendar", "counter": 4},
                     {"name": "Mummified Hand", "id": "Mummified Hand", "counter": -1},
                     {"name": "Pen Nib", "id": "Pen Nib", "counter": 9},
                     {"name": "Nunchaku", "id": "Nunchaku", "counter": 8}
@@ -8026,10 +8153,33 @@ mod tests {
         let run = run_from_observed_combat(&message).expect("observed combat reconstructs");
         let combat = run.combat.as_ref().expect("combat state");
 
-        assert_eq!(run.relics, vec![Relic::MummifiedHand, Relic::PenNib]);
-        assert_eq!(combat.relics, vec![Relic::MummifiedHand, Relic::PenNib]);
+        assert_eq!(
+            run.relics,
+            vec![
+                Relic::BurningBlood,
+                Relic::Pocketwatch,
+                Relic::FrozenEgg,
+                Relic::ChampionBelt,
+                Relic::GoldenIdol,
+                Relic::DuVuDoll,
+                Relic::MarkOfPain,
+                Relic::MedicalKit,
+                Relic::WarPaint,
+                Relic::LetterOpener,
+                Relic::StoneCalendar,
+                Relic::MummifiedHand,
+                Relic::PenNib,
+                Relic::Nunchaku
+            ]
+        );
+        assert_eq!(combat.relics, run.relics);
+        assert_eq!(run.energy_per_turn, 4);
+        assert_eq!(combat.player.max_energy, 4);
+        assert_eq!(combat.relic_counters.cards_played_this_turn, 1);
+        assert_eq!(combat.relic_counters.letter_opener_skills_this_turn, 1);
+        assert_eq!(combat.relic_counters.player_turns_started, 4);
         assert_eq!(combat.relic_counters.pen_nib_attacks_played, 9);
-        assert_eq!(combat.relic_counters.nunchaku_attacks_played, 0);
+        assert_eq!(combat.relic_counters.nunchaku_attacks_played, 8);
         assert_eq!(combat.relic_counters.ink_bottle_cards_played, 0);
     }
 

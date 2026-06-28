@@ -460,6 +460,7 @@ def replay_real_trace_guided(
                     env = omni.OmniRunEnv.from_communication_mod_state_json(
                         json.dumps(observed_game_state)
                     )
+                    env = _env_with_observed_relics(env, observed_game_state)
                 except Exception as error:
                     blocker = _blocker(
                         record,
@@ -1418,6 +1419,250 @@ def _anchor_record(
     }
 
 
+def _env_with_observed_relics(env: Any, observed: dict[str, Any]) -> Any:
+    snapshot = _snapshot_with_observed_relics(env.snapshot_json(), observed)
+    if snapshot is None:
+        return env
+    return omni.OmniRunEnv.from_snapshot_json(snapshot)
+
+
+def _snapshot_with_observed_relics(snapshot_json: str, observed: dict[str, Any]) -> str | None:
+    relics = _observed_snapshot_relics(observed)
+    if not relics:
+        return None
+
+    snapshot = json.loads(snapshot_json)
+    run = snapshot.get("state") if isinstance(snapshot.get("state"), dict) else snapshot
+    if not isinstance(run, dict):
+        return None
+
+    run["relics"] = relics
+    combat = run.get("combat")
+    if isinstance(combat, dict):
+        combat["relics"] = relics
+        counters = combat.get("relic_counters")
+        if not isinstance(counters, dict):
+            counters = {}
+        counters.update(_observed_relic_counters(observed))
+        combat["relic_counters"] = counters
+    return json.dumps(snapshot, sort_keys=True)
+
+
+def _observed_snapshot_relics(observed: dict[str, Any]) -> list[str]:
+    relics = []
+    for relic in observed.get("relics") or []:
+        if not isinstance(relic, dict):
+            continue
+        snapshot_name = _snapshot_relic_name(relic.get("name") or relic.get("id"))
+        if snapshot_name and snapshot_name not in relics:
+            relics.append(snapshot_name)
+    return relics
+
+
+def _observed_relic_counters(observed: dict[str, Any]) -> dict[str, int]:
+    counters = {}
+    for relic in observed.get("relics") or []:
+        if not isinstance(relic, dict):
+            continue
+        counter = relic.get("counter")
+        if not isinstance(counter, int) or counter < 0:
+            continue
+        field = _RELIC_COUNTER_FIELDS.get(_snapshot_relic_name(relic.get("name") or relic.get("id")))
+        if field:
+            counters[field] = counter
+    return counters
+
+
+def _snapshot_relic_name(name: Any) -> str | None:
+    if not isinstance(name, str):
+        return None
+    normalized = "".join(char for char in name.title() if char.isalnum())
+    aliases = {
+        "CaptainSWheel": "CaptainsWheel",
+        "CharonSAshes": "CharonsAshes",
+        "DollySMirror": "DollysMirror",
+        "DuVuDoll": "DuVuDoll",
+        "FrozenEgg2": "FrozenEgg",
+        "LeeSWaffle": "LeesWaffle",
+        "LeesWaffle": "LeesWaffle",
+        "NeowsLament": None,
+        "NLothSGift": None,
+        "NlothsGift": None,
+        "NlotHsGift": None,
+        "PaperPhrog": "PaperPhrog",
+        "PandoraSBox": "PandorasBox",
+        "PandorasBox": "PandorasBox",
+        "PhilosopherSStone": "PhilosophersStone",
+        "SelfFormingClay": "SelfFormingClay",
+        "SlaverSCollar": "SlaversCollar",
+        "Stonecalendar": "StoneCalendar",
+        "TheCourier": "TheCourier",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in _SNAPSHOT_RELIC_NAMES:
+        return normalized
+    return None
+
+
+_RELIC_COUNTER_FIELDS = {
+    "HappyFlower": "happy_flower_turns",
+    "IncenseBurner": "incense_burner_counter",
+    "InkBottle": "ink_bottle_cards_played",
+    "Kunai": "kunai_attacks_this_turn",
+    "LetterOpener": "letter_opener_skills_this_turn",
+    "Nunchaku": "nunchaku_attacks_played",
+    "PenNib": "pen_nib_attacks_played",
+    "Pocketwatch": "cards_played_this_turn",
+    "Shuriken": "shuriken_attacks_this_turn",
+    "StoneCalendar": "player_turns_started",
+}
+
+
+_SNAPSHOT_RELIC_NAMES = {
+    "Akabeko",
+    "Anchor",
+    "AncientTeaSet",
+    "ArtOfWar",
+    "Astrolabe",
+    "BagOfMarbles",
+    "BagOfPreparation",
+    "BirdFacedUrn",
+    "BlackBlood",
+    "BlackStar",
+    "BloodVial",
+    "BloodyIdol",
+    "BlueCandle",
+    "BottledFlame",
+    "BottledLightning",
+    "BottledTornado",
+    "BronzeScales",
+    "Brimstone",
+    "BurningBlood",
+    "BustedCrown",
+    "CallingBell",
+    "Calipers",
+    "CaptainsWheel",
+    "Cauldron",
+    "CentennialPuzzle",
+    "CeramicFish",
+    "ChampionBelt",
+    "CharonsAshes",
+    "ChemicalX",
+    "Circlet",
+    "ClockworkSouvenir",
+    "CoffeeDripper",
+    "CrackedCore",
+    "CursedKey",
+    "DarkstonePeriapt",
+    "DeadBranch",
+    "DollysMirror",
+    "DreamCatcher",
+    "DuVuDoll",
+    "Ectoplasm",
+    "EmptyCage",
+    "EternalFeather",
+    "FossilizedHelix",
+    "FrozenCore",
+    "FrozenEgg",
+    "FrozenEye",
+    "FusionHammer",
+    "GamblingChip",
+    "Ginger",
+    "Girya",
+    "GoldenIdol",
+    "GremlinHorn",
+    "HandDrill",
+    "HappyFlower",
+    "HolyWater",
+    "HornCleat",
+    "IceCream",
+    "IncenseBurner",
+    "InkBottle",
+    "JuzuBracelet",
+    "Kunai",
+    "Lantern",
+    "LeesWaffle",
+    "LetterOpener",
+    "LizardTail",
+    "MagicFlower",
+    "Mango",
+    "MarkOfPain",
+    "Matryoshka",
+    "MawBank",
+    "MealTicket",
+    "MeatOnTheBone",
+    "MedicalKit",
+    "MembershipCard",
+    "MercuryHourglass",
+    "MoltenEgg",
+    "MummifiedHand",
+    "MutagenicStrength",
+    "Nunchaku",
+    "OddlySmoothStone",
+    "OldCoin",
+    "Omamori",
+    "OrangePellets",
+    "Orichalcum",
+    "Orrery",
+    "PandorasBox",
+    "Pantograph",
+    "PaperPhrog",
+    "PeacePipe",
+    "Pear",
+    "PenNib",
+    "PhilosophersStone",
+    "Pocketwatch",
+    "PotionBelt",
+    "PrayerWheel",
+    "PreservedInsect",
+    "PrismaticShard",
+    "PureWater",
+    "QuestionCard",
+    "RedCirclet",
+    "RedSkull",
+    "RegalPillow",
+    "RingOfTheSerpent",
+    "RingOfTheSnake",
+    "RunicCube",
+    "RunicDome",
+    "RunicPyramid",
+    "SacredBark",
+    "SelfFormingClay",
+    "Shovel",
+    "Shuriken",
+    "SingingBowl",
+    "SlaversCollar",
+    "SlingOfCourage",
+    "SmilingMask",
+    "SneckoEye",
+    "Sozu",
+    "StoneCalendar",
+    "StrangeSpoon",
+    "Strawberry",
+    "StrikeDummy",
+    "Sundial",
+    "TheAbacus",
+    "TheBoot",
+    "TheCourier",
+    "ThreadAndNeedle",
+    "TinyChest",
+    "TinyHouse",
+    "Toolbox",
+    "Torii",
+    "ToxicEgg",
+    "ToyOrnithopter",
+    "TungstenRod",
+    "Turnip",
+    "UnceasingTop",
+    "Vajra",
+    "VelvetChoker",
+    "WarPaint",
+    "Whetstone",
+    "WhiteBeastStatue",
+    "WingBoots",
+}
+
+
 def _restoration_record(
     *,
     step: int,
@@ -1459,6 +1704,7 @@ def _summary(env: Any) -> dict[str, Any]:
         "potions": run.get("potions") or [],
         "potion_count": len(run.get("potions") or []),
         "relics": run.get("relics") or [],
+        "relic_count": len(run.get("relics") or []),
         "combat": {
             "energy": player.get("energy"),
             "hand": [card.get("content_id") for card in ((combat.get("piles") or {}).get("hand") or [])],
@@ -1635,7 +1881,7 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
     simulator = _summary(env)
     observed_summary = _observed_summary(observed)
     diffs = []
-    for key in ("phase", "player_hp", "player_max_hp", "gold", "potion_count"):
+    for key in ("phase", "player_hp", "player_max_hp", "gold", "potion_count", "relic_count"):
         if observed_summary.get(key) is None:
             continue
         if simulator.get(key) != observed_summary.get(key):
@@ -1667,12 +1913,16 @@ def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
     combat = observed.get("combat_state") if isinstance(observed.get("combat_state"), dict) else {}
     player = combat.get("player") if isinstance(combat.get("player"), dict) else {}
     potion_count = len(_observed_real_potions(observed))
+    relic_count = (
+        len(_observed_snapshot_relics(observed)) if isinstance(observed.get("relics"), list) else None
+    )
     return {
         "phase": _observed_phase(observed),
         "player_hp": observed.get("current_hp") or observed.get("player_hp") or player.get("current_hp"),
         "player_max_hp": observed.get("max_hp") or observed.get("player_max_hp") or player.get("max_hp"),
         "gold": observed.get("gold"),
         "potion_count": potion_count,
+        "relic_count": relic_count,
         "combat": {
             "energy": combat.get("energy"),
             "hand_count": len(combat.get("hand") or []),
