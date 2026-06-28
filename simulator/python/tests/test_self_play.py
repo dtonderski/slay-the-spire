@@ -7,6 +7,7 @@ from sts import omni
 from sts.search import CombatSearchConfig
 from sts.search_lab import SearchCandidate
 from sts.self_play import (
+    _candidate_with_allowed_potions,
     _parse_candidate_names,
     _trace_candidates_by_name,
     evaluate_self_play_corpus,
@@ -260,6 +261,8 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(eval_set_report["eval_set"], "dev-fast-10")
             self.assertEqual(eval_set_report["eval_set_spec"]["max_roots"], 10)
             self.assertEqual(eval_set_report["root_scope"], "combat_start")
+            self.assertGreaterEqual(eval_set_report["available_roots"], eval_set_report["roots"])
+            self.assertFalse(eval_set_report["held_out"])
 
     def test_trace_eval_candidate_name_filter_accepts_comma_and_repeated_values(self):
         names = _parse_candidate_names(["tactical_greedy_d40,hp_greedy_d40", "tactical_greedy_d40"])
@@ -273,8 +276,27 @@ class SelfPlayTests(unittest.TestCase):
         self.assertEqual([candidate.name for candidate in candidates], ["hp_greedy_d40"])
         with self.assertRaises(ValueError):
             _trace_candidates_by_name(["missing"])
-            self.assertGreaterEqual(eval_set_report["available_roots"], eval_set_report["roots"])
-            self.assertFalse(eval_set_report["held_out"])
+
+    def test_explicit_candidate_potion_constraint_survives_global_allowlist(self):
+        candidate = SearchCandidate(
+            "no_potions",
+            CombatSearchConfig(
+                max_depth=1,
+                objective="survive_then_damage",
+                algorithm="greedy",
+                allowed_potions=(),
+            ),
+        )
+
+        updated = _candidate_with_allowed_potions(candidate, ("Fire Potion",))
+
+        self.assertEqual(updated.config.allowed_potions, ())
+
+    def test_trace_candidate_list_includes_no_potion_variant(self):
+        candidates = _trace_candidates_by_name(["trace_probe_no_potions_d40"])
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].config.allowed_potions, ())
 
     def test_real_trace_report_explains_missing_simulator_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
