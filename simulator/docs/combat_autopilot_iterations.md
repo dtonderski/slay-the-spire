@@ -1148,3 +1148,52 @@ Interpretation:
 - For the current long trace, the selected candidate wins every combat-start root. This is the most relevant metric for dataset replay where the autopilot takes over at the beginning of combat.
 - The remaining `full-323` losses are arbitrary mid-combat recovery states, not combat starts. They are still useful stress tests, but they should not be treated as evidence that the current combat-start replay loop cannot work.
 - The failed debuff objective is evidence that the step 284-287 cluster is not solved by simply valuing Weak/Vulnerable or weak-adjusted incoming damage. Those states may require a stronger recovery planner, explicit principal-variation following, or accepting that some mid-combat trace states are already losing under the simulator branch.
+
+### 25. Frozen Root Manifest and Top-Candidate Validation Pass
+
+Change:
+
+- Added a top-level `root_manifest` to trace eval JSON reports. Each report now records the exact trace path, trace step, state ID, split, potion inventory, legal action kinds, legal potion names, allowed-potion availability, and real-trace HP loss for every selected root.
+- This makes the named eval sets auditable as frozen trace-derived selections instead of only count-based reports.
+- Re-ran the current top candidates using the trace potion allowlist:
+  - `Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Power Potion,Explosive Potion`
+
+Candidate-selection pass on `dev-50`:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_beam_terminal_w32_d40` | 17 | 17 | 0 | 0 | 19.47 | 57.6 | 6.35 | 12 | 0.00260 | 0.039 | 16230.5 |
+| `rust_terminal_rescue_keyed_w32_w128_no_power_d40` | 17 | 17 | 0 | 0 | 19.71 | 57.6 | 6.35 | 12 | 0.00338 | 0.058 | 32032.1 |
+| `rust_beam_terminal_w128_no_power_d40` | 17 | 17 | 0 | 0 | 19.82 | 57.6 | 6.35 | 10 | 0.00842 | 0.104 | 47857.3 |
+| `rust_beam_terminal_w128_d40` | 17 | 17 | 0 | 0 | 19.82 | 57.6 | 6.35 | 10 | 0.00846 | 0.103 | 48237.0 |
+| `rust_terminal_portfolio_d40` | 17 | 16 | 1 | 0 | 19.06 | 54.0 | 6.35 | 16 | 0.00399 | 0.071 | 35018.6 |
+
+Held-out validation for the best dev candidates:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_beam_terminal_w128_no_power_d40` | 4 | 4 | 0 | 0 | 14.25 | 20.0 | 4.00 | 1 | 0.00826 | 0.124 | 37320.5 |
+| `rust_terminal_rescue_keyed_w32_w128_no_power_d40` | 4 | 4 | 0 | 0 | 21.25 | 43.8 | 4.00 | 1 | 0.00311 | 0.051 | 18681.5 |
+| `rust_beam_terminal_w32_d40` | 4 | 4 | 0 | 0 | 24.75 | 48.0 | 4.00 | 1 | 0.00287 | 0.054 | 16465.0 |
+
+Full coverage sanity for the validation-favored candidate:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Win Rate | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Mean Final HP | Mean Monster HP | Potion Uses | Mean Seconds / Decision | P50 Seconds / Decision | P95 Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full-323` | `rust_beam_terminal_w128_no_power_d40` | 323 | 319 | 4 | 0 | 0.988 | 15.26 | 10.0 | 59.9 | -1.02 | 51.82 | 0.84 | 113 | 0.00655 | 0.00543 | 0.03456 | 0.086 | 34029.46 | 123196.4 |
+
+Remaining full-set failures for `rust_beam_terminal_w128_no_power_d40`:
+
+| Trace Step | Result | Final HP | Monster HP | Actions | Potions Used |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 284 | lost | -6 | 65 | 16 | none |
+| 285 | lost | -6 | 49 | 8 | none |
+| 286 | lost | -8 | 61 | 6 | none |
+| 287 | lost | -3 | 96 | 9 | none |
+
+Interpretation:
+
+- `rust_beam_terminal_w32_d40` is the best `dev-50` candidate by the current ranking tie-breaks and is the fastest of the zero-failure dev candidates.
+- The held-out `val-50` roots strongly favor `rust_beam_terminal_w128_no_power_d40` on HP preservation, but the validation set is only four roots from this single trace, so this is evidence for keeping it as a top candidate rather than enough evidence to replace every default.
+- `rust_beam_terminal_w128_no_power_d40` uses fewer potions on `full-323` than keyed rescue and wins the same 319/323 roots, but it has worse full-set HP loss, worse p95 HP loss, and roughly double the runtime.
+- The persistent step 284-287 losses remain a mid-combat recovery problem, not a combat-start replay problem. More beam width alone has not solved them.
