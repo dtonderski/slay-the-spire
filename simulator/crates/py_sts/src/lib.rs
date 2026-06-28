@@ -785,6 +785,12 @@ fn rust_beam_combat_search(
 }
 
 fn rust_node_better(candidate: &RustBeamNode, best: &RustBeamNode) -> bool {
+    if candidate.first_action.is_some() && best.first_action.is_none() {
+        return true;
+    }
+    if candidate.first_action.is_none() && best.first_action.is_some() {
+        return false;
+    }
     if candidate.terminal_reason.as_deref() == Some("won")
         && best.terminal_reason.as_deref() != Some("won")
     {

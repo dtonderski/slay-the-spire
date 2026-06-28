@@ -852,19 +852,22 @@ Results:
 | Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Combat | Mean Search Nodes |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `dev-fast-10` | `rust_beam_terminal_w16_d40` | 10 | 9 | 0 | 1 | 12.7 | 5.0 | 42.5 | 5.6 | 7 | 0.011 | 6313.2 |
-| `dev-fast-10` | `rust_terminal_portfolio_d40` | 10 | 10 | 0 | 0 | 17.1 | 8.0 | 49.3 | 5.6 | 11 | 0.053 | 32461.0 |
+| `dev-fast-10` | `rust_terminal_portfolio_d40` | 10 | 10 | 0 | 0 | 17.1 | 8.0 | 49.3 | 5.6 | 11 | 0.056 | 32461.0 |
 | `dev-50` | `rust_beam_terminal_w16_d40` | 17 | 15 | 0 | 2 | 15.94 | 7.0 | 59.6 | 6.35 | 11 | 0.016 | 6831.0 |
-| `dev-50` | `rust_terminal_portfolio_d40` | 17 | 16 | 0 | 1 | 17.12 | 7.0 | 54.0 | 6.35 | 15 | 0.075 | 35046.71 |
+| `dev-50` | `rust_terminal_portfolio_d40` | 17 | 16 | 1 | 0 | 19.06 | 7.0 | 54.0 | 6.35 | 15 | 0.081 | 35050.94 |
 
 Remaining `dev-50` failure:
 
 | Candidate | Trace Step | Result | Final HP | Monster HP | Potions |
 | --- | ---: | --- | ---: | ---: | --- |
-| `rust_terminal_portfolio_d40` | 190 | nonterminal | 17 | 32 | DistilledChaos, Elixir |
+| `rust_terminal_portfolio_d40` | 190 | lost | 0 | 4 | DistilledChaos, Elixir |
 
 Interpretation:
 
-- This is the best current dev-50 policy by completion: 16/17 wins, zero losses, one nonterminal.
+- This is the best current dev-50 policy by completion: 16/17 wins with no nonterminals, but the remaining failure is now an actual loss.
 - It is also the first candidate to reach 10/10 on `dev-fast-10`.
 - The tradeoff is real: it spends more potions and HP than the single terminal beam, and it is roughly 4-5x more expensive. The runtime is still small enough for replay automation on these roots.
-- Do not touch held-out `val-50` yet. One known dev-50 root still fails: step 190 Chosen+Cultist. The next iteration should target that root specifically, ideally with a lethal finisher or extended max-action rescue rather than another broad static heuristic.
+- A Rust beam contract fix made this result stricter: the beam no longer returns `None` from a nonterminal root just because the root score beats all explored children. Before that fix, step 190 stalled as a nonterminal; after the fix, the policy continues and exposes the line as losing.
+- Increasing the outer action cap from 40 to 80 did not change the result, so the remaining failure is not a simple action-budget problem.
+- Disallowing Elixir is worse on `dev-50`: it drops to 15/17 wins with 2 losses, including Hexaghost.
+- Do not touch held-out `val-50` yet. One known dev-50 root still fails: step 190 Chosen+Cultist. The next iteration should target that root specifically, ideally by improving first-turn/second-turn lethal planning rather than another broad static heuristic.
