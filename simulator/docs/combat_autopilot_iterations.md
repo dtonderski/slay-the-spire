@@ -1124,3 +1124,27 @@ Interpretation:
 - The combat reward adapter fix is still important even though the four Power fixtures now become losses. The verifier/search can no longer silently stall with hidden generated-card choices.
 - The remaining cluster is not solved by more beam width alone. It is likely a late Giant Head style tactical-ordering/search-quality issue around high incoming damage and delayed lethal, with Power Potion/Juggernaut being a symptom rather than a simple oracle.
 - Next work should either add a stronger late-fight tactical objective/candidate that can value debuff-before-burst lines, or move the Rust beam toward principal-variation following / better rollout evaluation. Treat these four failures as the next fixed diagnostic set.
+
+### 24. Combat-Start Scope Check and Rejected Debuff Objective
+
+Change:
+
+- Ran an explicit all-combat-start trace eval for the current selected candidate:
+  - `uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --split all --root-scope combat_start --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Power Potion,Explosive Potion" --candidate rust_terminal_rescue_keyed_w32_w128_no_power_d40 --progress-every 10 --output target/trace-guided/eval-combat-start-all-rust-rescue-keyed-rebuilt.json --failure-output target/trace-guided/eval-combat-start-all-rust-rescue-keyed-rebuilt-failures.json`
+- Probed an experimental Rust objective that:
+  - estimated incoming damage after monster Weak
+  - added short-term value for monster Weak and Vulnerable
+  - otherwise kept the terminal tactical scoring shape
+- Rejected that objective because it did not win any of the four remaining mid-combat failures, even with width 512 and depth 80.
+
+All-combat-start result:
+
+| Eval Scope | Candidate | Roots | Wins | Losses | Nonterminal | Win Rate | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Mean Final HP | Mean Monster HP | Potion Uses | Mean Seconds / Decision | P50 Seconds / Decision | P95 Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| all `combat_start` roots | `rust_terminal_rescue_keyed_w32_w128_no_power_d40` | 21 | 21 | 0 | 0 | 1.000 | 20.00 | 14.0 | 53.0 | 5.90 | 55.95 | 0.00 | 13 | 0.00359 | 0.00195 | 0.01999 | 0.061 | 29489.10 | 78045.0 |
+
+Interpretation:
+
+- For the current long trace, the selected candidate wins every combat-start root. This is the most relevant metric for dataset replay where the autopilot takes over at the beginning of combat.
+- The remaining `full-323` losses are arbitrary mid-combat recovery states, not combat starts. They are still useful stress tests, but they should not be treated as evidence that the current combat-start replay loop cannot work.
+- The failed debuff objective is evidence that the step 284-287 cluster is not solved by simply valuing Weak/Vulnerable or weak-adjusted incoming damage. Those states may require a stronger recovery planner, explicit principal-variation following, or accepting that some mid-combat trace states are already losing under the simulator branch.
