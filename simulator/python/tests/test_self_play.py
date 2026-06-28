@@ -306,6 +306,13 @@ class SelfPlayTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0].config.allowed_potions, ())
 
+    def test_trace_candidate_list_includes_rust_beam_variant(self):
+        candidates = _trace_candidates_by_name(["rust_beam_tactical_w16_d40"])
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].config.algorithm, "rust_beam")
+        self.assertEqual(candidates[0].config.beam_width, 16)
+
     def test_real_trace_report_explains_missing_simulator_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"

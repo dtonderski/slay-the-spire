@@ -214,6 +214,25 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertEqual(result.best_action.family(), "combat")
         self.assertGreaterEqual(result.nodes, 2)
 
+    def test_rust_beam_search_accepts_run_combat_fixture(self):
+        env = omni.OmniRunEnv.combat_fixture()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="tactical_survival",
+                algorithm="rust_beam",
+                beam_width=4,
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["algorithm"], "rust_beam")
+        self.assertEqual(result.diagnostics["beam_width"], 4)
+        self.assertGreater(result.nodes, 1)
+        self.assertIn("rust_final_hp", result.diagnostics)
+
     def test_allowed_potions_filters_run_potion_actions(self):
         env = self._run_combat_with_fire_potion()
 
@@ -227,6 +246,15 @@ class CombatSearchSmokeTests(unittest.TestCase):
             all(action.kind() != "use_potion" for action in blocked.principal_variation)
         )
         self.assertEqual(blocked.diagnostics["allowed_potions"], ())
+
+        rust_blocked = search_combat(
+            env,
+            CombatSearchConfig(max_depth=12, algorithm="rust_beam", allowed_potions=()),
+        )
+
+        self.assertIsNotNone(rust_blocked.best_action)
+        self.assertNotEqual(rust_blocked.best_action.kind(), "use_potion")
+        self.assertEqual(rust_blocked.diagnostics["allowed_potions"], ())
 
     def test_allowed_potion_names_match_short_inventory_names(self):
         env = self._run_combat_with_fire_potion(monster_hp=5, empty_hand=True)

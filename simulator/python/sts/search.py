@@ -82,6 +82,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "trace_probe",
         "potion_rescue_trace_probe",
         "aggressive_rescue_trace_probe",
+        "rust_greedy",
+        "rust_beam",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
@@ -111,6 +113,8 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         score, variation, nodes, terminal_reason = _aggressive_rescue_trace_probe_search(
             env.clone(), depth, config
         )
+    elif config.algorithm in {"rust_greedy", "rust_beam"}:
+        return _rust_search(env, config)
     else:
         width = 1 if config.algorithm == "greedy" else config.beam_width
         score, variation, nodes, terminal_reason = _beam_search(
@@ -133,6 +137,49 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
             "unsupported_transitions": 0,
         },
         terminal_reason=terminal_reason,
+    )
+
+
+def _rust_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
+    allowed_potions = (
+        None if config.allowed_potions is None else list(config.allowed_potions)
+    )
+    if config.algorithm == "rust_beam":
+        recommendation = env.rust_beam_combat_search(
+            config.max_depth,
+            config.objective,
+            allowed_potions,
+            config.beam_width,
+        )
+    else:
+        recommendation = env.rust_greedy_combat_search(
+            config.max_depth,
+            config.objective,
+            allowed_potions,
+        )
+    variation = (recommendation.best_action,) if recommendation.best_action is not None else ()
+    return SearchRecommendation(
+        best_action=recommendation.best_action,
+        principal_variation=variation,
+        visits=recommendation.nodes,
+        value=recommendation.value,
+        win_probability=_terminal_probability(
+            recommendation.terminal_reason, won=1.0, lost=0.0
+        ),
+        expected_hp_delta=None,
+        terminal_rate=1.0 if recommendation.terminal_reason else 0.0,
+        diagnostics={
+            "max_depth": config.max_depth,
+            "objective": config.objective,
+            "algorithm": config.algorithm,
+            "beam_width": config.beam_width if config.algorithm == "rust_beam" else None,
+            "allowed_potions": config.allowed_potions,
+            "unsupported_transitions": 0,
+            "rust_final_hp": recommendation.final_hp,
+            "rust_monster_hp": recommendation.monster_hp,
+            "rust_actions": recommendation.actions,
+        },
+        terminal_reason=recommendation.terminal_reason,
     )
 
 

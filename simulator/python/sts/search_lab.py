@@ -133,6 +133,23 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
                 allowed_potions=(),
             ),
         ),
+        SearchCandidate(
+            "rust_greedy_tactical_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="tactical_survival",
+                algorithm="rust_greedy",
+            ),
+        ),
+        SearchCandidate(
+            "rust_beam_tactical_w16_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="tactical_survival",
+                algorithm="rust_beam",
+                beam_width=16,
+            ),
+        ),
     ]
 
 

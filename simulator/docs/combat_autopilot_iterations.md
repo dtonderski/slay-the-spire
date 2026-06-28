@@ -735,3 +735,45 @@ Interpretation:
 - This primitive is fast enough to be useful as a building block, but it is not strong enough to promote as an autopilot candidate.
 - The first version is a one-step greedy rollout with simple Rust scoring. It does not yet do candidate-generation plus rollout, beam retention, terminal probing, or strong select-screen strategy.
 - The next Rust-side search iteration should add a bounded beam or portfolio over this Rust rollout core, then compare it on `dev-fast-10` and `dev-50` before touching held-out `val-50`.
+
+### 18. Rust Beam Search Candidate
+
+Change:
+
+- Added `OmniRunEnv.rust_beam_combat_search(max_actions, objective, allowed_potions, beam_width)`.
+- Wired Python `search_combat` algorithms:
+  - `rust_greedy`
+  - `rust_beam`
+- Added trace candidate names:
+  - `rust_greedy_tactical_d40`
+  - `rust_beam_tactical_w16_d40`
+
+Why:
+
+- The first Rust primitive proved that the Rust/PyO3 path is fast, but one-step greedy was not strong enough.
+- A bounded Rust beam keeps multiple rollout states inside Rust and exposes only the selected first action to Python, avoiding the slow Python clone/step/score loop.
+
+Results:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-fast-10` | `trace_probe_aggressive_rescue_d40` | 10 | 9 | 1 | 0 | 29.3 | 19.0 | 70.45 | 2 | 0.263 | 2507.9 |
+| `dev-fast-10` | `rust_greedy_tactical_d40` | 10 | 9 | 1 | 0 | 17.2 | 4.5 | 51.9 | 12 | 0.002 | 828.3 |
+| `dev-fast-10` | `rust_beam_tactical_w16_d40` | 10 | 8 | 0 | 2 | 18.3 | 3.5 | 58.15 | 8 | 0.017 | 10218.2 |
+| `dev-50` | `trace_probe_aggressive_rescue_d40` | 17 | 14 | 2 | 1 | 26.88 | 23.0 | 63.0 | 4 | 0.380 | 2996.0 |
+| `dev-50` | `rust_greedy_tactical_d40` | 17 | 13 | 3 | 1 | 26.35 | 11.0 | 79.2 | 16 | 0.003 | 1075.88 |
+| `dev-50` | `rust_beam_tactical_w16_d40` | 17 | 13 | 0 | 4 | 11.41 | 1.0 | 53.6 | 10 | 0.025 | 10383.82 |
+
+Hard-root notes from `dev-50`:
+
+- `rust_beam_tactical_w16_d40` avoids outright losses on the known hard roots, but leaves several combats nonterminal at `max_actions=40`:
+  - step 34: final HP 29, monster HP 28
+  - step 91 Hexaghost: final HP 60, monster HP 217
+  - step 158 Book of Stabbing: final HP 85, monster HP 131
+  - step 190 Chosen+Cultist: final HP 28, monster HP 78
+
+Interpretation:
+
+- Do not promote `rust_beam_tactical_w16_d40` as the selected policy yet: on the candidate-selection set it wins fewer roots than the current best and leaves 4 nonterminals.
+- Keep the Rust beam path. It is fast enough to iterate on and materially improves HP preservation, but it needs stronger terminal pressure, better long-horizon damage planning, and probably a guarded rescue composition with the current trace probe.
+- The next Rust-side iteration should use `dev-50` only and try terminal-pressure variants before any held-out `val-50` comparison.

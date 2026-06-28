@@ -457,6 +457,22 @@ impl PyOmniRunEnv {
         rust_greedy_combat_search(&self.state, max_actions, objective, allowed_potions)
     }
 
+    pub fn rust_beam_combat_search(
+        &self,
+        max_actions: usize,
+        objective: Option<&str>,
+        allowed_potions: Option<Vec<String>>,
+        beam_width: usize,
+    ) -> PyResult<PyRustSearchRecommendation> {
+        rust_beam_combat_search(
+            &self.state,
+            max_actions,
+            objective,
+            allowed_potions,
+            beam_width,
+        )
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "OmniRunEnv(phase={}, snapshot_hash={})",
@@ -665,6 +681,131 @@ fn rust_greedy_combat_search(
     })
 }
 
+#[derive(Clone)]
+struct RustBeamNode {
+    state: RunState,
+    first_action: Option<ExactRunActionKind>,
+    actions: usize,
+    score: f64,
+    terminal_reason: Option<String>,
+}
+
+fn rust_beam_combat_search(
+    state: &RunState,
+    max_actions: usize,
+    objective: Option<&str>,
+    allowed_potions: Option<Vec<String>>,
+    beam_width: usize,
+) -> PyResult<PyRustSearchRecommendation> {
+    if beam_width == 0 {
+        return Err(PyValueError::new_err("beam_width must be at least 1"));
+    }
+    let objective = objective.unwrap_or("tactical_survival");
+    let allowed_potions = allowed_potions.map(|names| {
+        names
+            .into_iter()
+            .map(|name| normalize_potion_name(&name))
+            .collect::<Vec<_>>()
+    });
+    let terminal_reason = run_terminal_reason(state);
+    let initial_score = rust_run_score(state, terminal_reason.as_deref(), objective)?;
+    let mut best = RustBeamNode {
+        state: state.clone(),
+        first_action: None,
+        actions: 0,
+        score: initial_score,
+        terminal_reason,
+    };
+    let mut frontier = vec![best.clone()];
+    let mut nodes = 1usize;
+
+    for _ in 0..max_actions {
+        let mut next_frontier = Vec::new();
+        for node in std::mem::take(&mut frontier) {
+            if node.terminal_reason.is_some() {
+                if rust_node_better(&node, &best) {
+                    best = node.clone();
+                }
+                next_frontier.push(node);
+                continue;
+            }
+            let actions = filtered_run_actions(&node.state, allowed_potions.as_deref());
+            if actions.is_empty() {
+                if rust_node_better(&node, &best) {
+                    best = node.clone();
+                }
+                next_frontier.push(node);
+                continue;
+            }
+            for action in actions {
+                let Ok(next_state) = apply_exact_run_action(&node.state, &action) else {
+                    continue;
+                };
+                nodes += 1;
+                let terminal_reason = run_terminal_reason(&next_state);
+                let score = rust_run_score(&next_state, terminal_reason.as_deref(), objective)?
+                    - rust_action_penalty(&action);
+                let child = RustBeamNode {
+                    state: next_state,
+                    first_action: node.first_action.clone().or_else(|| Some(action)),
+                    actions: node.actions + 1,
+                    score,
+                    terminal_reason,
+                };
+                if rust_node_better(&child, &best) {
+                    best = child.clone();
+                }
+                next_frontier.push(child);
+            }
+        }
+        if next_frontier.is_empty() {
+            break;
+        }
+        next_frontier.sort_by(rust_node_order);
+        next_frontier.truncate(beam_width);
+        frontier = next_frontier;
+    }
+
+    for node in frontier {
+        if rust_node_better(&node, &best) {
+            best = node;
+        }
+    }
+
+    let (final_hp, monster_hp) = run_combat_hp(&best.state);
+    Ok(PyRustSearchRecommendation {
+        best_action: best.first_action.map(|action| PyExactRunAction { action }),
+        value: best.score,
+        actions: best.actions,
+        nodes,
+        terminal_reason: best.terminal_reason,
+        final_hp,
+        monster_hp,
+    })
+}
+
+fn rust_node_better(candidate: &RustBeamNode, best: &RustBeamNode) -> bool {
+    if candidate.terminal_reason.as_deref() == Some("won")
+        && best.terminal_reason.as_deref() != Some("won")
+    {
+        return true;
+    }
+    if candidate.terminal_reason.as_deref() != Some("lost")
+        && best.terminal_reason.as_deref() == Some("lost")
+    {
+        return true;
+    }
+    candidate.score > best.score
+}
+
+fn rust_node_order(left: &RustBeamNode, right: &RustBeamNode) -> std::cmp::Ordering {
+    right
+        .score
+        .partial_cmp(&left.score)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| left.actions.cmp(&right.actions))
+}
+
 fn filtered_run_actions(
     state: &RunState,
     allowed_potions: Option<&[String]>,
@@ -707,6 +848,17 @@ fn normalize_potion_name(name: &str) -> String {
         .strip_suffix("potion")
         .unwrap_or(&normalized)
         .to_owned()
+}
+
+fn rust_action_penalty(action: &ExactRunActionKind) -> f64 {
+    match action {
+        ExactRunActionKind::Run(RunAction::UsePotion { .. }) => 5_000.0,
+        ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. })
+        | ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. })
+        | ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. })
+        | ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. }) => 2.0,
+        _ => 0.0,
+    }
 }
 
 fn run_terminal_reason(state: &RunState) -> Option<String> {
@@ -760,6 +912,13 @@ fn rust_run_score(
         .sum();
     let alive_count = alive_monsters.len() as f64;
     let state_score = match objective {
+        "survive_then_damage" => {
+            player_hp * 10.0 + player_block * 1.5
+                + player_energy * 0.25
+                - monster_hp * 3.0
+                - monster_block * 0.5
+                - alive_count * 25.0
+        }
         "tactical_survival" => {
             player_hp * 25.0 - unblocked * 45.0
                 + useful_block * 7.5
