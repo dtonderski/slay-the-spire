@@ -517,6 +517,85 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(records[0]["skipped_noncombat_actions"], 1)
             self.assertIsNone(records[0]["blocker"])
 
+    def test_trace_guided_anchor_preserves_observed_relics_and_counters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            output_path = Path(directory) / "replayed.jsonl"
+            observed_relics = [
+                {"name": "Burning Blood", "id": "Burning Blood", "counter": -1},
+                {"name": "Frozen Egg", "id": "Frozen Egg 2", "counter": -1},
+                {"name": "Letter Opener", "id": "Letter Opener", "counter": 1},
+                {"name": "Stone Calendar", "id": "StoneCalendar", "counter": 4},
+                {"name": "Mummified Hand", "id": "Mummified Hand", "counter": -1},
+                {"name": "Pen Nib", "id": "Pen Nib", "counter": 9},
+                {"name": "Nunchaku", "id": "Nunchaku", "counter": 8},
+            ]
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 MANUAL01"},
+                    {
+                        "type": "state",
+                        "step": 1,
+                        "message": {
+                            "game_state": {
+                                "deck": [],
+                                "relics": observed_relics,
+                                "current_hp": 70,
+                                "max_hp": 80,
+                                "gold": 42,
+                                "floor": 16,
+                                "ascension_level": 0,
+                                "potions": [],
+                                "combat_state": {
+                                    "player": {
+                                        "current_hp": 70,
+                                        "max_hp": 80,
+                                        "block": 0,
+                                        "energy": 3,
+                                        "powers": [],
+                                    },
+                                    "monsters": [],
+                                    "hand": [],
+                                    "draw_pile": [],
+                                    "discard_pile": [],
+                                    "exhaust_pile": [],
+                                },
+                            }
+                        },
+                    },
+                    {"type": "action", "step": 2, "command": "WAIT"},
+                ],
+            )
+
+            result = replay_real_trace_guided(trace=trace_path, output=output_path)
+            records = self._read_jsonl(output_path)
+            anchor = next(record for record in records if record.get("type") == "anchor")
+            snapshot = json.loads(anchor["snapshot_json"])
+            run = snapshot["state"]
+            combat = run["combat"]
+
+            self.assertEqual(result.stop_reason, "trace_exhausted")
+            self.assertEqual(
+                run["relics"],
+                [
+                    "BurningBlood",
+                    "FrozenEgg",
+                    "LetterOpener",
+                    "StoneCalendar",
+                    "MummifiedHand",
+                    "PenNib",
+                    "Nunchaku",
+                ],
+            )
+            self.assertEqual(combat["relics"], run["relics"])
+            self.assertEqual(combat["relic_counters"]["letter_opener_skills_this_turn"], 1)
+            self.assertEqual(combat["relic_counters"]["player_turns_started"], 4)
+            self.assertEqual(combat["relic_counters"]["pen_nib_attacks_played"], 9)
+            self.assertEqual(combat["relic_counters"]["nunchaku_attacks_played"], 8)
+            self.assertTrue(verify_self_play_trace(output_path)["ok"])
+
     def test_verify_rejects_action_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "selfplay.jsonl"

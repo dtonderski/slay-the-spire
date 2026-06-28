@@ -1446,3 +1446,68 @@ Interpretation:
 - Three fixtures hit the `50000` node cap, so this is not a proof of impossibility for those roots.
 - The last fixture exhausted under the configured `16` action limit without finding a win.
 - Combined with missing relic continuity, the next milestone should be state repair/import fidelity, not more policy tuning. Specifically: preserve/import real relic inventory and relevant relic counters into anchored replay snapshots, rerun `full-323`, and only return to policy work if the repaired failure roots still lose.
+
+### 31. Observed Combat Relic Import Repair
+
+Change:
+
+- Repaired `run_state_from_observed_combat_message` so CommunicationMod combat anchors import observed relic inventory instead of only `Mummified Hand` and `Pen Nib`.
+- Added trace-name normalization for CommunicationMod variants such as `Frozen Egg 2` and `StoneCalendar`.
+- Imported supported relic counters into `CombatState.relic_counters`, including Pen Nib, Nunchaku, Letter Opener, Pocketwatch turn-card count, Stone Calendar turn count, Happy Flower, Ink Bottle, Shuriken, Kunai, and Incense Burner.
+- Inferred `energy_per_turn`/`max_energy` from observed energy boss relics such as Mark of Pain.
+- Added a defensive Python snapshot enrichment/relic-count drift check for trace-guided anchors. The Rust importer is the source-of-truth fix; the Python layer prevents stale or partially imported anchors from silently retaining empty relic lists.
+
+Why:
+
+- The previous four `full-323` losses were all from a mid-combat Giant Head recovery cluster.
+- Raw MANUAL01 states around that cluster had 13 relics, including Pocketwatch, Champion Belt, Mark of Pain, Medical Kit, Letter Opener, and Stone Calendar.
+- The replay snapshots used by eval had `state.relics: []` and `combat.relics: []`, so the policy was being asked to recover from an unfair, underpowered state.
+
+Validation:
+
+```powershell
+cargo test -p sts_verify
+uv run maturin develop --release
+uv run python -m sts.self_play replay-real-trace --trace ..\verification\corpus\communication_mod\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl --output target\trace-guided\manual01-replayed.jsonl --report-output target\trace-guided\manual01-report.json
+uv run python -m unittest python.tests.test_search_lab python.tests.test_self_play python.tests.test_search_smoke -v
+
+uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --eval-set dev-50 --candidate rust_terminal_win_hp_selector_w32_w128_no_power_d40 --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" --output target/trace-guided/eval-dev-50-win-hp-selector-relic-repaired.json --failure-output target/trace-guided/eval-dev-50-win-hp-selector-relic-repaired-failures.json
+
+uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --eval-set val-50 --candidate rust_terminal_win_hp_selector_w32_w128_no_power_d40 --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" --output target/trace-guided/eval-val-50-win-hp-selector-relic-repaired.json --failure-output target/trace-guided/eval-val-50-win-hp-selector-relic-repaired-failures.json
+
+uv run python -m sts.self_play eval --trace target/trace-guided/manual01-replayed.jsonl --eval-set full-323 --candidate rust_terminal_win_hp_selector_w32_w128_no_power_d40 --max-actions 40 --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" --progress-every 25 --output target/trace-guided/eval-full-323-win-hp-selector-relic-repaired.json --failure-output target/trace-guided/eval-full-323-win-hp-selector-relic-repaired-failures.json
+```
+
+Test results:
+
+- `cargo test -p sts_verify`: 72 unit tests and 25 corpus tests passed.
+- Python focused tests: 41 passed.
+- Regenerated replay: verified, `trace_exhausted`, 327 steps, 326 extractable combat roots.
+- Spot-check around raw trace steps 476-486 now shows the 13 observed relics in both run and combat snapshots, with Mark of Pain raising energy per turn to 4.
+
+Repaired selected-policy results:
+
+| Eval Set | Roots | Wins | Losses | Nonterminal | Win Rate | Mean HP Loss | Median HP Loss | P95 HP Loss | Mean Final HP | Mean Monster HP | Potion Uses | Mean Seconds / Decision | P50 Seconds / Decision | P95 Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes | P95 Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-50` | 16 | 16 | 0 | 0 | 1.000 | 11.88 | 4.0 | 53.25 | 65.25 | 0.0 | 8 | 0.01710 | 0.01438 | 0.06782 | 0.254 | 90802.9 | 228390.8 |
+| `val-50` | 5 | 5 | 0 | 0 | 1.000 | 7.60 | 5.0 | 20.80 | 64.60 | 0.0 | 4 | 0.01524 | 0.01317 | 0.03965 | 0.189 | 66158.6 | 162585.8 |
+| `full-323` | 323 | 323 | 0 | 0 | 1.000 | 9.73 | 7.0 | 39.80 | 57.39 | 0.0 | 104 | 0.01100 | 0.01045 | 0.05791 | 0.132 | 46211.5 | 212966.0 |
+
+Full-set potion use after repair:
+
+| Potion | Uses |
+| --- | ---: |
+| Cultist | 1 |
+| Distilled Chaos | 17 |
+| Elixir | 59 |
+| Explosive | 1 |
+| Flex | 1 |
+| Power | 2 |
+| Weak | 23 |
+
+Interpretation:
+
+- The previous `full-323` failure cluster was an import-fidelity bug, not evidence that the selected search policy could not recover the fight.
+- After relic repair and replay regeneration, the selected default policy wins every frozen `full-323` root with zero failure fixtures.
+- The named combat-start sets changed size because the repaired replay now exposes 326 extractable combat roots; current MANUAL01 contributes 16 dev combat-start roots and 5 held-out validation combat-start roots.
+- The validation set is still too small to claim broad generalization. More real traces remain useful, but there is no longer a known MANUAL01 combat-autopilot blocker.
