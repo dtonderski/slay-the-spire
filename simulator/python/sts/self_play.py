@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import argparse
@@ -645,6 +646,64 @@ def replay_real_trace_guided(
     )
 
 
+def _evaluate_trace_root_task(task: dict[str, Any]) -> dict[str, Any]:
+    root: TraceCombatRoot = task["root"]
+    candidate: SearchCandidate = task["candidate"]
+    root_allowed_potions: tuple[str, ...] | None = task["root_allowed_potions"]
+    allowed_potions_mode: str = task["allowed_potions_mode"]
+    max_actions: int = task["max_actions"]
+    benchmark_root = BenchmarkRoot(
+        name=f"{root.trace_path.stem}:step{root.step}:{root.state_id}",
+        env_kind="run_combat",
+        snapshot_json=root.snapshot_json,
+        state_id=root.state_id,
+        source_depth=root.step,
+        split=root.split,
+    )
+    result = evaluate_candidate(benchmark_root, candidate, max_actions=max_actions)
+    return result.__dict__ | {
+        "trace_path": str(root.trace_path),
+        "trace_step": root.step,
+        "state_id": root.state_id,
+        "potion_count": root.potion_count,
+        "potion_names": list(root.potion_names),
+        "legal_action_kinds": list(root.legal_action_kinds),
+        "legal_potion_names": list(root.legal_potion_names),
+        "allowed_potions": root_allowed_potions,
+        "allowed_potions_mode": allowed_potions_mode,
+        "real_trace_potion_use_names": list(root.real_trace_potion_use_names),
+        "has_potion_actions": any("potion" in kind for kind in root.legal_action_kinds),
+        "has_allowed_potion_actions": _has_allowed_potion_actions(root, root_allowed_potions),
+        "real_trace_final_hp": root.real_trace_final_hp,
+        "real_trace_hp_loss": root.real_trace_hp_loss,
+        "real_trace_terminal_phase": root.real_trace_terminal_phase,
+        "hp_loss_delta_vs_trace": (
+            result.hp_loss - root.real_trace_hp_loss
+            if root.real_trace_hp_loss is not None
+            else None
+        ),
+    }
+
+
+def _print_eval_progress(
+    row: dict[str, Any],
+    completed: int,
+    total: int,
+    progress_stream: TextIO,
+) -> None:
+    print(
+        (
+            f"eval progress {completed}/{total}: "
+            f"{row['candidate']} {Path(row['trace_path']).name}:step{row['trace_step']} "
+            f"won={row['won']} lost={row['lost']} "
+            f"terminal={row['terminal_reason'] or 'nonterminal'} "
+            f"seconds={row['search_seconds']:.2f}"
+        ),
+        file=progress_stream,
+        flush=True,
+    )
+
+
 def evaluate_self_play_corpus(
     *,
     corpus_dir: Path | None = None,
@@ -660,6 +719,7 @@ def evaluate_self_play_corpus(
     eval_set: str | None = None,
     progress_every: int = 0,
     progress_stream: TextIO | None = None,
+    jobs: int = 1,
 ) -> dict[str, Any]:
     """Compare search candidates from exact combat states recorded in traces."""
 
@@ -686,9 +746,7 @@ def evaluate_self_play_corpus(
             for candidate in candidates
         ]
 
-    episodes = []
-    completed = 0
-    total = len(candidates) * len(roots)
+    tasks = []
     for candidate in candidates:
         for root in roots:
             root_allowed_potions = _allowed_potions_for_root(
@@ -697,54 +755,38 @@ def evaluate_self_play_corpus(
                 mode=allowed_potions_mode,
             )
             root_candidate = _candidate_with_allowed_potions(candidate, root_allowed_potions)
-            benchmark_root = BenchmarkRoot(
-                name=f"{root.trace_path.stem}:step{root.step}:{root.state_id}",
-                env_kind="run_combat",
-                snapshot_json=root.snapshot_json,
-                state_id=root.state_id,
-                source_depth=root.step,
-                split=root.split,
+            tasks.append(
+                {
+                    "candidate": root_candidate,
+                    "root": root,
+                    "root_allowed_potions": root_allowed_potions,
+                    "allowed_potions_mode": allowed_potions_mode,
+                    "max_actions": max_actions,
+                }
             )
-            result = evaluate_candidate(benchmark_root, root_candidate, max_actions=max_actions)
-            row = result.__dict__ | {
-                "trace_path": str(root.trace_path),
-                "trace_step": root.step,
-                "state_id": root.state_id,
-                "potion_count": root.potion_count,
-                "potion_names": list(root.potion_names),
-                "legal_action_kinds": list(root.legal_action_kinds),
-                "legal_potion_names": list(root.legal_potion_names),
-                "allowed_potions": root_allowed_potions,
-                "allowed_potions_mode": allowed_potions_mode,
-                "real_trace_potion_use_names": list(root.real_trace_potion_use_names),
-                "has_potion_actions": any("potion" in kind for kind in root.legal_action_kinds),
-                "has_allowed_potion_actions": _has_allowed_potion_actions(
-                    root, root_allowed_potions
-                ),
-                "real_trace_final_hp": root.real_trace_final_hp,
-                "real_trace_hp_loss": root.real_trace_hp_loss,
-                "real_trace_terminal_phase": root.real_trace_terminal_phase,
-                "hp_loss_delta_vs_trace": (
-                    result.hp_loss - root.real_trace_hp_loss
-                    if root.real_trace_hp_loss is not None
-                    else None
-                ),
-            }
+
+    if jobs < 1:
+        raise ValueError("jobs must be at least 1")
+
+    episodes = []
+    completed = 0
+    total = len(tasks)
+    if jobs == 1 or total == 0:
+        row_iter = (_evaluate_trace_root_task(task) for task in tasks)
+        for row in row_iter:
             episodes.append(row)
             completed += 1
             if progress_every > 0 and progress_stream is not None:
                 if completed == total or completed % progress_every == 0:
-                    print(
-                        (
-                            f"eval progress {completed}/{total}: "
-                            f"{candidate.name} {root.trace_path.name}:step{root.step} "
-                            f"won={result.won} lost={result.lost} "
-                            f"terminal={result.terminal_reason or 'nonterminal'} "
-                            f"seconds={result.search_seconds:.2f}"
-                        ),
-                        file=progress_stream,
-                        flush=True,
-                    )
+                    _print_eval_progress(row, completed, total, progress_stream)
+    else:
+        with ProcessPoolExecutor(max_workers=jobs) as executor:
+            for row in executor.map(_evaluate_trace_root_task, tasks):
+                episodes.append(row)
+                completed += 1
+                if progress_every > 0 and progress_stream is not None:
+                    if completed == total or completed % progress_every == 0:
+                        _print_eval_progress(row, completed, total, progress_stream)
 
     failures = _failure_fixtures(roots, episodes)
     if failure_output is not None:
@@ -765,6 +807,7 @@ def evaluate_self_play_corpus(
         "roots": len(roots),
         "max_roots": max_roots,
         "max_actions": max_actions,
+        "jobs": jobs,
         "root_scope": root_scope,
         "eval_set": eval_set,
         "eval_set_spec": eval_set_spec,
@@ -2345,6 +2388,7 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser.add_argument("--eval-set", choices=sorted(TRACE_EVAL_SET_SPECS))
     eval_parser.add_argument("--candidate", dest="candidate_names", action="append")
     eval_parser.add_argument("--progress-every", type=int, default=0)
+    eval_parser.add_argument("--jobs", type=int, default=1)
     eval_parser.add_argument("--output", type=Path)
     eval_parser.add_argument("--failure-output", type=Path)
 
@@ -2403,6 +2447,7 @@ def main(argv: list[str] | None = None) -> None:
             eval_set=args.eval_set,
             progress_every=args.progress_every,
             progress_stream=sys.stderr if args.progress_every > 0 else None,
+            jobs=args.jobs,
         )
         text = json.dumps(report, indent=2, sort_keys=True)
         if args.output:

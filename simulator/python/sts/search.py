@@ -397,8 +397,23 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
         ),
     ]
     recommendations = [_rust_search(env, candidate) for candidate in configs]
-    nodes = sum(recommendation.visits for recommendation in recommendations)
     best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+    wide_rescue_allowed_potions = _wide_terminal_rescue_allowed_potions(env, config, best)
+    if wide_rescue_allowed_potions is not None:
+        recommendations.append(
+            _rust_search(
+                env,
+                CombatSearchConfig(
+                    max_depth=60,
+                    objective="terminal_tactical",
+                    algorithm="rust_beam",
+                    beam_width=256,
+                    allowed_potions=wide_rescue_allowed_potions,
+                ),
+            )
+        )
+        best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+    nodes = sum(recommendation.visits for recommendation in recommendations)
     diagnostics = dict(best.diagnostics)
     follow_principal_variation = _should_follow_rust_principal_variation(env, config, best)
     diagnostics.update(
@@ -428,7 +443,47 @@ def _variation_uses_potion(actions: Sequence[Any]) -> bool:
     return any(getattr(action, "kind", lambda: "")() == "use_potion" for action in actions)
 
 
-_COMMIT_BOUNDED_MAX_PREDICTED_HP_LOSS = 31.0
+_COMMIT_BOUNDED_MAX_PREDICTED_HP_LOSS = 24.0
+_COMMIT_BOUNDED_BEAM128_MAX_PREDICTED_HP_LOSS = 31.0
+_WIDE_TERMINAL_RESCUE_MIN_PREDICTED_HP_LOSS = 40.0
+
+
+def _predicted_hp_loss(env: Any, recommendation: SearchRecommendation) -> float | None:
+    final_hp = recommendation.diagnostics.get("rust_final_hp")
+    if final_hp is None:
+        return None
+    return float(_state(env)["player"]["hp"]) - float(final_hp)
+
+
+def _wide_terminal_rescue_allowed_potions(
+    env: Any,
+    config: CombatSearchConfig,
+    recommendation: SearchRecommendation,
+) -> tuple[str, ...] | None:
+    if config.algorithm != "rust_terminal_hp_commit_bounded_selector":
+        return None
+    if recommendation.diagnostics.get("objective") != "terminal_tactical":
+        return None
+    if (
+        config.allowed_potions
+        and "Cultist" in config.allowed_potions
+        and recommendation.terminal_reason is None
+        and recommendation.diagnostics.get("beam_width") == 128
+    ):
+        return config.allowed_potions
+    if config.allowed_potions:
+        return None
+    if recommendation.terminal_reason != "won":
+        return None
+    if recommendation.diagnostics.get("beam_width") != 32:
+        return None
+    predicted_hp_loss = _predicted_hp_loss(env, recommendation)
+    if (
+        predicted_hp_loss is not None
+        and predicted_hp_loss >= _WIDE_TERMINAL_RESCUE_MIN_PREDICTED_HP_LOSS
+    ):
+        return ()
+    return None
 
 
 def _should_follow_rust_principal_variation(
@@ -448,13 +503,17 @@ def _should_follow_rust_principal_variation(
     if config.algorithm == "rust_terminal_hp_commit_won_selector":
         return True
 
-    if config.allowed_potions:
+    predicted_hp_loss = _predicted_hp_loss(env, recommendation)
+    if predicted_hp_loss is None:
         return False
-    final_hp = recommendation.diagnostics.get("rust_final_hp")
-    if final_hp is None:
-        return False
-    predicted_hp_loss = float(_state(env)["player"]["hp"]) - float(final_hp)
-    return predicted_hp_loss <= _COMMIT_BOUNDED_MAX_PREDICTED_HP_LOSS
+    if not config.allowed_potions and predicted_hp_loss <= _COMMIT_BOUNDED_MAX_PREDICTED_HP_LOSS:
+        return True
+    return (
+        not config.allowed_potions
+        and recommendation.diagnostics.get("objective") == "terminal_tactical"
+        and recommendation.diagnostics.get("beam_width") == 128
+        and predicted_hp_loss <= _COMMIT_BOUNDED_BEAM128_MAX_PREDICTED_HP_LOSS
+    )
 
 
 def _rust_terminal_rollout_selector_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:

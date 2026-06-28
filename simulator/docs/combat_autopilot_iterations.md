@@ -1608,3 +1608,60 @@ Interpretation:
 - The bounded commit candidate is the best current full-323 trace-used policy by mean HP loss, but it still misses the `<5` target.
 - The gap is now small enough that a selector-level improvement could plausibly close it, but broad width increases are not the answer.
 - Next iteration should target the listed clusters with cheap conditional rescue rules or better terminal scoring, and should avoid always-on high-width search.
+
+### 34. Under-5 Trace-Used Policy and Parallel Eval
+
+Change:
+
+- Tightened bounded principal-variation commitment from predicted HP loss `<=31` to `<=24`.
+- Added a narrow no-potion wide terminal rescue: when the bounded selector's terminal width-32 line is a win but predicts at least 40 HP loss, run a width-256 terminal search and let the normal portfolio key choose the better line.
+- Added a narrow Cultist Potion nonterminal rescue: when the trace-used root allows Cultist Potion and the width-128 terminal branch is nonterminal, try width-256 terminal with the same trace-used potion permission.
+- Added `sts.self_play eval --jobs N`, implemented with process-level root parallelism. Episode order and results are preserved.
+- Rejected a broader Power Potion PV-following rule. It saved a few roots but regressed nearby Power roots more than it helped.
+
+Why:
+
+- The `5.136` wall was not one single mechanics gap. It was a few high-loss clusters plus unstable plan-following:
+  - steps 164-165 needed a wider no-potion terminal branch,
+  - step 94 needed a wider Cultist-enabled nonterminal rescue,
+  - the Power cluster looked tempting, but committing Power-adjacent long PVs caused regressions on steps 277-289.
+- The trace's real mean HP loss is much better partly because it is a human full-run line with strategic context and post-combat healing effects. The eval is stricter/different: it starts from every distinct combat state, scores each root independently, and replays a combat-local policy without knowing the human's long-run plan.
+- Python threads did not help because the eval loop crosses Python/PyO3 enough that the GIL and scheduling overhead dominate. Process parallelism works because each root evaluation is independent.
+
+Validation:
+
+```powershell
+uv run python -m unittest python.tests.test_self_play python.tests.test_search_smoke -v
+uv run python -m sts.self_play eval --trace target\trace-guided\manual01-replayed.jsonl --eval-set full-323 --max-actions 80 --allowed-potions-mode trace_used --candidate rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40 --jobs 8 --output target\search-lab\trace-used-full323-commit-bounded-under5.json
+```
+
+Results:
+
+| Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40` | 323 | 323 | 0 | 0 | 4.97 | 2.0 | 32.0 | 36 | 0.0415 | 0.296 | 87401 |
+
+Eval parallelism benchmark:
+
+| Command Shape | Roots | Jobs | Wall Time | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| real CLI eval | 64 | 1 | 4.88s | 1.0x |
+| real CLI eval | 64 | 8 | 2.34s | 2.1x |
+| real CLI eval | 323 | 1 | 43.71s | 1.0x |
+| real CLI eval | 323 | 8 | 7.83s | 5.6x |
+
+Thread/process diagnostic benchmark:
+
+| Mode | Roots | Wall Time | Notes |
+| --- | ---: | ---: | --- |
+| sequential | 323 | 45.51s | baseline |
+| threads-4 | 323 | 43.94s | effectively flat |
+| threads-8 | 323 | 44.55s | effectively flat |
+| processes-4 | 323 | 12.99s | useful |
+| processes-8 | 323 | 7.43s | best diagnostic run |
+
+Interpretation:
+
+- The current milestone target is met on the frozen `full-323` trace-used eval: mean HP loss is below 5 with no losses or nonterminals.
+- Remaining worst roots still show obvious future work, especially steps 166-167 and the late Power Potion cluster, but they no longer block the under-5 gate.
+- Rust/Rayon parallelism may still be useful later for single-combat UI latency. For offline validation, process-level root parallelism is the right first layer because it is deterministic, simple, and already gives most of the practical speedup.
