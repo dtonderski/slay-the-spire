@@ -153,17 +153,76 @@ class CombatSearchSmokeTests(unittest.TestCase):
         )
         self.assertEqual(blocked.diagnostics["allowed_potions"], ())
 
+    def test_allowed_potion_names_match_short_inventory_names(self):
+        env = self._run_combat_with_fire_potion(monster_hp=5, empty_hand=True)
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=1,
+                objective="aggressive_lethal",
+                algorithm="greedy",
+                allowed_potions=("Fire Potion",),
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.best_action.kind(), "use_potion")
+
+    def test_nonlethal_potion_is_not_free_heuristic_value(self):
+        env = self._run_combat_with_fire_potion(monster_hp=80)
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=1,
+                objective="aggressive_lethal",
+                algorithm="greedy",
+                allowed_potions=("Fire Potion",),
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertNotEqual(result.best_action.kind(), "use_potion")
+
+    def test_select_screen_uses_local_shortcut(self):
+        env = self._run_combat_with_potion("Elixir")
+        elixir = next(action for action in env.exact_legal_actions() if action.kind() == "use_potion")
+        env.step(elixir)
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=40,
+                objective="aggressive_lethal",
+                algorithm="beam",
+                beam_width=8,
+                allowed_potions=("Elixir",),
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.best_action.kind(), "confirm_exhaust_select")
+        self.assertTrue(result.diagnostics["select_screen_shortcut"])
+
     def test_search_rejects_run_map_fixture(self):
         env = omni.OmniRunEnv.map_fixture()
 
         with self.assertRaises(ValueError):
             search_combat(env, CombatSearchConfig(max_depth=1))
 
-    def _run_combat_with_fire_potion(self):
+    def _run_combat_with_fire_potion(self, monster_hp=None, empty_hand=False):
+        return self._run_combat_with_potion("Fire", monster_hp=monster_hp, empty_hand=empty_hand)
+
+    def _run_combat_with_potion(self, potion, monster_hp=None, empty_hand=False):
         import json
 
         state = json.loads(omni.OmniRunEnv.combat_fixture().state_json())
-        state["potions"] = ["Fire"]
+        state["potions"] = [potion]
+        if monster_hp is not None:
+            state["combat"]["monsters"][0]["hp"] = monster_hp
+        if empty_hand:
+            state["combat"]["piles"]["hand"] = []
         return omni.OmniRunEnv.from_state_json(json.dumps(state))
 
 

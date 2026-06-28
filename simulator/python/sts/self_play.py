@@ -13,7 +13,12 @@ from typing import Any, Iterable
 
 from sts import omni
 from sts.search import CombatSearchConfig, search_combat
-from sts.search_lab import BenchmarkRoot, SearchCandidate, default_candidates, evaluate_candidate
+from sts.search_lab import (
+    BenchmarkRoot,
+    SearchCandidate,
+    evaluate_candidate,
+    trace_autopilot_candidates,
+)
 
 
 DEFAULT_COMBAT_POLICY = CombatSearchConfig(
@@ -666,7 +671,7 @@ def evaluate_self_play_corpus(
     roots = roots[:max_roots]
     candidates = [
         _candidate_with_allowed_potions(candidate, allowed_potions)
-        for candidate in list(candidates or default_candidates())
+        for candidate in list(candidates or trace_autopilot_candidates())
     ]
 
     episodes = []
@@ -1689,7 +1694,8 @@ def _trace_eval_set_spec(eval_set: str | None) -> dict[str, Any] | None:
 
 
 def _normalize_potion_name(name: str) -> str:
-    return "".join(char.lower() for char in name if char.isalnum())
+    normalized = "".join(char.lower() for char in name if char.isalnum())
+    return normalized.removesuffix("potion")
 
 
 def _safe_file_stem(value: str) -> str:

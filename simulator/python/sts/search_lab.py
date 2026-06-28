@@ -93,6 +93,37 @@ def default_candidates() -> list[SearchCandidate]:
     ]
 
 
+def trace_autopilot_candidates() -> list[SearchCandidate]:
+    return [
+        SearchCandidate(
+            "tactical_greedy_d40",
+            CombatSearchConfig(max_depth=40, objective="tactical_survival", algorithm="greedy"),
+        ),
+        SearchCandidate(
+            "hp_greedy_d40",
+            CombatSearchConfig(max_depth=40, objective="hp_preserving_lethal", algorithm="greedy"),
+        ),
+        SearchCandidate(
+            "hp_beam_w4_d30",
+            CombatSearchConfig(
+                max_depth=30,
+                objective="hp_preserving_lethal",
+                algorithm="beam",
+                beam_width=4,
+            ),
+        ),
+        SearchCandidate(
+            "beam_tactical_w4_d20",
+            CombatSearchConfig(
+                max_depth=20,
+                objective="tactical_survival",
+                algorithm="beam",
+                beam_width=4,
+            ),
+        ),
+    ]
+
+
 def generate_roots(max_source_depth: int = 5, max_roots: int = 48) -> list[BenchmarkRoot]:
     starts = _synthetic_start_envs()
     queue: list[tuple[Any, int]] = [(start, 0) for start in starts]
@@ -391,6 +422,11 @@ def _terminal_reason(env: Any) -> str | None:
         return "won"
     if state.get("phase") == "Lost":
         return "lost"
+    if float(state.get("player", {}).get("hp", 1)) <= 0:
+        return "lost"
+    monsters = state.get("monsters", [])
+    if monsters and not any(monster.get("alive", False) for monster in monsters):
+        return "won"
     return None
 
 

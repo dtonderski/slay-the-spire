@@ -504,6 +504,14 @@ fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
 
     if state.phase == RunPhase::Combat {
         if let Some(combat) = state.combat.as_ref() {
+            let select_actions = legal_combat_select_actions_on_run(state, combat);
+            if !select_actions.is_empty() {
+                actions.extend(select_actions.into_iter().map(ExactRunActionKind::Run));
+                return actions
+                    .into_iter()
+                    .map(|action| PyExactRunAction { action })
+                    .collect();
+            }
             actions.extend(
                 legal_combat_actions(combat)
                     .into_iter()
@@ -560,6 +568,39 @@ fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
     actions
         .into_iter()
         .map(|action| PyExactRunAction { action })
+        .collect()
+}
+
+fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) -> Vec<RunAction> {
+    let mut candidates = Vec::new();
+    if combat.hand_select.is_some() {
+        candidates.extend(
+            (0..combat.piles.hand.len()).map(|index| RunAction::ChooseHandSelect { index }),
+        );
+        candidates.push(RunAction::ConfirmHandSelect);
+    }
+    if combat.draw_select.is_some() {
+        candidates.extend(
+            (0..combat.piles.draw_pile.len()).map(|index| RunAction::ChooseDrawSelect { index }),
+        );
+        candidates.push(RunAction::ConfirmDrawSelect);
+    }
+    if combat.discard_select.is_some() {
+        candidates.extend(
+            (0..combat.piles.discard_pile.len())
+                .map(|index| RunAction::ChooseDiscardSelect { index }),
+        );
+        candidates.push(RunAction::ConfirmDiscardSelect);
+    }
+    if combat.exhaust_select.is_some() {
+        candidates.extend(
+            (0..combat.piles.hand.len()).map(|index| RunAction::ChooseExhaustSelect { index }),
+        );
+        candidates.push(RunAction::ConfirmExhaustSelect);
+    }
+    candidates
+        .into_iter()
+        .filter(|action| apply_run_action(state, *action).is_ok())
         .collect()
 }
 
@@ -831,6 +872,29 @@ mod tests {
         assert_eq!(result.transition.previous_hash, before);
         assert_ne!(result.snapshot_hash, before);
         assert_eq!(env.phase(), "combat");
+    }
+
+    #[test]
+    fn run_combat_exact_actions_expose_exhaust_select_after_elixir() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        env.state.potions = vec![Potion::Elixir];
+        let elixir = env
+            .exact_legal_actions()
+            .into_iter()
+            .find(|action| action.kind() == "use_potion")
+            .expect("elixir is usable")
+            .clone();
+
+        env.step(&elixir).expect("elixir opens exhaust select");
+        let actions = env.exact_legal_actions();
+
+        assert!(actions
+            .iter()
+            .any(|action| action.kind() == "choose_exhaust_select"));
+        assert!(actions
+            .iter()
+            .any(|action| action.kind() == "confirm_exhaust_select"));
+        assert_eq!(env.unsupported_reason(), None);
     }
 
     #[test]

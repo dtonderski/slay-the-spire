@@ -27,7 +27,7 @@ uv run python -m sts.search_lab --split eval --max-source-depth 2 --max-roots 20
 
 ## Current Candidates
 
-The current candidate set includes:
+The synthetic search-lab candidate set includes:
 
 - `exhaustive_basic_d3`: existing heuristic, exhaustive depth 3.
 - `exhaustive_tactical_d4`: survival-aware heuristic, exhaustive depth 4.
@@ -67,3 +67,17 @@ Do not treat this as final combat intelligence. The benchmark is still synthetic
 and starter-deck focused. The next search-lab expansion should add potion/relic
 cases, card-selection states, more enemy behavior diversity, and trace-root
 families when the trace corpus is available locally.
+
+## Trace Autopilot Defaults
+
+Trace replay evaluation now uses a smaller practical candidate set by default:
+
+- `tactical_greedy_d40`
+- `hp_greedy_d40`
+- `hp_beam_w4_d30`
+- `beam_tactical_w4_d20`
+
+These are intentionally separate from the historical synthetic benchmark
+defaults. Expensive candidates such as `portfolio_rollout_d40` are still useful
+diagnostics, but they should be run explicitly rather than as part of every
+trace-root iteration loop.
