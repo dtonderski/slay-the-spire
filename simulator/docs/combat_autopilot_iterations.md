@@ -560,3 +560,35 @@ Interpretation:
 - `trace_probe_aggressive_rescue_d40` is the new best current policy on the frozen trace-derived evals.
 - The improvement is objective and broad enough to keep: +1 win on candidate-selection `dev-50`, no held-out `val-50` regression, +10 wins on `full-323`, fewer losses, fewer nonterminals, and fewer potions.
 - Remaining known dev losses are Hexaghost step 91 and Chosen+Cultist step 190. The quick fixture sweep did not find a Python-side policy variant that wins either, so the next iteration should inspect whether these need deeper Rust-side search, better long-horizon enemy modeling, or more specific simulator mechanic fixes.
+
+### 13. Remaining Failure Diagnostics
+
+Change:
+
+- No policy change. Ran targeted diagnostics against the two remaining `dev-50` failure fixtures from `trace_probe_aggressive_rescue_d40`.
+
+Why:
+
+- The current best policy is materially better, but the remaining losses are large:
+  - Hexaghost step 91: starts at 60 HP, spends Elixir and Cultist Potion, dies with Hexaghost still at 107 HP
+  - Chosen+Cultist step 190: starts at 28 HP with Elixir and Distilled Chaos, dies with 24 monster HP remaining
+- Before adding another guarded heuristic, verify that there is a local policy line worth rescuing.
+
+Diagnostics:
+
+| Diagnostic | Hexaghost Step 91 | Chosen+Cultist Step 190 | Decision |
+| --- | --- | --- | --- |
+| First-action sweep + current best finisher | all legal first actions still lost | all legal first actions still lost | rejected |
+| Concrete Elixir exhaust lines | exhausting no cards, curses, and curse-plus-card variants still lost | exhausting no cards, individual Defends, and small Defend subsets still lost | rejected |
+| Greedy finishers after Elixir lines | still lost | still lost | rejected |
+| Heavy Python beam/portfolio probe | too slow to produce a practical result within the diagnostic window | too slow to produce a practical result within the diagnostic window | rejected as a Python replay policy path |
+
+Interpretation:
+
+- The remaining two `dev-50` losses do not look like simple first-action, potion-timing, Elixir-selection, or target-order mistakes under the current Python search shape.
+- `trace_probe_aggressive_rescue_d40` remains the best practical candidate for replay automation.
+- The next quality jump likely needs one of:
+  - a Rust-side search core with cheaper cloning/rollout so deeper beams are practical
+  - a more explicit long-horizon combat solver for boss/elite-like roots
+  - simulator/mechanics inspection for these exact roots, especially Hexaghost and low-HP Chosen+Cultist
+- Do not keep adding broad Python rescue passes until one of these diagnostics finds a winning line; otherwise runtime grows without evidence of better replay quality.
