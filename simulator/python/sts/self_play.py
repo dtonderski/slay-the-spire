@@ -1269,6 +1269,7 @@ def _failure_fixtures(
                 "monster_hp": episode.get("monster_hp"),
                 "potion_uses": episode.get("potion_uses"),
                 "potion_use_names": list(episode.get("potion_use_names") or []),
+                "decision_trace": list(episode.get("decision_trace") or []),
                 "search_seconds": episode.get("search_seconds"),
                 "mean_seconds_per_decision": episode.get("mean_seconds_per_decision"),
                 "real_trace_final_hp": root.real_trace_final_hp,

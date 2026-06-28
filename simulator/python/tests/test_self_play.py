@@ -277,6 +277,7 @@ class SelfPlayTests(unittest.TestCase):
             self.assertIn("snapshot_json", fixtures["fixtures"][0])
             self.assertIn("search_seconds", fixtures["fixtures"][0])
             self.assertIn("potion_use_names", fixtures["fixtures"][0])
+            self.assertIn("decision_trace", fixtures["fixtures"][0])
             self.assertIn("real_trace_hp_loss", fixtures["fixtures"][0])
 
             eval_set_report = evaluate_self_play_corpus(
@@ -367,6 +368,16 @@ class SelfPlayTests(unittest.TestCase):
         self.assertEqual(
             selector_candidates[0].config.algorithm,
             "rust_terminal_win_hp_selector",
+        )
+
+        low_hp_recovery_candidates = _trace_candidates_by_name(
+            ["rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40"]
+        )
+
+        self.assertEqual(len(low_hp_recovery_candidates), 1)
+        self.assertEqual(
+            low_hp_recovery_candidates[0].config.algorithm,
+            "rust_terminal_low_hp_rollout_selector",
         )
 
         rollout_selector_candidates = _trace_candidates_by_name(
