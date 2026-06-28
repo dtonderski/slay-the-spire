@@ -1401,3 +1401,48 @@ Interpretation:
 - `val-50` ties the selected default on all outcome/HP/potion metrics.
 - Do not promote this candidate. Keep it available for diagnostics and future targeted recovery experiments.
 - The next useful direction is likely not another shallow rollout wrapper. The failure fixtures suggest either a truly doomed reconstructed state, trace/replay drift around the same fight, or a need for a bounded oracle/branch-and-bound solver over this exact cluster.
+
+### 30. Failure-Cluster Oracle And Trace Fidelity Check
+
+Change:
+
+- Added `sts.search_lab oracle-failures`, a bounded diagnostic oracle over saved failure fixtures.
+- The oracle loads exact fixture `snapshot_json`, explores simulator legal actions directly with memoization, applies the same optional potion allowlist shape as trace evals, and reports whether a win was found before the node/action cap.
+- This is diagnostic tooling only. It is not a replay policy and is not used by UI/default autopilot.
+
+Why:
+
+- The four remaining `full-323` losses are all mid-combat slices of the same late fight, so another candidate wrapper is unlikely to explain whether they are solvable.
+- A bounded oracle can separate "beam/search missed an obvious winning branch" from "the reconstructed state is probably not recoverable under current simulator fidelity."
+- Independent trace inspection found Reaper was not lost: the raw trace plays Reaper before the failure roots, HP rises, and Reaper is in exhaust afterward. However, the reconstructed replay/failure snapshots have `relics: []` while the raw trace around the same fight has many relics, including Burning Blood, Eternal Feather, Pocketwatch, Pear, Frozen Egg, Champion Belt, Golden Idol, Du-Vu Doll, Mark of Pain, Medical Kit, War Paint, Letter Opener, and Stone Calendar. So the snapshots are coherent combat skeletons, but not faithful full game states.
+
+Validation:
+
+```powershell
+uv run python -m unittest python.tests.test_search_lab python.tests.test_self_play -v
+
+uv run python -m sts.search_lab oracle-failures `
+  target/trace-guided/eval-full-323-win-hp-selector-diagnostics-failures.json `
+  --max-actions 16 `
+  --max-nodes 50000 `
+  --allowed-potions "Weak Potion,Cultist Potion,Flex Potion,Elixir,Distilled Chaos,Explosive Potion,Power Potion" `
+  --output target/trace-guided/oracle-full-323-win-hp-selector-failures.json
+```
+
+Focused tests: 18 passed.
+
+Oracle result:
+
+| Trace Step | Split | Win Found | Exhausted | Nodes | Best Terminal | Best Final HP | Best Monster HP | Best Actions |
+| ---: | --- | --- | --- | ---: | --- | ---: | ---: | --- |
+| 286 | dev | no | no | 50000 | nonterminal | 59 | 161 | 3 |
+| 287 | dev | no | no | 50000 | nonterminal | 59 | 118 | 2 |
+| 288 | eval | no | no | 50000 | nonterminal | 59 | 118 | 1 |
+| 289 | eval | no | yes | 49086 | nonterminal | 59 | 151 | 0 |
+
+Interpretation:
+
+- The oracle found `0/4` wins under the current reconstructed no-relic snapshots.
+- Three fixtures hit the `50000` node cap, so this is not a proof of impossibility for those roots.
+- The last fixture exhausted under the configured `16` action limit without finding a win.
+- Combined with missing relic continuity, the next milestone should be state repair/import fidelity, not more policy tuning. Specifically: preserve/import real relic inventory and relevant relic counters into anchored replay snapshots, rerun `full-323`, and only return to policy work if the repaired failure roots still lose.

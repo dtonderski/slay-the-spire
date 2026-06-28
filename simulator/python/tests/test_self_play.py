@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sts import omni
 from sts.search import CombatSearchConfig
-from sts.search_lab import SearchCandidate
+from sts.search_lab import SearchCandidate, probe_failure_fixture_oracles
 from sts.self_play import (
     DEFAULT_COMBAT_POLICY,
     DEFAULT_COMBAT_POLICY_NAME,
@@ -279,6 +279,15 @@ class SelfPlayTests(unittest.TestCase):
             self.assertIn("potion_use_names", fixtures["fixtures"][0])
             self.assertIn("decision_trace", fixtures["fixtures"][0])
             self.assertIn("real_trace_hp_loss", fixtures["fixtures"][0])
+
+            oracle_report = probe_failure_fixture_oracles(
+                failure_output,
+                max_actions=0,
+                max_nodes=4,
+            )
+            self.assertEqual(oracle_report["type"], "combat_autopilot_failure_oracle_probe")
+            self.assertEqual(oracle_report["fixture_count"], fixtures["fixture_count"])
+            self.assertIn("best_actions", oracle_report["fixtures"][0])
 
             eval_set_report = evaluate_self_play_corpus(
                 traces=[trace_path],

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import argparse
+import heapq
 import hashlib
 import json
+from pathlib import Path
 import time
 from typing import Any, Iterable
 
@@ -52,6 +54,25 @@ class EpisodeResult:
     decision_seconds: tuple[float, ...]
     decision_trace: tuple[dict[str, Any], ...]
     terminal_reason: str | None
+
+
+@dataclass(frozen=True)
+class OracleProbeResult:
+    fixture: str
+    trace_step: int | None
+    split: str | None
+    initial_hp: float
+    found_win: bool
+    exhausted: bool
+    nodes: int
+    max_nodes: int
+    max_actions: int
+    best_terminal: str | None
+    best_final_hp: float
+    best_monster_hp: float
+    best_score: float
+    best_actions: tuple[str, ...]
+    elapsed_seconds: float
 
 
 SELECTED_COMBAT_AUTOPILOT_CANDIDATE = "rust_terminal_win_hp_selector_w32_w128_no_power_d40"
@@ -468,6 +489,206 @@ def _decision_trace_row(
     }
 
 
+def probe_failure_fixture_oracles(
+    failure_path: Path,
+    *,
+    max_actions: int = 16,
+    max_nodes: int = 50_000,
+    allowed_potions: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    payload = json.loads(failure_path.read_text(encoding="utf-8"))
+    fixtures = list(payload.get("fixtures") or [])
+    results = [
+        _probe_failure_fixture_oracle(
+            fixture,
+            max_actions=max_actions,
+            max_nodes=max_nodes,
+            allowed_potions=allowed_potions,
+        )
+        for fixture in fixtures
+    ]
+    rows = [result.__dict__ for result in results]
+    return {
+        "type": "combat_autopilot_failure_oracle_probe",
+        "schema": 1,
+        "source": "sts.search_lab",
+        "failure_path": str(failure_path),
+        "fixtures": rows,
+        "fixture_count": len(rows),
+        "wins_found": sum(1 for result in results if result.found_win),
+        "exhausted": sum(1 for result in results if result.exhausted),
+        "max_actions": max_actions,
+        "max_nodes": max_nodes,
+        "allowed_potions": allowed_potions,
+    }
+
+
+def _probe_failure_fixture_oracle(
+    fixture: dict[str, Any],
+    *,
+    max_actions: int,
+    max_nodes: int,
+    allowed_potions: tuple[str, ...] | None,
+) -> OracleProbeResult:
+    started_at = time.perf_counter()
+    env = omni.OmniRunEnv.from_snapshot_json(str(fixture["snapshot_json"]))
+    initial_hp = float(_state(env).get("player", {}).get("hp", 0))
+    nodes = 0
+    best_env = env
+    best_terminal = _terminal_reason(env)
+    best_actions: tuple[str, ...] = ()
+    best_score = _oracle_score(env, best_terminal)
+    frontier: list[tuple[tuple[float, float, int, tuple[str, ...]], int, Any, tuple[str, ...]]] = []
+    sequence = 0
+    heapq.heappush(frontier, (_oracle_priority(env, best_terminal, ()), sequence, env, ()))
+    seen_depth: dict[str, int] = {}
+    found_win = False
+
+    while frontier and nodes < max_nodes:
+        _priority, _sequence, current, actions = heapq.heappop(frontier)
+        state_id = _safe_snapshot_hash(current)
+        previous_depth = seen_depth.get(state_id)
+        if previous_depth is not None and previous_depth <= len(actions):
+            continue
+        seen_depth[state_id] = len(actions)
+        nodes += 1
+
+        terminal = _terminal_reason(current)
+        score = _oracle_score(current, terminal)
+        if score > best_score or (score == best_score and len(actions) < len(best_actions)):
+            best_env = current
+            best_terminal = terminal
+            best_actions = actions
+            best_score = score
+        if terminal == "won":
+            found_win = True
+            best_env = current
+            best_terminal = terminal
+            best_actions = actions
+            best_score = score
+            break
+        if terminal == "lost" or len(actions) >= max_actions:
+            continue
+
+        legal_actions = _filtered_oracle_actions(current, allowed_potions)
+        for action in legal_actions:
+            child = current.clone()
+            try:
+                result = child.step(action)
+            except Exception:
+                continue
+            child_terminal = _terminal_reason(child)
+            if getattr(result, "terminal", False):
+                child_terminal = result.terminal_reason
+            child_actions = (*actions, action.json())
+            sequence += 1
+            heapq.heappush(
+                frontier,
+                (
+                    _oracle_priority(child, child_terminal, child_actions),
+                    sequence,
+                    child,
+                    child_actions,
+                ),
+            )
+
+    final_state = _state(best_env)
+    return OracleProbeResult(
+        fixture=str(fixture.get("name") or "fixture"),
+        trace_step=(
+            int(fixture["trace_step"])
+            if isinstance(fixture.get("trace_step"), int)
+            else None
+        ),
+        split=str(fixture.get("split")) if fixture.get("split") is not None else None,
+        initial_hp=initial_hp,
+        found_win=found_win,
+        exhausted=not frontier,
+        nodes=nodes,
+        max_nodes=max_nodes,
+        max_actions=max_actions,
+        best_terminal=best_terminal,
+        best_final_hp=float(final_state.get("player", {}).get("hp", 0)),
+        best_monster_hp=_monster_hp(final_state),
+        best_score=best_score,
+        best_actions=best_actions,
+        elapsed_seconds=time.perf_counter() - started_at,
+    )
+
+
+def _oracle_priority(
+    env: Any,
+    terminal: str | None,
+    actions: tuple[str, ...],
+) -> tuple[float, float, int, tuple[str, ...]]:
+    state = _state(env)
+    hp = float(state.get("player", {}).get("hp", 0))
+    monster_hp = _monster_hp(state)
+    terminal_rank = 0 if terminal == "won" else 2 if terminal == "lost" else 1
+    return (float(terminal_rank), monster_hp - hp * 0.25, len(actions), actions)
+
+
+def _oracle_score(env: Any, terminal: str | None) -> float:
+    state = _state(env)
+    hp = float(state.get("player", {}).get("hp", 0))
+    monster_hp = _monster_hp(state)
+    score = hp * 100.0 - monster_hp * 20.0
+    if terminal == "won":
+        score += 1_000_000.0
+    elif terminal == "lost":
+        score -= 1_000_000.0
+    return score
+
+
+def _filtered_oracle_actions(
+    env: Any,
+    allowed_potions: tuple[str, ...] | None,
+) -> list[Any]:
+    actions = _sorted_actions(env.exact_legal_actions())
+    if allowed_potions is None:
+        return actions
+    allowed = {_normalize_potion_name(name) for name in allowed_potions}
+    potions = _run_potion_names(env)
+    filtered = []
+    for action in actions:
+        if getattr(action, "kind", lambda: "")() != "use_potion":
+            filtered.append(action)
+            continue
+        slot = _potion_action_slot(action)
+        potion_name = potions[slot] if slot is not None and slot < len(potions) else None
+        if potion_name is not None and _normalize_potion_name(potion_name) in allowed:
+            filtered.append(action)
+    return filtered
+
+
+def _run_potion_names(env: Any) -> list[str]:
+    state = json.loads(env.state_json())
+    run = state.get("state", state)
+    return [str(potion) for potion in run.get("potions") or []]
+
+
+def _potion_action_slot(action: Any) -> int | None:
+    try:
+        data = json.loads(action.json())
+    except Exception:
+        return None
+    use = data.get("UsePotion") if isinstance(data, dict) else None
+    slot = use.get("slot") if isinstance(use, dict) else None
+    return int(slot) if isinstance(slot, int) else None
+
+
+def _normalize_potion_name(name: str) -> str:
+    normalized = "".join(char.lower() for char in name if char.isalnum())
+    return normalized.removesuffix("potion")
+
+
+def _safe_snapshot_hash(env: Any) -> str:
+    try:
+        return str(env.snapshot_hash())
+    except Exception:
+        return hashlib.sha256(env.snapshot_json().encode("utf-8")).hexdigest()
+
+
 def run_benchmark(
     *,
     split: str = "eval",
@@ -699,12 +920,48 @@ def _percentile(values: Iterable[float], percentile: float) -> float:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run deterministic combat search candidate benchmarks.")
+    subparsers = parser.add_subparsers(dest="command")
+
+    benchmark_parser = subparsers.add_parser("benchmark")
+    benchmark_parser.add_argument("--split", choices=["dev", "eval", "all"], default="eval")
+    benchmark_parser.add_argument("--max-source-depth", type=int, default=5)
+    benchmark_parser.add_argument("--max-roots", type=int, default=48)
+    benchmark_parser.add_argument("--max-actions", type=int, default=40)
+    benchmark_parser.add_argument("--json", action="store_true")
+
+    oracle_parser = subparsers.add_parser("oracle-failures")
+    oracle_parser.add_argument("failure_path", type=Path)
+    oracle_parser.add_argument("--max-actions", type=int, default=16)
+    oracle_parser.add_argument("--max-nodes", type=int, default=50_000)
+    oracle_parser.add_argument("--allowed-potions")
+    oracle_parser.add_argument("--output", type=Path)
+    oracle_parser.add_argument("--json", action="store_true")
+
     parser.add_argument("--split", choices=["dev", "eval", "all"], default="eval")
     parser.add_argument("--max-source-depth", type=int, default=5)
     parser.add_argument("--max-roots", type=int, default=48)
     parser.add_argument("--max-actions", type=int, default=40)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.command == "oracle-failures":
+        report = probe_failure_fixture_oracles(
+            args.failure_path,
+            max_actions=args.max_actions,
+            max_nodes=args.max_nodes,
+            allowed_potions=_parse_allowed_potions(args.allowed_potions),
+        )
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        if args.json or args.output is None:
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return
+        print(
+            f"fixtures={report['fixture_count']} wins_found={report['wins_found']} "
+            f"exhausted={report['exhausted']} output={args.output}"
+        )
+        return
 
     report = run_benchmark(
         split=args.split,
@@ -725,6 +982,17 @@ def main(argv: list[str] | None = None) -> None:
             f"score={row['mean_score']:.1f} hp={row['mean_final_hp']:.1f} "
             f"monster_hp={row['mean_monster_hp']:.1f} nodes={row['mean_search_nodes']:.1f}"
         )
+
+
+def _parse_allowed_potions(value: str | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if stripped.lower() in {"*", "all"}:
+        return None
+    if not stripped or stripped.lower() in {"none", "no", "false"}:
+        return ()
+    return tuple(part.strip() for part in stripped.split(",") if part.strip())
 
 
 if __name__ == "__main__":
