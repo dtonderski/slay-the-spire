@@ -24,6 +24,38 @@ DEFAULT_COMBAT_POLICY = CombatSearchConfig(
 )
 
 
+TRACE_EVAL_SET_SPECS: dict[str, dict[str, Any]] = {
+    "dev-fast-10": {
+        "description": "Fast iteration set: first 10 combat-start roots.",
+        "root_scope": "combat_start",
+        "split": "all",
+        "max_roots": 10,
+        "held_out": False,
+    },
+    "dev-50": {
+        "description": "Candidate-selection set: first 50 non-held-out combat-start roots.",
+        "root_scope": "combat_start",
+        "split": "dev",
+        "max_roots": 50,
+        "held_out": False,
+    },
+    "val-50": {
+        "description": "Held-out validation set: first 50 held-out combat-start roots.",
+        "root_scope": "combat_start",
+        "split": "eval",
+        "max_roots": 50,
+        "held_out": True,
+    },
+    "full-323": {
+        "description": "Coverage sanity set: all distinct usable roots from the long MANUAL01 replay.",
+        "root_scope": "all",
+        "split": "all",
+        "max_roots": 323,
+        "held_out": True,
+    },
+}
+
+
 @dataclass(frozen=True)
 class SelfPlayResult:
     trace_path: Path | None
@@ -615,14 +647,22 @@ def evaluate_self_play_corpus(
     allowed_potions: tuple[str, ...] | None = None,
     root_scope: str = "all",
     failure_output: Path | None = None,
+    eval_set: str | None = None,
 ) -> dict[str, Any]:
     """Compare search candidates from exact combat states recorded in traces."""
+
+    eval_set_spec = _trace_eval_set_spec(eval_set)
+    if eval_set_spec is not None:
+        split = str(eval_set_spec["split"])
+        max_roots = int(eval_set_spec["max_roots"])
+        root_scope = str(eval_set_spec["root_scope"])
 
     trace_paths = _trace_paths(corpus_dir=corpus_dir, traces=traces)
     extraction_report = real_trace_root_report(trace_paths)
     roots = _trace_combat_roots(trace_paths, root_scope=root_scope)
     if split != "all":
         roots = [root for root in roots if root.split == split]
+    available_roots = len(roots)
     roots = roots[:max_roots]
     candidates = [
         _candidate_with_allowed_potions(candidate, allowed_potions)
@@ -667,10 +707,14 @@ def evaluate_self_play_corpus(
         "split": split,
         "trace_count": len(trace_paths),
         "trace_extraction": extraction_report,
+        "available_roots": available_roots,
         "roots": len(roots),
         "max_roots": max_roots,
         "max_actions": max_actions,
         "root_scope": root_scope,
+        "eval_set": eval_set,
+        "eval_set_spec": eval_set_spec,
+        "held_out": bool(eval_set_spec.get("held_out")) if eval_set_spec else split == "eval",
         "allowed_potions": allowed_potions,
         "root_family": "trace_combat_states",
         "failure_fixture_count": len(failures["fixtures"]),
@@ -977,20 +1021,58 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         count = len(candidate_episodes)
         wins = sum(1 for episode in candidate_episodes if episode["won"])
         losses = sum(1 for episode in candidate_episodes if episode["lost"])
+        nonterminal = count - wins - losses
         ranking.append(
             {
                 "candidate": name,
                 "episodes": count,
                 "wins": wins,
                 "losses": losses,
+                "nonterminal": nonterminal,
                 "win_rate": wins / count if count else 0.0,
                 "mean_score": _mean(float(episode["final_score"]) for episode in candidate_episodes),
                 "mean_hp_loss": _mean(float(episode["hp_loss"]) for episode in candidate_episodes),
+                "median_hp_loss": _percentile(
+                    (float(episode["hp_loss"]) for episode in candidate_episodes), 50
+                ),
+                "p95_hp_loss": _percentile(
+                    (float(episode["hp_loss"]) for episode in candidate_episodes), 95
+                ),
                 "mean_final_hp": _mean(float(episode["final_hp"]) for episode in candidate_episodes),
                 "mean_monster_hp": _mean(float(episode["monster_hp"]) for episode in candidate_episodes),
                 "mean_actions": _mean(float(episode["actions"]) for episode in candidate_episodes),
+                "mean_potion_uses": _mean(
+                    float(episode["potion_uses"]) for episode in candidate_episodes
+                ),
+                "total_potion_uses": sum(int(episode["potion_uses"]) for episode in candidate_episodes),
+                "mean_seconds_per_combat": _mean(
+                    float(episode["search_seconds"]) for episode in candidate_episodes
+                ),
+                "mean_seconds_per_decision": _mean(
+                    float(episode["mean_seconds_per_decision"])
+                    for episode in candidate_episodes
+                ),
+                "p50_seconds_per_decision": _percentile(
+                    (
+                        float(second)
+                        for episode in candidate_episodes
+                        for second in episode.get("decision_seconds", [])
+                    ),
+                    50,
+                ),
+                "p95_seconds_per_decision": _percentile(
+                    (
+                        float(second)
+                        for episode in candidate_episodes
+                        for second in episode.get("decision_seconds", [])
+                    ),
+                    95,
+                ),
                 "mean_search_nodes": _mean(
                     float(episode["search_nodes"]) for episode in candidate_episodes
+                ),
+                "p95_search_nodes": _percentile(
+                    (float(episode["search_nodes"]) for episode in candidate_episodes), 95
                 ),
                 "potion_roots": sum(1 for episode in candidate_episodes if episode["potion_count"] > 0),
                 "potion_action_roots": sum(
@@ -1046,6 +1128,9 @@ def _failure_fixtures(
                 "final_hp": episode.get("final_hp"),
                 "hp_loss": episode.get("hp_loss"),
                 "monster_hp": episode.get("monster_hp"),
+                "potion_uses": episode.get("potion_uses"),
+                "search_seconds": episode.get("search_seconds"),
+                "mean_seconds_per_decision": episode.get("mean_seconds_per_decision"),
                 "potion_names": list(root.potion_names),
                 "legal_action_kinds": list(root.legal_action_kinds),
                 "legal_potion_names": list(root.legal_potion_names),
@@ -1582,6 +1667,27 @@ def _mean(values: Iterable[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _percentile(values: Iterable[float], percentile: float) -> float:
+    values = sorted(float(value) for value in values)
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return values[0]
+    rank = (len(values) - 1) * percentile / 100.0
+    lower = int(rank)
+    upper = min(lower + 1, len(values) - 1)
+    weight = rank - lower
+    return values[lower] * (1.0 - weight) + values[upper] * weight
+
+
+def _trace_eval_set_spec(eval_set: str | None) -> dict[str, Any] | None:
+    if eval_set is None:
+        return None
+    if eval_set not in TRACE_EVAL_SET_SPECS:
+        raise ValueError(f"unsupported eval_set: {eval_set}")
+    return {"name": eval_set, **TRACE_EVAL_SET_SPECS[eval_set]}
+
+
 def _normalize_potion_name(name: str) -> str:
     return "".join(char.lower() for char in name if char.isalnum())
 
@@ -1652,6 +1758,7 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser.add_argument("--max-actions", type=int, default=40)
     eval_parser.add_argument("--allowed-potions")
     eval_parser.add_argument("--root-scope", choices=["all", "combat_start"], default="all")
+    eval_parser.add_argument("--eval-set", choices=sorted(TRACE_EVAL_SET_SPECS))
     eval_parser.add_argument("--output", type=Path)
     eval_parser.add_argument("--failure-output", type=Path)
 
@@ -1705,6 +1812,7 @@ def main(argv: list[str] | None = None) -> None:
             allowed_potions=_parse_allowed_potions(args.allowed_potions),
             root_scope=args.root_scope,
             failure_output=args.failure_output,
+            eval_set=args.eval_set,
         )
         text = json.dumps(report, indent=2, sort_keys=True)
         if args.output:

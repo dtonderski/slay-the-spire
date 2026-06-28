@@ -177,9 +177,20 @@ class SelfPlayTests(unittest.TestCase):
             self.assertGreater(report["groups"]["allowed_potion"]["roots"], 0)
             self.assertEqual(len(report["ranking"]), 1)
             self.assertEqual(report["ranking"][0]["candidate"], "tiny_greedy")
+            self.assertIn("nonterminal", report["ranking"][0])
+            self.assertIn("median_hp_loss", report["ranking"][0])
+            self.assertIn("p95_hp_loss", report["ranking"][0])
+            self.assertIn("mean_seconds_per_decision", report["ranking"][0])
+            self.assertIn("p95_seconds_per_decision", report["ranking"][0])
+            self.assertIn("mean_seconds_per_combat", report["ranking"][0])
+            self.assertIn("mean_potion_uses", report["ranking"][0])
+            self.assertIn("p95_search_nodes", report["ranking"][0])
             self.assertTrue(report["episodes"])
             self.assertEqual(report["episodes"][0]["trace_path"], str(trace_path))
             self.assertIn("legal_action_kinds", report["episodes"][0])
+            self.assertIn("search_seconds", report["episodes"][0])
+            self.assertIn("decision_seconds", report["episodes"][0])
+            self.assertIn("potion_uses", report["episodes"][0])
             self.assertTrue(report["episodes"][0]["has_potion_actions"])
             self.assertTrue(report["episodes"][0]["has_allowed_potion_actions"])
 
@@ -227,6 +238,28 @@ class SelfPlayTests(unittest.TestCase):
             fixtures = json.loads(failure_output.read_text(encoding="utf-8"))
             self.assertEqual(fixtures["type"], "combat_autopilot_failure_fixtures")
             self.assertIn("snapshot_json", fixtures["fixtures"][0])
+            self.assertIn("search_seconds", fixtures["fixtures"][0])
+
+            eval_set_report = evaluate_self_play_corpus(
+                traces=[trace_path],
+                eval_set="dev-fast-10",
+                max_actions=1,
+                candidates=[
+                    SearchCandidate(
+                        "tiny_greedy",
+                        CombatSearchConfig(
+                            max_depth=1,
+                            objective="survive_then_damage",
+                            algorithm="greedy",
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(eval_set_report["eval_set"], "dev-fast-10")
+            self.assertEqual(eval_set_report["eval_set_spec"]["max_roots"], 10)
+            self.assertEqual(eval_set_report["root_scope"], "combat_start")
+            self.assertGreaterEqual(eval_set_report["available_roots"], eval_set_report["roots"])
+            self.assertFalse(eval_set_report["held_out"])
 
     def test_real_trace_report_explains_missing_simulator_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
