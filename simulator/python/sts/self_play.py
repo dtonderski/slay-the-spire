@@ -1086,7 +1086,7 @@ def _real_trace_combat_baselines(records: list[dict[str, Any]]) -> dict[str, dic
         initial_hp = _summary_player_hp(summary)
         if initial_hp is None:
             continue
-        final_summary = _real_trace_combat_end_summary(records, index)
+        final_summary = _real_trace_combat_end_summary(records, index, summary)
         if final_summary is None:
             continue
         final_hp = _summary_player_hp(final_summary)
@@ -1144,8 +1144,10 @@ def _potion_name_for_step_record(record: dict[str, Any], potion_names: tuple[str
 def _real_trace_combat_end_summary(
     records: list[dict[str, Any]],
     start_index: int,
+    start_summary: dict[str, Any],
 ) -> dict[str, Any] | None:
     last_combat_summary: dict[str, Any] | None = None
+    start_floor = start_summary.get("floor")
     for record in records[start_index:]:
         summaries: list[dict[str, Any]] = []
         if record.get("type") == "step":
@@ -1161,11 +1163,31 @@ def _real_trace_combat_end_summary(
                 summaries.append(summary)
         for summary in summaries:
             if summary.get("phase") == "combat":
+                if (
+                    last_combat_summary is not None
+                    and start_floor is not None
+                    and summary.get("floor") != start_floor
+                ):
+                    return _terminal_combat_summary(last_combat_summary)
                 last_combat_summary = summary
                 continue
             if last_combat_summary is not None:
                 return summary
-    return last_combat_summary
+    return _terminal_combat_summary(last_combat_summary)
+
+
+def _terminal_combat_summary(summary: dict[str, Any] | None) -> dict[str, Any] | None:
+    if summary is None:
+        return None
+    combat = summary.get("combat")
+    if not isinstance(combat, dict):
+        return None
+    monsters = combat.get("monsters")
+    if not isinstance(monsters, list):
+        return None
+    if all(isinstance(monster, dict) and not monster.get("alive", False) for monster in monsters):
+        return summary
+    return None
 
 
 def _summary_player_hp(summary: dict[str, Any]) -> float | None:
@@ -1251,12 +1273,19 @@ def _rank_episode_dicts(
         wins = sum(1 for episode in candidate_episodes if episode["won"])
         losses = sum(1 for episode in candidate_episodes if episode["lost"])
         nonterminal = count - wins - losses
+        real_trace_baseline_roots = sum(
+            1
+            for episode in candidate_episodes
+            if episode.get("real_trace_hp_loss") is not None
+        )
         row = {
             "candidate": name,
             "episodes": count,
             "wins": wins,
             "losses": losses,
             "nonterminal": nonterminal,
+            "real_trace_baseline_roots": real_trace_baseline_roots,
+            "missing_real_trace_baseline_roots": count - real_trace_baseline_roots,
             "win_rate": wins / count if count else 0.0,
             "mean_score": _mean(float(episode["final_score"]) for episode in candidate_episodes),
             "mean_hp_loss": _mean(float(episode["hp_loss"]) for episode in candidate_episodes),
