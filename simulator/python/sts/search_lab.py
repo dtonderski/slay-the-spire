@@ -36,7 +36,9 @@ class EpisodeResult:
     won: bool
     lost: bool
     final_score: float
+    initial_hp: float
     final_hp: float
+    hp_loss: float
     monster_hp: float
     actions: int
     search_nodes: int
@@ -45,6 +47,14 @@ class EpisodeResult:
 
 def default_candidates() -> list[SearchCandidate]:
     return [
+        SearchCandidate(
+            "autopilot_hp_greedy_d40",
+            CombatSearchConfig(max_depth=40, objective="hp_preserving_lethal", algorithm="greedy"),
+        ),
+        SearchCandidate(
+            "autopilot_hp_portfolio_d40",
+            CombatSearchConfig(max_depth=40, objective="hp_preserving_lethal", algorithm="portfolio", beam_width=8),
+        ),
         SearchCandidate(
             "exhaustive_basic_d3",
             CombatSearchConfig(max_depth=3, objective="survive_then_damage", algorithm="exhaustive"),
@@ -185,6 +195,7 @@ def evaluate_candidate(
     max_actions: int = 40,
 ) -> EpisodeResult:
     env = _env_from_root(root)
+    initial_hp = float(_state(env).get("player", {}).get("hp", 0))
     actions_taken = 0
     search_nodes = 0
     terminal = _terminal_reason(env)
@@ -208,7 +219,9 @@ def evaluate_candidate(
         won=won,
         lost=lost,
         final_score=_outcome_score(final_state, terminal),
+        initial_hp=initial_hp,
         final_hp=float(final_state.get("player", {}).get("hp", 0)),
+        hp_loss=initial_hp - float(final_state.get("player", {}).get("hp", 0)),
         monster_hp=_monster_hp(final_state),
         actions=actions_taken,
         search_nodes=search_nodes,
@@ -263,6 +276,7 @@ def _rank(results: list[EpisodeResult]) -> list[dict[str, Any]]:
                 "losses": losses,
                 "win_rate": wins / count if count else 0.0,
                 "mean_score": _mean(result.final_score for result in candidate_results),
+                "mean_hp_loss": _mean(result.hp_loss for result in candidate_results),
                 "mean_final_hp": _mean(result.final_hp for result in candidate_results),
                 "mean_monster_hp": _mean(result.monster_hp for result in candidate_results),
                 "mean_actions": _mean(result.actions for result in candidate_results),

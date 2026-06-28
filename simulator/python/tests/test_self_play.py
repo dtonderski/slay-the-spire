@@ -203,6 +203,31 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(no_potions_report["allowed_potion_roots"], 0)
             self.assertFalse(no_potions_report["episodes"][0]["has_allowed_potion_actions"])
 
+            failure_output = Path(directory) / "failures.json"
+            failure_report = evaluate_self_play_corpus(
+                traces=[trace_path],
+                max_roots=2,
+                max_actions=0,
+                root_scope="combat_start",
+                failure_output=failure_output,
+                candidates=[
+                    SearchCandidate(
+                        "zero_action",
+                        CombatSearchConfig(
+                            max_depth=1,
+                            objective="survive_then_damage",
+                            algorithm="greedy",
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(failure_report["root_scope"], "combat_start")
+            self.assertIn("mean_hp_loss", failure_report["ranking"][0])
+            self.assertGreater(failure_report["failure_fixture_count"], 0)
+            fixtures = json.loads(failure_output.read_text(encoding="utf-8"))
+            self.assertEqual(fixtures["type"], "combat_autopilot_failure_fixtures")
+            self.assertIn("snapshot_json", fixtures["fixtures"][0])
+
     def test_real_trace_report_explains_missing_simulator_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"
