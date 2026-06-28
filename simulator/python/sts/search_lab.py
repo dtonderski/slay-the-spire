@@ -103,6 +103,10 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             "hp_greedy_d40",
             CombatSearchConfig(max_depth=40, objective="hp_preserving_lethal", algorithm="greedy"),
         ),
+        SearchCandidate(
+            "trace_probe_d40",
+            CombatSearchConfig(max_depth=40, objective="tactical_survival", algorithm="trace_probe"),
+        ),
     ]
 
 

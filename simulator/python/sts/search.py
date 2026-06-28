@@ -73,7 +73,14 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
     if depth < 1:
         raise ValueError("max_depth must be at least 1")
     evaluator = _evaluator(config.objective)
-    if config.algorithm not in {"exhaustive", "beam", "greedy", "portfolio"}:
+    if config.algorithm not in {
+        "exhaustive",
+        "beam",
+        "greedy",
+        "portfolio",
+        "terminal_probe",
+        "trace_probe",
+    }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
         raise ValueError("beam_width must be at least 1")
@@ -88,6 +95,12 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         score, variation, nodes, terminal_reason = _search(env.clone(), depth, evaluator, config)
     elif config.algorithm == "portfolio":
         score, variation, nodes, terminal_reason = _portfolio_search(env.clone(), depth, config)
+    elif config.algorithm == "terminal_probe":
+        score, variation, nodes, terminal_reason = _terminal_probe_search(
+            env.clone(), depth, config
+        )
+    elif config.algorithm == "trace_probe":
+        score, variation, nodes, terminal_reason = _trace_probe_search(env.clone(), depth, config)
     else:
         width = 1 if config.algorithm == "greedy" else config.beam_width
         score, variation, nodes, terminal_reason = _beam_search(
@@ -242,6 +255,93 @@ def _beam_search(
             break
 
     return best_score, best_variation, nodes, best_terminal_reason
+
+
+def _terminal_probe_search(
+    env: Any,
+    depth: int,
+    config: CombatSearchConfig,
+) -> tuple[float, list[Any], int, str | None]:
+    probe_configs = [
+        CombatSearchConfig(
+            max_depth=depth,
+            objective="tactical_survival",
+            algorithm="greedy",
+            allowed_potions=config.allowed_potions,
+        ),
+        CombatSearchConfig(
+            max_depth=depth,
+            objective="hp_preserving_lethal",
+            algorithm="greedy",
+            allowed_potions=config.allowed_potions,
+        ),
+        CombatSearchConfig(
+            max_depth=depth,
+            objective="scaling_survival",
+            algorithm="greedy",
+            allowed_potions=config.allowed_potions,
+        ),
+    ]
+    fallback: SearchRecommendation | None = None
+    nodes = 1
+    for probe in probe_configs:
+        recommendation = search_combat(env, probe)
+        nodes += recommendation.visits
+        if fallback is None and recommendation.best_action is not None:
+            fallback = recommendation
+        if recommendation.terminal_reason == "won" and recommendation.best_action is not None:
+            return (
+                recommendation.value,
+                list(recommendation.principal_variation),
+                nodes,
+                recommendation.terminal_reason,
+            )
+    if fallback is not None:
+        return (
+            fallback.value,
+            list(fallback.principal_variation),
+            nodes,
+            fallback.terminal_reason,
+        )
+    return _beam_search(env, depth, 1, _evaluate_tactical_survival, config)
+
+
+def _trace_probe_search(
+    env: Any,
+    depth: int,
+    config: CombatSearchConfig,
+) -> tuple[float, list[Any], int, str | None]:
+    state = _state(env)
+    if _should_prefer_scaling_policy(state):
+        recommendation = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=depth,
+                objective="scaling_survival",
+                algorithm="greedy",
+                allowed_potions=config.allowed_potions,
+            ),
+        )
+        return (
+            recommendation.value,
+            list(recommendation.principal_variation),
+            recommendation.visits + 1,
+            recommendation.terminal_reason,
+        )
+    return _terminal_probe_search(env, depth, config)
+
+
+def _should_prefer_scaling_policy(state: dict[str, Any]) -> bool:
+    alive_monsters = [
+        monster for monster in state.get("monsters", []) if monster.get("alive", False)
+    ]
+    if len(alive_monsters) != 1:
+        return False
+    monster = alive_monsters[0]
+    monster_hp = float(monster.get("hp", 0))
+    monster_powers = monster.get("powers") or {}
+    artifact = float(monster_powers.get("artifact", 0))
+    return monster_hp >= 180.0 and artifact >= 2.0
 
 
 def _portfolio_search(
