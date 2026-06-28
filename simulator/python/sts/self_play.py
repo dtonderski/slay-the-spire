@@ -734,6 +734,8 @@ def evaluate_self_play_corpus(
         failure_output.parent.mkdir(parents=True, exist_ok=True)
         failure_output.write_text(json.dumps(failures, indent=2, sort_keys=True), encoding="utf-8")
 
+    candidate_manifest = _candidate_manifest(candidates)
+    ranking = _rank_episode_dicts(episodes, candidate_manifest=candidate_manifest)
     return {
         "type": "self_play_trace_eval",
         "schema": 1,
@@ -754,6 +756,8 @@ def evaluate_self_play_corpus(
         "root_family": "trace_combat_states",
         "failure_fixture_count": len(failures["fixtures"]),
         "failure_output": str(failure_output) if failure_output is not None else None,
+        "candidate_manifest": candidate_manifest,
+        "top_candidates": ranking[:3],
         "potion_roots": sum(1 for root in roots if root.potion_count > 0),
         "potion_action_roots": sum(
             1 for root in roots if any("potion" in kind for kind in root.legal_action_kinds)
@@ -763,7 +767,7 @@ def evaluate_self_play_corpus(
         ),
         "root_manifest": _root_manifest(roots, allowed_potions),
         "groups": _group_stats(roots, episodes, allowed_potions),
-        "ranking": _rank_episode_dicts(episodes),
+        "ranking": ranking,
         "episodes": episodes,
     }
 
@@ -1118,7 +1122,11 @@ def _find_action(actions: Iterable[Any], action_json: Any) -> Any | None:
     return None
 
 
-def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _rank_episode_dicts(
+    episodes: list[dict[str, Any]],
+    *,
+    candidate_manifest: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     by_candidate: dict[str, list[dict[str, Any]]] = {}
     for episode in episodes:
         by_candidate.setdefault(str(episode["candidate"]), []).append(episode)
@@ -1129,78 +1137,79 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         wins = sum(1 for episode in candidate_episodes if episode["won"])
         losses = sum(1 for episode in candidate_episodes if episode["lost"])
         nonterminal = count - wins - losses
-        ranking.append(
-            {
-                "candidate": name,
-                "episodes": count,
-                "wins": wins,
-                "losses": losses,
-                "nonterminal": nonterminal,
-                "win_rate": wins / count if count else 0.0,
-                "mean_score": _mean(float(episode["final_score"]) for episode in candidate_episodes),
-                "mean_hp_loss": _mean(float(episode["hp_loss"]) for episode in candidate_episodes),
-                "median_hp_loss": _percentile(
-                    (float(episode["hp_loss"]) for episode in candidate_episodes), 50
-                ),
-                "p95_hp_loss": _percentile(
-                    (float(episode["hp_loss"]) for episode in candidate_episodes), 95
-                ),
-                "mean_final_hp": _mean(float(episode["final_hp"]) for episode in candidate_episodes),
-                "mean_monster_hp": _mean(float(episode["monster_hp"]) for episode in candidate_episodes),
-                "mean_actions": _mean(float(episode["actions"]) for episode in candidate_episodes),
-                "mean_potion_uses": _mean(
-                    float(episode["potion_uses"]) for episode in candidate_episodes
-                ),
-                "total_potion_uses": sum(int(episode["potion_uses"]) for episode in candidate_episodes),
-                "potion_use_counts": _episode_potion_use_counts(candidate_episodes),
-                "mean_real_trace_hp_loss": _mean(
-                    float(episode["real_trace_hp_loss"])
+        row = {
+            "candidate": name,
+            "episodes": count,
+            "wins": wins,
+            "losses": losses,
+            "nonterminal": nonterminal,
+            "win_rate": wins / count if count else 0.0,
+            "mean_score": _mean(float(episode["final_score"]) for episode in candidate_episodes),
+            "mean_hp_loss": _mean(float(episode["hp_loss"]) for episode in candidate_episodes),
+            "median_hp_loss": _percentile(
+                (float(episode["hp_loss"]) for episode in candidate_episodes), 50
+            ),
+            "p95_hp_loss": _percentile(
+                (float(episode["hp_loss"]) for episode in candidate_episodes), 95
+            ),
+            "mean_final_hp": _mean(float(episode["final_hp"]) for episode in candidate_episodes),
+            "mean_monster_hp": _mean(float(episode["monster_hp"]) for episode in candidate_episodes),
+            "mean_actions": _mean(float(episode["actions"]) for episode in candidate_episodes),
+            "mean_potion_uses": _mean(
+                float(episode["potion_uses"]) for episode in candidate_episodes
+            ),
+            "total_potion_uses": sum(int(episode["potion_uses"]) for episode in candidate_episodes),
+            "potion_use_counts": _episode_potion_use_counts(candidate_episodes),
+            "mean_real_trace_hp_loss": _mean(
+                float(episode["real_trace_hp_loss"])
+                for episode in candidate_episodes
+                if episode.get("real_trace_hp_loss") is not None
+            ),
+            "mean_hp_loss_delta_vs_trace": _mean(
+                float(episode["hp_loss_delta_vs_trace"])
+                for episode in candidate_episodes
+                if episode.get("hp_loss_delta_vs_trace") is not None
+            ),
+            "mean_seconds_per_combat": _mean(
+                float(episode["search_seconds"]) for episode in candidate_episodes
+            ),
+            "mean_seconds_per_decision": _mean(
+                float(episode["mean_seconds_per_decision"])
+                for episode in candidate_episodes
+            ),
+            "p50_seconds_per_decision": _percentile(
+                (
+                    float(second)
                     for episode in candidate_episodes
-                    if episode.get("real_trace_hp_loss") is not None
+                    for second in episode.get("decision_seconds", [])
                 ),
-                "mean_hp_loss_delta_vs_trace": _mean(
-                    float(episode["hp_loss_delta_vs_trace"])
+                50,
+            ),
+            "p95_seconds_per_decision": _percentile(
+                (
+                    float(second)
                     for episode in candidate_episodes
-                    if episode.get("hp_loss_delta_vs_trace") is not None
+                    for second in episode.get("decision_seconds", [])
                 ),
-                "mean_seconds_per_combat": _mean(
-                    float(episode["search_seconds"]) for episode in candidate_episodes
-                ),
-                "mean_seconds_per_decision": _mean(
-                    float(episode["mean_seconds_per_decision"])
-                    for episode in candidate_episodes
-                ),
-                "p50_seconds_per_decision": _percentile(
-                    (
-                        float(second)
-                        for episode in candidate_episodes
-                        for second in episode.get("decision_seconds", [])
-                    ),
-                    50,
-                ),
-                "p95_seconds_per_decision": _percentile(
-                    (
-                        float(second)
-                        for episode in candidate_episodes
-                        for second in episode.get("decision_seconds", [])
-                    ),
-                    95,
-                ),
-                "mean_search_nodes": _mean(
-                    float(episode["search_nodes"]) for episode in candidate_episodes
-                ),
-                "p95_search_nodes": _percentile(
-                    (float(episode["search_nodes"]) for episode in candidate_episodes), 95
-                ),
-                "potion_roots": sum(1 for episode in candidate_episodes if episode["potion_count"] > 0),
-                "potion_action_roots": sum(
-                    1 for episode in candidate_episodes if episode["has_potion_actions"]
-                ),
-                "allowed_potion_roots": sum(
-                    1 for episode in candidate_episodes if episode["has_allowed_potion_actions"]
-                ),
-            }
-        )
+                95,
+            ),
+            "mean_search_nodes": _mean(
+                float(episode["search_nodes"]) for episode in candidate_episodes
+            ),
+            "p95_search_nodes": _percentile(
+                (float(episode["search_nodes"]) for episode in candidate_episodes), 95
+            ),
+            "potion_roots": sum(1 for episode in candidate_episodes if episode["potion_count"] > 0),
+            "potion_action_roots": sum(
+                1 for episode in candidate_episodes if episode["has_potion_actions"]
+            ),
+            "allowed_potion_roots": sum(
+                1 for episode in candidate_episodes if episode["has_allowed_potion_actions"]
+            ),
+        }
+        if candidate_manifest and name in candidate_manifest:
+            row |= candidate_manifest[name]
+        ranking.append(row)
     return sorted(
         ranking,
         key=lambda row: (
@@ -1210,6 +1219,20 @@ def _rank_episode_dicts(episodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
             row["candidate"],
         ),
     )
+
+
+def _candidate_manifest(candidates: Iterable[SearchCandidate]) -> dict[str, dict[str, Any]]:
+    return {candidate.name: _candidate_config_summary(candidate.config) for candidate in candidates}
+
+
+def _candidate_config_summary(config: CombatSearchConfig) -> dict[str, Any]:
+    return {
+        "algorithm": config.algorithm,
+        "objective": config.objective,
+        "max_depth": config.max_depth,
+        "beam_width": config.beam_width,
+        "allowed_potions": config.allowed_potions,
+    }
 
 
 def _failure_fixtures(
