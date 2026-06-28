@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +14,7 @@ from sts import omni
 from sts.bridge import BridgeMirror, command_for_descriptor
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
+from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
 from sts.trace_replay import TraceReplayStore
 
 
@@ -174,8 +175,8 @@ class SessionManager:
         session = self._require_session(session_id)
         if not _can_search_combat(session):
             raise ValueError("combat search is only available for combat sessions")
-        max_depth = int(payload.get("max_depth", 1))
-        recommendation = search_combat(session.env, CombatSearchConfig(max_depth=max_depth))
+        config = _combat_search_config(payload)
+        recommendation = search_combat(session.env, config)
         actions = self._actions(session.env, session.env.snapshot_hash())
         best_json = recommendation.best_action.json() if recommendation.best_action else None
         best_action_id = next(
@@ -199,6 +200,7 @@ class SessionManager:
                 "terminal_rate": recommendation.terminal_rate,
                 "diagnostics": recommendation.diagnostics,
                 "terminal_reason": recommendation.terminal_reason,
+                "config": config.__dict__,
             },
         }
 
@@ -413,6 +415,37 @@ def _command_lifecycle(status: str, **fields: Any) -> dict[str, Any]:
         payload["command_id"] = uuid4().hex
     payload.update(fields)
     return payload
+
+
+def _combat_search_config(payload: dict[str, Any]) -> CombatSearchConfig:
+    candidate_name = str(payload.get("candidate") or SELECTED_COMBAT_AUTOPILOT_CANDIDATE)
+    config = trace_autopilot_candidate_by_name(candidate_name).config
+    if "max_depth" in payload:
+        config = replace(config, max_depth=int(payload["max_depth"]))
+    if "objective" in payload:
+        config = replace(config, objective=str(payload["objective"]))
+    if "algorithm" in payload:
+        config = replace(config, algorithm=str(payload["algorithm"]))
+    if "beam_width" in payload:
+        config = replace(config, beam_width=int(payload["beam_width"]))
+    if "allowed_potions" in payload:
+        config = replace(config, allowed_potions=_parse_allowed_potions(payload["allowed_potions"]))
+    return config
+
+
+def _parse_allowed_potions(value: Any) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.lower() in {"*", "all"}:
+            return None
+        if not stripped or stripped.lower() in {"none", "no", "false"}:
+            return ()
+        return tuple(part.strip() for part in stripped.split(",") if part.strip())
+    if isinstance(value, list):
+        return tuple(str(part).strip() for part in value if str(part).strip())
+    raise ValueError("allowed_potions must be a string, list, or null")
 
 
 def _public_action(action: dict[str, Any]) -> dict[str, Any]:

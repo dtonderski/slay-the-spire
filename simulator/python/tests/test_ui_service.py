@@ -223,6 +223,35 @@ class UiServiceTests(unittest.TestCase):
         action_ids = {action["action_id"] for action in session["actions"]}
         self.assertIn(recommendation["best_action_id"], action_ids)
         self.assertTrue(recommendation["principal_variation"])
+        self.assertEqual(
+            recommendation["config"]["algorithm"],
+            "rust_terminal_win_hp_selector",
+        )
+
+    def test_search_accepts_named_policy_override(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        result = manager.search(
+            session["session_id"],
+            {
+                "candidate": "rust_beam_terminal_w32_d40",
+                "max_depth": 1,
+                "allowed_potions": ["Weak Potion"],
+            },
+        )
+
+        recommendation = result["recommendation"]
+        self.assertEqual(recommendation["config"]["algorithm"], "rust_beam")
+        self.assertEqual(recommendation["config"]["beam_width"], 32)
+        self.assertEqual(recommendation["config"]["allowed_potions"], ("Weak Potion",))
+
+    def test_search_rejects_unknown_named_policy(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        with self.assertRaises(ValueError):
+            manager.search(session["session_id"], {"candidate": "missing"})
 
     def test_run_map_fixture_exposes_run_decision_and_actions(self):
         manager = SessionManager()

@@ -53,6 +53,9 @@ class EpisodeResult:
     terminal_reason: str | None
 
 
+SELECTED_COMBAT_AUTOPILOT_CANDIDATE = "rust_terminal_win_hp_selector_w32_w128_no_power_d40"
+
+
 def default_candidates() -> list[SearchCandidate]:
     return [
         SearchCandidate(
@@ -235,6 +238,15 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             ),
         ),
     ]
+
+
+def trace_autopilot_candidate_by_name(name: str) -> SearchCandidate:
+    available = {candidate.name: candidate for candidate in trace_autopilot_candidates()}
+    try:
+        return available[name]
+    except KeyError as exc:
+        choices = ", ".join(sorted(available))
+        raise ValueError(f"unknown trace eval candidate: {name}; choices: {choices}") from exc
 
 
 def generate_roots(max_source_depth: int = 5, max_roots: int = 48) -> list[BenchmarkRoot]:
