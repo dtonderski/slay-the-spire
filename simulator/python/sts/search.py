@@ -80,6 +80,7 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "portfolio",
         "terminal_probe",
         "trace_probe",
+        "potion_rescue_trace_probe",
     }:
         raise ValueError(f"unsupported algorithm: {config.algorithm}")
     if config.beam_width < 1:
@@ -101,6 +102,10 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         )
     elif config.algorithm == "trace_probe":
         score, variation, nodes, terminal_reason = _trace_probe_search(env.clone(), depth, config)
+    elif config.algorithm == "potion_rescue_trace_probe":
+        score, variation, nodes, terminal_reason = _potion_rescue_trace_probe_search(
+            env.clone(), depth, config
+        )
     else:
         width = 1 if config.algorithm == "greedy" else config.beam_width
         score, variation, nodes, terminal_reason = _beam_search(
@@ -329,6 +334,52 @@ def _trace_probe_search(
             recommendation.terminal_reason,
         )
     return _terminal_probe_search(env, depth, config)
+
+
+def _potion_rescue_trace_probe_search(
+    env: Any,
+    depth: int,
+    config: CombatSearchConfig,
+) -> tuple[float, list[Any], int, str | None]:
+    no_potion_config = CombatSearchConfig(
+        max_depth=depth,
+        objective=config.objective,
+        algorithm="trace_probe",
+        beam_width=config.beam_width,
+        allowed_potions=(),
+    )
+    no_potion = search_combat(env, no_potion_config)
+    nodes = no_potion.visits + 1
+    if no_potion.terminal_reason == "won" and no_potion.best_action is not None:
+        return (
+            no_potion.value,
+            list(no_potion.principal_variation),
+            nodes,
+            no_potion.terminal_reason,
+        )
+
+    rescue_config = CombatSearchConfig(
+        max_depth=depth,
+        objective=config.objective,
+        algorithm="trace_probe",
+        beam_width=config.beam_width,
+        allowed_potions=config.allowed_potions,
+    )
+    rescue = search_combat(env, rescue_config)
+    nodes += rescue.visits
+    if rescue.best_action is not None:
+        return (
+            rescue.value,
+            list(rescue.principal_variation),
+            nodes,
+            rescue.terminal_reason,
+        )
+    return (
+        no_potion.value,
+        list(no_potion.principal_variation),
+        nodes,
+        no_potion.terminal_reason,
+    )
 
 
 def _should_prefer_scaling_policy(state: dict[str, Any]) -> bool:

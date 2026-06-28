@@ -113,6 +113,21 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertIsNotNone(result.best_action)
         self.assertEqual(result.diagnostics["algorithm"], "trace_probe")
 
+    def test_potion_rescue_trace_probe_search_returns_action(self):
+        env = omni.OmniCombatEnv.initial_fixture()
+
+        result = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=4,
+                objective="tactical_survival",
+                algorithm="potion_rescue_trace_probe",
+            ),
+        )
+
+        self.assertIsNotNone(result.best_action)
+        self.assertEqual(result.diagnostics["algorithm"], "potion_rescue_trace_probe")
+
     def test_scaling_survival_objective_is_supported(self):
         env = omni.OmniCombatEnv.initial_fixture()
 

@@ -75,6 +75,7 @@ Trace replay evaluation now uses a smaller practical candidate set by default:
 - `tactical_greedy_d40`
 - `hp_greedy_d40`
 - `trace_probe_d40`
+- `trace_probe_potion_rescue_d40`
 - `trace_probe_no_potions_d40`
 
 These are intentionally separate from the historical synthetic benchmark
