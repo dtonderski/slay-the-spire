@@ -186,8 +186,62 @@ Interpretation:
 
 ## Next Steps
 
-1. Finish the `failure_output` fixture writer.
-2. Expose `--root-scope all|combat_start` and `--failure-output` in `sts.self_play eval`.
-3. Add focused tests for HP-loss metrics, combat-start root selection, and failure fixture writing.
-4. Run a true 10-combat-start eval on `manual01-replayed.jsonl`.
-5. Decide whether the practical autopilot is promising enough for dataset replay, based on win rate, HP loss, potion usage, and failure shapes.
+1. Use the failure fixtures from `dev-fast-10` to design targeted policy candidates.
+2. Select candidates on `dev-50`, with the caveat that this set is currently undersized.
+3. Validate only after candidate selection, using `val-50`, with the caveat that this set is currently undersized.
+4. Run `full-323` as a broad coverage/sanity check.
+5. Decide whether the practical autopilot is promising enough for dataset replay, based on win rate, HP loss, potion usage, runtime, and failure shapes.
+
+### 6. Frozen Eval Set and Runtime Metric Pass
+
+Current working-tree changes after commit `65c7f87`:
+
+- Added named eval sets to `sts.self_play eval`:
+  - `dev-fast-10`
+  - `dev-50`
+  - `val-50`
+  - `full-323`
+- Added report fields:
+  - `available_roots`
+  - `eval_set`
+  - `eval_set_spec`
+  - `held_out`
+  - `nonterminal`
+  - `median_hp_loss`
+  - `p95_hp_loss`
+  - `mean_potion_uses`
+  - `total_potion_uses`
+  - `mean_seconds_per_decision`
+  - `p50_seconds_per_decision`
+  - `p95_seconds_per_decision`
+  - `mean_seconds_per_combat`
+  - `p95_search_nodes`
+
+Named set availability from `manual01-replayed.jsonl`:
+
+| Eval Set | Scope | Split | Available | Selected |
+| --- | --- | --- | ---: | ---: |
+| `dev-fast-10` | combat_start | all | 21 | 10 |
+| `dev-50` | combat_start | dev | 17 | 17 |
+| `val-50` | combat_start | eval | 4 | 4 |
+| `full-323` | all | all | 323 | 323 |
+
+Important caveat:
+
+- The current single trace does not contain enough combat-start roots to make true 50-root dev/validation sets.
+- `dev-50` and `val-50` are still frozen named sets, but they are undersized until we have more replay traces or broaden the set definition beyond combat starts.
+- `full-323` uses all distinct usable combat states, so it is useful for coverage and regression checks, but it is not a held-out combat-start validation set.
+
+`dev-fast-10` report with timing:
+
+- Report: `simulator/target/trace-guided/eval-dev-fast-10.json`
+- Failure fixtures: `simulator/target/trace-guided/eval-dev-fast-10-failures.json`
+- Best ranked candidate remains `beam_tactical_w8_d40`.
+- `beam_tactical_w8_d40`: wins `5/10`, losses `1`, nonterminal `4`, mean HP loss `14.2`, median HP loss `1.5`, p95 HP loss `59.3`, total potion uses `4`, mean seconds per decision about `0.019`, p95 seconds per decision about `0.027`, mean seconds per combat about `0.143`.
+- `portfolio_rollout_d40` tied on wins but was much slower: mean seconds per decision about `0.513`, p95 about `1.262`, mean seconds per combat about `4.66`.
+
+Interpretation:
+
+- The timing metrics make `beam_tactical_w8_d40` look much more practical than rollout portfolio for live automation.
+- The 5/10 win rate is still nowhere near good enough.
+- The next useful work is not more generic depth; it is targeted failure-driven policy improvement.

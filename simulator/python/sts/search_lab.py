@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import argparse
 import hashlib
 import json
+import time
 from typing import Any, Iterable
 
 from sts import omni
@@ -42,6 +43,12 @@ class EpisodeResult:
     monster_hp: float
     actions: int
     search_nodes: int
+    potion_uses: int
+    search_seconds: float
+    mean_seconds_per_decision: float
+    p50_seconds_per_decision: float
+    p95_seconds_per_decision: float
+    decision_seconds: tuple[float, ...]
     terminal_reason: str | None
 
 
@@ -198,13 +205,19 @@ def evaluate_candidate(
     initial_hp = float(_state(env).get("player", {}).get("hp", 0))
     actions_taken = 0
     search_nodes = 0
+    potion_uses = 0
+    decision_seconds: list[float] = []
     terminal = _terminal_reason(env)
 
     while terminal is None and actions_taken < max_actions:
+        started_at = time.perf_counter()
         recommendation = search_combat(env, candidate.config)
+        decision_seconds.append(time.perf_counter() - started_at)
         search_nodes += recommendation.visits
         if recommendation.best_action is None:
             break
+        if getattr(recommendation.best_action, "kind", lambda: "")() == "use_potion":
+            potion_uses += 1
         env.step(recommendation.best_action)
         actions_taken += 1
         terminal = _terminal_reason(env)
@@ -225,6 +238,12 @@ def evaluate_candidate(
         monster_hp=_monster_hp(final_state),
         actions=actions_taken,
         search_nodes=search_nodes,
+        potion_uses=potion_uses,
+        search_seconds=sum(decision_seconds),
+        mean_seconds_per_decision=_mean(decision_seconds),
+        p50_seconds_per_decision=_percentile(decision_seconds, 50),
+        p95_seconds_per_decision=_percentile(decision_seconds, 95),
+        decision_seconds=tuple(decision_seconds),
         terminal_reason=terminal,
     )
 
@@ -268,19 +287,54 @@ def _rank(results: list[EpisodeResult]) -> list[dict[str, Any]]:
         count = len(candidate_results)
         wins = sum(1 for result in candidate_results if result.won)
         losses = sum(1 for result in candidate_results if result.lost)
+        nonterminal = count - wins - losses
         ranking.append(
             {
                 "candidate": name,
                 "episodes": count,
                 "wins": wins,
                 "losses": losses,
+                "nonterminal": nonterminal,
                 "win_rate": wins / count if count else 0.0,
                 "mean_score": _mean(result.final_score for result in candidate_results),
                 "mean_hp_loss": _mean(result.hp_loss for result in candidate_results),
+                "median_hp_loss": _percentile(
+                    (result.hp_loss for result in candidate_results), 50
+                ),
+                "p95_hp_loss": _percentile(
+                    (result.hp_loss for result in candidate_results), 95
+                ),
                 "mean_final_hp": _mean(result.final_hp for result in candidate_results),
                 "mean_monster_hp": _mean(result.monster_hp for result in candidate_results),
                 "mean_actions": _mean(result.actions for result in candidate_results),
+                "mean_potion_uses": _mean(result.potion_uses for result in candidate_results),
+                "total_potion_uses": sum(result.potion_uses for result in candidate_results),
+                "mean_seconds_per_combat": _mean(
+                    result.search_seconds for result in candidate_results
+                ),
+                "mean_seconds_per_decision": _mean(
+                    result.mean_seconds_per_decision for result in candidate_results
+                ),
+                "p50_seconds_per_decision": _percentile(
+                    (
+                        second
+                        for result in candidate_results
+                        for second in result.decision_seconds
+                    ),
+                    50,
+                ),
+                "p95_seconds_per_decision": _percentile(
+                    (
+                        second
+                        for result in candidate_results
+                        for second in result.decision_seconds
+                    ),
+                    95,
+                ),
                 "mean_search_nodes": _mean(result.search_nodes for result in candidate_results),
+                "p95_search_nodes": _percentile(
+                    (result.search_nodes for result in candidate_results), 95
+                ),
             }
         )
     return sorted(
@@ -367,6 +421,19 @@ def _split_for_state(state_id: str) -> str:
 def _mean(values: Iterable[float]) -> float:
     values = list(values)
     return sum(values) / len(values) if values else 0.0
+
+
+def _percentile(values: Iterable[float], percentile: float) -> float:
+    values = sorted(float(value) for value in values)
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return values[0]
+    rank = (len(values) - 1) * percentile / 100.0
+    lower = int(rank)
+    upper = min(lower + 1, len(values) - 1)
+    weight = rank - lower
+    return values[lower] * (1.0 - weight) + values[upper] * weight
 
 
 def main(argv: list[str] | None = None) -> None:
