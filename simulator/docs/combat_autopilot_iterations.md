@@ -871,3 +871,99 @@ Interpretation:
 - Increasing the outer action cap from 40 to 80 did not change the result, so the remaining failure is not a simple action-budget problem.
 - Disallowing Elixir is worse on `dev-50`: it drops to 15/17 wins with 2 losses, including Hexaghost.
 - Do not touch held-out `val-50` yet. One known dev-50 root still fails: step 190 Chosen+Cultist. The next iteration should target that root specifically, ideally by improving first-turn/second-turn lethal planning rather than another broad static heuristic.
+
+### 21. Width-32 Terminal Beam After Action-Contract Fix
+
+Change:
+
+- Re-ran the terminal Rust beam candidates after fixing the Rust beam action contract.
+- The fix prevents the beam from returning a root placeholder with no first action when legal child actions exist. That made stalled nonterminal reports stricter and exposed which candidates actually continue playing.
+- Selected `rust_beam_terminal_w32_d40` from `dev-50` before touching held-out validation.
+
+Why:
+
+- The portfolio looked best by completion before the action-contract fix, but it still lost the hard step 190 line.
+- A direct hard-root probe showed that `terminal_tactical` width 32 could win that root after the action-contract fix, while the portfolio still selected a losing line.
+- The selection rule remains dev-only: held-out `val-50` is for validation, not tuning.
+
+Hard-root probe:
+
+| Root | Candidate | Result | Final HP | Monster HP | Actions | Search Nodes |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `dev-50` step 190 / state `eb21773a18409be3` | `rust_terminal_portfolio_d40` | lost | -16 | 4 | - | - |
+| `dev-50` step 190 / state `eb21773a18409be3` | `rust_beam_terminal_w16_d40` | lost | -13 | 25 | - | - |
+| `dev-50` step 190 / state `eb21773a18409be3` | `rust_beam_terminal_w32_d40` | won | 16 | 0 | 16 | 12921 |
+| `dev-50` step 190 / state `eb21773a18409be3` | `rust_beam_terminal_w64_d40` | won | 16 | 0 | 18 | 26658 |
+| `dev-50` step 190 / state `eb21773a18409be3` | aggressive width 64 diagnostic | won | 16 | 0 | 14 | 32005 |
+
+Dev results after the action-contract fix:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dev-fast-10` | `rust_beam_terminal_w32_d40` | 10 | 10 | 0 | 0 | 17.1 | 7.5 | 51.2 | 5.6 | 7 | 0.00218 | 0.034 | 18224.7 |
+| `dev-fast-10` | `rust_terminal_portfolio_d40` | 10 | 10 | 0 | 0 | 17.1 | 8.0 | 49.3 | 5.6 | 11 | 0.00316 | 0.052 | 32461.0 |
+| `dev-50` | `rust_beam_terminal_w32_d40` | 17 | 17 | 0 | 0 | 19.29 | 12.0 | 57.6 | 6.35 | 12 | 0.00252 | 0.038 | 16245.35 |
+| `dev-50` | `rust_terminal_portfolio_d40` | 17 | 16 | 1 | 0 | 19.06 | 7.0 | 54.0 | 6.35 | 15 | 0.00394 | 0.070 | 35050.94 |
+
+Potion use on `dev-50` for `rust_beam_terminal_w32_d40`:
+
+| Potion | Uses |
+| --- | ---: |
+| Cultist | 1 |
+| DistilledChaos | 1 |
+| Elixir | 5 |
+| Explosive | 1 |
+| Flex | 1 |
+| Weak | 3 |
+
+Held-out validation:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `val-50` | `rust_beam_terminal_w16_d40` | 4 | 4 | 0 | 0 | 10.0 | 8.5 | 18.35 | 4.0 | 1 | 0.00115 | 0.019 | 7421.5 |
+| `val-50` | `rust_terminal_portfolio_d40` | 4 | 4 | 0 | 0 | 10.25 | 8.5 | 19.2 | 4.0 | 1 | 0.00522 | 0.119 | 44643.0 |
+| `val-50` | `rust_beam_terminal_w32_d40` | 4 | 4 | 0 | 0 | 15.5 | 7.0 | 42.45 | 4.0 | 0 | 0.00336 | 0.065 | 19814.0 |
+
+Important caveat:
+
+- `val-50` is held out, but this trace currently contributes only 4 eval-split combat-start roots. Passing it is useful, not conclusive.
+- Do not use the fact that width 16 ranked first on this tiny held-out slice to retune the policy. The selected policy remains `rust_beam_terminal_w32_d40` because it was the only compared candidate with 17/17 wins and zero nonterminals on `dev-50`.
+
+Full coverage sanity:
+
+| Eval Set | Candidate | Roots | Wins | Losses | Nonterminal | Mean HP Loss | Median HP Loss | P95 HP Loss | Real Trace Mean HP Loss | Potion Uses | Mean Seconds / Decision | Mean Seconds / Combat | Mean Search Nodes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full-323` | `rust_beam_terminal_w32_d40` | 323 | 314 | 4 | 5 | 14.43 | 7.0 | 59.0 | -1.02 | 130 | 0.00182 | 0.029 | 11741.55 |
+
+Full-set potion use:
+
+| Potion | Uses |
+| --- | ---: |
+| Cultist | 1 |
+| DistilledChaos | 17 |
+| Elixir | 79 |
+| Explosive | 3 |
+| Flex | 1 |
+| Power | 5 |
+| Weak | 24 |
+
+Full-set failure fixtures for the next iteration:
+
+| Trace Step | Result | Final HP | Monster HP | Actions | Potions Used |
+| ---: | --- | ---: | ---: | ---: | --- |
+| 168 | lost | -14 | 21 | 17 | Elixir |
+| 191 | lost | -16 | 4 | 15 | Elixir, DistilledChaos |
+| 192 | lost | -16 | 4 | 14 | DistilledChaos, Elixir |
+| 193 | lost | -10 | 12 | 14 | DistilledChaos, Elixir |
+| 279 | nonterminal | 2 | 13 | 36 | Power |
+| 284 | nonterminal | 1 | 65 | 16 | Power |
+| 285 | nonterminal | 8 | 49 | 8 | Power |
+| 286 | nonterminal | 8 | 61 | 6 | Power |
+| 287 | nonterminal | 4 | 96 | 9 | Power |
+
+Interpretation:
+
+- `rust_beam_terminal_w32_d40` is now the selected baseline for replay automation experiments: it is fast, wins every dev-selected root, passes the small held-out validation set, and wins 314/323 full coverage roots.
+- It is not finished. The full-set failures show two clusters: a mid-run lethal-planning cluster around steps 168 and 191-193, and a late cluster where Power Potion lines stall or leave too much monster HP.
+- The policy spends many Elixirs on full coverage because the eval starts from many intermediate roots from the same real combat. This is useful for per-root combat advice, but it overstates whole-run potion consumption.
+- Next iteration should target the saved full-set failure fixtures, especially the step 191-193 cluster and the Power Potion nonterminals, before claiming the autopilot is ready to drive large-scale trace replay.
