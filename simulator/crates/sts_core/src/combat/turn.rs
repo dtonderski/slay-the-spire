@@ -1,19 +1,33 @@
 use crate::{
-    combat::turn_powers::{apply_end_of_monster_turn_powers, apply_end_of_player_turn_powers},
+    combat::turn_powers::{
+        apply_end_of_monster_turn_powers, apply_end_of_monster_turn_powers_without_ritual,
+        apply_end_of_player_turn_powers,
+    },
     combat::{
         draw::{
-            apply_confusion_cost_randomization, draw_cards_with_sts_rng,
-            draw_cards_without_shuffle, evolve_extra_draw_count,
+            apply_confusion_cost_randomization, apply_fire_breathing_on_draw,
+            draw_cards_with_sts_rng, draw_cards_without_shuffle, evolve_extra_draw_count,
         },
         hand::{discard_end_of_turn_hand, resolve_end_of_turn_doubt, resolve_end_of_turn_hand},
+        piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
     },
     combat::{CombatPhase, CombatState},
-    content::cards::WOUND_ID,
+    content::cards::{BURN_ID, WOUND_ID},
     content::monsters::{
-        apply_gremlin_leader_encourage, apply_gremlin_leader_rally_representative,
-        apply_heal_all_monsters, apply_monster_intent, apply_strength_all_monsters,
-        clear_lagavulin_metallicize_if_awake, heal_monster_to_definition_cap,
-        prepare_monster_intent_for_ascension, SPHERIC_GUARDIAN_ID,
+        apply_bronze_automaton_orb_spawn, apply_gremlin_leader_encourage,
+        apply_gremlin_leader_rally_representative, apply_gremlin_leader_rally_target,
+        apply_heal_all_monsters, apply_large_acid_slime_split, apply_monster_intent_with_card_rng,
+        apply_strength_all_monsters, clear_lagavulin_metallicize_if_awake,
+        heal_monster_to_definition_cap, living_monster_missing_hp,
+        prepare_monster_intent_for_ascension, record_target_move,
+        target_bronze_orb_next_intent_from_roll, target_centurion_next_intent_from_roll,
+        target_chosen_next_intent_from_roll, target_fungi_beast_next_intent_from_roll,
+        target_gremlin_leader_next_intent_from_roll, target_healer_next_intent_from_roll,
+        target_jaw_worm_next_intent_from_roll, target_large_acid_slime_next_intent_from_roll,
+        target_shelled_parasite_next_intent_from_roll, target_snake_plant_next_intent_from_roll,
+        ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, CENTURION_ID,
+        CHOSEN_ID, DARKLING_ID, FUNGI_BEAST_ID, GREMLIN_LEADER_ID, HEALER_ID, HEXAGHOST_ID,
+        JAW_WORM_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SPHERIC_GUARDIAN_ID,
     },
     ids::MonsterId,
     rng::JavaRng,
@@ -103,6 +117,7 @@ fn start_player_turn_with_no_rng_discard_limit(
     }
     apply_start_of_turn_magnetism(state);
     draw_next_hand_without_shuffle(state, no_rng_discard_len_before_end_turn);
+    crate::relic::apply_start_of_player_turn_post_draw_relics(state);
     apply_start_of_turn_mayhem(state);
     if state.player.hp <= 0 {
         state.phase = CombatPhase::Lost;
@@ -121,7 +136,7 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) {
         let mitigated = crate::relic::mitigate_hp_loss(&state.relics, 1);
         let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
         state.player.hp -= hp_loss;
-        crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
         if state.player.hp <= 0 {
             return;
         }
@@ -225,6 +240,7 @@ fn run_monster_turn(state: &mut CombatState) {
     let ascension = state.ascension;
     let relics = state.relics.clone();
     let mut pending_damage = Vec::new();
+    let mut skip_ritual_tick = Vec::new();
     let turn_order = state
         .monsters
         .iter()
@@ -261,7 +277,23 @@ fn run_monster_turn(state: &mut CombatState) {
             }
             crate::MonsterIntent::SummonGremlins { count } => {
                 let summoner_id = state.monsters[index].id;
-                apply_gremlin_leader_rally_representative(&mut state.monsters, count);
+                if state.monsters[index].content_id == BRONZE_AUTOMATON_ID {
+                    apply_bronze_automaton_orb_spawn(&mut state.monsters, summoner_id);
+                } else if state.monsters[index].content_id == ACID_SLIME_ID {
+                    apply_large_acid_slime_split(&mut state.monsters, summoner_id);
+                } else if let (Some(ai_rng), Some(hp_rng)) =
+                    (state.monster_rng.as_mut(), state.monster_hp_rng.as_mut())
+                {
+                    apply_gremlin_leader_rally_target(
+                        &mut state.monsters,
+                        count,
+                        ai_rng,
+                        hp_rng,
+                        ascension,
+                    );
+                } else {
+                    apply_gremlin_leader_rally_representative(&mut state.monsters, count);
+                }
                 if let Some(monster) = state
                     .monsters
                     .iter_mut()
@@ -274,32 +306,68 @@ fn run_monster_turn(state: &mut CombatState) {
             _ => {}
         }
         let player_snapshot = state.player.clone();
-        let damage = apply_monster_intent(
+        let intent = state.monsters[index].intent;
+        let hits = match intent {
+            crate::MonsterIntent::AttackMultiple { hits, .. } => hits,
+            _ => 1,
+        };
+        let damage = apply_monster_intent_with_card_rng(
             &mut state.monsters[index],
             &mut state.player,
             &mut state.piles,
             ascension,
             &player_snapshot,
             &relics,
+            state.card_random_rng.as_mut(),
         );
-        if damage > 0 {
-            let heal_self = matches!(
-                state.monsters[index].intent,
-                crate::MonsterIntent::AttackHealSelf { .. }
-            )
-            .then_some(state.monsters[index].id);
+        if matches!(intent, crate::MonsterIntent::Ritual { .. }) {
+            skip_ritual_tick.push(actor_id);
+        }
+        let heal_self = matches!(
+            state.monsters[index].intent,
+            crate::MonsterIntent::AttackHealSelf { .. }
+        )
+        .then_some(state.monsters[index].id);
+        let burn_to_discard_and_draw = match intent {
+            crate::MonsterIntent::AddBurnToDiscardAndDraw { count, .. } => count,
+            _ => 0,
+        };
+        if damage > 0 || burn_to_discard_and_draw > 0 {
             pending_damage.push((
                 damage,
+                hits,
                 state.monsters[index].powers.painful_stabs,
                 heal_self,
+                burn_to_discard_and_draw,
             ));
         }
     }
 
-    for (damage, painful_stabs, heal_self) in pending_damage {
-        let hp_damage = deal_damage_to_player(state, damage);
-        apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
-        apply_attack_heal_self_after_player_damage(state, heal_self, hp_damage);
+    for (damage, hits, painful_stabs, heal_self, burn_to_discard_and_draw) in pending_damage {
+        let mut total_hp_damage = 0;
+        let hit_count = hits.max(1);
+        if damage > 0 && hit_count > 1 {
+            let hit_damage = damage / hit_count;
+            for _ in 0..hit_count {
+                let hp_damage = deal_damage_to_player(state, hit_damage);
+                apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
+                total_hp_damage += hp_damage;
+            }
+        } else if damage > 0 {
+            let hp_damage = deal_damage_to_player(state, damage);
+            apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
+            total_hp_damage += hp_damage;
+        }
+        apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage);
+        if burn_to_discard_and_draw > 0 {
+            add_cards_to_draw_random_spot(
+                &mut state.piles,
+                BURN_ID,
+                burn_to_discard_and_draw,
+                state.card_random_rng.as_mut(),
+            );
+            add_cards_to_discard(&mut state.piles, BURN_ID, burn_to_discard_and_draw);
+        }
     }
 
     for monster in &mut state.monsters {
@@ -313,7 +381,11 @@ fn run_monster_turn(state: &mut CombatState) {
             if monster.powers.malleable_base > 0 {
                 monster.powers.malleable = monster.powers.malleable_base;
             }
-            apply_end_of_monster_turn_powers(monster);
+            if skip_ritual_tick.contains(&monster.id) {
+                apply_end_of_monster_turn_powers_without_ritual(monster);
+            } else {
+                apply_end_of_monster_turn_powers(monster);
+            }
             if monster.temp_strength_down > 0 {
                 monster.powers.strength += monster.temp_strength_down;
                 monster.temp_strength_down = 0;
@@ -430,9 +502,11 @@ fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::St
         }
 
         if let Some(mut card) = state.piles.draw_pile.pop() {
-            let extra_draws = evolve_extra_draw_count(state, card.content_id);
+            let content_id = card.content_id;
+            let extra_draws = evolve_extra_draw_count(state, content_id);
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            apply_fire_breathing_on_draw(state, content_id);
             draw_cards_with_sts_rng(state, extra_draws, rng);
         }
     }
@@ -463,9 +537,11 @@ fn draw_next_hand_without_rng(
         }
 
         if let Some(mut card) = state.piles.draw_pile.pop() {
-            let extra_draws = evolve_extra_draw_count(state, card.content_id);
+            let content_id = card.content_id;
+            let extra_draws = evolve_extra_draw_count(state, content_id);
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            apply_fire_breathing_on_draw(state, content_id);
             draw_cards_without_shuffle(state, extra_draws);
         }
     }
@@ -481,11 +557,177 @@ fn target_hand_size(state: &CombatState) -> usize {
 }
 
 fn prepare_next_intents(state: &mut CombatState) {
-    for monster in &mut state.monsters {
+    let living_monster_count = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .count();
+    let alive_gremlin_count = gremlin_leader_alive_minion_count(&state.monsters);
+    let missing_hp = living_monster_missing_hp(&state.monsters, state.ascension);
+    for (monster_index, monster) in state.monsters.iter_mut().enumerate() {
+        if is_half_dead_darkling(monster) {
+            let _ = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
+            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            continue;
+        }
+
         if monster.alive {
-            monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension);
+            let roll = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
+            monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
+                crate::MonsterIntent::AttackMultiple {
+                    damage: (state.player.hp / 12) + 1,
+                    hits: 6,
+                }
+            } else if monster.content_id == JAW_WORM_ID {
+                if let Some(roll) = roll {
+                    target_jaw_worm_next_intent_from_roll(&monster.move_history, roll)
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == CHOSEN_ID {
+                if let Some(roll) = roll {
+                    target_chosen_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == ACID_SLIME_ID
+                && monster.hp > ACID_SLIME_M_A7_HP_RANGE.max
+            {
+                if let Some(roll) = roll {
+                    if let Some(rng) = state.monster_rng.as_mut() {
+                        target_large_acid_slime_next_intent_from_roll(
+                            monster.intent,
+                            roll,
+                            rng,
+                            state.ascension,
+                        )
+                    } else {
+                        prepare_monster_intent_for_ascension(monster, state.ascension)
+                    }
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == SHELLED_PARASITE_ID {
+                if let Some(roll) = roll {
+                    if let Some(rng) = state.monster_rng.as_mut() {
+                        target_shelled_parasite_next_intent_from_roll(
+                            &monster.move_history,
+                            roll,
+                            rng,
+                            state.ascension,
+                        )
+                    } else {
+                        prepare_monster_intent_for_ascension(monster, state.ascension)
+                    }
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == SNAKE_PLANT_ID {
+                if let Some(roll) = roll {
+                    target_snake_plant_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == CENTURION_ID {
+                if let Some(roll) = roll {
+                    target_centurion_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        living_monster_count,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == HEALER_ID {
+                if let Some(roll) = roll {
+                    target_healer_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        missing_hp,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == FUNGI_BEAST_ID {
+                if let Some(roll) = roll {
+                    target_fungi_beast_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == GREMLIN_LEADER_ID {
+                if let Some(roll) = roll {
+                    target_gremlin_leader_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        alive_gremlin_count,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == BRONZE_ORB_ID {
+                if let Some(roll) = roll {
+                    target_bronze_orb_next_intent_from_roll(&monster.move_history, roll)
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == DARKLING_ID {
+                if let Some(roll) = roll {
+                    if let Some(rng) = state.monster_rng.as_mut() {
+                        crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
+                            &monster.move_history,
+                            roll,
+                            monster_index,
+                            monster.rolled_attack_damage,
+                            state.ascension,
+                            rng,
+                        )
+                    } else {
+                        crate::content::monsters::target_darkling_next_intent_from_roll(
+                            &monster.move_history,
+                            roll,
+                            monster_index,
+                            monster.rolled_attack_damage,
+                            state.ascension,
+                        )
+                    }
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else {
+                prepare_monster_intent_for_ascension(monster, state.ascension)
+            };
+            record_target_move(monster);
         }
     }
+}
+
+fn is_half_dead_darkling(monster: &crate::MonsterState) -> bool {
+    monster.content_id == DARKLING_ID && !monster.alive && monster.escaped
+}
+
+fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize {
+    monsters
+        .iter()
+        .filter(|monster| {
+            monster.alive
+                && crate::content::monsters::is_gremlin_leader_minion_content_id(monster.content_id)
+        })
+        .count()
 }
 
 #[cfg(test)]
@@ -494,10 +736,13 @@ mod tests {
     use crate::{
         apply_combat_action,
         combat::MonsterIntent,
-        content::cards::{BASH_ID, DEFEND_R_ID, MAYHEM_ID, RETAIN_DEFEND_ID, STRIKE_R_ID},
+        content::cards::{
+            BASH_ID, DEFEND_R_ID, MAYHEM_ID, RETAIN_DEFEND_ID, STRIKE_R_ID, WOUND_ID,
+        },
         content::monsters::{
-            monster_state, BOOK_OF_STABBING_A0, FIXED_SIMPLE_MONSTER, GREMLIN_LEADER_A0,
-            GREMLIN_LEADER_ID, GREMLIN_WARRIOR_ID, MUGGER_A0, SHELLED_PARASITE_A0,
+            monster_state, BOOK_OF_STABBING_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER,
+            GREMLIN_LEADER_A0, GREMLIN_LEADER_ID, GREMLIN_WARRIOR_ID, HEXAGHOST_A0, MUGGER_A0,
+            SHELLED_PARASITE_A0,
         },
         ids::CardId,
         CardInstance, CombatAction,
@@ -513,6 +758,21 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.player.hp, 28);
+    }
+
+    #[test]
+    fn hexaghost_divider_damage_uses_current_player_hp_after_activate() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 58;
+        state.monsters = vec![monster_state(&HEXAGHOST_A0, MonsterId::new(1))];
+        state.monsters[0].moves_executed = 1;
+
+        prepare_next_intents(&mut state);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            MonsterIntent::AttackMultiple { damage: 5, hits: 6 }
+        );
     }
 
     #[test]
@@ -540,6 +800,49 @@ mod tests {
 
         assert_eq!(next.player.hp, 20);
         assert_eq!(next.player.powers.plated_armor, 4);
+    }
+
+    #[test]
+    fn fire_breathing_triggers_on_next_turn_hand_drawn_statuses() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.fire_breathing = 6;
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), STRIKE_R_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+            CardInstance::new(CardId::new(23), WOUND_ID),
+            CardInstance::new(CardId::new(24), WOUND_ID),
+        ];
+        state.monsters[0].hp = 40;
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.monsters[0].hp, 28);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn monster_multi_hit_damage_consumes_block_per_hit() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 50;
+        state.player.block = 8;
+        state.player.powers.vulnerable = 2;
+        state.monsters[0].intent = MonsterIntent::AttackMultiple { damage: 6, hits: 2 };
+        state.monsters[0].powers.weak = 1;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 46);
     }
 
     #[test]
@@ -1121,6 +1424,34 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.phase, CombatPhase::Lost);
+    }
+
+    #[test]
+    fn monster_ritual_does_not_tick_on_the_turn_it_is_applied() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&CULTIST_A0, MonsterId::new(1))];
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+
+        let mut after_incantation = end_player_turn(&state);
+        assert_eq!(
+            after_incantation.monsters[0].powers.ritual,
+            CULTIST_A0.ritual_amount
+        );
+        assert_eq!(after_incantation.monsters[0].powers.strength, 0);
+        assert_eq!(
+            after_incantation.monsters[0].intent,
+            MonsterIntent::Attack { damage: 6 }
+        );
+
+        after_incantation.player.block = 5;
+        let after_attack = end_player_turn(&after_incantation);
+
+        assert_eq!(after_attack.player.hp, state.player.hp - 1);
+        assert_eq!(
+            after_attack.monsters[0].powers.strength,
+            CULTIST_A0.ritual_amount
+        );
     }
 
     #[test]

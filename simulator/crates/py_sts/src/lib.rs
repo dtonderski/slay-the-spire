@@ -1,11 +1,13 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use sts_core::combat::ExhaustSelectPurpose;
 use sts_core::{
     apply_combat_action_on_run, apply_combat_action_with_events, apply_event_action,
-    apply_map_action_on_run, apply_rest_action, apply_run_action, legal_combat_actions,
-    legal_event_actions, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, CardId,
-    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, MonsterIntent,
-    Potion, RestAction, RunAction, RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    apply_map_action_on_run, apply_rest_action, apply_run_action, cancel_grid, confirm_grid,
+    leave_shop_room, legal_combat_actions, legal_event_actions, legal_map_actions_on_run,
+    legal_rest_actions, legal_shop_actions, select_grid_card, CardId, CombatAction, CombatPhase,
+    CombatState, EventAction, MapAction, MonsterId, MonsterIntent, Potion, RestAction, RunAction,
+    RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 
 #[pyclass(name = "ExactCombatAction")]
@@ -105,6 +107,10 @@ pub struct PyExactStepResult {
 enum ExactRunActionKind {
     Combat(CombatAction),
     Event(EventAction),
+    GridSelect { index: usize },
+    GridConfirm,
+    GridCancel,
+    LeaveShopRoom,
     Map(MapAction),
     Rest(RestAction),
     Run(RunAction),
@@ -361,12 +367,9 @@ impl PyOmniRunEnv {
         } else {
             serde_json::json!({ "game_state": value })
         };
-        let state =
-            sts_verify::run_state_from_observed_combat_message(&message).ok_or_else(|| {
-                PyValueError::new_err(
-                    "CommunicationMod state is not a supported observed combat state",
-                )
-            })?;
+        let state = sts_verify::run_state_from_observed_message(&message).ok_or_else(|| {
+            PyValueError::new_err("CommunicationMod state is not a supported observed state")
+        })?;
         Ok(Self { state })
     }
 
@@ -526,12 +529,7 @@ fn stable_seed(seed: &str) -> u64 {
     if let Ok(value) = seed.parse::<u64>() {
         return value;
     }
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in seed.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
+    sts_verify::sts_seed_string_to_long(seed) as u64
 }
 
 fn run_snapshot_hash(state: &RunState) -> PyResult<String> {
@@ -556,6 +554,21 @@ fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
 fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
     let mut actions = Vec::new();
 
+    if let Some(grid) = state.card_grid.as_ref() {
+        actions.extend(
+            (0..grid.cards.len())
+                .filter(|index| select_grid_card(state, *index).is_ok())
+                .map(|index| ExactRunActionKind::GridSelect { index }),
+        );
+        if confirm_grid(state).is_ok() {
+            actions.push(ExactRunActionKind::GridConfirm);
+        }
+        if cancel_grid(state).is_ok() {
+            actions.push(ExactRunActionKind::GridCancel);
+        }
+        return actions;
+    }
+
     if state.phase == RunPhase::Combat {
         if let Some(combat) = state.combat.as_ref() {
             let select_actions = legal_combat_select_actions_on_run(state, combat);
@@ -563,11 +576,16 @@ fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
                 actions.extend(select_actions.into_iter().map(ExactRunActionKind::Run));
                 return actions;
             }
-            actions.extend(
-                legal_combat_actions(combat)
-                    .into_iter()
-                    .map(ExactRunActionKind::Combat),
-            );
+            let combat_actions = legal_combat_actions(combat)
+                .into_iter()
+                .map(ExactRunActionKind::Combat);
+            if combat.duplication_potion_pending {
+                actions.extend(
+                    combat_actions.filter(|action| apply_exact_run_action(state, action).is_ok()),
+                );
+            } else {
+                actions.extend(combat_actions);
+            }
             actions.extend(
                 legal_potion_actions_on_run(state)
                     .into_iter()
@@ -582,6 +600,14 @@ fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
                 .into_iter()
                 .map(ExactRunActionKind::Run),
         );
+    }
+
+    if state.phase == RunPhase::Treasure {
+        for action in [RunAction::OpenChest, RunAction::Proceed] {
+            if apply_run_action(state, action).is_ok() {
+                actions.push(ExactRunActionKind::Run(action));
+            }
+        }
     }
 
     if state.phase == RunPhase::Idle {
@@ -614,6 +640,9 @@ fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
                 .into_iter()
                 .map(ExactRunActionKind::Run),
         );
+        if state.shop.is_none() && state.card_grid.is_none() {
+            actions.push(ExactRunActionKind::LeaveShopRoom);
+        }
     }
 
     actions
@@ -834,10 +863,119 @@ fn filtered_run_actions(
     state: &RunState,
     allowed_potions: Option<&[String]>,
 ) -> Vec<ExactRunActionKind> {
-    exact_run_legal_action_kinds(state)
+    let actions: Vec<_> = exact_run_legal_action_kinds(state)
         .into_iter()
         .filter(|action| rust_action_allowed(state, action, allowed_potions))
-        .collect()
+        .collect();
+    preferred_select_actions(state, &actions).unwrap_or(actions)
+}
+
+fn preferred_select_actions(
+    state: &RunState,
+    actions: &[ExactRunActionKind],
+) -> Option<Vec<ExactRunActionKind>> {
+    if actions.is_empty() || !actions.iter().all(is_run_select_action) {
+        return None;
+    }
+    let confirm = actions.iter().find(|action| is_run_select_confirm(action))?;
+    if should_confirm_selected_single_exhaust(state) {
+        return Some(vec![confirm.clone()]);
+    }
+    if let Some(action) = preferred_bad_exhaust_action(state, actions) {
+        return Some(vec![action]);
+    }
+    Some(vec![confirm.clone()])
+}
+
+fn is_run_select_action(action: &ExactRunActionKind) -> bool {
+    matches!(
+        action,
+        ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. })
+            | ExactRunActionKind::Run(RunAction::ConfirmHandSelect)
+            | ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. })
+            | ExactRunActionKind::Run(RunAction::ConfirmDrawSelect)
+            | ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. })
+            | ExactRunActionKind::Run(RunAction::ConfirmDiscardSelect)
+            | ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. })
+            | ExactRunActionKind::Run(RunAction::ConfirmExhaustSelect)
+    )
+}
+
+fn is_run_select_confirm(action: &ExactRunActionKind) -> bool {
+    matches!(
+        action,
+        ExactRunActionKind::Run(RunAction::ConfirmHandSelect)
+            | ExactRunActionKind::Run(RunAction::ConfirmDrawSelect)
+            | ExactRunActionKind::Run(RunAction::ConfirmDiscardSelect)
+            | ExactRunActionKind::Run(RunAction::ConfirmExhaustSelect)
+    )
+}
+
+fn should_confirm_selected_single_exhaust(state: &RunState) -> bool {
+    let Some(combat) = state.combat.as_ref() else {
+        return false;
+    };
+    let Some(select) = combat.exhaust_select.as_ref() else {
+        return false;
+    };
+    !select.selected_hand_indices.is_empty()
+        && !matches!(
+            select.purpose,
+            ExhaustSelectPurpose::Exhaust
+                | ExhaustSelectPurpose::PurityExhaustUpTo3
+                | ExhaustSelectPurpose::GamblingChip
+        )
+}
+
+fn preferred_bad_exhaust_action(
+    state: &RunState,
+    actions: &[ExactRunActionKind],
+) -> Option<ExactRunActionKind> {
+    let combat = state.combat.as_ref()?;
+    let before = combat.exhaust_select.as_ref()?;
+    for action in actions {
+        if !matches!(
+            action,
+            ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. })
+        ) {
+            continue;
+        }
+        let Ok(next) = apply_exact_run_action(state, action) else {
+            continue;
+        };
+        let Some(next_combat) = next.combat.as_ref() else {
+            continue;
+        };
+        let Some(after) = next_combat.exhaust_select.as_ref() else {
+            continue;
+        };
+        if after.selected_hand_indices.len() <= before.selected_hand_indices.len() {
+            continue;
+        }
+        if after
+            .selected_hand_indices
+            .iter()
+            .any(|index| {
+                !before.selected_hand_indices.contains(index)
+                    && combat
+                        .piles
+                        .hand
+                        .get(*index)
+                        .map(|card| is_bad_exhaust_content_id(card.content_id.get()))
+                        .unwrap_or(false)
+            })
+        {
+            return Some(action.clone());
+        }
+    }
+    None
+}
+
+fn is_bad_exhaust_content_id(content_id: u64) -> bool {
+    matches!(
+        content_id,
+        4 | 5 | 6 | 7 | 61 | 62 | 63 | 64 | 65 | 66 | 67 | 68 | 69 | 70 | 71 | 72
+    )
 }
 
 fn rust_action_allowed(
@@ -1011,7 +1149,8 @@ fn intent_damage(intent: MonsterIntent) -> i32 {
         | MonsterIntent::AttackAddSlimedToDiscard { damage, .. }
         | MonsterIntent::AttackStealGold { damage, .. } => damage,
         MonsterIntent::AttackMultiple { damage, hits } => damage * hits,
-        MonsterIntent::AddBurnToDiscard { damage, .. } => damage,
+        MonsterIntent::AddBurnToDiscard { damage, .. }
+        | MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => damage,
         _ => 0,
     }
 }
@@ -1064,15 +1203,21 @@ fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) ->
 fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
     let mut candidates = vec![
         RunAction::SkipReward,
+        RunAction::CloseCardReward,
         RunAction::TakeGoldReward,
         RunAction::TakeStolenGoldReward,
         RunAction::TakePotionReward,
         RunAction::TakeRelicReward,
+        RunAction::Proceed,
         RunAction::OpenCardReward,
         RunAction::SkipPotionReward,
         RunAction::TakeSingingBowlReward,
     ];
     if let Some(reward) = state.reward.as_ref() {
+        candidates.extend(
+            (0..reward.boss_relic_choices.len())
+                .map(|index| RunAction::ChooseBossRelicReward { index }),
+        );
         candidates.extend(
             reward
                 .choices
@@ -1121,6 +1266,14 @@ fn apply_exact_run_action(
     match action {
         ExactRunActionKind::Combat(action) => apply_combat_action_on_run(state, action.clone()),
         ExactRunActionKind::Event(action) => apply_event_action(state, *action),
+        ExactRunActionKind::GridSelect { index } => select_grid_card(state, *index),
+        ExactRunActionKind::GridConfirm => confirm_grid(state),
+        ExactRunActionKind::GridCancel => cancel_grid(state),
+        ExactRunActionKind::LeaveShopRoom => {
+            let mut next = state.clone();
+            leave_shop_room(&mut next);
+            Ok(next)
+        }
         ExactRunActionKind::Map(action) => apply_map_action_on_run(state, *action),
         ExactRunActionKind::Rest(action) => apply_rest_action(state, *action),
         ExactRunActionKind::Run(action) => apply_run_action(state, *action),
@@ -1131,6 +1284,12 @@ fn run_action_json(action: &ExactRunActionKind) -> PyResult<String> {
     match action {
         ExactRunActionKind::Combat(action) => to_json(action),
         ExactRunActionKind::Event(action) => to_json(action),
+        ExactRunActionKind::GridSelect { index } => {
+            to_json(&serde_json::json!({ "SelectGridCard": { "index": index } }))
+        }
+        ExactRunActionKind::GridConfirm => to_json(&serde_json::json!("ConfirmGrid")),
+        ExactRunActionKind::GridCancel => to_json(&serde_json::json!("CancelGrid")),
+        ExactRunActionKind::LeaveShopRoom => to_json(&serde_json::json!("LeaveShopRoom")),
         ExactRunActionKind::Map(action) => to_json(action),
         ExactRunActionKind::Rest(action) => to_json(action),
         ExactRunActionKind::Run(action) => to_json(action),
@@ -1141,6 +1300,10 @@ fn run_action_family(action: &ExactRunActionKind) -> &'static str {
     match action {
         ExactRunActionKind::Combat(_) => "combat",
         ExactRunActionKind::Event(_) => "event",
+        ExactRunActionKind::GridSelect { .. }
+        | ExactRunActionKind::GridConfirm
+        | ExactRunActionKind::GridCancel => "grid",
+        ExactRunActionKind::LeaveShopRoom => "shop",
         ExactRunActionKind::Map(_) => "map",
         ExactRunActionKind::Rest(_) => "rest",
         ExactRunActionKind::Run(_) => "run",
@@ -1152,6 +1315,10 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Combat(CombatAction::PlayCard { .. }) => "play_card",
         ExactRunActionKind::Combat(CombatAction::EndTurn) => "end_turn",
         ExactRunActionKind::Event(EventAction::Choose { .. }) => "event_choose",
+        ExactRunActionKind::GridSelect { .. } => "select_grid_card",
+        ExactRunActionKind::GridConfirm => "confirm_grid",
+        ExactRunActionKind::GridCancel => "cancel_grid",
+        ExactRunActionKind::LeaveShopRoom => "leave_shop_room",
         ExactRunActionKind::Map(MapAction::ChooseNode { .. }) => "choose_map_node",
         ExactRunActionKind::Rest(RestAction::Heal) => "rest_heal",
         ExactRunActionKind::Rest(RestAction::OpenSmith) => "rest_open_smith",
@@ -1159,13 +1326,20 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Rest(RestAction::RemoveCard { .. }) => "rest_remove_card",
         ExactRunActionKind::Rest(RestAction::Lift) => "rest_lift",
         ExactRunActionKind::Rest(RestAction::Dig) => "rest_dig",
+        ExactRunActionKind::Rest(RestAction::Proceed) => "rest_proceed",
         ExactRunActionKind::Run(RunAction::SkipReward) => "skip_reward",
+        ExactRunActionKind::Run(RunAction::CloseCardReward) => "close_card_reward",
         ExactRunActionKind::Run(RunAction::TakeCardReward { .. }) => "take_card_reward",
         ExactRunActionKind::Run(RunAction::TakeSingingBowlReward) => "take_singing_bowl_reward",
         ExactRunActionKind::Run(RunAction::TakeGoldReward) => "take_gold_reward",
         ExactRunActionKind::Run(RunAction::TakeStolenGoldReward) => "take_stolen_gold_reward",
         ExactRunActionKind::Run(RunAction::TakePotionReward) => "take_potion_reward",
         ExactRunActionKind::Run(RunAction::TakeRelicReward) => "take_relic_reward",
+        ExactRunActionKind::Run(RunAction::ChooseBossRelicReward { .. }) => {
+            "choose_boss_relic_reward"
+        }
+        ExactRunActionKind::Run(RunAction::Proceed) => "proceed",
+        ExactRunActionKind::Run(RunAction::OpenChest) => "open_chest",
         ExactRunActionKind::Run(RunAction::OpenCardReward) => "open_card_reward",
         ExactRunActionKind::Run(RunAction::SkipPotionReward) => "skip_potion_reward",
         ExactRunActionKind::Run(RunAction::BuyShopCard { .. }) => "buy_shop_card",
@@ -1197,6 +1371,7 @@ fn run_current_decision(state: &RunState) -> &'static str {
     match state.phase {
         RunPhase::Combat => "combat",
         RunPhase::Reward => "reward",
+        RunPhase::Treasure => "treasure",
         RunPhase::Rest => "rest",
         RunPhase::Event => "event",
         RunPhase::Shop => "shop",
@@ -1217,6 +1392,7 @@ fn run_phase_name(phase: RunPhase) -> &'static str {
     match phase {
         RunPhase::Combat => "combat",
         RunPhase::Reward => "reward",
+        RunPhase::Treasure => "treasure",
         RunPhase::Rest => "rest",
         RunPhase::Event => "event",
         RunPhase::Shop => "shop",
@@ -1352,6 +1528,29 @@ mod tests {
             .iter()
             .any(|action| action.kind() == "confirm_exhaust_select"));
         assert_eq!(env.unsupported_reason(), None);
+    }
+
+    #[test]
+    fn rust_beam_confirms_optional_exhaust_select_when_no_bad_card_is_available() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        env.state.potions = vec![Potion::Elixir];
+        let elixir = env
+            .exact_legal_actions()
+            .into_iter()
+            .find(|action| action.kind() == "use_potion")
+            .expect("elixir is usable")
+            .clone();
+
+        env.step(&elixir).expect("elixir opens exhaust select");
+
+        let recommendation = env
+            .rust_beam_combat_search(12, Some("terminal_tactical"), Some(Vec::new()), 32)
+            .expect("rust beam searches exhaust select");
+        let best_action = recommendation
+            .best_action
+            .expect("rust beam recommends select action");
+
+        assert_eq!(best_action.kind(), "confirm_exhaust_select");
     }
 
     #[test]

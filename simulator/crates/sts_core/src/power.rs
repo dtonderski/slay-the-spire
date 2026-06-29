@@ -89,6 +89,8 @@ pub struct MonsterPowers {
     pub spore_cloud: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub minion: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub strength_up: i32,
 }
 
 /// Slay the Spire-style vulnerable bonus: attack damage is increased by 50%, floored.

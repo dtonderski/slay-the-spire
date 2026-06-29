@@ -75,7 +75,7 @@ class OracleProbeResult:
     elapsed_seconds: float
 
 
-SELECTED_COMBAT_AUTOPILOT_CANDIDATE = "rust_terminal_win_hp_selector_w32_w128_no_power_d40"
+SELECTED_COMBAT_AUTOPILOT_CANDIDATE = "rust_terminal_hp_commit_safe_selector_w32_w64_d40"
 
 
 def default_candidates() -> list[SearchCandidate]:
@@ -236,11 +236,19 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
             ),
         ),
         SearchCandidate(
-            "rust_terminal_win_hp_selector_w32_w128_no_power_d40",
+            "rust_terminal_win_hp_bounded_w32_d40",
             CombatSearchConfig(
                 max_depth=40,
                 objective="terminal_tactical",
                 algorithm="rust_terminal_win_hp_selector",
+            ),
+        ),
+        SearchCandidate(
+            "rust_terminal_win_hp_selector_w32_w128_no_power_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_win_hp_wide_selector",
             ),
         ),
         SearchCandidate(
@@ -265,6 +273,22 @@ def trace_autopilot_candidates() -> list[SearchCandidate]:
                 max_depth=40,
                 objective="terminal_tactical",
                 algorithm="rust_terminal_hp_commit_bounded_selector",
+            ),
+        ),
+        SearchCandidate(
+            "rust_terminal_hp_commit_safe_selector_w32_w64_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_hp_commit_safe_selector",
+            ),
+        ),
+        SearchCandidate(
+            "rust_terminal_hp_commit_safe_boss_selector_w32_w64_w128_d40",
+            CombatSearchConfig(
+                max_depth=40,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_hp_commit_safe_boss_selector",
             ),
         ),
         SearchCandidate(

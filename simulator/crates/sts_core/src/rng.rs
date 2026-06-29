@@ -165,6 +165,11 @@ impl StsRng {
         (self.next_long() & 1) != 0
     }
 
+    pub fn random_next_boolean(&mut self) -> bool {
+        self.counter += 1;
+        (self.next_long() as i64) < 0
+    }
+
     pub fn random_float(&mut self) -> f32 {
         self.counter += 1;
         ((self.next_long() >> 40) as f64 * 5.960_464_477_539_063e-8) as f32

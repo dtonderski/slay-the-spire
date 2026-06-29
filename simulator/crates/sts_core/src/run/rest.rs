@@ -1,6 +1,6 @@
 use crate::{
     content::cards::upgrade_content_id,
-    relic::{ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, GIRYA_MAX_LIFTS, REGAL_PILLOW_HEAL},
+    relic::{GIRYA_MAX_LIFTS, REGAL_PILLOW_HEAL},
     Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -41,6 +41,10 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
         return Vec::new();
     }
 
+    if run.rest_room_complete {
+        return vec![RestAction::Proceed];
+    }
+
     let mut actions = Vec::new();
     if !run.relics.contains(&Relic::CoffeeDripper) {
         actions.push(RestAction::Heal);
@@ -75,6 +79,9 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
     }
 
     match action {
+        RestAction::Proceed if run.rest_room_complete => Ok(()),
+        RestAction::Proceed => Err(SimError::IllegalAction("rest room is not complete")),
+        _ if run.rest_room_complete => Err(SimError::IllegalAction("rest room is complete")),
         RestAction::Heal if run.relics.contains(&Relic::CoffeeDripper) => {
             Err(SimError::IllegalAction("heal is not available"))
         }
@@ -127,9 +134,6 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             if next.relics.contains(&Relic::RegalPillow) {
                 heal += REGAL_PILLOW_HEAL;
             }
-            if next.relics.contains(&Relic::EternalFeather) {
-                heal += (next.deck.len() as i32 / 5) * ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS;
-            }
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
             if next.relics.contains(&Relic::DreamCatcher) {
                 next.phase = RunPhase::Reward;
@@ -143,6 +147,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     pending_relic_offer: None,
                     pending_relic_key_offer: None,
                     queued_relic_key_offers: Vec::new(),
+                    boss_relic_choices: Vec::new(),
                     card_reward_active: false,
                     card_reward_pending: true,
                     pending_card_reward_count: 1,
@@ -153,7 +158,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     .expect("rest card reward")
                     .card_reward_active = true;
             } else {
-                next.phase = RunPhase::Idle;
+                next.rest_room_complete = true;
             }
         }
         RestAction::OpenSmith => {
@@ -161,7 +166,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         }
         RestAction::Lift => {
             next.girya_lifts += 1;
-            next.phase = RunPhase::Idle;
+            next.rest_room_complete = true;
         }
         RestAction::Dig => {
             let act = next.current_act;
@@ -182,6 +187,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 pending_relic_offer: None,
                 pending_relic_key_offer: None,
                 queued_relic_key_offers: Vec::new(),
+                boss_relic_choices: Vec::new(),
                 card_reward_active: false,
                 card_reward_pending: false,
                 pending_card_reward_count: 0,
@@ -200,11 +206,15 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     break;
                 }
             }
-            next.phase = RunPhase::Idle;
+            next.rest_room_complete = true;
         }
         RestAction::RemoveCard { card_id } => {
             next.deck.retain(|card| card.id != card_id);
+            next.rest_room_complete = true;
+        }
+        RestAction::Proceed => {
             next.phase = RunPhase::Idle;
+            next.rest_room_complete = false;
         }
     }
 
@@ -237,7 +247,8 @@ mod tests {
         let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
 
         assert_eq!(after.player_hp, IRONCLAD_A0_BASE_HP);
-        assert_eq!(after.phase, RunPhase::Idle);
+        assert_eq!(after.phase, RunPhase::Rest);
+        assert!(after.rest_room_complete);
     }
 
     #[test]
@@ -267,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn eternal_feather_heals_three_per_five_deck_cards_on_rest() {
+    fn eternal_feather_does_not_add_extra_healing_when_resting() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Rest;
         run.player_hp = 20;
@@ -275,10 +286,7 @@ mod tests {
 
         let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
 
-        assert_eq!(
-            after.player_hp,
-            20 + rest_heal_amount(run.player_max_hp) + ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS * 2
-        );
+        assert_eq!(after.player_hp, 20 + rest_heal_amount(run.player_max_hp));
     }
 
     #[test]
@@ -326,7 +334,8 @@ mod tests {
         assert_eq!(after.deck[0].id, strike_id);
         assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
         assert_eq!(after.count_content_in_deck(STRIKE_R_PLUS_ID), 1);
-        assert_eq!(after.phase, RunPhase::Idle);
+        assert_eq!(after.phase, RunPhase::Rest);
+        assert!(after.rest_room_complete);
     }
 
     #[test]
@@ -436,9 +445,13 @@ mod tests {
         let strike_id = base.deck[0].id;
 
         let healed = apply_rest_action(&base, RestAction::Heal).expect("heal");
-        assert_eq!(healed.phase, RunPhase::Idle);
+        assert_eq!(healed.phase, RunPhase::Rest);
+        assert!(healed.rest_room_complete);
         assert!(healed.reward.is_none());
         assert!(healed.card_grid.is_none());
+        let proceeded = apply_rest_action(&healed, RestAction::Proceed).expect("proceed");
+        assert_eq!(proceeded.phase, RunPhase::Idle);
+        assert!(!proceeded.rest_room_complete);
 
         let smith_grid = apply_rest_action(&base, RestAction::OpenSmith).expect("open smith");
         assert_eq!(smith_grid.phase, RunPhase::Rest);
@@ -450,12 +463,14 @@ mod tests {
 
         let removed = apply_rest_action(&base, RestAction::RemoveCard { card_id: strike_id })
             .expect("peace pipe remove");
-        assert_eq!(removed.phase, RunPhase::Idle);
+        assert_eq!(removed.phase, RunPhase::Rest);
+        assert!(removed.rest_room_complete);
         assert!(removed.reward.is_none());
         assert!(removed.card_grid.is_none());
 
         let lifted = apply_rest_action(&base, RestAction::Lift).expect("girya lift");
-        assert_eq!(lifted.phase, RunPhase::Idle);
+        assert_eq!(lifted.phase, RunPhase::Rest);
+        assert!(lifted.rest_room_complete);
         assert_eq!(lifted.girya_lifts, base.girya_lifts + 1);
         assert!(lifted.reward.is_none());
         assert!(lifted.card_grid.is_none());
@@ -493,7 +508,8 @@ mod tests {
 
         assert_eq!(after.deck.len(), starting_len - 1);
         assert!(!after.deck.iter().any(|card| card.id == strike_id));
-        assert_eq!(after.phase, RunPhase::Idle);
+        assert_eq!(after.phase, RunPhase::Rest);
+        assert!(after.rest_room_complete);
     }
 
     #[test]
@@ -507,7 +523,8 @@ mod tests {
         let after = apply_rest_action(&run, RestAction::Lift).expect("lift applies");
 
         assert_eq!(after.girya_lifts, 1);
-        assert_eq!(after.phase, RunPhase::Idle);
+        assert_eq!(after.phase, RunPhase::Rest);
+        assert!(after.rest_room_complete);
     }
 
     #[test]

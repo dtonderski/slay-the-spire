@@ -36,9 +36,10 @@ pub const ANGER_PLUS_ID: ContentId = ContentId::new(13);
 pub const CLEAVE_PLUS_ID: ContentId = ContentId::new(14);
 pub const TWIN_STRIKE_PLUS_ID: ContentId = ContentId::new(15);
 pub const SHRUG_IT_OFF_ID: ContentId = ContentId::new(16);
-pub const SHRUG_IT_OFF_PLUS_ID: ContentId = ContentId::new(10_152);
+pub const SHRUG_IT_OFF_PLUS_ID: ContentId = ContentId::new(10_016);
 pub const TRUE_GRIT_ID: ContentId = ContentId::new(17);
 pub const BURNING_PACT_ID: ContentId = ContentId::new(18);
+pub const BURNING_PACT_PLUS_ID: ContentId = ContentId::new(18_000_001);
 pub const FEEL_NO_PAIN_ID: ContentId = ContentId::new(19);
 pub const DARK_EMBRACE_ID: ContentId = ContentId::new(20);
 pub const POMMEL_STRIKE_ID: ContentId = ContentId::new(21);
@@ -152,6 +153,7 @@ pub const WILD_STRIKE_ID: ContentId = ContentId::new(107);
 pub const HEAVY_BLADE_ID: ContentId = ContentId::new(108);
 pub const PERFECTED_STRIKE_ID: ContentId = ContentId::new(109);
 pub const SWORD_BOOMERANG_ID: ContentId = ContentId::new(110);
+pub const SWORD_BOOMERANG_PLUS_ID: ContentId = ContentId::new(10_110);
 pub const POWER_THROUGH_ID: ContentId = ContentId::new(111);
 pub const INFERNAL_BLADE_ID: ContentId = ContentId::new(112);
 pub const INFERNAL_BLADE_PLUS_ID: ContentId = ContentId::new(10_112);
@@ -186,12 +188,15 @@ pub const DROPKICK_ID: ContentId = ContentId::new(132);
 pub const FIRE_BREATHING_ID: ContentId = ContentId::new(133);
 pub const GHOSTLY_ARMOR_ID: ContentId = ContentId::new(134);
 pub const UPPERCUT_ID: ContentId = ContentId::new(135);
+pub const UPPERCUT_PLUS_ID: ContentId = ContentId::new(10_135);
 pub const EVOLVE_ID: ContentId = ContentId::new(136);
 pub const EVOLVE_PLUS_ID: ContentId = ContentId::new(136_000_001);
 pub const DOUBLE_TAP_ID: ContentId = ContentId::new(137);
 pub const DOUBLE_TAP_PLUS_ID: ContentId = ContentId::new(137_000_001);
 pub const DEMON_FORM_ID: ContentId = ContentId::new(138);
+pub const DEMON_FORM_PLUS_ID: ContentId = ContentId::new(138_000_001);
 pub const BLUDGEON_ID: ContentId = ContentId::new(139);
+pub const BLUDGEON_PLUS_ID: ContentId = ContentId::new(10_139);
 pub const FEED_ID: ContentId = ContentId::new(140);
 pub const FEED_PLUS_ID: ContentId = ContentId::new(10_140);
 pub const LIMIT_BREAK_ID: ContentId = ContentId::new(141);
@@ -316,7 +321,7 @@ pub const WOUND: CardDefinition = CardDefinition {
     card_type: CardType::Status,
     target: TargetRequirement::None,
     values: CardValues {
-        damage: None,
+        damage: Some(2),
         block: None,
         vulnerable: None,
     },
@@ -621,7 +626,7 @@ pub const ANGER_PLUS: CardDefinition = CardDefinition {
     card_type: CardType::Attack,
     target: TargetRequirement::Enemy,
     values: CardValues {
-        damage: Some(7),
+        damage: Some(8),
         block: None,
         vulnerable: None,
     },
@@ -636,7 +641,7 @@ pub const CLEAVE_PLUS: CardDefinition = CardDefinition {
     card_type: CardType::Attack,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
-        damage: Some(9),
+        damage: Some(11),
         block: None,
         vulnerable: None,
     },
@@ -718,6 +723,21 @@ pub const BURNING_PACT: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const BURNING_PACT_PLUS: CardDefinition = CardDefinition {
+    id: BURNING_PACT_PLUS_ID,
+    key: "Burning Pact+",
+    name: "Burning Pact+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const FEEL_NO_PAIN: CardDefinition = CardDefinition {
     id: FEEL_NO_PAIN_ID,
     key: "Feel No Pain",
@@ -787,6 +807,21 @@ pub const DEMON_FORM: CardDefinition = CardDefinition {
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const DEMON_FORM_PLUS: CardDefinition = CardDefinition {
+    id: DEMON_FORM_PLUS_ID,
+    key: "Demon Form+",
+    name: "Demon Form+",
+    cost: 3,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(3),
         block: None,
         vulnerable: None,
     },
@@ -3336,6 +3371,21 @@ pub const SWORD_BOOMERANG: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const SWORD_BOOMERANG_PLUS: CardDefinition = CardDefinition {
+    id: SWORD_BOOMERANG_PLUS_ID,
+    key: "Sword Boomerang+",
+    name: "Sword Boomerang+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(4),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const HEMOKINESIS: CardDefinition = CardDefinition {
     id: HEMOKINESIS_ID,
     key: "Hemokinesis",
@@ -3432,6 +3482,21 @@ pub const BLUDGEON: CardDefinition = CardDefinition {
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(32),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BLUDGEON_PLUS: CardDefinition = CardDefinition {
+    id: BLUDGEON_PLUS_ID,
+    key: "BLUDGEON+",
+    name: "Bludgeon+",
+    cost: 3,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(42),
         block: None,
         vulnerable: None,
     },
@@ -3687,6 +3752,21 @@ pub const UPPERCUT: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const UPPERCUT_PLUS: CardDefinition = CardDefinition {
+    id: UPPERCUT_PLUS_ID,
+    key: "Uppercut+",
+    name: "Uppercut+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(13),
+        block: None,
+        vulnerable: Some(2),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
 pub const STATUS_CARDS: [CardDefinition; 5] = [WOUND, DAZED, BURN, SLIMED, ASCENDERS_BANE];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
@@ -3702,11 +3782,12 @@ pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 10] = [
     WHIRLWIND,
     WHIRLWIND_PLUS,
 ];
-pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 12] = [
+pub const MILESTONE5_SKILL_CARDS: [CardDefinition; 13] = [
     SHRUG_IT_OFF,
     SHRUG_IT_OFF_PLUS,
     TRUE_GRIT,
     BURNING_PACT,
+    BURNING_PACT_PLUS,
     BATTLE_TRANCE,
     SEEING_RED,
     BATTLE_TRANCE_PLUS,
@@ -3728,7 +3809,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 210] = [
+pub const ALL_CARDS: [CardDefinition; 215] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -3763,11 +3844,13 @@ pub const ALL_CARDS: [CardDefinition; 210] = [
     SHRUG_IT_OFF_PLUS,
     TRUE_GRIT,
     BURNING_PACT,
+    BURNING_PACT_PLUS,
     FEEL_NO_PAIN,
     DARK_EMBRACE,
     COMBUST,
     COMBUST_PLUS,
     DEMON_FORM,
+    DEMON_FORM_PLUS,
     EVOLVE,
     EVOLVE_PLUS,
     CORRUPTION,
@@ -3920,12 +4003,14 @@ pub const ALL_CARDS: [CardDefinition; 210] = [
     CARNAGE,
     DROPKICK,
     SWORD_BOOMERANG,
+    SWORD_BOOMERANG_PLUS,
     HEMOKINESIS,
     BLOOD_FOR_BLOOD,
     BLOOD_FOR_BLOOD_PLUS,
     IMMOLATE,
     IMMOLATE_PLUS,
     BLUDGEON,
+    BLUDGEON_PLUS,
     FEED,
     FEED_PLUS,
     IMPERVIOUS,
@@ -3939,6 +4024,7 @@ pub const ALL_CARDS: [CardDefinition; 210] = [
     METALLICIZE_PLUS,
     THUNDERCLAP,
     UPPERCUT,
+    UPPERCUT_PLUS,
 ];
 
 #[must_use]
@@ -4029,19 +4115,25 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == SWORD_BOOMERANG_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == SWORD_BOOMERANG_ID || id == SWORD_BOOMERANG_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
         id if id == SHRUG_IT_OFF_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == SHRUG_IT_OFF_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == TRUE_GRIT_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == POMMEL_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BATTLE_TRANCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SEEING_RED_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == BURNING_PACT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == BURNING_PACT_ID || id == BURNING_PACT_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == COMBUST_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == DEMON_FORM_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == DEMON_FORM_ID || id == DEMON_FORM_PLUS_ID => {
+            Some((CardType::Power, CardRarity::Rare))
+        }
         id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == EVOLVE_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == CORRUPTION_ID => Some((CardType::Power, CardRarity::Rare)),
@@ -4091,8 +4183,13 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == IMMOLATE_ID || id == IMMOLATE_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Rare))
         }
-        id if id == BLUDGEON_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == BLUDGEON_ID || id == BLUDGEON_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Rare))
+        }
         id if id == FEED_ID || id == FEED_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
+        id if id == UPPERCUT_ID || id == UPPERCUT_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == FIEND_FIRE_ID || id == FIEND_FIRE_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Rare))
@@ -4180,6 +4277,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         SHOCKWAVE_ID => Some(SHOCKWAVE_PLUS_ID),
         RAMPAGE_ID => Some(RAMPAGE_PLUS_ID),
         LIMIT_BREAK_ID => Some(LIMIT_BREAK_PLUS_ID),
+        BLUDGEON_ID => Some(BLUDGEON_PLUS_ID),
         FEED_ID => Some(FEED_PLUS_ID),
         EXHUME_ID => Some(EXHUME_PLUS_ID),
         OFFERING_ID => Some(OFFERING_PLUS_ID),
@@ -4192,9 +4290,13 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         ANGER_ID => Some(ANGER_PLUS_ID),
         CLEAVE_ID => Some(CLEAVE_PLUS_ID),
         TWIN_STRIKE_ID => Some(TWIN_STRIKE_PLUS_ID),
+        SHRUG_IT_OFF_ID => Some(SHRUG_IT_OFF_PLUS_ID),
         POMMEL_STRIKE_ID => Some(POMMEL_STRIKE_PLUS_ID),
+        SWORD_BOOMERANG_ID => Some(SWORD_BOOMERANG_PLUS_ID),
+        UPPERCUT_ID => Some(UPPERCUT_PLUS_ID),
         BATTLE_TRANCE_ID => Some(BATTLE_TRANCE_PLUS_ID),
         SEEING_RED_ID => Some(SEEING_RED_PLUS_ID),
+        BURNING_PACT_ID => Some(BURNING_PACT_PLUS_ID),
         INFLAME_ID => Some(INFLAME_PLUS_ID),
         FLEX_ID => Some(FLEX_PLUS_ID),
         SPOT_WEAKNESS_ID => Some(SPOT_WEAKNESS_PLUS_ID),
@@ -4207,6 +4309,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         RUPTURE_ID => Some(RUPTURE_PLUS_ID),
         EVOLVE_ID => Some(EVOLVE_PLUS_ID),
         DOUBLE_TAP_ID => Some(DOUBLE_TAP_PLUS_ID),
+        DEMON_FORM_ID => Some(DEMON_FORM_PLUS_ID),
         CORRUPTION_ID => Some(CORRUPTION_PLUS_ID),
         BARRICADE_ID => Some(BARRICADE_PLUS_ID),
         BERSERK_ID => Some(BERSERK_PLUS_ID),
@@ -5308,8 +5411,8 @@ mod tests {
     }
 
     #[test]
-    fn anger_plus_deals_one_more_damage() {
-        assert_eq!(ANGER_PLUS.values.damage, Some(7));
+    fn anger_plus_deals_two_more_damage() {
+        assert_eq!(ANGER_PLUS.values.damage, Some(8));
     }
 
     #[test]
@@ -5332,7 +5435,10 @@ mod tests {
         assert_eq!(SHRUG_IT_OFF_PLUS.target, TargetRequirement::None);
         assert_eq!(SHRUG_IT_OFF_PLUS.card_type, CardType::Skill);
         assert_eq!(SHRUG_IT_OFF_PLUS.values.block, Some(11));
-        assert_eq!(upgrade_content_id(SHRUG_IT_OFF_ID), None);
+        assert_eq!(
+            upgrade_content_id(SHRUG_IT_OFF_ID),
+            Some(SHRUG_IT_OFF_PLUS_ID)
+        );
         assert_eq!(upgrade_content_id(SHRUG_IT_OFF_PLUS_ID), None);
     }
 

@@ -7,6 +7,11 @@
 use crate::{
     card::CardRarity,
     content::{
+        cards::{
+            BARRICADE_ID, BERSERK_ID, BLUDGEON_ID, BRUTALITY_ID, CORRUPTION_ID, DEMON_FORM_ID,
+            DOUBLE_TAP_ID, EXHUME_ID, FEED_ID, FIEND_FIRE_ID, IMMOLATE_ID, IMPERVIOUS_ID,
+            JUGGERNAUT_ID, LIMIT_BREAK_ID, OFFERING_ID, REAPER_ID,
+        },
         reward_pool::{
             ironclad_transform_card_content_id, random_normal_curse, IRONCLAD_REWARD_ENTRIES,
         },
@@ -251,6 +256,7 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
             pending_relic_offer: None,
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
             card_reward_active: false,
             card_reward_pending: false,
             pending_card_reward_count: 0,
@@ -508,6 +514,11 @@ fn neow_unique_ironclad_cards(
 }
 
 fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
+    if rarity == CardRarity::Rare {
+        let pick = rng.random_int((NEOW_IRONCLAD_RARE_POOL.len() - 1) as i32) as usize;
+        return NEOW_IRONCLAD_RARE_POOL[pick];
+    }
+
     let pool: Vec<_> = IRONCLAD_REWARD_ENTRIES
         .iter()
         .filter(|entry| entry.rarity == rarity)
@@ -516,6 +527,25 @@ fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId 
     let pick = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[pick].content_id
 }
+
+const NEOW_IRONCLAD_RARE_POOL: &[ContentId] = &[
+    IMMOLATE_ID,
+    DOUBLE_TAP_ID,
+    DEMON_FORM_ID,
+    BLUDGEON_ID,
+    FEED_ID,
+    LIMIT_BREAK_ID,
+    CORRUPTION_ID,
+    BERSERK_ID,
+    FIEND_FIRE_ID,
+    BARRICADE_ID,
+    IMPERVIOUS_ID,
+    JUGGERNAUT_ID,
+    BRUTALITY_ID,
+    REAPER_ID,
+    EXHUME_ID,
+    OFFERING_ID,
+];
 
 fn neow_unique_ironclad_cards_with_rolled_rarity(rng: &mut StsRng, count: usize) -> Vec<ContentId> {
     let mut cards = Vec::new();

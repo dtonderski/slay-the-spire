@@ -40,8 +40,18 @@ pub struct CardGridScreen {
 }
 
 pub fn open_rest_smith_grid(run: &mut RunState) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| upgrade_content_id(card.content_id).is_some())
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
     run.card_grid = Some(CardGridScreen {
-        cards: run.deck.clone(),
+        cards,
         purpose: GridPurpose::RestSmith,
         selected: None,
         selected_indices: Vec::new(),
@@ -135,16 +145,18 @@ pub fn open_neow_remove_grid(run: &mut RunState, count: u8) {
 }
 
 pub fn open_neow_upgrade_grid(run: &mut RunState) {
-    if run
+    let cards = run
         .deck
         .iter()
-        .all(|card| upgrade_content_id(card.content_id).is_none())
-    {
+        .copied()
+        .filter(|card| upgrade_content_id(card.content_id).is_some())
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
         return;
     }
 
     run.card_grid = Some(CardGridScreen {
-        cards: run.deck.clone(),
+        cards,
         purpose: GridPurpose::NeowUpgrade,
         selected: None,
         selected_indices: Vec::new(),
@@ -344,7 +356,8 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             let card = selected_grid_card(grid)?;
             upgrade_deck_card(&mut next, card)?;
             next.card_grid = None;
-            next.phase = RunPhase::Idle;
+            next.phase = RunPhase::Rest;
+            next.rest_room_complete = true;
         }
         GridPurpose::NeowUpgrade => {
             let card = selected_grid_card(grid)?;
@@ -367,6 +380,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.deck.retain(|deck_card| deck_card.id != card.id);
             let remove_cost = super::shop::shop_remove_cost_for_run(&next);
             if let Some(shop) = next.shop.as_mut() {
+                shop.remove_available = false;
                 shop.remove_cost = remove_cost;
             }
             next.card_grid = None;
@@ -690,7 +704,7 @@ fn transform_card_content_id(source: crate::ContentId, rng: &mut StsRng) -> crat
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{ANGER_ID, FEEL_NO_PAIN_ID, STRIKE_R_PLUS_ID, WOUND_ID},
+        content::cards::{ANGER_ID, FEEL_NO_PAIN_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WOUND_ID},
         run::neow::generate_neow_transform_reward,
         RunState,
     };
@@ -706,9 +720,31 @@ mod tests {
         let after = confirm_grid(&selected).expect("confirm");
 
         assert!(after.card_grid.is_none());
-        assert_eq!(after.phase, RunPhase::Idle);
+        assert_eq!(after.phase, RunPhase::Rest);
         assert_eq!(after.deck[0].content_id, STRIKE_R_PLUS_ID);
         assert_eq!(after.deck[0].id, strike_id);
+    }
+
+    #[test]
+    fn rest_smith_grid_shows_only_upgradeable_cards() {
+        let mut run = RunState::map_fixture();
+        run.deck = vec![
+            CardInstance::new(crate::ids::CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(crate::ids::CardId::new(2), STRIKE_R_PLUS_ID),
+            CardInstance::new(crate::ids::CardId::new(3), WOUND_ID),
+            CardInstance::new(crate::ids::CardId::new(4), ANGER_ID),
+        ];
+
+        open_rest_smith_grid(&mut run);
+
+        let grid = run.card_grid.expect("smith grid");
+        assert_eq!(
+            grid.cards
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID, ANGER_ID]
+        );
     }
 
     #[test]

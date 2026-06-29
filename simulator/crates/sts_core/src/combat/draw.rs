@@ -71,7 +71,7 @@ pub(crate) fn draw_cards_without_shuffle(state: &mut CombatState, count: usize) 
     }
 }
 
-fn apply_fire_breathing_on_draw(state: &mut CombatState, content_id: crate::ContentId) {
+pub(crate) fn apply_fire_breathing_on_draw(state: &mut CombatState, content_id: crate::ContentId) {
     let amount = state.player.powers.fire_breathing;
     if amount <= 0 || !is_status_or_curse(content_id) {
         return;

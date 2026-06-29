@@ -22,8 +22,8 @@ pub const SHOP_BASE_REMOVE_PRICE: i32 = 75;
 pub const SHOP_REMOVE_PRICE_INCREASE: i32 = 25;
 
 const SHOP_CARD_COMMON_PRICE: i32 = 50;
-const SHOP_CARD_UNCOMMON_PRICE: i32 = 78;
-const SHOP_CARD_RARE_PRICE: i32 = 102;
+const SHOP_CARD_UNCOMMON_PRICE: i32 = 75;
+const SHOP_CARD_RARE_PRICE: i32 = 150;
 const SHOP_RELIC_COMMON_PRICE: i32 = 150;
 const SHOP_RELIC_UNCOMMON_PRICE: i32 = 250;
 const SHOP_RELIC_RARE_PRICE: i32 = 300;
@@ -60,8 +60,14 @@ pub struct ShopScreen {
     pub relics: Vec<ShopRelicSlot>,
     pub potions: Vec<ShopPotionSlot>,
     pub remove_cost: i32,
+    #[serde(default = "default_shop_remove_available")]
+    pub remove_available: bool,
     #[serde(default)]
     pub sale_slot: Option<usize>,
+}
+
+fn default_shop_remove_available() -> bool {
+    true
 }
 
 pub fn shop_card_rarity_roll(rng: &mut StsRng, card_rarity_factor: i32) -> CardRarity {
@@ -218,6 +224,10 @@ fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relic_keys.contains(&key) || run.relics.iter().any(|relic| relic.key() == key)
 }
 
+fn can_open_shop_remove(run: &RunState, shop: &ShopScreen) -> bool {
+    shop.remove_available && run.gold >= shop.remove_cost
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShopPick {
     Purge,
@@ -236,7 +246,7 @@ pub fn affordable_shop_picks(run: &RunState) -> Vec<ShopPick> {
     }
 
     let mut picks = Vec::new();
-    if run.shop_remove_count == 0 && run.gold >= shop.remove_cost {
+    if can_open_shop_remove(run, shop) {
         picks.push(ShopPick::Purge);
     }
     for (slot, offer) in shop.cards.iter().enumerate() {
@@ -461,6 +471,7 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
         relics,
         potions,
         remove_cost: shop_base_remove_cost(run),
+        remove_available: true,
         sale_slot: Some(sale_slot),
     };
     if has_the_courier(run) {
@@ -494,6 +505,7 @@ pub fn legacy_fixed_shop_screen(next_card_id: u64) -> ShopScreen {
             sold: false,
         }],
         remove_cost: SHOP_BASE_REMOVE_PRICE,
+        remove_available: true,
         sale_slot: None,
     }
 }
@@ -579,7 +591,7 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
 
     let mut actions = Vec::new();
 
-    if run.gold >= shop.remove_cost {
+    if can_open_shop_remove(run, shop) {
         actions.push(RunAction::OpenShopRemove);
     }
 
@@ -625,7 +637,10 @@ pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> 
             if run.card_grid.is_some() {
                 return Err(SimError::IllegalAction("grid already open"));
             }
-            if run.gold < shop.remove_cost {
+            if !shop.remove_available {
+                return Err(SimError::IllegalAction("shop remove already used"));
+            }
+            if !can_open_shop_remove(run, shop) {
                 return Err(SimError::IllegalAction("not enough gold"));
             }
             Ok(())
@@ -1155,6 +1170,156 @@ mod tests {
 
         assert!(legal_shop_actions(&run).contains(&RunAction::BuyShopCard { slot: 0 }));
         assert!(legal_shop_actions(&run).contains(&RunAction::BuyShopPotion { slot: 0 }));
+    }
+
+    #[test]
+    fn shop_remove_disappears_after_use() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.shop = Some(legacy_fixed_shop_screen(run.next_card_instance_id()));
+        run.shop_remove_count = 1;
+        run.gold = run.shop.as_ref().unwrap().remove_cost;
+        run.shop.as_mut().unwrap().remove_available = false;
+
+        assert!(!affordable_shop_picks(&run).contains(&ShopPick::Purge));
+        assert!(!legal_shop_actions(&run).contains(&RunAction::OpenShopRemove));
+
+        let err = apply_shop_action(&run, RunAction::OpenShopRemove)
+            .expect_err("shop remove can only be used once");
+        assert_eq!(err, SimError::IllegalAction("shop remove already used"));
+    }
+
+    #[test]
+    fn shop_choice_index_tracks_visible_choices_after_purge_disappears() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.gold = 167;
+        run.shop_remove_count = 1;
+        run.shop = Some(ShopScreen {
+            cards: vec![
+                ShopCardSlot {
+                    card: CardInstance::new(CardId::new(1), ANGER_ID),
+                    price: 53,
+                    sold: false,
+                },
+                ShopCardSlot {
+                    card: CardInstance::new(CardId::new(2), ANGER_ID),
+                    price: 48,
+                    sold: false,
+                },
+                ShopCardSlot {
+                    card: CardInstance::new(CardId::new(3), ANGER_ID),
+                    price: 26,
+                    sold: false,
+                },
+                ShopCardSlot {
+                    card: CardInstance::new(CardId::new(4), ANGER_ID),
+                    price: 51,
+                    sold: false,
+                },
+                ShopCardSlot {
+                    card: CardInstance::new(CardId::new(5), ANGER_ID),
+                    price: 76,
+                    sold: false,
+                },
+                ShopCardSlot {
+                    card: CardInstance::new(CardId::new(6), ANGER_ID),
+                    price: 92,
+                    sold: false,
+                },
+                ShopCardSlot {
+                    card: CardInstance::new(CardId::new(7), ANGER_ID),
+                    price: 188,
+                    sold: false,
+                },
+            ],
+            relics: vec![
+                ShopRelicSlot {
+                    relic_key: RelicKey::ThreadAndNeedle,
+                    price: 303,
+                    sold: false,
+                },
+                ShopRelicSlot {
+                    relic_key: RelicKey::CentennialPuzzle,
+                    price: 157,
+                    sold: true,
+                },
+            ],
+            potions: Vec::new(),
+            remove_cost: SHOP_BASE_REMOVE_PRICE,
+            remove_available: false,
+            sale_slot: None,
+        });
+
+        assert_eq!(
+            affordable_shop_picks(&run),
+            vec![
+                ShopPick::BuyCard(0),
+                ShopPick::BuyCard(1),
+                ShopPick::BuyCard(2),
+                ShopPick::BuyCard(3),
+                ShopPick::BuyCard(4),
+                ShopPick::BuyCard(5),
+            ]
+        );
+        assert_eq!(
+            shop_action_for_choice_index(&run, 4),
+            Ok(RunAction::BuyShopCard { slot: 4 })
+        );
+    }
+
+    #[test]
+    fn shop_choice_index_includes_later_shop_purge_before_relics() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.gold = 418;
+        run.shop_remove_count = 1;
+        run.shop = Some(ShopScreen {
+            cards: (0..7)
+                .map(|slot| ShopCardSlot {
+                    card: CardInstance::new(CardId::new(slot + 1), ANGER_ID),
+                    price: [53, 48, 26, 51, 80, 92, 188][slot as usize],
+                    sold: false,
+                })
+                .collect(),
+            relics: vec![
+                ShopRelicSlot {
+                    relic_key: RelicKey::ThreadAndNeedle,
+                    price: 303,
+                    sold: false,
+                },
+                ShopRelicSlot {
+                    relic_key: RelicKey::CentennialPuzzle,
+                    price: 157,
+                    sold: false,
+                },
+                ShopRelicSlot {
+                    relic_key: RelicKey::MedicalKit,
+                    price: 151,
+                    sold: false,
+                },
+            ],
+            potions: vec![
+                ShopPotionSlot {
+                    potion: Potion::Duplication,
+                    price: 73,
+                    sold: false,
+                },
+                ShopPotionSlot {
+                    potion: Potion::Energy,
+                    price: 50,
+                    sold: false,
+                },
+            ],
+            remove_cost: 100,
+            remove_available: true,
+            sale_slot: None,
+        });
+
+        assert_eq!(
+            shop_action_for_choice_index(&run, 10),
+            Ok(RunAction::BuyShopRelic { slot: 2 })
+        );
     }
 
     #[test]

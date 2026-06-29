@@ -29,7 +29,7 @@ class SearchLabTests(unittest.TestCase):
     def test_selected_trace_candidate_is_registered(self):
         candidate = trace_autopilot_candidate_by_name(SELECTED_COMBAT_AUTOPILOT_CANDIDATE)
 
-        self.assertEqual(candidate.config.algorithm, "rust_terminal_win_hp_selector")
+        self.assertEqual(candidate.config.algorithm, "rust_terminal_hp_commit_safe_selector")
         with self.assertRaises(ValueError):
             trace_autopilot_candidate_by_name("missing")
 

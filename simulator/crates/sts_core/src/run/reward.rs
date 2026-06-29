@@ -5,11 +5,15 @@ use crate::{
         get_card_definition, upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID,
         SHRUG_IT_OFF_ID,
     },
+    content::encounters::{
+        generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
+    },
     content::reward_pool::{
         ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
     },
     content::shop_pool::shop_card_content_id,
     ids::{CardId, ContentId},
+    map::{generate_target_fixed_map, RoomKind, TargetMapAct},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{
         Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, QUESTION_CARD_REWARD_BONUS,
@@ -39,9 +43,15 @@ pub enum CombatRewardKind {
 const REWARD_CARD_COUNT: usize = 3;
 const NORMAL_COMBAT_GOLD_MIN: i32 = 10;
 const NORMAL_COMBAT_GOLD_MAX: i32 = 20;
+const ELITE_COMBAT_GOLD_MIN: i32 = 25;
+const ELITE_COMBAT_GOLD_MAX: i32 = 35;
+const BOSS_COMBAT_GOLD_BASE: i32 = 100;
+const BOSS_COMBAT_GOLD_VARIANCE_MIN: i32 = -5;
+const BOSS_COMBAT_GOLD_VARIANCE_MAX: i32 = 5;
 const SMALL_CHEST_CHANCE: i32 = 50;
 const MEDIUM_CHEST_CHANCE: i32 = 33;
 const CHEST_GOLD_CHANCES: [i32; 3] = [50, 35, 50];
+const CHEST_GOLD_AMOUNTS: [i32; 3] = [25, 50, 75];
 const CHEST_RELIC_COMMON_CHANCES: [i32; 3] = [75, 35, 0];
 const CHEST_RELIC_UNCOMMON_CHANCES: [i32; 3] = [25, 50, 75];
 const MAX_HAND_SIZE: usize = 10;
@@ -88,16 +98,24 @@ fn target_chest_relic_tier(chest_size: ChestSize, roll: i32) -> RelicTier {
     }
 }
 
+fn chest_size_index(chest_size: ChestSize) -> usize {
+    match chest_size {
+        ChestSize::Small => 0,
+        ChestSize::Medium => 1,
+        ChestSize::Large => 2,
+    }
+}
+
+fn target_chest_gold(chest_size: ChestSize, rng: &mut StsRng) -> i32 {
+    let base = CHEST_GOLD_AMOUNTS[chest_size_index(chest_size)] as f32;
+    rng.random_float_range(base * 0.9, base * 1.1).round() as i32
+}
+
 pub fn setup_treasure_room(run: &mut RunState) {
     let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
     let chest_size = target_chest_size(&mut treasure_rng);
     let roll = treasure_rng.random_int(99);
-    let have_gold = roll
-        < CHEST_GOLD_CHANCES[match chest_size {
-            ChestSize::Small => 0,
-            ChestSize::Medium => 1,
-            ChestSize::Large => 2,
-        }];
+    let have_gold = roll < CHEST_GOLD_CHANCES[chest_size_index(chest_size)];
     let relic_tier = target_chest_relic_tier(chest_size, roll);
     run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
     run.treasure_room = Some(TreasureRoomState {
@@ -149,11 +167,30 @@ pub fn fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
     legacy_fixed_card_reward_choices(next_card_id)
 }
 
-fn roll_reward_rarity(rng: &mut StsRng, card_rarity_factor: i32) -> CardRarity {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RewardRarityChances {
+    rare: i32,
+    uncommon: i32,
+}
+
+const NORMAL_REWARD_RARITY_CHANCES: RewardRarityChances = RewardRarityChances {
+    rare: 3,
+    uncommon: 37,
+};
+const ELITE_REWARD_RARITY_CHANCES: RewardRarityChances = RewardRarityChances {
+    rare: 10,
+    uncommon: 40,
+};
+
+fn roll_reward_rarity(
+    rng: &mut StsRng,
+    card_rarity_factor: i32,
+    chances: RewardRarityChances,
+) -> CardRarity {
     let roll = rng.random_int(99) + card_rarity_factor;
-    if roll < 3 {
+    if roll < chances.rare {
         CardRarity::Rare
-    } else if roll < 40 {
+    } else if roll < chances.rare + chances.uncommon {
         CardRarity::Uncommon
     } else {
         CardRarity::Common
@@ -268,6 +305,8 @@ pub fn target_card_reward_choices_with_count(
         next_card_id,
         choice_count,
         RewardCardPoolKind::Ironclad,
+        NORMAL_REWARD_RARITY_CHANCES,
+        None,
     )
 }
 
@@ -283,11 +322,14 @@ fn target_card_reward_choices_with_count_and_pool(
     next_card_id: u64,
     choice_count: usize,
     pool_kind: RewardCardPoolKind,
+    rarity_chances: RewardRarityChances,
+    forced_requested_rarity: Option<CardRarity>,
 ) -> Vec<CardInstance> {
     let mut choices = Vec::with_capacity(choice_count);
 
     for index in 0..choice_count {
-        let requested = roll_reward_rarity(rng, *card_rarity_factor);
+        let rolled = roll_reward_rarity(rng, *card_rarity_factor, rarity_chances);
+        let requested = forced_requested_rarity.unwrap_or(rolled);
         let rarity = match pool_kind {
             RewardCardPoolKind::Ironclad => resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES),
             RewardCardPoolKind::AnyColor => requested,
@@ -685,6 +727,23 @@ pub fn target_normal_combat_gold(rng: &mut StsRng) -> i32 {
     rng.random_int_range(NORMAL_COMBAT_GOLD_MIN, NORMAL_COMBAT_GOLD_MAX)
 }
 
+pub fn target_elite_combat_gold(rng: &mut StsRng) -> i32 {
+    rng.random_int_range(ELITE_COMBAT_GOLD_MIN, ELITE_COMBAT_GOLD_MAX)
+}
+
+pub fn target_boss_combat_gold(rng: &mut StsRng) -> i32 {
+    BOSS_COMBAT_GOLD_BASE
+        + rng.random_int_range(BOSS_COMBAT_GOLD_VARIANCE_MIN, BOSS_COMBAT_GOLD_VARIANCE_MAX)
+}
+
+fn combat_gold_offer_with_relics(run: &RunState, amount: i32) -> i32 {
+    if run.relics.contains(&Relic::GoldenIdol) {
+        amount + (amount as f32 * 0.25).round() as i32
+    } else {
+        amount
+    }
+}
+
 pub fn target_relic_tier(rng: &mut StsRng, act: i32) -> RelicTier {
     let common_chance = if act == ACT_4 { 0 } else { 50 };
     let uncommon_chance = if act == ACT_4 { 100 } else { 33 };
@@ -734,9 +793,7 @@ pub fn target_potion_reward_offer(
     potion_capacity: usize,
     guaranteed_potion: bool,
 ) -> Option<Potion> {
-    if potion_belt_count >= potion_capacity {
-        return None;
-    }
+    let _ = (potion_belt_count, potion_capacity);
 
     if guaranteed_potion {
         return Some(target_random_potion(rng));
@@ -827,6 +884,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         pending_relic_offer,
         pending_relic_key_offer,
         queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -834,9 +892,10 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
 }
 
 pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
-    let key = roll_relic_reward(run, RelicTier::Boss);
+    let boss_relic_choices = (0..3)
+        .map(|_| roll_relic_reward(run, RelicTier::Boss))
+        .collect();
 
-    let (relic_offer, relic_key_offer) = split_relic_offer(key);
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
@@ -844,11 +903,12 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
         gold_offer: 0,
         stolen_gold_offer: 0,
         potion_offer: None,
-        relic_offer,
-        relic_key_offer,
+        relic_offer: None,
+        relic_key_offer: None,
         pending_relic_offer: None,
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
+        boss_relic_choices,
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -873,6 +933,7 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
         pending_relic_offer: None,
         pending_relic_key_offer: None,
         queued_relic_key_offers: vec![uncommon, rare],
+        boss_relic_choices: Vec::new(),
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -897,14 +958,26 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     } else {
         RewardCardPoolKind::Ironclad
     };
+    let rarity_chances = if run.current_room_kind() == Some(crate::map::RoomKind::Elite) {
+        ELITE_REWARD_RARITY_CHANCES
+    } else {
+        NORMAL_REWARD_RARITY_CHANCES
+    };
+    let forced_requested_rarity = if run.current_room_kind() == Some(crate::map::RoomKind::Boss) {
+        Some(CardRarity::Rare)
+    } else {
+        None
+    };
     let mut choices = target_card_reward_choices_with_count_and_pool(
         &mut card_rng,
         &mut run.card_rarity_factor,
         next_card_id,
         choice_count,
         pool_kind,
+        rarity_chances,
+        forced_requested_rarity,
     );
-    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices);
+    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run));
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     for choice in &mut choices {
         choice.content_id = run.content_id_after_card_add_relics(choice.content_id);
@@ -912,13 +985,27 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     run.reward.as_mut().expect("reward screen present").choices = choices;
 }
 
-fn consume_reward_card_upgrade_rolls(rng: &mut StsRng, choices: &mut [CardInstance]) {
+fn card_upgraded_chance(run: &RunState) -> f32 {
+    match run.current_act {
+        2 if run.ascension >= 12 => 0.125,
+        2 => 0.25,
+        3 if run.ascension >= 12 => 0.25,
+        3 => 0.5,
+        _ => 0.0,
+    }
+}
+
+fn consume_reward_card_upgrade_rolls(
+    rng: &mut StsRng,
+    choices: &mut [CardInstance],
+    upgraded_chance: f32,
+) {
     for choice in choices {
         if reward_card_rarity(choice.content_id) == Some(CardRarity::Rare) {
             continue;
         }
 
-        let upgrades = rng.random_float() < 0.0;
+        let upgrades = rng.random_float() < upgraded_chance;
         if upgrades {
             if let Some(upgraded) = upgrade_content_id(choice.content_id) {
                 choice.content_id = upgraded;
@@ -954,7 +1041,8 @@ fn any_color_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
 
 pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
-    let gold_offer = target_normal_combat_gold(&mut treasure_rng);
+    let gold_offer =
+        combat_gold_offer_with_relics(run, target_normal_combat_gold(&mut treasure_rng));
     run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
 
     let potion_offer = if run.can_gain_potions() {
@@ -992,10 +1080,14 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         pending_relic_offer: None,
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
         card_reward_active: false,
         card_reward_pending: true,
         pending_card_reward_count,
     });
+    if pending_card_reward_count == 1 {
+        roll_pending_card_reward_choices(run);
+    }
 }
 
 pub fn enter_reward_screen(run: &mut RunState) {
@@ -1019,7 +1111,8 @@ pub fn enter_reward_screen(run: &mut RunState) {
 
 pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
-    let gold_offer = target_normal_combat_gold(&mut treasure_rng);
+    let gold_offer =
+        combat_gold_offer_with_relics(run, target_elite_combat_gold(&mut treasure_rng));
     run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
 
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
@@ -1033,10 +1126,10 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         (None, None)
     };
 
-    if run.can_gain_potions() {
+    let potion_offer = if run.can_gain_potions() {
         let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
         let potion_capacity = run.potion_capacity();
-        let _elite_potion_roll = target_potion_reward_offer(
+        let potion_offer = target_potion_reward_offer(
             &mut potion_rng,
             &mut run.potion_chance,
             2,
@@ -1045,7 +1138,10 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
             run.relics.contains(&Relic::WhiteBeastStatue),
         );
         run.store_rng_counter(RunRngStream::Potion, &potion_rng);
-    }
+        potion_offer
+    } else {
+        None
+    };
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -1053,16 +1149,130 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         choices: Vec::new(),
         gold_offer,
         stolen_gold_offer: 0,
-        potion_offer: None,
+        potion_offer,
         relic_offer,
         relic_key_offer,
         pending_relic_offer,
         pending_relic_key_offer,
         queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
         card_reward_active: false,
         card_reward_pending: true,
         pending_card_reward_count: 1,
     });
+    roll_pending_card_reward_choices(run);
+}
+
+pub fn enter_boss_combat_reward_screen(run: &mut RunState) {
+    let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
+    let gold_offer = combat_gold_offer_with_relics(run, target_boss_combat_gold(&mut misc_rng));
+    run.store_rng_counter(RunRngStream::Misc, &misc_rng);
+
+    let potion_offer = if run.can_gain_potions() {
+        let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
+        let potion_capacity = run.potion_capacity();
+        let potion_offer = target_potion_reward_offer(
+            &mut potion_rng,
+            &mut run.potion_chance,
+            1,
+            run.potions.len(),
+            potion_capacity,
+            run.relics.contains(&Relic::WhiteBeastStatue),
+        );
+        run.store_rng_counter(RunRngStream::Potion, &potion_rng);
+        potion_offer
+    } else {
+        None
+    };
+
+    run.phase = RunPhase::Reward;
+    run.combat = None;
+    run.reward = Some(RewardScreen {
+        choices: Vec::new(),
+        gold_offer,
+        stolen_gold_offer: 0,
+        potion_offer,
+        relic_offer: None,
+        relic_key_offer: None,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
+        queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_active: false,
+        card_reward_pending: true,
+        pending_card_reward_count: 1,
+    });
+    roll_pending_card_reward_choices(run);
+}
+
+fn enter_boss_reward_chest(run: &mut RunState) {
+    run.phase = RunPhase::Treasure;
+    run.combat = None;
+    run.reward = None;
+    run.treasure_room = None;
+    run.current_floor += 1;
+    run.reinit_room_rngs_for_floor();
+}
+
+fn enter_next_act_map(run: &mut RunState) {
+    let next_act = run.current_act + 1;
+    advance_card_rng_for_dungeon_transition(run);
+    run.potion_chance = 0;
+    if next_act == 2 {
+        run.map = Some(generate_target_fixed_map(
+            run.reward_rng_seed as i64,
+            TargetMapAct::City,
+        ));
+        if let Some(map) = run.map.as_mut() {
+            map.floor = run.current_floor as u32;
+        }
+        generate_city_encounters_for_next_act(run);
+        run.current_act = 2;
+    } else if next_act == 3 {
+        run.map = Some(generate_target_fixed_map(
+            run.reward_rng_seed as i64,
+            TargetMapAct::Beyond,
+        ));
+        if let Some(map) = run.map.as_mut() {
+            map.floor = run.current_floor as u32;
+        }
+        generate_beyond_encounters_for_next_act(run);
+        run.current_act = 3;
+    }
+    run.phase = RunPhase::Idle;
+    run.reward = None;
+    run.combat = None;
+    run.treasure_room = None;
+    run.current_room_override = None;
+    run.normal_combat_count = 0;
+    run.elite_combat_count = 0;
+    run.player_hp = run.player_max_hp;
+}
+
+fn generate_city_encounters_for_next_act(run: &mut RunState) {
+    let mut rng = StsRng::new(run.monster_rng_seed as i64);
+    crate::content::encounters::advance_exordium_content_generation_rng(&mut rng);
+    let (normal, elite) = generate_city_encounter_lists_with_rng(&mut rng);
+    run.normal_encounter_list = normal;
+    run.elite_encounter_list = elite;
+    run.monster_rng_counter = rng.counter();
+}
+
+fn generate_beyond_encounters_for_next_act(run: &mut RunState) {
+    let mut rng = StsRng::with_counter(run.monster_rng_seed as i64, run.monster_rng_counter);
+    let (normal, elite) = generate_beyond_encounter_lists_with_rng(&mut rng);
+    run.normal_encounter_list = normal;
+    run.elite_encounter_list = elite;
+    run.monster_rng_counter = rng.counter();
+}
+
+fn advance_card_rng_for_dungeon_transition(run: &mut RunState) {
+    match run.card_rng_counter {
+        1..=249 => run.card_rng_counter = 250,
+        251..=499 => run.card_rng_counter = 500,
+        501..=749 => run.card_rng_counter = 750,
+        _ => {}
+    }
 }
 
 pub fn enter_elite_relic_reward_screen(run: &mut RunState) {
@@ -1074,11 +1284,19 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         setup_treasure_room(run);
     }
     apply_cursed_key_chest_curse(run);
-    let tier = run
+    let treasure_room = *run
         .treasure_room
         .as_ref()
-        .expect("treasure room must be initialized before opening chest")
-        .relic_tier;
+        .expect("treasure room must be initialized before opening chest");
+    let tier = treasure_room.relic_tier;
+    let gold_offer = if treasure_room.have_gold {
+        let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
+        let amount = target_chest_gold(treasure_room.chest_size, &mut treasure_rng);
+        run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
+        amount
+    } else {
+        0
+    };
     let key = roll_relic_reward(run, tier);
     let (relic_offer, relic_key_offer) = split_relic_offer(key);
     let (pending_relic_offer, pending_relic_key_offer) =
@@ -1093,7 +1311,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
-        gold_offer: 0,
+        gold_offer,
         stolen_gold_offer: 0,
         potion_offer: None,
         relic_offer,
@@ -1101,6 +1319,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         pending_relic_offer,
         pending_relic_key_offer,
         queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -1151,7 +1370,13 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     if next_combat.phase == CombatPhase::Won {
-        enter_reward_screen(&mut next);
+        if next.current_room_kind() == Some(crate::map::RoomKind::Boss) {
+            enter_boss_combat_reward_screen(&mut next);
+        } else if next.current_room_kind() == Some(crate::map::RoomKind::Elite) {
+            enter_elite_combat_reward_screen(&mut next);
+        } else {
+            enter_reward_screen(&mut next);
+        }
     }
 
     Ok(next)
@@ -1321,6 +1546,7 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     match action {
+        RunAction::OpenChest | RunAction::Proceed => apply_treasure_action(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
         | RunAction::BuyShopPotion { .. }
@@ -1343,14 +1569,83 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
     }
 }
 
+pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<()> {
+    if run.phase != RunPhase::Treasure {
+        return Err(SimError::IllegalAction(
+            "treasure actions require treasure phase",
+        ));
+    }
+    match action {
+        RunAction::OpenChest => {
+            if run.current_room_kind() == Some(RoomKind::Boss) && run.treasure_room.is_none() {
+                return Ok(());
+            }
+            if run.treasure_room.is_some() {
+                Ok(())
+            } else {
+                Err(SimError::InvalidState("treasure room is missing"))
+            }
+        }
+        RunAction::Proceed => {
+            if run.current_room_kind() == Some(RoomKind::Boss) && run.reward.is_none() {
+                Ok(())
+            } else {
+                Err(SimError::IllegalAction("cannot proceed from treasure"))
+            }
+        }
+        _ => Err(SimError::IllegalAction("not a treasure action")),
+    }
+}
+
+pub fn apply_treasure_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
+    validate_treasure_action(run, action)?;
+    let mut next = run.clone();
+    match action {
+        RunAction::OpenChest => {
+            if next.current_room_kind() == Some(RoomKind::Boss) && next.treasure_room.is_none() {
+                enter_boss_relic_reward_screen(&mut next);
+            } else {
+                enter_chest_relic_reward_screen(&mut next);
+            }
+            Ok(next)
+        }
+        RunAction::Proceed => {
+            enter_next_act_map(&mut next);
+            Ok(next)
+        }
+        _ => unreachable!("validated treasure action"),
+    }
+}
+
 fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     run.validate_reward_action(action)?;
 
     let mut next = run.clone();
     match action {
         RunAction::SkipReward => {
-            next.phase = RunPhase::Idle;
-            next.reward = None;
+            let is_boss_room = next.current_room_kind() == Some(RoomKind::Boss);
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            if reward.card_reward_active {
+                reward.choices.clear();
+                reward.card_reward_active = false;
+                reward.consume_pending_card_reward();
+            } else if is_boss_room
+                && reward.boss_relic_choices.is_empty()
+                && reward.pending_relic_offer.is_none()
+                && reward.pending_relic_key_offer.is_none()
+                && reward.queued_relic_key_offers.is_empty()
+            {
+                enter_boss_reward_chest(&mut next);
+            } else {
+                next.phase = RunPhase::Idle;
+                next.reward = None;
+            }
+        }
+        RunAction::CloseCardReward => {
+            next.reward
+                .as_mut()
+                .expect("validated reward screen")
+                .card_reward_active = false;
         }
         RunAction::TakeCardReward { card_id } => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -1406,6 +1701,23 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 next.gain_relic_key(key);
             }
             advance_pending_relic_offer(&mut next);
+        }
+        RunAction::ChooseBossRelicReward { index } => {
+            let key = {
+                let reward = next.reward.as_mut().expect("validated reward screen");
+                let key = reward.boss_relic_choices[index];
+                reward.boss_relic_choices.clear();
+                key
+            };
+            next.gain_relic_key(key);
+            next.phase = RunPhase::Treasure;
+            next.reward = None;
+        }
+        RunAction::Proceed => {
+            unreachable!("validated reward action")
+        }
+        RunAction::OpenChest => {
+            unreachable!("validated reward action")
         }
         RunAction::OpenCardReward => {
             if next.reward.as_ref().is_some_and(|reward| {
@@ -1603,6 +1915,65 @@ mod tests {
         assert_eq!(after.phase, RunPhase::Reward);
         assert_eq!(after.player_hp, 45);
         assert!(after.reward.is_some());
+    }
+
+    #[test]
+    fn elite_combat_victory_enters_reward_with_relic_offer() {
+        let mut run = RunState::combat_fixture();
+        run.map = Some(crate::map::MapRunState {
+            act: 1,
+            floor: 1,
+            current_node: crate::ids::MapNodeId::new(0),
+            map: crate::map::FixedMap {
+                nodes: vec![crate::map::MapNode {
+                    id: crate::ids::MapNodeId::new(0),
+                    act: 1,
+                    room_kind: crate::map::RoomKind::Elite,
+                    children: Vec::new(),
+                }],
+            },
+        });
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.monsters[0].hp = 14;
+
+        let bash_id = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == BASH_ID)
+            .expect("bash in hand")
+            .id;
+        let strike_id = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == STRIKE_R_ID)
+            .expect("strike in hand")
+            .id;
+        let monster_id = combat.monsters[0].id;
+
+        run = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: bash_id,
+                target: Some(monster_id),
+            },
+        )
+        .expect("bash applies");
+        run = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: strike_id,
+                target: Some(monster_id),
+            },
+        )
+        .expect("strike wins combat");
+
+        let reward = run.reward.as_ref().expect("reward screen");
+
+        assert!(reward.relic_offer.is_some() || reward.relic_key_offer.is_some());
+        assert!(reward.card_reward_pending);
+        assert!(reward.gold_offer > 0);
     }
 
     #[test]
@@ -2169,8 +2540,14 @@ mod tests {
             run.next_card_instance_id(),
             REWARD_CARD_COUNT,
             RewardCardPoolKind::AnyColor,
+            NORMAL_REWARD_RARITY_CHANCES,
+            None,
         );
-        consume_reward_card_upgrade_rolls(&mut expected_rng, &mut expected);
+        consume_reward_card_upgrade_rolls(
+            &mut expected_rng,
+            &mut expected,
+            card_upgraded_chance(&run),
+        );
 
         run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
 
@@ -2299,7 +2676,6 @@ mod tests {
         enter_reward_screen(&mut run);
 
         let reward = run.reward.as_ref().expect("reward screen present");
-        assert!(reward.choices.is_empty());
         assert!(reward.card_reward_pending);
 
         run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
@@ -2369,24 +2745,44 @@ mod tests {
     }
 
     #[test]
+    fn dungeon_transition_advances_card_rng_to_target_band() {
+        let cases = [
+            (0, 0),
+            (1, 250),
+            (82, 250),
+            (250, 250),
+            (251, 500),
+            (500, 500),
+            (501, 750),
+            (750, 750),
+            (751, 751),
+        ];
+
+        for (before, expected) in cases {
+            let mut run = RunState::map_fixture();
+            run.card_rng_counter = before;
+
+            advance_card_rng_for_dungeon_transition(&mut run);
+
+            assert_eq!(run.card_rng_counter, expected, "before={before}");
+        }
+    }
+
+    #[test]
     fn combat_win_enters_reward_with_three_rng_choices() {
-        let mut run = winning_combat_run();
+        let run = winning_combat_run();
         let pool = reward_pool_content_ids();
 
         assert_eq!(run.phase, RunPhase::Reward);
         assert!(run.combat.is_none());
         let reward = run.reward.as_ref().expect("reward screen present");
-        assert!(reward.choices.is_empty());
+        assert_eq!(reward.choices.len(), 3);
         assert!(reward.card_reward_pending);
         assert_eq!(reward.gold_offer, 11);
         assert_eq!(reward.potion_offer, None);
         assert_eq!(run.potion_chance, 10);
         assert_eq!(run.potion_rng_counter, 1);
         assert_eq!(reward.relic_offer, None);
-
-        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
-        let reward = run.reward.expect("reward screen present");
-        assert_eq!(reward.choices.len(), 3);
         assert!(reward
             .choices
             .iter()
@@ -2403,6 +2799,20 @@ mod tests {
         assert_eq!(next.phase, RunPhase::Idle);
         assert!(next.reward.is_none());
         assert_eq!(next.deck, deck_before);
+    }
+
+    #[test]
+    fn skip_open_card_reward_returns_to_reward_screen() {
+        let run =
+            apply_run_action(&winning_combat_run(), RunAction::OpenCardReward).expect("open cards");
+
+        let next = apply_run_action(&run, RunAction::SkipReward).expect("skip card reward");
+        let reward = next.reward.as_ref().expect("reward screen remains");
+
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert!(!reward.card_reward_active);
+        assert!(reward.choices.is_empty());
+        assert_eq!(reward.pending_card_reward_count(), 0);
     }
 
     #[test]
@@ -2926,6 +3336,25 @@ mod tests {
     }
 
     #[test]
+    fn target_potion_reward_can_offer_when_belt_is_full() {
+        let mut rng = StsRng::new(0);
+        let mut potion_chance = 70;
+
+        let offer = target_potion_reward_offer(
+            &mut rng,
+            &mut potion_chance,
+            2,
+            crate::potion::MAX_POTIONS,
+            crate::potion::MAX_POTIONS,
+            false,
+        );
+
+        assert!(offer.is_some());
+        assert_eq!(potion_chance, 60);
+        assert!(rng.counter() > 1);
+    }
+
+    #[test]
     fn white_beast_statue_guarantees_potion_offer_without_chance_roll() {
         let mut rng = StsRng::new(0);
         let mut potion_chance = 0;
@@ -2945,6 +3374,20 @@ mod tests {
     }
 
     #[test]
+    fn entering_next_act_resets_potion_chance() {
+        let mut run = RunState::map_fixture();
+        run.current_act = 1;
+        run.current_floor = 17;
+        run.phase = RunPhase::Reward;
+        run.potion_chance = 30;
+
+        enter_next_act_map(&mut run);
+
+        assert_eq!(run.current_act, 2);
+        assert_eq!(run.potion_chance, 0);
+    }
+
+    #[test]
     fn combat_win_persists_treasure_rng_counter() {
         let mut run = winning_combat_run();
 
@@ -2955,6 +3398,75 @@ mod tests {
         let reward = run.reward.expect("reward screen present");
         assert_eq!(reward.gold_offer, 19);
         assert_eq!(run.treasure_rng_counter, 1);
+    }
+
+    #[test]
+    fn boss_combat_gold_uses_misc_rng_and_rounded_golden_idol_bonus() {
+        let mut run = winning_combat_run();
+        run.misc_rng_seed = 22_079_335_079;
+        run.misc_rng_counter = 0;
+        run.treasure_rng_counter = 7;
+        run.relics.push(Relic::GoldenIdol);
+
+        let mut expected_rng = run.rng_for_stream(RunRngStream::Misc);
+        let base_gold = target_boss_combat_gold(&mut expected_rng);
+
+        enter_boss_combat_reward_screen(&mut run);
+
+        let reward = run.reward.expect("boss reward screen present");
+        assert_eq!(
+            reward.gold_offer,
+            base_gold + (base_gold as f32 * 0.25).round() as i32
+        );
+        assert_eq!(run.misc_rng_counter, expected_rng.counter());
+        assert_eq!(run.treasure_rng_counter, 7);
+    }
+
+    #[test]
+    fn boss_combat_reward_can_offer_potion_even_with_full_belt() {
+        let mut run = winning_combat_run();
+        run.potions = vec![Potion::Fire, Potion::Block, Potion::Strength];
+        run.potion_rng_seed = 0;
+        run.potion_rng_counter = 0;
+        run.potion_chance = 70;
+
+        enter_boss_combat_reward_screen(&mut run);
+
+        let reward = run.reward.expect("boss reward screen present");
+        assert!(reward.potion_offer.is_some());
+        assert_eq!(run.potion_chance, 60);
+        assert!(run.potion_rng_counter > 1);
+    }
+
+    #[test]
+    fn skip_boss_combat_reward_enters_boss_chest_with_leftover_potion() {
+        let mut run = winning_combat_run();
+        run.current_room_override = Some(RoomKind::Boss);
+        run.current_floor = 33;
+        run.potions = vec![Potion::Fire, Potion::Block, Potion::Strength];
+        run.reward = Some(RewardScreen {
+            choices: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: Some(Potion::Dexterity),
+            relic_offer: None,
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_active: false,
+            card_reward_pending: false,
+            pending_card_reward_count: 0,
+        });
+
+        let next = apply_run_action(&run, RunAction::SkipReward).expect("skip boss combat reward");
+
+        assert_eq!(next.phase, RunPhase::Treasure);
+        assert_eq!(next.current_floor, 34);
+        assert!(next.reward.is_none());
+        assert!(next.treasure_room.is_none());
+        assert_eq!(next.potions, run.potions);
     }
 
     #[test]
@@ -3027,7 +3539,7 @@ mod tests {
         enter_normal_combat_reward_screen(&mut run);
         let reward = run.reward.as_ref().expect("floor-1 reward");
         assert_eq!(reward.gold_offer, 13);
-        assert!(reward.choices.is_empty());
+        assert_eq!(reward.choices.len(), 3);
 
         run = apply_run_action(&run, RunAction::TakeGoldReward).expect("gold");
         run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
@@ -3053,7 +3565,7 @@ mod tests {
         enter_normal_combat_reward_screen(&mut run);
         let reward = run.reward.as_ref().expect("floor-2 reward");
         assert_eq!(reward.gold_offer, 17);
-        assert!(reward.choices.is_empty());
+        assert_eq!(reward.choices.len(), 3);
 
         run = apply_run_action(&run, RunAction::TakeGoldReward).expect("gold");
         run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
@@ -3079,7 +3591,7 @@ mod tests {
         enter_normal_combat_reward_screen(&mut run);
         let reward = run.reward.as_ref().expect("floor-3 reward");
         assert_eq!(reward.gold_offer, 13);
-        assert!(reward.choices.is_empty());
+        assert_eq!(reward.choices.len(), 3);
 
         run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
         assert_eq!(
@@ -3119,7 +3631,7 @@ mod tests {
         let reward = run.reward.as_ref().expect("reward");
         assert_eq!(reward.gold_offer, 19);
         assert_eq!(reward.potion_offer, None);
-        assert!(reward.choices.is_empty());
+        assert_eq!(reward.choices.len(), 3);
 
         let run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
         let content_ids: Vec<_> = run

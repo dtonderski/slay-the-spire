@@ -90,7 +90,10 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_terminal_hp_selector",
         "rust_terminal_hp_commit_won_selector",
         "rust_terminal_hp_commit_bounded_selector",
+        "rust_terminal_hp_commit_safe_selector",
+        "rust_terminal_hp_commit_safe_boss_selector",
         "rust_terminal_win_hp_selector",
+        "rust_terminal_win_hp_wide_selector",
         "rust_terminal_low_hp_rollout_selector",
         "rust_terminal_rollout_selector",
     }:
@@ -130,10 +133,14 @@ def search_combat(env: Any, config: CombatSearchConfig | None = None) -> SearchR
         "rust_terminal_hp_selector",
         "rust_terminal_hp_commit_won_selector",
         "rust_terminal_hp_commit_bounded_selector",
+        "rust_terminal_hp_commit_safe_selector",
+        "rust_terminal_hp_commit_safe_boss_selector",
     }:
         return _rust_terminal_hp_selector_search(env, config)
     elif config.algorithm == "rust_terminal_win_hp_selector":
         return _rust_terminal_win_hp_selector_search(env, config)
+    elif config.algorithm == "rust_terminal_win_hp_wide_selector":
+        return _rust_terminal_win_hp_wide_selector_search(env, config)
     elif config.algorithm == "rust_terminal_low_hp_rollout_selector":
         return _rust_terminal_low_hp_rollout_selector_search(env, config)
     elif config.algorithm == "rust_terminal_rollout_selector":
@@ -316,6 +323,47 @@ def _rust_terminal_portfolio_search(env: Any, config: CombatSearchConfig) -> Sea
 
 
 def _rust_terminal_win_hp_selector_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
+    primary = _rust_search(
+        env,
+        CombatSearchConfig(
+            max_depth=config.max_depth,
+            objective="terminal_tactical",
+            algorithm="rust_beam",
+            beam_width=32,
+            allowed_potions=config.allowed_potions,
+        ),
+    )
+    recommendations = [primary]
+    nodes = sum(recommendation.visits for recommendation in recommendations)
+    best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+    diagnostics = dict(best.diagnostics)
+    diagnostics.update(
+        {
+            "algorithm": config.algorithm,
+            "wide_selector_skipped": True,
+            "wide_selector_skip_reason": "bounded_default_policy",
+            "selector_candidates": [
+                _rust_rescue_candidate_diagnostics(recommendation)
+                for recommendation in recommendations
+            ],
+        }
+    )
+    return SearchRecommendation(
+        best_action=best.best_action,
+        principal_variation=best.principal_variation,
+        visits=nodes,
+        value=best.value,
+        win_probability=best.win_probability,
+        expected_hp_delta=best.expected_hp_delta,
+        terminal_rate=best.terminal_rate,
+        diagnostics=diagnostics,
+        terminal_reason=best.terminal_reason,
+    )
+
+
+def _rust_terminal_win_hp_wide_selector_search(
+    env: Any, config: CombatSearchConfig
+) -> SearchRecommendation:
     configs = [
         CombatSearchConfig(
             max_depth=config.max_depth,
@@ -371,7 +419,7 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
             max_depth=config.max_depth,
             objective="terminal_tactical",
             algorithm="rust_beam",
-            beam_width=128,
+            beam_width=64,
             allowed_potions=_without_power_potion(config.allowed_potions, env),
         ),
         CombatSearchConfig(
@@ -383,21 +431,53 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
         ),
         CombatSearchConfig(
             max_depth=config.max_depth,
-            objective="hp_preserving_lethal",
+            objective="tactical_survival",
             algorithm="rust_beam",
-            beam_width=64,
-            allowed_potions=_without_power_potion(config.allowed_potions, env),
-        ),
-        CombatSearchConfig(
-            max_depth=config.max_depth,
-            objective="hp_preserving_lethal",
-            algorithm="rust_beam",
-            beam_width=128,
-            allowed_potions=_without_power_potion(config.allowed_potions, env),
+            beam_width=32,
+            allowed_potions=config.allowed_potions,
         ),
     ]
+    if config.algorithm == "rust_terminal_hp_commit_safe_boss_selector" and _has_single_large_monster(env):
+        configs.append(
+            CombatSearchConfig(
+                max_depth=config.max_depth,
+                objective="terminal_tactical",
+                algorithm="rust_beam",
+                beam_width=128,
+                allowed_potions=_without_power_potion(config.allowed_potions, env),
+            )
+        )
+    if config.algorithm not in {
+        "rust_terminal_hp_commit_safe_selector",
+        "rust_terminal_hp_commit_safe_boss_selector",
+    }:
+        configs.extend(
+            [
+                CombatSearchConfig(
+                    max_depth=config.max_depth,
+                    objective="hp_preserving_lethal",
+                    algorithm="rust_beam",
+                    beam_width=64,
+                    allowed_potions=_without_power_potion(config.allowed_potions, env),
+                ),
+                CombatSearchConfig(
+                    max_depth=config.max_depth,
+                    objective="terminal_tactical",
+                    algorithm="rust_beam",
+                    beam_width=128,
+                    allowed_potions=_without_power_potion(config.allowed_potions, env),
+                ),
+                CombatSearchConfig(
+                    max_depth=config.max_depth,
+                    objective="hp_preserving_lethal",
+                    algorithm="rust_beam",
+                    beam_width=128,
+                    allowed_potions=_without_power_potion(config.allowed_potions, env),
+                ),
+            ]
+        )
     recommendations = [_rust_search(env, candidate) for candidate in configs]
-    best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+    best = _select_rust_hp_candidate(env, config, recommendations)
     wide_rescue_allowed_potions = _wide_terminal_rescue_allowed_potions(env, config, best)
     if wide_rescue_allowed_potions is not None:
         recommendations.append(
@@ -412,11 +492,11 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
                 ),
             )
         )
-        best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+        best = _select_rust_hp_candidate(env, config, recommendations)
     portfolio_rescue = _portfolio_rescue_candidate(env, config, best)
     if portfolio_rescue is not None:
         recommendations.append(portfolio_rescue)
-        best = sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
+        best = _select_rust_hp_candidate(env, config, recommendations)
     nodes = sum(recommendation.visits for recommendation in recommendations)
     diagnostics = dict(best.diagnostics)
     follow_principal_variation = _should_follow_rust_principal_variation(env, config, best)
@@ -441,6 +521,30 @@ def _rust_terminal_hp_selector_search(env: Any, config: CombatSearchConfig) -> S
         diagnostics=diagnostics,
         terminal_reason=best.terminal_reason,
     )
+
+
+def _select_rust_hp_candidate(
+    env: Any,
+    config: CombatSearchConfig,
+    recommendations: Sequence[SearchRecommendation],
+) -> SearchRecommendation:
+    if (
+        config.algorithm
+        in {
+            "rust_terminal_hp_commit_safe_selector",
+            "rust_terminal_hp_commit_safe_boss_selector",
+        }
+        and _has_single_large_monster(env)
+        and all(recommendation.terminal_reason != "won" for recommendation in recommendations)
+    ):
+        non_lost = [
+            recommendation
+            for recommendation in recommendations
+            if recommendation.terminal_reason != "lost"
+        ]
+        if non_lost:
+            return sorted(non_lost, key=_rust_boss_survival_key, reverse=True)[0]
+    return sorted(recommendations, key=_rust_portfolio_key, reverse=True)[0]
 
 
 def _variation_uses_potion(actions: Sequence[Any]) -> bool:
@@ -521,6 +625,8 @@ def _should_follow_rust_principal_variation(
     if config.algorithm not in {
         "rust_terminal_hp_commit_won_selector",
         "rust_terminal_hp_commit_bounded_selector",
+        "rust_terminal_hp_commit_safe_selector",
+        "rust_terminal_hp_commit_safe_boss_selector",
     }:
         return False
     if recommendation.terminal_reason != "won":
@@ -541,6 +647,15 @@ def _should_follow_rust_principal_variation(
         and recommendation.diagnostics.get("beam_width") == 128
         and predicted_hp_loss <= _COMMIT_BOUNDED_BEAM128_MAX_PREDICTED_HP_LOSS
     )
+
+
+def _has_single_large_monster(env: Any) -> bool:
+    monsters = [
+        monster
+        for monster in _state(env).get("monsters", [])
+        if monster.get("alive", False)
+    ]
+    return len(monsters) == 1 and float(monsters[0].get("hp", 0)) >= 200.0
 
 
 def _rust_terminal_rollout_selector_search(env: Any, config: CombatSearchConfig) -> SearchRecommendation:
@@ -972,6 +1087,12 @@ def _rust_portfolio_key(recommendation: SearchRecommendation) -> tuple[float, fl
     final_hp = float(recommendation.diagnostics.get("rust_final_hp") or 0.0)
     monster_hp = float(recommendation.diagnostics.get("rust_monster_hp") or 0.0)
     return (terminal_rank, -monster_hp, final_hp, recommendation.value)
+
+
+def _rust_boss_survival_key(recommendation: SearchRecommendation) -> tuple[float, float, float]:
+    final_hp = float(recommendation.diagnostics.get("rust_final_hp") or 0.0)
+    monster_hp = float(recommendation.diagnostics.get("rust_monster_hp") or 0.0)
+    return (final_hp * 4.0 - monster_hp, final_hp, -monster_hp)
 
 
 def _evaluator(objective: str) -> Callable[[dict[str, Any]], float]:
@@ -1581,9 +1702,17 @@ def _preferred_select_action(env: Any, actions: Sequence[Any]) -> Any | None:
         return None
 
     state = _state(env)
-    selected_indices = set(
-        ((state.get("exhaust_select") or {}).get("selected_hand_indices")) or []
-    )
+    exhaust_select = state.get("exhaust_select") or {}
+    selected_indices = set(exhaust_select.get("selected_hand_indices") or [])
+    confirm_actions = [
+        action for action in actions if action.kind() == "confirm_exhaust_select"
+    ]
+    if (
+        confirm_actions
+        and selected_indices
+        and exhaust_select.get("purpose") not in {"Exhaust", "PurityExhaustUpTo3", "GamblingChip"}
+    ):
+        return _sorted_actions(confirm_actions)[0]
     hand = ((state.get("piles") or {}).get("hand")) or []
     bad_indices = {
         index

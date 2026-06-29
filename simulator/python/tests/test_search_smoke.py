@@ -300,7 +300,24 @@ class CombatSearchSmokeTests(unittest.TestCase):
             selector.diagnostics["algorithm"],
             "rust_terminal_win_hp_selector",
         )
-        self.assertEqual(len(selector.diagnostics["selector_candidates"]), 2)
+        self.assertEqual(len(selector.diagnostics["selector_candidates"]), 1)
+        self.assertTrue(selector.diagnostics["wide_selector_skipped"])
+
+        wide_selector = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_win_hp_wide_selector",
+            ),
+        )
+
+        self.assertIsNotNone(wide_selector.best_action)
+        self.assertEqual(
+            wide_selector.diagnostics["algorithm"],
+            "rust_terminal_win_hp_wide_selector",
+        )
+        self.assertEqual(len(wide_selector.diagnostics["selector_candidates"]), 2)
 
         low_hp_recovery_selector = search_combat(
             env,
@@ -335,6 +352,48 @@ class CombatSearchSmokeTests(unittest.TestCase):
         self.assertEqual(
             rollout_selector.diagnostics["algorithm"],
             "rust_terminal_rollout_selector",
+        )
+
+        safe_hp_selector = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_hp_commit_safe_selector",
+            ),
+        )
+
+        self.assertIsNotNone(safe_hp_selector.best_action)
+        self.assertEqual(
+            safe_hp_selector.diagnostics["algorithm"],
+            "rust_terminal_hp_commit_safe_selector",
+        )
+        self.assertTrue(
+            all(
+                candidate["beam_width"] != 128
+                for candidate in safe_hp_selector.diagnostics["selector_candidates"]
+            )
+        )
+
+        safe_boss_hp_selector = search_combat(
+            env,
+            CombatSearchConfig(
+                max_depth=12,
+                objective="terminal_tactical",
+                algorithm="rust_terminal_hp_commit_safe_boss_selector",
+            ),
+        )
+
+        self.assertIsNotNone(safe_boss_hp_selector.best_action)
+        self.assertEqual(
+            safe_boss_hp_selector.diagnostics["algorithm"],
+            "rust_terminal_hp_commit_safe_boss_selector",
+        )
+        self.assertTrue(
+            all(
+                candidate["beam_width"] != 128
+                for candidate in safe_boss_hp_selector.diagnostics["selector_candidates"]
+            )
         )
         self.assertEqual(len(rollout_selector.diagnostics["selector_candidates"]), 2)
         self.assertIn("rollout_attempted", rollout_selector.diagnostics)

@@ -6,9 +6,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use sts_core::content::cards::{STRIKE_R_ID, SWORD_BOOMERANG_ID};
 use sts_core::content::monsters::{
-    looter_theft, target_city_normal_encounter_spawn_at_combat_index,
+    looter_theft, target_beyond_encounter_spawn_for_key,
+    target_city_normal_encounter_spawn_at_combat_index, target_move_byte,
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
     GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID,
 };
@@ -29,12 +31,13 @@ use sts_core::{
     generate_neow_three_potions, generate_neow_transform_reward,
     initialize_combat_piles_with_relics, known_neow_colorless_reward_for_seed,
     known_neow_screen_for_seed, leave_shop_merchant, leave_shop_room, open_neow_reward_grid,
-    select_grid_card, shop_action_for_choice_index, starter_only_deck, CardId, CardInstance,
-    CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice,
-    EventScreen, GeneratedNeowOption, GridPurpose, KnownNeowBranch, MonsterId, MonsterIntent,
-    MonsterPowers, MonsterState, NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic,
-    RelicCounters, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState,
-    ShopPick, StsRng, TargetMapAct,
+    select_grid_card, shop_action_for_choice_index, starter_only_deck, target_room_kinds_on_path,
+    CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event,
+    EventAction, EventChoice, EventScreen, FixedMap, GeneratedNeowOption, GridPurpose,
+    KnownNeowBranch, MapNode, MapNodeId, MapRunState, MonsterId, MonsterIntent, MonsterPowers,
+    MonsterState, NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic, RelicCounters,
+    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopCardSlot,
+    ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, StsRng, TargetMapAct,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4676,12 +4679,25 @@ fn seed_start_map_pick_x(external_seed: &str, path_so_far: &[i32], command: &str
 }
 
 fn seed_start_target_act_from_message(message: &Value) -> TargetMapAct {
+    if let Some(act) = message
+        .get("game_state")
+        .and_then(|game| game.get("act"))
+        .and_then(Value::as_u64)
+    {
+        return match act {
+            3 => TargetMapAct::Beyond,
+            2 => TargetMapAct::City,
+            _ => TargetMapAct::Exordium,
+        };
+    }
     let floor = message
         .get("game_state")
         .and_then(|game| game.get("floor"))
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    if floor >= 18 {
+    if floor >= 35 {
+        TargetMapAct::Beyond
+    } else if floor >= 18 {
         TargetMapAct::City
     } else {
         TargetMapAct::Exordium
@@ -4696,6 +4712,9 @@ fn seed_start_room_kinds_on_path(
     match seed_start_target_act_from_message(message) {
         TargetMapAct::Exordium => exordium_room_kinds_on_path(numeric_seed, path_xs),
         TargetMapAct::City => city_room_kinds_on_path(numeric_seed, path_xs),
+        TargetMapAct::Beyond => {
+            target_room_kinds_on_path(numeric_seed, TargetMapAct::Beyond, path_xs)
+        }
     }
 }
 
@@ -4845,12 +4864,30 @@ fn seed_start_normal_encounter_spawns_at_combat_index(
             ascension,
             neow_lament,
         ),
+        TargetMapAct::Beyond => {
+            sts_core::content::encounters::target_normal_encounter_key_at_combat_index(
+                seed,
+                TargetMapAct::Beyond,
+                combat_index,
+            )
+            .and_then(|encounter_key| {
+                target_beyond_encounter_spawn_for_key(
+                    seed,
+                    floor,
+                    &encounter_key,
+                    ascension,
+                    neow_lament,
+                )
+            })
+        }
     }
     .unwrap_or_default()
 }
 
 fn seed_start_target_act_from_floor(floor: u32) -> TargetMapAct {
-    if floor >= 18 {
+    if floor >= 35 {
+        TargetMapAct::Beyond
+    } else if floor >= 18 {
         TargetMapAct::City
     } else {
         TargetMapAct::Exordium
@@ -5052,6 +5089,13 @@ fn observed_combat_relics_and_counters(game: &Value) -> (Vec<Relic>, RelicCounte
     }
 
     (relics, counters)
+}
+
+fn observed_combat_turn(combat: &Value) -> Option<u32> {
+    combat
+        .get("turn")
+        .and_then(Value::as_u64)
+        .and_then(|turn| u32::try_from(turn).ok())
 }
 
 struct ObservedRelicEntry<'a> {
@@ -6411,8 +6455,11 @@ fn sync_combat_from_observed(run: &mut RunState, message: &Value, sync_piles: bo
         combat.player.powers = powers;
         combat.player.temp_strength = temp_strength;
     }
-    let mut monsters =
-        monsters_from_observed(combat_value.get("monsters"), player.unwrap_or(&Value::Null));
+    let mut monsters = monsters_from_observed(
+        combat_value.get("monsters"),
+        player.unwrap_or(&Value::Null),
+        int(game, "ascension_level") as u8,
+    );
     for monster in &mut monsters {
         if let Some(previous) = combat
             .monsters
@@ -6522,8 +6569,461 @@ pub fn run_state_from_observed_combat_message(message: &Value) -> Option<RunStat
     run_from_observed_combat(message)
 }
 
+#[must_use]
+pub fn run_state_from_observed_message(message: &Value) -> Option<RunState> {
+    run_from_observed_combat(message).or_else(|| run_from_observed_noncombat(message))
+}
+
 fn run_from_observed_combat_with_observed_shrug_plus(message: &Value) -> Option<RunState> {
     run_from_observed_combat_impl(message, true)
+}
+
+fn run_from_observed_noncombat(message: &Value) -> Option<RunState> {
+    let game = message.get("game_state")?;
+    if game.get("combat_state").is_some() {
+        return None;
+    }
+    let screen_type = game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let phase = observed_noncombat_run_phase(screen_type);
+    let deck = card_instances_from_array(game.get("deck"), 1);
+    let (relics, _) = observed_combat_relics_and_counters(game);
+    let energy_per_turn = observed_energy_per_turn(&relics);
+
+    let event_rng_seed = game.get("seed").and_then(Value::as_u64).unwrap_or(0);
+
+    Some(RunState {
+        phase,
+        player_hp: int(game, "current_hp"),
+        player_max_hp: int(game, "max_hp"),
+        gold: int(game, "gold"),
+        energy_per_turn,
+        deck,
+        map: observed_map_run_state(game),
+        current_room_override: None,
+        combat: None,
+        reward: observed_reward_screen(game),
+        event: observed_event_screen(game, event_rng_seed),
+        shop: observed_shop_screen(game),
+        card_grid: None,
+        relics,
+        potions: potions_from_observed(game),
+        event_rng_seed,
+        reward_rng_seed: 7,
+        card_rng_counter: 0,
+        card_random_rng_counter: 0,
+        card_rarity_factor: 5,
+        treasure_rng_seed: 0,
+        treasure_rng_counter: 0,
+        potion_rng_seed: 0,
+        potion_rng_counter: 0,
+        potion_chance: 0,
+        relic_rng_seed: 0,
+        relic_rng_counter: 0,
+        relic_pools: None,
+        relic_keys: Vec::new(),
+        omamori_charges_used: 0,
+        maw_bank_broken: false,
+        ancient_tea_set_armed: false,
+        lizard_tail_used: false,
+        girya_lifts: 0,
+        matryoshka_chests_opened: 0,
+        incense_burner_counter: 0,
+        tiny_chest_counter: 0,
+        event_room_monster_chance: 10,
+        event_room_shop_chance: 3,
+        event_room_treasure_chance: 2,
+        wing_boots_charges: 0,
+        neow_lament_combats_remaining: 0,
+        normal_combat_count: 0,
+        elite_combat_count: 0,
+        merchant_rng_seed: 0,
+        merchant_rng_counter: 0,
+        event_rng_counter: 0,
+        misc_rng_seed: 0,
+        misc_rng_counter: 0,
+        monster_rng_seed: 0,
+        monster_rng_counter: 0,
+        normal_encounter_list: Vec::new(),
+        elite_encounter_list: Vec::new(),
+        current_floor: int(game, "floor"),
+        current_act: int(game, "act"),
+        shop_remove_count: 0,
+        act1_event_list: Vec::new(),
+        act1_shrine_list: Vec::new(),
+        act2_event_list: Vec::new(),
+        act2_shrine_list: Vec::new(),
+        ascension: int(game, "ascension_level") as u8,
+        treasure_room: None,
+        rest_room_complete: false,
+    })
+}
+
+fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScreen> {
+    if game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .is_none_or(|screen| screen != "EVENT")
+    {
+        return None;
+    }
+    let state = game.get("screen_state");
+    let event_id = state
+        .and_then(|state| state.get("event_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let event_name = state
+        .and_then(|state| state.get("event_name"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if event_id != "Neow Event" && event_name != "Neow" {
+        return None;
+    }
+
+    let choices = choice_list_from_value(game.get("choice_list"));
+    let stage = if choices
+        .iter()
+        .any(|choice| choice.eq_ignore_ascii_case("talk"))
+    {
+        0
+    } else if choices
+        .iter()
+        .any(|choice| choice.eq_ignore_ascii_case("leave"))
+    {
+        2
+    } else {
+        1
+    };
+    let labels = if stage == 1 && choices.is_empty() {
+        generate_neow_options(event_rng_seed as i64, int(game, "max_hp"))
+            .into_iter()
+            .map(|option| option.label)
+            .collect::<Vec<_>>()
+    } else {
+        choices
+    };
+
+    Some(EventScreen {
+        event: Event::Neow,
+        choices: labels
+            .into_iter()
+            .map(|label| EventChoice { label })
+            .collect(),
+        stage,
+        event_data: 0,
+    })
+}
+
+fn observed_noncombat_run_phase(screen_type: &str) -> RunPhase {
+    match screen_type.to_ascii_uppercase().as_str() {
+        "EVENT" => RunPhase::Event,
+        "SHOP" | "SHOP_SCREEN" => RunPhase::Shop,
+        "REST" | "REST_ROOM" => RunPhase::Rest,
+        "CARD_REWARD" | "COMBAT_REWARD" | "BOSS_REWARD" => RunPhase::Reward,
+        _ => RunPhase::Idle,
+    }
+}
+
+fn observed_reward_screen(game: &Value) -> Option<RewardScreen> {
+    let screen_type = game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !matches!(screen_type, "COMBAT_REWARD" | "CARD_REWARD" | "BOSS_REWARD") {
+        return None;
+    }
+    let reward_types = reward_types_from_value(
+        game.get("screen_state")
+            .and_then(|state| state.get("rewards")),
+    );
+    Some(RewardScreen {
+        choices: reward_choices_from_observed(game),
+        gold_offer: reward_gold_offer(game),
+        stolen_gold_offer: reward_gold_at_reward_type_from_game(game, "STOLEN_GOLD"),
+        potion_offer: observed_reward_potion_offer(game),
+        relic_offer: None,
+        relic_key_offer: observed_reward_relic_key_offer(game),
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
+        queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: observed_boss_relic_key_choices(game),
+        card_reward_active: screen_type == "CARD_REWARD",
+        card_reward_pending: screen_type == "COMBAT_REWARD"
+            && reward_types
+                .iter()
+                .any(|reward_type| reward_type.eq_ignore_ascii_case("CARD")),
+        pending_card_reward_count: u8::from(
+            screen_type == "COMBAT_REWARD"
+                && reward_types
+                    .iter()
+                    .any(|reward_type| reward_type.eq_ignore_ascii_case("CARD")),
+        ),
+    })
+}
+
+fn observed_reward_potion_offer(game: &Value) -> Option<Potion> {
+    game.get("screen_state")
+        .and_then(|screen| screen.get("rewards"))
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|reward| {
+            reward
+                .get("reward_type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("POTION"))
+        })
+        .and_then(|reward| reward.get("potion"))
+        .and_then(|potion| potion.get("name").or_else(|| potion.get("id")))
+        .and_then(Value::as_str)
+        .and_then(potion_from_trace_name)
+}
+
+fn observed_reward_relic_key_offer(game: &Value) -> Option<RelicKey> {
+    game.get("screen_state")
+        .and_then(|screen| screen.get("rewards"))
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|reward| {
+            reward
+                .get("reward_type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("RELIC"))
+        })
+        .and_then(|reward| reward.get("relic"))
+        .and_then(|relic| relic.get("name").or_else(|| relic.get("id")))
+        .and_then(Value::as_str)
+        .and_then(relic_key_from_trace_name)
+}
+
+fn observed_boss_relic_key_choices(game: &Value) -> Vec<RelicKey> {
+    if game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .is_none_or(|screen| screen != "BOSS_REWARD")
+    {
+        return Vec::new();
+    }
+    game.get("screen_state")
+        .and_then(|screen| screen.get("relics"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|relic| {
+            relic
+                .get("name")
+                .or_else(|| relic.get("id"))
+                .and_then(Value::as_str)
+                .and_then(relic_key_from_trace_name)
+        })
+        .collect()
+}
+
+fn observed_shop_screen(game: &Value) -> Option<ShopScreen> {
+    if game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .is_none_or(|screen| screen != "SHOP_SCREEN")
+    {
+        return None;
+    }
+    let state = game.get("screen_state")?;
+    let cards = state
+        .get("cards")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(index, card)| {
+            Some(ShopCardSlot {
+                card: CardInstance::new(
+                    CardId::new(800 + index as u64),
+                    content_id_from_card_value(card)?,
+                ),
+                price: int(card, "price"),
+                sold: false,
+            })
+        })
+        .collect();
+    let relics = state
+        .get("relics")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|relic| {
+            let key = relic
+                .get("name")
+                .or_else(|| relic.get("id"))
+                .and_then(Value::as_str)
+                .and_then(relic_key_from_trace_name)?;
+            Some(ShopRelicSlot {
+                relic_key: key,
+                price: int(relic, "price"),
+                sold: false,
+            })
+        })
+        .collect();
+    let potions = state
+        .get("potions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|potion| {
+            let potion_id = potion
+                .get("name")
+                .or_else(|| potion.get("id"))
+                .and_then(Value::as_str)
+                .and_then(potion_from_trace_name)?;
+            Some(ShopPotionSlot {
+                potion: potion_id,
+                price: int(potion, "price"),
+                sold: false,
+            })
+        })
+        .collect();
+    Some(ShopScreen {
+        cards,
+        relics,
+        potions,
+        remove_cost: state
+            .get("purge_cost")
+            .and_then(Value::as_i64)
+            .unwrap_or(75) as i32,
+        remove_available: state
+            .get("purge_available")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        sale_slot: None,
+    })
+}
+
+fn observed_map_run_state(game: &Value) -> Option<MapRunState> {
+    let raw_nodes = game.get("map")?.as_array()?;
+    let act = int(game, "act").max(1) as u8;
+    let mut ids_by_coord = BTreeMap::new();
+    let root_id = MapNodeId::new(0);
+    ids_by_coord.insert((0, -1), root_id);
+
+    for (index, node) in raw_nodes.iter().enumerate() {
+        let x = int(node, "x");
+        let y = int(node, "y");
+        ids_by_coord.insert((x, y), MapNodeId::new(index as u64 + 1));
+    }
+
+    let mut nodes = Vec::with_capacity(raw_nodes.len() + 1);
+    let first_row_children = raw_nodes
+        .iter()
+        .filter(|node| int(node, "y") == 0)
+        .filter_map(|node| ids_by_coord.get(&(int(node, "x"), int(node, "y"))).copied())
+        .collect();
+    nodes.push(MapNode {
+        id: root_id,
+        act,
+        room_kind: RoomKind::Event,
+        children: first_row_children,
+    });
+
+    for node in raw_nodes {
+        let x = int(node, "x");
+        let y = int(node, "y");
+        let Some(id) = ids_by_coord.get(&(x, y)).copied() else {
+            continue;
+        };
+        let children = node
+            .get("children")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|child| {
+                let x = int(child, "x");
+                let y = int(child, "y");
+                ids_by_coord.get(&(x, y)).copied()
+            })
+            .collect();
+        nodes.push(MapNode {
+            id,
+            act,
+            room_kind: observed_room_kind(node.get("symbol").and_then(Value::as_str)),
+            children,
+        });
+    }
+
+    let current_node = observed_current_map_node(game, &ids_by_coord).unwrap_or(root_id);
+    Some(MapRunState {
+        act,
+        floor: int(game, "floor").max(0) as u32,
+        current_node,
+        map: FixedMap { nodes },
+    })
+}
+
+fn observed_current_map_node(
+    game: &Value,
+    ids_by_coord: &BTreeMap<(i32, i32), MapNodeId>,
+) -> Option<MapNodeId> {
+    let current = game
+        .get("screen_state")
+        .and_then(|state| state.get("current_node"));
+    if let Some(node) = current {
+        let x = int(node, "x");
+        let y = int(node, "y");
+        if let Some(id) = ids_by_coord.get(&(x, y)).copied() {
+            return Some(id);
+        }
+    }
+
+    let floor = int(game, "floor");
+    if floor <= 0 {
+        return ids_by_coord.get(&(0, -1)).copied();
+    }
+    let y = floor - 1;
+    let room_kind = observed_room_kind_from_game(game);
+    ids_by_coord.iter().find_map(|(&(x, node_y), &id)| {
+        if node_y == y && observed_map_payload_room_kind(game, x, y) == Some(room_kind) {
+            Some(id)
+        } else {
+            None
+        }
+    })
+}
+
+fn observed_map_payload_room_kind(game: &Value, x: i32, y: i32) -> Option<RoomKind> {
+    game.get("map")?
+        .as_array()?
+        .iter()
+        .find(|node| int(node, "x") == x && int(node, "y") == y)
+        .map(|node| observed_room_kind(node.get("symbol").and_then(Value::as_str)))
+}
+
+fn observed_room_kind_from_game(game: &Value) -> RoomKind {
+    match game
+        .get("room_type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "monsterroomelite" | "eliteroom" => RoomKind::Elite,
+        "eventroom" | "neowroom" => RoomKind::Event,
+        "restroom" => RoomKind::Rest,
+        "shoproom" => RoomKind::Shop,
+        "treasureroom" => RoomKind::Treasure,
+        "bossroom" => RoomKind::Boss,
+        _ => RoomKind::Combat,
+    }
+}
+
+fn observed_room_kind(symbol: Option<&str>) -> RoomKind {
+    match symbol.unwrap_or("") {
+        "E" => RoomKind::Elite,
+        "?" => RoomKind::Event,
+        "R" => RoomKind::Rest,
+        "$" => RoomKind::Shop,
+        "T" => RoomKind::Treasure,
+        "B" => RoomKind::Boss,
+        _ => RoomKind::Combat,
+    }
 }
 
 fn run_from_observed_combat_impl(
@@ -6533,15 +7033,20 @@ fn run_from_observed_combat_impl(
     let game = message.get("game_state")?;
     let combat = game.get("combat_state")?;
     let player = combat.get("player")?;
+    let observed_player_powers = player.get("powers");
     let (player_powers, player_temp_strength) =
-        player_powers_and_temp_strength(player.get("powers"));
+        player_powers_and_temp_strength(observed_player_powers);
+    let double_tap_pending = power_amount(observed_player_powers, "Double Tap");
 
     let deck = if use_observed_shrug_plus {
         card_instances_from_array_with_observed_shrug_plus(game.get("deck"), 1)
     } else {
         card_instances_from_array(game.get("deck"), 1)
     };
-    let (relics, relic_counters) = observed_combat_relics_and_counters(game);
+    let (relics, mut relic_counters) = observed_combat_relics_and_counters(game);
+    if let Some(turn) = observed_combat_turn(combat) {
+        relic_counters.player_turns_started = turn;
+    }
     let energy_per_turn = observed_energy_per_turn(&relics);
     let combat_state = CombatState {
         player: PlayerState {
@@ -6559,7 +7064,11 @@ fn run_from_observed_combat_impl(
             no_block_turns: 0,
             vulnerable_just_applied: false,
         },
-        monsters: monsters_from_observed(combat.get("monsters"), player),
+        monsters: monsters_from_observed(
+            combat.get("monsters"),
+            player,
+            int(game, "ascension_level") as u8,
+        ),
         piles: CardPiles {
             hand: if use_observed_shrug_plus {
                 card_instances_from_array_with_observed_shrug_plus(combat.get("hand"), 100)
@@ -6588,6 +7097,8 @@ fn run_from_observed_combat_impl(
         bomb_timers: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         shuffle_rng: None,
+        monster_rng: None,
+        monster_hp_rng: None,
         card_random_rng: None,
         potion_card_reward: None,
         discovery_card_reward: None,
@@ -6597,7 +7108,7 @@ fn run_from_observed_combat_impl(
         discard_select: None,
         exhaust_select: None,
         duplication_potion_pending: false,
-        double_tap_pending: 0,
+        double_tap_pending,
     };
 
     Some(RunState {
@@ -6638,6 +7149,10 @@ fn run_from_observed_combat_impl(
         event_rng_counter: 0,
         misc_rng_seed: 0,
         misc_rng_counter: 0,
+        monster_rng_seed: 0,
+        monster_rng_counter: 0,
+        normal_encounter_list: Vec::new(),
+        elite_encounter_list: Vec::new(),
         current_floor: int(game, "floor"),
         current_act: 1,
         shop_remove_count: 0,
@@ -6656,7 +7171,10 @@ fn run_from_observed_combat_impl(
         event_room_treasure_chance: 2,
         wing_boots_charges: 0,
         neow_lament_combats_remaining: 0,
+        normal_combat_count: 0,
+        elite_combat_count: 0,
         treasure_room: None,
+        rest_room_complete: false,
     })
 }
 
@@ -6672,6 +7190,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         pending_relic_offer: None,
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: observed_boss_relic_key_choices(game),
         card_reward_active: game
             .get("screen_type")
             .and_then(Value::as_str)
@@ -6740,6 +7259,10 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         event_rng_counter: 0,
         misc_rng_seed: 0,
         misc_rng_counter: 0,
+        monster_rng_seed: 0,
+        monster_rng_counter: 0,
+        normal_encounter_list: Vec::new(),
+        elite_encounter_list: Vec::new(),
         current_floor: int(game, "floor"),
         current_act: 1,
         shop_remove_count: 0,
@@ -6758,7 +7281,10 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         event_room_treasure_chance: 2,
         wing_boots_charges: 0,
         neow_lament_combats_remaining: 0,
+        normal_combat_count: 0,
+        elite_combat_count: 0,
         treasure_room: None,
+        rest_room_complete: false,
     })
 }
 
@@ -7054,7 +7580,11 @@ fn combat_label(command: &str, run: &RunState) -> String {
     key.to_owned()
 }
 
-fn monsters_from_observed(value: Option<&Value>, _player: &Value) -> Vec<MonsterState> {
+fn monsters_from_observed(
+    value: Option<&Value>,
+    _player: &Value,
+    ascension: u8,
+) -> Vec<MonsterState> {
     let Some(monsters) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -7070,7 +7600,10 @@ fn monsters_from_observed(value: Option<&Value>, _player: &Value) -> Vec<Monster
             let content_id = sts_core::content::monsters::content_id_from_game_monster_id(game_id);
             let rolled_attack_damage = louse_bite_damage_from_observed(monster, content_id);
             let powers = monster_powers(monster.get("powers"));
-            let replay = elite_boss_replay_fields(monster, content_id, &powers);
+            let replay = elite_boss_replay_fields(monster, content_id, &powers, ascension);
+            let move_history = target_move_byte(content_id, replay.intent)
+                .map(|move_byte| vec![move_byte])
+                .unwrap_or_default();
             MonsterState {
                 id: MonsterId::new(index as u64 + 1),
                 hp: int(monster, "current_hp"),
@@ -7089,6 +7622,9 @@ fn monsters_from_observed(value: Option<&Value>, _player: &Value) -> Vec<Monster
                 in_defensive_mode: replay.in_defensive_mode,
                 rolled_attack_damage,
                 stolen_gold: 0,
+                move_history,
+                gremlin_leader_slot: None,
+                stasis_card: None,
                 intent: replay.intent,
             }
         })
@@ -7109,6 +7645,7 @@ fn elite_boss_replay_fields(
     monster: &Value,
     content_id: ContentId,
     powers: &MonsterPowers,
+    ascension: u8,
 ) -> EliteBossReplayFields {
     let intent_str = monster.get("intent").and_then(Value::as_str).unwrap_or("");
     let damage = int(monster, "move_base_damage");
@@ -7127,8 +7664,8 @@ fn elite_boss_replay_fields(
                 MonsterIntent::Stun
             } else if !has_siphoned {
                 MonsterIntent::SiphonPlayer {
-                    strength: 2,
-                    dexterity: 2,
+                    strength: 1,
+                    dexterity: 1,
                 }
             } else {
                 MonsterIntent::Attack { damage: 18 }
@@ -7159,7 +7696,7 @@ fn elite_boss_replay_fields(
                 defensive_turns_remaining: 0,
                 mode_shift: 0,
                 in_defensive_mode: false,
-                intent: observed_intent(monster, content_id),
+                intent: observed_intent(monster, content_id, ascension),
             }
         }
         GUARDIAN_ID => {
@@ -7205,7 +7742,7 @@ fn elite_boss_replay_fields(
                 defensive_turns_remaining,
                 mode_shift,
                 in_defensive_mode,
-                intent: observed_intent(monster, content_id),
+                intent: observed_intent(monster, content_id, ascension),
             }
         }
         _ => EliteBossReplayFields {
@@ -7215,7 +7752,7 @@ fn elite_boss_replay_fields(
             defensive_turns_remaining: 0,
             mode_shift: 0,
             in_defensive_mode: false,
-            intent: observed_intent(monster, content_id),
+            intent: observed_intent(monster, content_id, ascension),
         },
     }
 }
@@ -7231,23 +7768,46 @@ fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Op
     (damage > 0).then_some(damage)
 }
 
-fn observed_intent(monster: &Value, content_id: ContentId) -> MonsterIntent {
+fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> MonsterIntent {
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, CHOSEN_ID, CULTIST_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SNECKO_ID,
-        SPIKE_SLIME_ID,
+        ACID_SLIME_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, CENTURION_ID, CHOSEN_ID, CULTIST_ID,
+        DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID, GREMLIN_FAT_ID, GREMLIN_LEADER_ID,
+        GREMLIN_TSUNDERE_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID,
+        SENTRY_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK,
+        SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKE_SLIME_ID,
     };
 
     let damage = int(monster, "move_base_damage");
+    let hits = int(monster, "move_hits");
+    let move_id = int(monster, "move_id");
     match monster.get("intent").and_then(Value::as_str).unwrap_or("") {
+        "STUN" => MonsterIntent::Stun,
+        "DEBUG" if content_id == SENTRY_ID && damage <= 0 => {
+            MonsterIntent::AddDazedToDiscard { count: 2 }
+        }
         "ATTACK" if content_id == LOOTER_ID => MonsterIntent::AttackStealGold {
             damage: damage.max(0),
             amount: looter_theft(0),
         },
+        "ATTACK" if hits > 1 => MonsterIntent::AttackMultiple {
+            damage: damage.max(0),
+            hits,
+        },
+        "ATTACK" if content_id == SENTRY_ID && damage <= 0 => {
+            MonsterIntent::AddDazedToDiscard { count: 2 }
+        }
         "ATTACK" => MonsterIntent::Attack {
             damage: damage.max(0),
         },
-        "DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerHex { amount: 1 },
+        "DEBUFF" if content_id == SENTRY_ID => MonsterIntent::AddDazedToDiscard { count: 2 },
+        "DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerWeakStrengthSelf {
+            weak: 3,
+            strength: 3,
+        },
         "STRONG_DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerHex { amount: 1 },
+        "STRONG_DEBUFF" if content_id == SNAKE_PLANT_ID => {
+            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 }
+        }
         "STRONG_DEBUFF" if content_id == SNECKO_ID => MonsterIntent::ApplyPlayerConfusion,
         "DEBUFF" => MonsterIntent::ApplyPlayerWeak { amount: 1 },
         "ATTACK_DEBUFF" if matches!(content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) => {
@@ -7256,8 +7816,55 @@ fn observed_intent(monster: &Value, content_id: ContentId) -> MonsterIntent {
                 count: observed_slimed_count(monster, content_id),
             }
         }
+        "ATTACK_DEBUFF" if content_id == HEXAGHOST_ID => MonsterIntent::AddBurnToDiscard {
+            damage: damage.max(0),
+            count: 3,
+        },
+        "ATTACK_DEBUFF" if content_id == ORB_WALKER_ID => MonsterIntent::AddBurnToDiscardAndDraw {
+            damage: damage.max(0),
+            count: 1,
+        },
+        "ATTACK_DEBUFF" if content_id == SPHERIC_GUARDIAN_ID => {
+            MonsterIntent::AttackApplyPlayerFrail {
+                damage: damage.max(0),
+                frail: SPHERIC_GUARDIAN_FRAIL,
+            }
+        }
+        "ATTACK_DEBUFF" if content_id == GREMLIN_FAT_ID && ascension >= 17 => {
+            MonsterIntent::AttackApplyPlayerFrailAndWeak {
+                damage: damage.max(0),
+                frail: 1,
+                weak: 1,
+            }
+        }
+        "ATTACK_DEBUFF" if content_id == GREMLIN_FAT_ID => MonsterIntent::AttackApplyPlayerWeak {
+            damage: damage.max(0),
+            weak: 1,
+        },
+        "ATTACK_DEFEND" if content_id == SPHERIC_GUARDIAN_ID => MonsterIntent::AttackAndBlock {
+            damage: damage.max(0),
+            block: SPHERIC_GUARDIAN_HARDEN_BLOCK,
+        },
         "ATTACK_DEBUFF" => MonsterIntent::Attack {
             damage: damage.max(0),
+        },
+        "ATTACK_BUFF" if content_id == SHELLED_PARASITE_ID => MonsterIntent::AttackHealSelf {
+            damage: damage.max(0),
+        },
+        "ATTACK_BUFF" => MonsterIntent::Attack {
+            damage: damage.max(0),
+        },
+        "DEFEND_BUFF" if content_id == GREMLIN_LEADER_ID => MonsterIntent::EncourageGremlins {
+            strength: 3,
+            block: 6,
+        },
+        "DEFEND_BUFF" if content_id == JAW_WORM_ID => MonsterIntent::StrengthAndBlock {
+            strength: 3,
+            block: 6,
+        },
+        "DEFEND_BUFF" if content_id == BRONZE_AUTOMATON_ID => MonsterIntent::StrengthAndBlock {
+            strength: 3,
+            block: 9,
         },
         "DEFEND" | "BLOCK" if matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) => {
             MonsterIntent::StrengthAndBlock {
@@ -7268,17 +7875,49 @@ fn observed_intent(monster: &Value, content_id: ContentId) -> MonsterIntent {
         "DEFEND" | "BLOCK" if content_id == GUARDIAN_ID => MonsterIntent::Block {
             block: GUARDIAN_CHARGE_BLOCK,
         },
+        "DEFEND" | "BLOCK" if content_id == SPHERIC_GUARDIAN_ID => MonsterIntent::Block {
+            block: SPHERIC_GUARDIAN_ACTIVATE_BLOCK,
+        },
+        "DEFEND" | "BLOCK" if content_id == CENTURION_ID => MonsterIntent::Block {
+            block: observed_centurion_block(ascension),
+        },
+        "DEFEND" | "BLOCK" if content_id == GREMLIN_TSUNDERE_ID => MonsterIntent::Block {
+            block: observed_gremlin_tsundere_block(ascension),
+        },
+        "DEFEND" | "BLOCK" if content_id == DARKLING_ID => MonsterIntent::Block { block: 12 },
         "DEFEND" | "BLOCK" => MonsterIntent::Block {
             block: damage.max(0),
         },
-        "BUFF" | "DEBUG" => match content_id {
+        "STRONG_DEBUFF" if content_id == BRONZE_ORB_ID => MonsterIntent::SiphonPlayer {
+            strength: 0,
+            dexterity: 0,
+        },
+        "UNKNOWN" if content_id == GREMLIN_LEADER_ID && move_id == 2 => {
+            MonsterIntent::SummonGremlins { count: 2 }
+        }
+        "UNKNOWN" if content_id == ACID_SLIME_ID && move_id == 3 => {
+            MonsterIntent::SummonGremlins { count: 2 }
+        }
+        "UNKNOWN" if content_id == BRONZE_AUTOMATON_ID => {
+            MonsterIntent::SummonGremlins { count: 2 }
+        }
+        "UNKNOWN" if content_id == BRONZE_ORB_ID => MonsterIntent::SiphonPlayer {
+            strength: 0,
+            dexterity: 0,
+        },
+        "BUFF" | "DEBUG" | "UNKNOWN" => match content_id {
             CULTIST_ID => MonsterIntent::Ritual { amount: 3 },
+            ORB_WALKER_ID if damage > 0 => MonsterIntent::Attack { damage },
             SPIKE_SLIME_ID if damage >= 8 => MonsterIntent::AttackAddSlimedToDiscard {
                 damage,
                 count: observed_slimed_count(monster, content_id),
             },
             SPIKE_SLIME_ID if damage > 0 => MonsterIntent::Attack { damage },
             SPIKE_SLIME_ID => MonsterIntent::Attack { damage: 5 },
+            ACID_SLIME_ID if damage > 0 => MonsterIntent::AttackAddSlimedToDiscard {
+                damage,
+                count: observed_slimed_count(monster, content_id),
+            },
             ACID_SLIME_ID => MonsterIntent::Attack { damage: 7 },
             RED_LOUSE_ID | GREEN_LOUSE_ID => MonsterIntent::StrengthAndBlock {
                 strength: 3,
@@ -7290,16 +7929,75 @@ fn observed_intent(monster: &Value, content_id: ContentId) -> MonsterIntent {
             GUARDIAN_ID => MonsterIntent::Block {
                 block: GUARDIAN_CHARGE_BLOCK,
             },
+            HEALER_ID if move_id == 2 => MonsterIntent::HealAllMonsters {
+                amount: observed_healer_heal(ascension),
+            },
+            HEALER_ID => MonsterIntent::StrengthAllMonsters {
+                amount: observed_healer_strength(ascension),
+            },
+            FUNGI_BEAST_ID => MonsterIntent::StrengthSelf {
+                amount: observed_fungi_beast_strength(ascension),
+            },
+            _ if damage > 0 => MonsterIntent::Attack { damage },
             _ => MonsterIntent::Attack { damage: 0 },
         },
         _ => MonsterIntent::Attack { damage: 0 },
     }
 }
 
-fn observed_slimed_count(monster: &Value, content_id: ContentId) -> i32 {
-    use sts_core::content::monsters::{SPIKE_SLIME_ID, SPIKE_SLIME_M_A7_HP_RANGE};
+fn observed_centurion_block(ascension: u8) -> i32 {
+    if ascension >= 17 {
+        20
+    } else {
+        15
+    }
+}
 
-    if content_id == SPIKE_SLIME_ID && int(monster, "max_hp") > SPIKE_SLIME_M_A7_HP_RANGE.max {
+fn observed_gremlin_tsundere_block(ascension: u8) -> i32 {
+    if ascension >= 17 {
+        11
+    } else if ascension >= 7 {
+        8
+    } else {
+        7
+    }
+}
+
+fn observed_healer_heal(ascension: u8) -> i32 {
+    if ascension >= 17 {
+        20
+    } else {
+        16
+    }
+}
+
+fn observed_healer_strength(ascension: u8) -> i32 {
+    if ascension >= 17 {
+        4
+    } else if ascension >= 2 {
+        3
+    } else {
+        2
+    }
+}
+
+fn observed_fungi_beast_strength(ascension: u8) -> i32 {
+    let strength = if ascension >= 2 { 4 } else { 3 };
+    if ascension >= 17 {
+        strength + 1
+    } else {
+        strength
+    }
+}
+
+fn observed_slimed_count(monster: &Value, content_id: ContentId) -> i32 {
+    use sts_core::content::monsters::{
+        ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, SPIKE_SLIME_ID, SPIKE_SLIME_M_A7_HP_RANGE,
+    };
+
+    if (content_id == SPIKE_SLIME_ID && int(monster, "max_hp") > SPIKE_SLIME_M_A7_HP_RANGE.max)
+        || (content_id == ACID_SLIME_ID && int(monster, "max_hp") > ACID_SLIME_M_A7_HP_RANGE.max)
+    {
         2
     } else {
         1
@@ -7308,10 +8006,48 @@ fn observed_slimed_count(monster: &Value, content_id: ContentId) -> i32 {
 
 fn moves_executed_from_observed(monster: &Value, content_id: ContentId) -> u32 {
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+        ACID_SLIME_ID, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, CHOSEN_ID,
+        CULTIST_ID, GREEN_LOUSE_ID, GREMLIN_LEADER_ID, RED_LOUSE_ID, SHELLED_PARASITE_ID,
+        SNAKE_PLANT_ID, SPIKE_SLIME_ID,
     };
 
-    match monster.get("intent").and_then(Value::as_str).unwrap_or("") {
+    let intent = monster.get("intent").and_then(Value::as_str).unwrap_or("");
+    let damage = int(monster, "move_base_damage");
+    let hits = int(monster, "move_hits");
+    let move_id = int(monster, "move_id");
+    match intent {
+        "ATTACK" if content_id == BOOK_OF_STABBING_ID && hits > 1 => match hits {
+            2 => 0,
+            3 => 1,
+            4 => 3,
+            _ => (hits - 1) as u32,
+        },
+        "ATTACK" if content_id == BOOK_OF_STABBING_ID && damage >= 21 => 2,
+        "ATTACK_BUFF" if content_id == SHELLED_PARASITE_ID => 1,
+        "ATTACK" if content_id == SHELLED_PARASITE_ID && hits > 1 => 0,
+        "ATTACK" if content_id == SHELLED_PARASITE_ID => 0,
+        "DEBUFF" if content_id == CHOSEN_ID => 2,
+        "STRONG_DEBUFF" if content_id == CHOSEN_ID => 1,
+        "ATTACK_DEBUFF" if content_id == CHOSEN_ID => 3,
+        "ATTACK" if content_id == SNAKE_PLANT_ID => 1,
+        "STRONG_DEBUFF" if content_id == SNAKE_PLANT_ID => 2,
+        "DEFEND_BUFF" if content_id == GREMLIN_LEADER_ID => 2,
+        "UNKNOWN" if content_id == GREMLIN_LEADER_ID && move_id == 2 => 2,
+        "UNKNOWN" if content_id == ACID_SLIME_ID && move_id == 3 => 2,
+        "UNKNOWN" if content_id == BRONZE_AUTOMATON_ID && move_id == 4 => 0,
+        "STRONG_DEBUFF" if content_id == BRONZE_ORB_ID => 0,
+        "ATTACK" if content_id == BRONZE_ORB_ID => 1,
+        "DEFEND" | "BLOCK" if content_id == BRONZE_ORB_ID => 4,
+        "DEFEND_BUFF" if content_id == BRONZE_AUTOMATON_ID => {
+            if power_amount(monster.get("powers"), "Strength") > 0 {
+                4
+            } else {
+                2
+            }
+        }
+        "STUN" if content_id == BRONZE_AUTOMATON_ID => 6,
+        "ATTACK" if content_id == BRONZE_AUTOMATON_ID && hits > 1 => 1,
+        "ATTACK" if content_id == BRONZE_AUTOMATON_ID && damage >= 40 => 5,
         "BUFF" | "DEBUG" | "DEBUFF" => 0,
         "ATTACK_DEBUFF" => 1,
         "ATTACK" if content_id == CULTIST_ID => 1,
@@ -7332,7 +8068,7 @@ fn monster_powers(value: Option<&Value>) -> MonsterPowers {
         let amount = int(power, "amount");
         match power_id(power).as_deref() {
             Some("Vulnerable") => powers.vulnerable = amount,
-            Some("Weak") => powers.weak = amount,
+            Some("Weak") | Some("Weakened") => powers.weak = amount,
             Some("Strength") => powers.strength = amount,
             Some("Artifact") => powers.artifact = amount,
             Some("Ritual") | Some("Demon Form") => powers.ritual = amount,
@@ -7340,7 +8076,14 @@ fn monster_powers(value: Option<&Value>) -> MonsterPowers {
             Some("Curl Up") => powers.curl_up = amount,
             Some("Anger") => powers.anger = amount,
             Some("Metallicize") => powers.metallicize = amount,
+            Some("Plated Armor") => powers.plated_armor = amount,
             Some("Painful Stabs") => powers.painful_stabs = 1,
+            Some("Spore Cloud") => powers.spore_cloud = amount,
+            Some("Generic Strength Up Power") => powers.strength_up = amount,
+            Some("Malleable") => {
+                powers.malleable = amount;
+                powers.malleable_base = int(power, "misc").max(0);
+            }
             _ => {}
         }
     }
@@ -7364,6 +8107,13 @@ fn player_powers_and_temp_strength(value: Option<&Value>) -> (PlayerPowers, i32)
             Some("Vulnerable") => powers.vulnerable = amount,
             Some("Ritual") | Some("Demon Form") => powers.ritual = amount,
             Some("Metallicize") => powers.metallicize = amount,
+            Some("Combust") => {
+                powers.combust = 1;
+                powers.combust_damage = amount;
+            }
+            Some("Dark Embrace") => powers.dark_embrace = amount,
+            Some("Rupture") => powers.rupture = amount,
+            Some("Hex") => powers.hex = amount,
             _ => {}
         }
     }
@@ -7484,18 +8234,22 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
-        BURNING_PACT_ID, BURN_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID,
-        DARK_EMBRACE_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
-        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID,
-        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FIRE_BREATHING_ID,
-        FLAME_BARRIER_ID, FLEX_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
-        IMMOLATE_PLUS_ID, INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID,
-        METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, REGRET_ID,
-        RUPTURE_ID, RUPTURE_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-        SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WOUND_ID, WRITHE_ID,
+        BRUTALITY_ID, BURNING_PACT_ID, BURN_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
+        CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DAZED_ID,
+        DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID,
+        DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
+        DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID,
+        INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
+        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID,
+        RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
+        RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -7509,6 +8263,8 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
             Some(BURNING_PACT_ID)
         }
         "Combust" | "combust" | "Combust+" | "combust+" => Some(COMBUST_ID),
+        "Corruption" | "corruption" => Some(CORRUPTION_ID),
+        "Corruption+" | "corruption+" => Some(CORRUPTION_PLUS_ID),
         "Dark Embrace" | "dark embrace" | "Dark Embrace+" | "dark embrace+" => {
             Some(DARK_EMBRACE_ID)
         }
@@ -7526,6 +8282,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Shrug It Off" | "shrug it off" => Some(SHRUG_IT_OFF_ID),
         "Shrug It Off+" | "shrug it off+" => Some(SHRUG_IT_OFF_PLUS_ID),
         "Body Slam" | "body slam" => Some(BODY_SLAM_ID),
+        "Clash" | "clash" => Some(CLASH_ID),
         "Cleave" | "cleave" => Some(CLEAVE_ID),
         "Deep Breath" | "deep breath" => Some(DEEP_BREATH_ID),
         "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
@@ -7538,6 +8295,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Flame Barrier" | "flame barrier" => Some(FLAME_BARRIER_ID),
         "Heavy Blade" | "heavy blade" => Some(HEAVY_BLADE_ID),
         "Intimidate" | "intimidate" => Some(INTIMIDATE_ID),
+        "Iron Wave" | "iron wave" => Some(IRON_WAVE_ID),
         "Perfected Strike" | "perfected strike" => Some(PERFECTED_STRIKE_ID),
         "Sword Boomerang" | "sword boomerang" => Some(SWORD_BOOMERANG_ID),
         "True Grit" | "true grit" => Some(TRUE_GRIT_ID),
@@ -7547,6 +8305,8 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Rampage" | "rampage" => Some(RAMPAGE_ID),
         "Whirlwind" | "whirlwind" => Some(WHIRLWIND_ID),
         "Pommel Strike" | "pommel strike" => Some(POMMEL_STRIKE_ID),
+        "Pummel" | "pummel" => Some(PUMMEL_ID),
+        "Searing Blow" | "searing blow" => Some(SEARING_BLOW_ID),
         "Sever Soul" | "sever soul" => Some(SEVER_SOUL_ID),
         "Sentinel" | "sentinel" => Some(SENTINEL_ID),
         "Uppercut" | "uppercut" => Some(UPPERCUT_ID),
@@ -7581,6 +8341,23 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Rupture+" | "rupture+" => Some(RUPTURE_PLUS_ID),
         "Hemokinesis" | "hemokinesis" => Some(HEMOKINESIS_ID),
         "Dropkick" | "dropkick" => Some(DROPKICK_ID),
+        "Wild Strike" | "wild strike" => Some(WILD_STRIKE_ID),
+        "Power Through" | "power through" => Some(POWER_THROUGH_ID),
+        "Infernal Blade" | "infernal blade" => Some(INFERNAL_BLADE_ID),
+        "Ghostly Armor" | "ghostly armor" => Some(GHOSTLY_ARMOR_ID),
+        "Reckless Charge" | "reckless charge" => Some(RECKLESS_CHARGE_ID),
+        "Feel No Pain" | "feel no pain" => Some(FEEL_NO_PAIN_ID),
+        "Seeing Red" | "seeing red" => Some(SEEING_RED_ID),
+        "Inflame" | "inflame" => Some(INFLAME_ID),
+        "Havoc" | "havoc" => Some(HAVOC_ID),
+        "Second Wind" | "second wind" => Some(SECOND_WIND_ID),
+        "Carnage" | "carnage" => Some(CARNAGE_ID),
+        "Evolve" | "evolve" => Some(EVOLVE_ID),
+        "Feed" | "feed" => Some(FEED_ID),
+        "Fiend Fire" | "fiend fire" => Some(FIEND_FIRE_ID),
+        "Juggernaut" | "juggernaut" => Some(JUGGERNAUT_ID),
+        "Brutality" | "brutality" => Some(BRUTALITY_ID),
+        "Exhume" | "exhume" => Some(EXHUME_ID),
         "Trip" | "trip" => Some(TRIP_ID),
         _ => None,
     }
@@ -7591,21 +8368,21 @@ fn content_key(content_id: ContentId) -> &'static str {
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
         BURNING_PACT_ID, BURN_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID,
-        COMBUST_ID, DARK_EMBRACE_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID,
-        DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID,
-        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID,
-        HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID,
-        IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INJURY_ID, INTIMIDATE_ID,
-        JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, METALLICIZE_ID,
-        METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID, PARASITE_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REAPER_ID,
-        REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SECRET_WEAPON_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID,
-        SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID,
-        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
-        WOUND_ID, WRITHE_ID,
+        COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DAZED_ID, DECAY_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
+        DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
+        FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
+        HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
+        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID,
+        METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID,
+        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID,
+        REAPER_ID, REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SECRET_WEAPON_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID => "Strike_R",
@@ -7637,6 +8414,8 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == INFLAME_ID => "Inflame",
         id if id == INFLAME_PLUS_ID => "Inflame+",
         id if id == COMBUST_ID => "Combust",
+        id if id == CORRUPTION_ID => "Corruption",
+        id if id == CORRUPTION_PLUS_ID => "Corruption+",
         id if id == OFFERING_ID => "Offering",
         id if id == OFFERING_PLUS_ID => "Offering+",
         id if id == DOUBLE_TAP_ID => "Double Tap",
@@ -7916,6 +8695,7 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::ApplyPlayerConfusion
         | MonsterIntent::AddDazedToDiscard { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
+        | MonsterIntent::AddBurnToDiscardAndDraw { .. }
         | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
         MonsterIntent::ApplyPlayerEntangled { .. } => "STRONG_DEBUFF".to_owned(),
         MonsterIntent::Sleep => "SLEEP".to_owned(),
@@ -7963,8 +8743,31 @@ fn push_sim_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sts_core::content::cards::{BURN_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID};
+    use sts_core::content::cards::{
+        BURN_ID, CORRUPTION_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
+    };
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
+
+    #[test]
+    fn observed_card_reward_preserves_corruption_plus() {
+        let game = json!({
+            "screen_type": "CARD_REWARD",
+            "screen_state": {
+                "cards": [
+                    {
+                        "id": "Corruption",
+                        "name": "Corruption+",
+                        "upgrades": 1
+                    }
+                ]
+            }
+        });
+
+        let choices = reward_choices_from_observed(&game);
+
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].content_id, CORRUPTION_PLUS_ID);
+    }
 
     #[test]
     fn seed_start_act2_combat_entry_uses_city_spawn_helper() {
@@ -8184,6 +8987,133 @@ mod tests {
     }
 
     #[test]
+    fn observed_combat_reconstruction_preserves_communication_mod_turn() {
+        let message = json!({
+            "game_state": {
+                "deck": [],
+                "relics": [
+                    {"name": "Burning Blood", "id": "Burning Blood", "counter": -1},
+                    {"name": "Pocketwatch", "id": "Pocketwatch", "counter": 2}
+                ],
+                "current_hp": 70,
+                "max_hp": 80,
+                "gold": 42,
+                "floor": 16,
+                "ascension_level": 0,
+                "combat_state": {
+                    "turn": 5,
+                    "player": {
+                        "current_hp": 70,
+                        "max_hp": 80,
+                        "block": 0,
+                        "energy": 3,
+                        "powers": []
+                    },
+                    "monsters": [],
+                    "hand": [],
+                    "draw_pile": [],
+                    "discard_pile": [],
+                    "exhaust_pile": []
+                }
+            }
+        });
+
+        let run = run_from_observed_combat(&message).expect("observed combat reconstructs");
+        let combat = run.combat.as_ref().expect("combat state");
+
+        assert_eq!(combat.relic_counters.cards_played_this_turn, 2);
+        assert_eq!(combat.relic_counters.player_turns_started, 5);
+    }
+
+    #[test]
+    fn observed_noncombat_reconstruction_preserves_visible_run_scalars() {
+        let message = json!({
+            "game_state": {
+                "screen_type": "REST",
+                "deck": [
+                    {"id": "Strike_R", "uuid": "1", "upgrades": 0},
+                    {"id": "Immolate", "uuid": "2", "upgrades": 0}
+                ],
+                "relics": [
+                    {"name": "Burning Blood", "id": "Burning Blood", "counter": -1},
+                    {"name": "Pocketwatch", "id": "Pocketwatch", "counter": 4}
+                ],
+                "potions": [
+                    {"name": "Elixir", "id": "ElixirPotion"},
+                    {"name": "Potion Slot", "id": "Potion Slot"}
+                ],
+                "current_hp": 42,
+                "max_hp": 90,
+                "gold": 275,
+                "floor": 27,
+                "act": 2,
+                "ascension_level": 0
+            }
+        });
+
+        let run = run_state_from_observed_message(&message).expect("observed run reconstructs");
+
+        assert_eq!(run.phase, RunPhase::Rest);
+        assert_eq!(run.player_hp, 42);
+        assert_eq!(run.player_max_hp, 90);
+        assert_eq!(run.gold, 275);
+        assert_eq!(run.current_floor, 27);
+        assert_eq!(run.current_act, 2);
+        assert_eq!(run.deck.len(), 2);
+        assert_eq!(run.relics, vec![Relic::BurningBlood, Relic::Pocketwatch]);
+        assert_eq!(run.potions.len(), 1);
+    }
+
+    #[test]
+    fn observed_monster_ritual_strength_imports_displayed_strength() {
+        let message = json!({
+            "game_state": {
+                "deck": [],
+                "relics": [{"name": "Burning Blood", "id": "Burning Blood", "counter": -1}],
+                "current_hp": 80,
+                "max_hp": 80,
+                "gold": 99,
+                "floor": 1,
+                "ascension_level": 0,
+                "combat_state": {
+                    "turn": 2,
+                    "player": {
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "block": 5,
+                        "energy": 0,
+                        "powers": []
+                    },
+                    "monsters": [{
+                        "id": "Cultist",
+                        "name": "Cultist",
+                        "current_hp": 9,
+                        "max_hp": 48,
+                        "block": 0,
+                        "intent": "ATTACK",
+                        "move_base_damage": 6,
+                        "powers": [
+                            {"id": "Strength", "name": "Strength", "amount": 3},
+                            {"id": "Ritual", "name": "Ritual", "amount": 3}
+                        ]
+                    }],
+                    "hand": [],
+                    "draw_pile": [],
+                    "discard_pile": [],
+                    "exhaust_pile": []
+                }
+            }
+        });
+
+        let run = run_from_observed_combat(&message).expect("observed combat reconstructs");
+        let combat = run.combat.as_ref().expect("combat state");
+        let cultist = combat.monsters.first().expect("cultist");
+
+        assert_eq!(cultist.powers.ritual, 3);
+        assert_eq!(cultist.powers.strength, 3);
+    }
+
+    #[test]
     fn guardian_defend_observed_intent_replays_charge_up_block() {
         let monster = json!({
             "id": "TheGuardian",
@@ -8192,11 +9122,382 @@ mod tests {
         });
 
         assert_eq!(
-            observed_intent(&monster, GUARDIAN_ID),
+            observed_intent(&monster, GUARDIAN_ID, 0),
             MonsterIntent::Block {
                 block: GUARDIAN_CHARGE_BLOCK
             }
         );
+    }
+
+    #[test]
+    fn debug_observed_intent_with_damage_imports_attack() {
+        use sts_core::content::monsters::JAW_WORM_ID;
+
+        let monster = json!({
+            "id": "JawWorm",
+            "intent": "DEBUG",
+            "move_base_damage": 11
+        });
+
+        assert_eq!(
+            observed_intent(&monster, JAW_WORM_ID, 0),
+            MonsterIntent::Attack { damage: 11 }
+        );
+    }
+
+    #[test]
+    fn jaw_worm_defend_buff_observed_intent_imports_bellow() {
+        use sts_core::content::monsters::JAW_WORM_ID;
+
+        let monster = json!({
+            "id": "JawWorm",
+            "intent": "DEFEND_BUFF",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, JAW_WORM_ID, 0),
+            MonsterIntent::StrengthAndBlock {
+                strength: 3,
+                block: 6
+            }
+        );
+    }
+
+    #[test]
+    fn gremlin_leader_defend_buff_observed_intent_imports_encourage() {
+        use sts_core::content::monsters::GREMLIN_LEADER_ID;
+
+        let monster = json!({
+            "id": "GremlinLeader",
+            "intent": "DEFEND_BUFF",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GREMLIN_LEADER_ID, 0),
+            MonsterIntent::EncourageGremlins {
+                strength: 3,
+                block: 6
+            }
+        );
+        assert_eq!(moves_executed_from_observed(&monster, GREMLIN_LEADER_ID), 2);
+    }
+
+    #[test]
+    fn gremlin_tsundere_defend_observed_intent_imports_source_block() {
+        use sts_core::content::monsters::GREMLIN_TSUNDERE_ID;
+
+        let monster = json!({
+            "id": "GremlinTsundere",
+            "intent": "DEFEND",
+            "move_id": 1,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GREMLIN_TSUNDERE_ID, 0),
+            MonsterIntent::Block { block: 7 }
+        );
+    }
+
+    #[test]
+    fn gremlin_fat_attack_debuff_observed_intent_imports_weak() {
+        use sts_core::content::monsters::GREMLIN_FAT_ID;
+
+        let monster = json!({
+            "id": "GremlinFat",
+            "intent": "ATTACK_DEBUFF",
+            "move_id": 2,
+            "move_base_damage": 4
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GREMLIN_FAT_ID, 0),
+            MonsterIntent::AttackApplyPlayerWeak { damage: 4, weak: 1 }
+        );
+    }
+
+    #[test]
+    fn healer_buff_observed_intent_imports_strength_all() {
+        use sts_core::content::monsters::HEALER_ID;
+
+        let monster = json!({
+            "id": "Healer",
+            "intent": "BUFF",
+            "move_id": 3,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, HEALER_ID, 0),
+            MonsterIntent::StrengthAllMonsters { amount: 2 }
+        );
+    }
+
+    #[test]
+    fn acid_slime_debug_observed_intent_with_damage_imports_slimed_attack() {
+        use sts_core::content::monsters::ACID_SLIME_ID;
+
+        let monster = json!({
+            "id": "AcidSlime_L",
+            "max_hp": 65,
+            "intent": "DEBUG",
+            "move_base_damage": 11
+        });
+
+        assert_eq!(
+            observed_intent(&monster, ACID_SLIME_ID, 0),
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: 11,
+                count: 2
+            }
+        );
+    }
+
+    #[test]
+    fn sentry_zero_damage_attack_observed_intent_imports_beam() {
+        use sts_core::content::monsters::SENTRY_ID;
+
+        let monster = json!({
+            "id": "Sentry",
+            "intent": "ATTACK",
+            "move_base_damage": 0
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SENTRY_ID, 0),
+            MonsterIntent::AddDazedToDiscard { count: 2 }
+        );
+    }
+
+    #[test]
+    fn sentry_debuff_observed_intent_imports_beam() {
+        use sts_core::content::monsters::SENTRY_ID;
+
+        let monster = json!({
+            "id": "Sentry",
+            "intent": "DEBUFF",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SENTRY_ID, 0),
+            MonsterIntent::AddDazedToDiscard { count: 2 }
+        );
+    }
+
+    #[test]
+    fn sentry_debug_without_damage_observed_intent_imports_beam() {
+        use sts_core::content::monsters::SENTRY_ID;
+
+        let monster = json!({
+            "id": "Sentry",
+            "intent": "DEBUG",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SENTRY_ID, 0),
+            MonsterIntent::AddDazedToDiscard { count: 2 }
+        );
+    }
+
+    #[test]
+    fn observed_attack_with_multiple_hits_imports_attack_multiple() {
+        use sts_core::content::monsters::HEXAGHOST_ID;
+
+        let monster = json!({
+            "id": "Hexaghost",
+            "intent": "ATTACK",
+            "move_base_damage": 5,
+            "move_hits": 6
+        });
+
+        assert_eq!(
+            observed_intent(&monster, HEXAGHOST_ID, 0),
+            MonsterIntent::AttackMultiple { damage: 5, hits: 6 }
+        );
+    }
+
+    #[test]
+    fn hexaghost_attack_debuff_imports_observed_inferno_damage() {
+        use sts_core::content::monsters::HEXAGHOST_ID;
+
+        let monster = json!({
+            "id": "Hexaghost",
+            "intent": "ATTACK_DEBUFF",
+            "move_base_damage": 6,
+            "move_hits": 1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, HEXAGHOST_ID, 0),
+            MonsterIntent::AddBurnToDiscard {
+                damage: 6,
+                count: 3
+            }
+        );
+    }
+
+    #[test]
+    fn orb_walker_attack_debuff_imports_burn_discard_intent() {
+        use sts_core::content::monsters::ORB_WALKER_ID;
+
+        let monster = json!({
+            "id": "Orb Walker",
+            "intent": "ATTACK_DEBUFF",
+            "move_base_damage": 10,
+            "move_hits": 1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, ORB_WALKER_ID, 0),
+            MonsterIntent::AddBurnToDiscardAndDraw {
+                damage: 10,
+                count: 1
+            }
+        );
+    }
+
+    #[test]
+    fn shelled_parasite_attack_buff_imports_life_suck() {
+        use sts_core::content::monsters::SHELLED_PARASITE_ID;
+
+        let monster = json!({
+            "id": "Shelled Parasite",
+            "intent": "ATTACK_BUFF",
+            "move_base_damage": 10
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SHELLED_PARASITE_ID, 0),
+            MonsterIntent::AttackHealSelf { damage: 10 }
+        );
+    }
+
+    #[test]
+    fn observed_monster_weakened_imports_weak_power() {
+        let powers = monster_powers(Some(&json!([
+            {"id": "Weakened", "name": "Weakened", "amount": 2}
+        ])));
+
+        assert_eq!(powers.weak, 2);
+    }
+
+    #[test]
+    fn observed_monster_plated_armor_imports_power() {
+        let powers = monster_powers(Some(&json!([
+            {"id": "Plated Armor", "name": "Plated Armor", "amount": 13}
+        ])));
+
+        assert_eq!(powers.plated_armor, 13);
+    }
+
+    #[test]
+    fn observed_monster_spore_cloud_imports_power() {
+        let powers = monster_powers(Some(&json!([
+            {"id": "Spore Cloud", "name": "Spore Cloud", "amount": 2}
+        ])));
+
+        assert_eq!(powers.spore_cloud, 2);
+    }
+
+    #[test]
+    fn observed_monster_strength_up_imports_power() {
+        let powers = monster_powers(Some(&json!([
+            {"id": "Generic Strength Up Power", "name": "Strength Up", "amount": 3}
+        ])));
+
+        assert_eq!(powers.strength_up, 3);
+    }
+
+    #[test]
+    fn observed_player_combust_imports_damage_amount() {
+        let (powers, temp_strength) = player_powers_and_temp_strength(Some(&json!([
+            {"id": "Strength", "name": "Strength", "amount": 1},
+            {"id": "Combust", "name": "Combust", "amount": 7},
+            {"id": "Dark Embrace", "name": "Dark Embrace", "amount": 1},
+            {"id": "Rupture", "name": "Rupture", "amount": 2},
+            {"id": "Hex", "name": "Hex", "amount": 1}
+        ])));
+
+        assert_eq!(temp_strength, 0);
+        assert_eq!(powers.strength, 1);
+        assert_eq!(powers.combust, 1);
+        assert_eq!(powers.combust_damage, 7);
+        assert_eq!(powers.dark_embrace, 1);
+        assert_eq!(powers.rupture, 2);
+        assert_eq!(powers.hex, 1);
+    }
+
+    #[test]
+    fn book_of_stabbing_observed_hits_reconstruct_move_index() {
+        use sts_core::content::monsters::BOOK_OF_STABBING_ID;
+
+        let monster = json!({
+            "id": "BookOfStabbing",
+            "intent": "ATTACK",
+            "move_base_damage": 6,
+            "move_hits": 4
+        });
+
+        assert_eq!(
+            moves_executed_from_observed(&monster, BOOK_OF_STABBING_ID),
+            3
+        );
+    }
+
+    #[test]
+    fn bronze_automaton_observed_stun_reconstructs_move_index() {
+        use sts_core::content::monsters::BRONZE_AUTOMATON_ID;
+
+        let monster = json!({
+            "id": "BronzeAutomaton",
+            "intent": "STUN",
+            "move_base_damage": -1,
+            "move_hits": -1
+        });
+
+        assert_eq!(
+            moves_executed_from_observed(&monster, BRONZE_AUTOMATON_ID),
+            6
+        );
+        assert_eq!(
+            observed_intent(&monster, BRONZE_AUTOMATON_ID, 0),
+            MonsterIntent::Stun
+        );
+    }
+
+    #[test]
+    fn gremlin_leader_unknown_move_two_imports_summon() {
+        use sts_core::content::monsters::GREMLIN_LEADER_ID;
+
+        let monster = json!({
+            "id": "GremlinLeader",
+            "intent": "UNKNOWN",
+            "move_id": 2,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GREMLIN_LEADER_ID, 0),
+            MonsterIntent::SummonGremlins { count: 2 }
+        );
+    }
+
+    #[test]
+    fn bronze_automaton_and_orb_ids_import_without_cultist_fallback() {
+        use sts_core::content::monsters::{
+            content_id_from_game_monster_id, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, ORB_WALKER_ID,
+        };
+
+        assert_eq!(
+            content_id_from_game_monster_id("BronzeAutomaton"),
+            BRONZE_AUTOMATON_ID
+        );
+        assert_eq!(content_id_from_game_monster_id("BronzeOrb"), BRONZE_ORB_ID);
+        assert_eq!(content_id_from_game_monster_id("Orb Walker"), ORB_WALKER_ID);
     }
 
     #[test]

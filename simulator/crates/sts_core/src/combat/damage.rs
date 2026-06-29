@@ -1,5 +1,6 @@
 use crate::{
     combat::{MonsterState, PlayerState},
+    content::monsters::{large_acid_slime_on_hp_damage, DARKLING_ID},
     ids::{CardId, MonsterId},
     power::PlayerPowers,
     relic::Relic,
@@ -31,13 +32,20 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     monster.hp -= hp_damage;
 
     if monster.hp <= 0 {
+        monster.hp = 0;
         monster.alive = false;
         monster.block = 0;
+        if monster.content_id == DARKLING_ID {
+            monster.escaped = true;
+            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            monster.powers = Default::default();
+        }
     } else if hp_damage > 0 && monster.powers.curl_up > 0 {
         monster.block += monster.powers.curl_up;
         monster.powers.curl_up = 0;
     }
     reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
+    large_acid_slime_on_hp_damage(monster, hp_damage);
 
     hp_damage
 }
@@ -60,8 +68,14 @@ fn deal_attack_damage_to_monster(
     monster.hp -= hp_damage;
 
     if monster.hp <= 0 {
+        monster.hp = 0;
         monster.alive = false;
         monster.block = 0;
+        if monster.content_id == DARKLING_ID {
+            monster.escaped = true;
+            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            monster.powers = Default::default();
+        }
     } else if hp_damage > 0 && monster.powers.curl_up > 0 {
         monster.block += monster.powers.curl_up;
         monster.powers.curl_up = 0;
@@ -77,6 +91,7 @@ fn deal_attack_damage_to_monster(
         }
     }
     reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
+    large_acid_slime_on_hp_damage(monster, hp_damage);
 
     AttackDamageResult {
         hp_damage,
@@ -166,13 +181,50 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
         deal_unmodified_damage_to_monster(&mut monster, 5);
 
         assert!(!monster.alive);
+        assert_eq!(monster.hp, 0);
         assert_eq!(monster.block, 0);
+    }
+
+    #[test]
+    fn overkill_unmodified_damage_clamps_monster_hp_to_zero() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 2,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: Default::default(),
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        let hp_damage = deal_unmodified_damage_to_monster(&mut monster, 5);
+
+        assert_eq!(hp_damage, 5);
+        assert!(!monster.alive);
+        assert_eq!(monster.hp, 0);
     }
 
     #[test]
@@ -195,6 +247,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -228,6 +283,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -262,6 +320,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -306,6 +367,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -350,6 +414,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -392,6 +459,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -408,7 +478,51 @@ mod tests {
         );
 
         assert!(!monster.alive);
+        assert_eq!(monster.hp, 0);
         assert_eq!(monster.powers.flight, 3);
+    }
+
+    #[test]
+    fn overkill_attack_damage_clamps_monster_hp_to_zero() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 2,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: Default::default(),
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        let result = deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 5,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(result.hp_damage, 5);
+        assert!(!monster.alive);
+        assert_eq!(monster.hp, 0);
     }
 
     #[test]
@@ -434,6 +548,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -467,6 +584,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -509,6 +629,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -553,6 +676,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -593,6 +719,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -627,6 +756,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -667,6 +799,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -695,6 +830,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -737,6 +875,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -782,6 +923,9 @@ mod tests {
             in_defensive_mode: false,
             rolled_attack_damage: None,
             stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
