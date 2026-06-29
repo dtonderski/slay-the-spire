@@ -95,6 +95,62 @@ class BridgeMirrorTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 BridgeMirror(root).send_command("state")
 
+    def test_send_command_rejects_unavailable_gameplay_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["state"], "step": 1}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "not available"):
+                BridgeMirror(root, stale_after_seconds=9999).send_command("END")
+
+            self.assertFalse((root / "next_command.txt").exists())
+
+    def test_send_command_rejects_stale_gameplay_but_allows_manual_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["end", "state"], "step": 1}),
+                encoding="utf-8",
+            )
+            mirror = BridgeMirror(root, stale_after_seconds=-1)
+
+            with self.assertRaisesRegex(ValueError, "stale"):
+                mirror.send_command("END")
+
+            result = mirror.send_command("state")
+            self.assertTrue(result["ok"])
+            self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "state\n")
+
+    def test_send_command_allows_stale_start_from_main_menu(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "ready_for_command": True,
+                        "available_commands": ["start", "state"],
+                        "in_game": False,
+                        "step": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            mirror = BridgeMirror(root, stale_after_seconds=-1)
+
+            result = mirror.send_command("START IRONCLAD 0 LIVE01")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(
+                (root / "next_command.txt").read_text(encoding="utf-8"),
+                "START IRONCLAD 0 LIVE01\n",
+            )
+
     def test_descriptor_translation_covers_known_command_families(self):
         cases = [
             ({"kind": "PlayHandSlot", "hand_slot": 1, "target_slot": 0}, "PLAY 1 0"),

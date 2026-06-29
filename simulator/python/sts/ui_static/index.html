@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>STS Omniscient Combat</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=live-ui-3" />
   </head>
   <body>
     <div class="app-shell">
@@ -18,96 +18,49 @@
             <button id="liveModeButton" class="active" type="button">Live Game</button>
             <button id="simModeButton" type="button">Simulator Fixture</button>
           </div>
-          <div id="fixtureControls" class="fixture-controls">
-            <select id="sessionModeSelect" aria-label="Fixture type">
-              <option value="combat_fixture">Combat fixture</option>
-              <option value="run_map_fixture">Run map fixture</option>
-              <option value="run_combat_fixture">Run combat fixture</option>
-            </select>
-            <button id="newSessionButton" class="primary" type="button">Start fixture</button>
-            <button id="reloadButton" type="button" disabled>Reload</button>
-          </div>
         </div>
       </header>
 
       <main class="layout">
-        <section id="liveBand" class="live-band" aria-labelledby="liveTitle">
-          <div class="section-head">
-            <div>
-              <h2 id="liveTitle">Live Game</h2>
-              <p id="liveSummary" class="subtle">Reading bridge status without sending game commands.</p>
-            </div>
-            <div id="liveStatusBadge" class="status-badge neutral">Unknown</div>
-          </div>
-
-          <div class="live-grid">
-            <div id="liveStatusPanel" class="live-status-panel"></div>
-            <div class="live-control-panel">
-              <div class="live-start-row">
-                <label for="startCharacterSelect">Character</label>
-                <select id="startCharacterSelect">
-                  <option value="IRONCLAD">Ironclad</option>
-                </select>
-                <label for="startAscensionInput">Asc</label>
-                <input id="startAscensionInput" type="number" min="0" max="20" value="0" />
-                <label for="startSeedInput">Seed</label>
-                <input id="startSeedInput" type="text" value="LIVE01" />
-                <button id="startLiveRunButton" type="button">Start run</button>
-              </div>
-              <div class="live-primary-actions">
-                <button id="attachLiveButton" type="button">Attach current state</button>
-                <button id="liveSearchButton" class="primary" type="button" disabled>Search best move</button>
-                <button id="sendBestButton" type="button" disabled>Send recommended move</button>
-              </div>
-              <div class="live-secondary-actions">
-                <button id="refreshBridgeButton" type="button">Refresh status</button>
-                <button id="requestBridgeStateButton" type="button">Manual state command</button>
-              </div>
-              <div id="liveReason" class="live-reason"></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="board-band" aria-labelledby="boardTitle">
-          <div class="section-head">
-            <div>
-              <h2 id="boardTitle">Board</h2>
-              <p id="stateSummary" class="subtle">Start a fixture to inspect simulator state.</p>
-            </div>
-            <div id="lifecycleBadge" class="status-badge neutral">Ready</div>
-          </div>
-
-          <div class="combat-grid">
-            <div id="playerPanel" class="player-panel empty">
-              <span class="empty-text">Player state will appear here.</span>
-            </div>
-            <div id="monsterPanel" class="monster-panel empty">
-              <span class="empty-text">Monsters will appear here.</span>
-            </div>
-          </div>
-
-          <div class="pile-strip" aria-label="Piles and resources">
-            <div class="pile-stat"><span>Energy</span><strong id="energyStat">-</strong></div>
-            <div class="pile-stat"><span>Draw</span><strong id="drawStat">-</strong></div>
-            <div class="pile-stat"><span>Discard</span><strong id="discardStat">-</strong></div>
-            <div class="pile-stat"><span>Exhaust</span><strong id="exhaustStat">-</strong></div>
-          </div>
-        </section>
-
-        <section class="hand-band" aria-labelledby="handTitle">
-          <div class="section-head compact">
-            <h2 id="handTitle">Hand</h2>
-            <span id="handCount" class="subtle">0 cards</span>
-          </div>
-          <div id="handPanel" class="hand-row empty">
-            <span class="empty-text">No hand data.</span>
-          </div>
-        </section>
-
-        <section class="control-band" aria-labelledby="actionsTitle">
-          <div class="action-column">
+        <section id="liveBand" class="live-dashboard" aria-labelledby="liveTitle">
+          <div class="dashboard-card bridge-card">
             <div class="section-head compact">
-              <h2 id="actionsTitle">Actions</h2>
+              <div>
+                <h2 id="liveTitle">Live Game</h2>
+                <p id="liveSummary" class="subtle">Reading bridge status without sending game commands.</p>
+              </div>
+              <div id="liveStatusBadge" class="status-badge neutral">Unknown</div>
+            </div>
+            <div id="liveStatusPanel" class="live-status-panel"></div>
+          </div>
+
+          <div class="dashboard-card command-card">
+            <div class="live-start-row">
+              <label for="startCharacterSelect">Character</label>
+              <select id="startCharacterSelect">
+                <option value="IRONCLAD">Ironclad</option>
+              </select>
+              <label for="startAscensionInput">Asc</label>
+              <input id="startAscensionInput" type="number" min="0" max="20" value="0" />
+              <label for="startSeedInput">Seed</label>
+              <input id="startSeedInput" type="text" value="LIVE01" />
+              <button id="startLiveRunButton" type="button">Start run</button>
+            </div>
+            <div class="live-primary-actions">
+              <button id="attachLiveButton" type="button">Attach</button>
+              <button id="liveSearchButton" class="primary" type="button" disabled>Search best</button>
+              <button id="sendBestButton" type="button" disabled>Send best</button>
+            </div>
+            <div class="live-secondary-actions">
+              <button id="refreshBridgeButton" type="button">Refresh mirror</button>
+              <button id="requestBridgeStateButton" type="button">Request State (writes trace)</button>
+            </div>
+            <div id="liveReason" class="live-reason"></div>
+          </div>
+
+          <section class="dashboard-card action-card" aria-labelledby="actionsTitle">
+            <div class="section-head compact">
+              <h2 id="actionsTitle">Live Actions</h2>
               <span id="actionCount" class="subtle">0 available</span>
             </div>
             <div id="actionError" class="message error hidden" role="alert"></div>
@@ -115,11 +68,11 @@
             <div id="actionsPanel" class="button-grid empty">
               <span class="empty-text">No actions loaded.</span>
             </div>
-          </div>
+          </section>
 
-          <div class="search-column">
+          <section class="dashboard-card search-card" aria-labelledby="searchTitle">
             <div class="section-head compact">
-              <h2>Search</h2>
+              <h2 id="searchTitle">Recommendation</h2>
               <span id="searchStatus" class="subtle">Idle</span>
             </div>
             <div class="search-controls">
@@ -132,82 +85,139 @@
                 <option value="rust_beam_terminal_w128_no_power_d40">Wide no-Power beam</option>
                 <option value="rust_terminal_rollout_selector_w32_w128_no_power_d40">Experimental rollout</option>
               </select>
-              <label for="maxDepthInput">Max depth</label>
+              <label for="maxDepthInput">Depth</label>
               <input id="maxDepthInput" type="number" min="1" max="80" value="40" />
-              <button id="searchButton" type="button" disabled>Run search</button>
-              <button id="applyBestButton" type="button" disabled>Apply best</button>
+              <button id="searchButton" type="button" disabled>Search</button>
+              <button id="applyBestButton" type="button" disabled>Apply</button>
             </div>
             <div id="searchResult" class="search-result empty">
               <span class="empty-text">No recommendation yet.</span>
             </div>
-          </div>
+          </section>
+
+          <section class="dashboard-card board-card" aria-labelledby="boardTitle">
+            <div class="section-head compact">
+              <div>
+                <h2 id="boardTitle">Board</h2>
+                <p id="stateSummary" class="subtle">Attach live combat or start a fixture.</p>
+              </div>
+              <div id="lifecycleBadge" class="status-badge neutral">Ready</div>
+            </div>
+            <div class="combat-grid">
+              <div id="playerPanel" class="player-panel empty">
+                <span class="empty-text">Player state will appear here.</span>
+              </div>
+              <div id="monsterPanel" class="monster-panel empty">
+                <span class="empty-text">Monsters will appear here.</span>
+              </div>
+            </div>
+            <div class="pile-strip" aria-label="Piles and resources">
+              <div class="pile-stat"><span>Energy</span><strong id="energyStat">-</strong></div>
+              <div class="pile-stat"><span>Draw</span><strong id="drawStat">-</strong></div>
+              <div class="pile-stat"><span>Discard</span><strong id="discardStat">-</strong></div>
+              <div class="pile-stat"><span>Exhaust</span><strong id="exhaustStat">-</strong></div>
+            </div>
+          </section>
+
+          <section class="dashboard-card hand-card-panel" aria-labelledby="handTitle">
+            <div class="section-head compact">
+              <h2 id="handTitle">Hand</h2>
+              <span id="handCount" class="subtle">0 cards</span>
+            </div>
+            <div id="handPanel" class="hand-row empty">
+              <span class="empty-text">No hand data.</span>
+            </div>
+          </section>
         </section>
 
-        <section class="sync-band diagnostics-band" aria-labelledby="syncTitle">
-          <div class="section-head compact">
-            <h2 id="syncTitle">Bridge Mirror</h2>
-            <span class="subtle">Read-only mirror; manual state command is in Live Game.</span>
-          </div>
-          <div id="bridgePanel" class="bridge-panel empty">
-            <span class="empty-text">Bridge status not loaded.</span>
-          </div>
-        </section>
-
-        <section class="trace-band" aria-labelledby="traceTitle">
+        <section id="fixtureControls" class="fixture-panel hidden" aria-labelledby="fixtureTitle">
           <div class="section-head compact">
             <div>
-              <h2 id="traceTitle">Trace Replay</h2>
-              <span id="traceStatus" class="subtle">Not loaded</span>
+              <h2 id="fixtureTitle">Simulator Fixture</h2>
+              <p class="subtle">Local simulator sessions for controlled test states.</p>
             </div>
-            <div class="trace-actions">
-              <button id="refreshTracesButton" type="button">Refresh traces</button>
-              <button id="loadTraceButton" type="button" disabled>Load trace</button>
-            </div>
+            <button id="reloadButton" type="button" disabled>Reload</button>
           </div>
-          <div class="trace-controls">
-            <label for="traceSelect">Trace</label>
-            <select id="traceSelect">
-              <option value="">No traces loaded</option>
+          <div class="fixture-controls">
+            <label for="sessionModeSelect">Fixture</label>
+            <select id="sessionModeSelect" aria-label="Fixture type">
+              <option value="combat_fixture">Combat fixture</option>
+              <option value="run_map_fixture">Run map fixture</option>
+              <option value="run_combat_fixture">Run combat fixture</option>
             </select>
-            <label for="traceOffsetInput">Offset</label>
-            <input id="traceOffsetInput" type="number" min="0" value="0" />
-            <label for="traceLimitInput">Limit</label>
-            <input id="traceLimitInput" type="number" min="1" max="1000" value="200" />
-          </div>
-          <div id="traceError" class="message error hidden" role="alert"></div>
-          <div id="traceMetaPanel" class="trace-meta empty">
-            <span class="empty-text">Refresh traces to inspect recorded commands.</span>
-          </div>
-          <div id="traceRecordsPanel" class="trace-records empty">
-            <span class="empty-text">No trace records loaded.</span>
+            <button id="newSessionButton" class="primary" type="button">Start fixture</button>
           </div>
         </section>
 
-        <section class="debug-band" aria-labelledby="debugTitle">
-          <div class="section-head compact">
-            <h2 id="debugTitle">Debug</h2>
-            <div class="debug-tabs" role="tablist" aria-label="Debug views">
-              <button class="tab-button active" type="button" data-debug-tab="state">State</button>
-              <button class="tab-button" type="button" data-debug-tab="snapshot">Snapshot</button>
-              <button class="tab-button" type="button" data-debug-tab="raw">Raw</button>
-              <button id="restoreSnapshotButton" class="tab-button restore-button" type="button" disabled>Restore</button>
+        <details class="advanced-shell">
+          <summary>Advanced diagnostics</summary>
+
+          <section class="sync-band diagnostics-band" aria-labelledby="syncTitle">
+            <div class="section-head compact">
+              <h2 id="syncTitle">Bridge Mirror</h2>
+              <span class="subtle">Read-only mirror; Manual State is the only state command.</span>
             </div>
-          </div>
-          <dl class="debug-facts">
-            <div><dt>Session</dt><dd id="debugSessionId">-</dd></div>
-            <div><dt>Mode</dt><dd id="debugMode">-</dd></div>
-            <div><dt>Kind</dt><dd id="debugStateKind">-</dd></div>
-            <div><dt>State</dt><dd id="debugStateId">-</dd></div>
-            <div><dt>Phase</dt><dd id="debugPhase">-</dd></div>
-            <div><dt>Decision</dt><dd id="debugDecision">-</dd></div>
-            <div><dt>Unsupported</dt><dd id="debugUnsupported">-</dd></div>
-            <div><dt>Hash</dt><dd id="debugHash">-</dd></div>
-          </dl>
-          <pre id="debugJson" class="debug-json">{}</pre>
-        </section>
+            <div id="bridgePanel" class="bridge-panel empty">
+              <span class="empty-text">Bridge status not loaded.</span>
+            </div>
+          </section>
+
+          <section class="trace-band" aria-labelledby="traceTitle">
+            <div class="section-head compact">
+              <div>
+                <h2 id="traceTitle">Trace Replay</h2>
+                <span id="traceStatus" class="subtle">Not loaded</span>
+              </div>
+              <div class="trace-actions">
+                <button id="refreshTracesButton" type="button">Refresh traces</button>
+                <button id="loadTraceButton" type="button" disabled>Load trace</button>
+              </div>
+            </div>
+            <div class="trace-controls">
+              <label for="traceSelect">Trace</label>
+              <select id="traceSelect">
+                <option value="">No traces loaded</option>
+              </select>
+              <label for="traceOffsetInput">Offset</label>
+              <input id="traceOffsetInput" type="number" min="0" value="0" />
+              <label for="traceLimitInput">Limit</label>
+              <input id="traceLimitInput" type="number" min="1" max="1000" value="200" />
+            </div>
+            <div id="traceError" class="message error hidden" role="alert"></div>
+            <div id="traceMetaPanel" class="trace-meta empty">
+              <span class="empty-text">Refresh traces to inspect recorded commands.</span>
+            </div>
+            <div id="traceRecordsPanel" class="trace-records empty">
+              <span class="empty-text">No trace records loaded.</span>
+            </div>
+          </section>
+
+          <section class="debug-band" aria-labelledby="debugTitle">
+            <div class="section-head compact">
+              <h2 id="debugTitle">Debug</h2>
+              <div class="debug-tabs" role="tablist" aria-label="Debug views">
+                <button class="tab-button active" type="button" data-debug-tab="state">State</button>
+                <button class="tab-button" type="button" data-debug-tab="snapshot">Snapshot</button>
+                <button class="tab-button" type="button" data-debug-tab="raw">Raw</button>
+                <button id="restoreSnapshotButton" class="tab-button restore-button" type="button" disabled>Restore</button>
+              </div>
+            </div>
+            <dl class="debug-facts">
+              <div><dt>Session</dt><dd id="debugSessionId">-</dd></div>
+              <div><dt>Mode</dt><dd id="debugMode">-</dd></div>
+              <div><dt>Kind</dt><dd id="debugStateKind">-</dd></div>
+              <div><dt>State</dt><dd id="debugStateId">-</dd></div>
+              <div><dt>Phase</dt><dd id="debugPhase">-</dd></div>
+              <div><dt>Decision</dt><dd id="debugDecision">-</dd></div>
+              <div><dt>Unsupported</dt><dd id="debugUnsupported">-</dd></div>
+              <div><dt>Hash</dt><dd id="debugHash">-</dd></div>
+            </dl>
+            <pre id="debugJson" class="debug-json">{}</pre>
+          </section>
+        </details>
       </main>
     </div>
 
-    <script src="./app.js?v=live-ui-1"></script>
+    <script src="./app.js?v=live-ui-5"></script>
   </body>
 </html>

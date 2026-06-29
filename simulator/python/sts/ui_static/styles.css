@@ -774,3 +774,514 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+
+/* Compact live-play dashboard overrides */
+:root {
+  --bg: #eef1f4;
+  --ink: #15191d;
+  --muted: #626d78;
+  --line: #c9d0d7;
+  --panel: #ffffff;
+  --panel-strong: #f4f7f9;
+  --accent: #256f88;
+  --accent-strong: #144c61;
+  --good: #287248;
+  --warn: #9b681a;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+button,
+input,
+select {
+  min-height: 2.05rem;
+}
+
+button {
+  padding: 0.38rem 0.62rem;
+}
+
+input,
+select {
+  padding: 0.34rem 0.5rem;
+}
+
+h1 {
+  font-size: 1.16rem;
+}
+
+h2 {
+  font-size: 0.92rem;
+}
+
+h3 {
+  font-size: 0.82rem;
+}
+
+.topbar {
+  min-height: 3.4rem;
+  padding: 0.48rem clamp(0.7rem, 1.5vw, 1rem);
+  background: rgba(238, 241, 244, 0.97);
+}
+
+.topbar-actions,
+.fixture-controls,
+.mode-toggle,
+.search-controls,
+.trace-actions,
+.debug-tabs {
+  gap: 0.35rem;
+}
+
+.mode-toggle {
+  border-radius: 7px;
+  padding: 0.14rem;
+}
+
+.mode-toggle button {
+  min-height: 1.78rem;
+  padding: 0.24rem 0.52rem;
+}
+
+.layout {
+  gap: 0.55rem;
+  padding: 0.55rem clamp(0.7rem, 1.5vw, 1rem) 1rem;
+}
+
+.live-dashboard {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.95fr) minmax(19rem, 1.1fr) minmax(16rem, 0.95fr);
+  grid-template-rows: auto minmax(12rem, 1fr) minmax(9rem, 0.72fr);
+  grid-template-areas:
+    "bridge command search"
+    "actions board board"
+    "actions hand hand";
+  gap: 0.55rem;
+  height: calc(100vh - 4.55rem);
+  min-height: 38rem;
+  overflow: hidden;
+}
+
+.dashboard-card,
+.fixture-panel,
+.advanced-shell {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
+}
+
+.dashboard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  padding: 0.62rem;
+  overflow: hidden;
+}
+
+.bridge-card {
+  grid-area: bridge;
+}
+
+.command-card {
+  grid-area: command;
+}
+
+.action-card {
+  grid-area: actions;
+}
+
+.search-card {
+  grid-area: search;
+}
+
+.board-card {
+  grid-area: board;
+}
+
+.hand-card-panel {
+  grid-area: hand;
+}
+
+.live-dashboard.fixture-mode {
+  grid-template-columns: minmax(17rem, 0.85fr) minmax(18rem, 0.9fr) minmax(22rem, 1.25fr);
+  grid-template-rows: minmax(13rem, 1fr) minmax(9rem, 0.72fr);
+  grid-template-areas:
+    "actions search board"
+    "actions hand hand";
+  height: calc(100vh - 10.2rem);
+  min-height: 27rem;
+}
+
+.live-dashboard.fixture-mode .bridge-card,
+.live-dashboard.fixture-mode .command-card {
+  display: none;
+}
+
+.section-head {
+  margin-bottom: 0;
+}
+
+.subtle {
+  font-size: 0.78rem;
+}
+
+.status-badge {
+  border-radius: 6px;
+  padding: 0.24rem 0.48rem;
+  font-size: 0.76rem;
+}
+
+.live-status-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  overflow: auto;
+}
+
+.live-status-panel .stat-block,
+.stat-block {
+  gap: 0.34rem;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  padding: 0.48rem;
+}
+
+.live-status-panel .stat-list div,
+.stat-list div,
+.debug-facts div {
+  gap: 0.55rem;
+}
+
+.stat-list,
+.debug-facts {
+  gap: 0.25rem;
+}
+
+.stat-list dt,
+.stat-list dd,
+.debug-facts dt,
+.debug-facts dd {
+  font-size: 0.76rem;
+  line-height: 1.22;
+}
+
+.live-start-row,
+.live-primary-actions,
+.live-secondary-actions {
+  gap: 0.35rem;
+}
+
+.live-start-row {
+  display: grid;
+  grid-template-columns: auto minmax(5.2rem, 0.9fr) auto 4.1rem auto minmax(5rem, 0.8fr) auto;
+}
+
+.live-start-row label,
+.search-controls label,
+.trace-controls label {
+  font-size: 0.76rem;
+}
+
+.live-start-row input[type="text"] {
+  width: 100%;
+}
+
+.live-primary-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1.05fr 1fr;
+}
+
+.live-secondary-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.live-primary-actions button,
+.live-secondary-actions button {
+  width: 100%;
+}
+
+.live-reason {
+  min-height: 1.05rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.77rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combat-grid {
+  grid-template-columns: minmax(11rem, 0.62fr) minmax(18rem, 1.38fr);
+  gap: 0.45rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.player-panel,
+.monster-panel,
+.hand-row,
+.button-grid,
+.search-result {
+  min-height: 0;
+}
+
+.player-panel,
+.monster,
+.hand-card,
+.search-result,
+.message {
+  border-radius: 7px;
+  padding: 0.48rem;
+}
+
+.monster-list {
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 0.45rem;
+  overflow: auto;
+}
+
+.pile-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-top: 0;
+}
+
+.pile-stat {
+  min-height: 2.25rem;
+  border-radius: 7px;
+  padding: 0.36rem 0.5rem;
+}
+
+.pile-stat span {
+  font-size: 0.75rem;
+}
+
+.pile-stat strong {
+  font-size: 0.94rem;
+}
+
+.hand-row {
+  grid-template-columns: repeat(auto-fit, minmax(8.3rem, 1fr));
+  gap: 0.45rem;
+  overflow: auto;
+}
+
+.hand-card {
+  gap: 0.34rem;
+  min-height: 0;
+  align-content: start;
+}
+
+.button-grid {
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 0.4rem;
+  overflow: auto;
+}
+
+.action-button {
+  gap: 0.12rem;
+  min-height: 2.42rem;
+  padding: 0.38rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.button-reason {
+  font-size: 0.7rem;
+}
+
+.message {
+  margin-bottom: 0;
+  font-size: 0.78rem;
+}
+
+.search-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.search-controls select {
+  flex: 1 1 8rem;
+  width: auto;
+  min-width: 0;
+}
+
+.search-controls input {
+  flex: 0 0 3.8rem;
+  width: 3.8rem;
+}
+
+.search-result {
+  overflow: auto;
+}
+
+.pv-list,
+.diff-list {
+  margin-top: 0.45rem;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+}
+
+.fixture-panel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+}
+
+.fixture-panel.hidden {
+  display: none;
+}
+
+.fixture-panel .fixture-controls {
+  display: grid;
+  grid-template-columns: auto minmax(14rem, 18rem) auto;
+  justify-content: start;
+}
+
+.advanced-shell {
+  padding: 0;
+}
+
+.advanced-shell summary {
+  min-height: 2.35rem;
+  padding: 0.58rem 0.75rem;
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.advanced-shell[open] {
+  padding-bottom: 0.7rem;
+}
+
+.sync-band,
+.trace-band,
+.debug-band {
+  margin: 0.7rem;
+  padding-top: 0.7rem;
+}
+
+.sync-band {
+  border-top: 1px solid var(--line);
+}
+
+.trace-band,
+.debug-band {
+  border-top: 1px solid var(--line);
+}
+
+.bridge-panel,
+.trace-meta,
+.trace-record,
+.debug-facts div {
+  border-radius: 7px;
+  padding: 0.55rem;
+}
+
+.bridge-panel,
+.trace-records,
+.debug-json {
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.debug-json {
+  min-height: 12rem;
+  font-size: 0.78rem;
+}
+
+.empty {
+  min-height: 0;
+  border-radius: 7px;
+  padding: 0.55rem;
+}
+
+.empty-text {
+  font-size: 0.78rem;
+}
+
+@media (max-width: 1180px) {
+  .live-dashboard {
+    grid-template-columns: minmax(15rem, 0.9fr) minmax(18rem, 1.1fr);
+    grid-template-rows: auto auto minmax(12rem, 1fr) minmax(9rem, 0.72fr);
+    grid-template-areas:
+      "bridge command"
+      "search search"
+      "actions board"
+      "actions hand";
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .live-dashboard.fixture-mode {
+    grid-template-columns: minmax(15rem, 0.9fr) minmax(18rem, 1.1fr);
+    grid-template-rows: auto minmax(12rem, 1fr) minmax(9rem, 0.72fr);
+    grid-template-areas:
+      "actions search"
+      "actions board"
+      "actions hand";
+    height: auto;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .topbar {
+    display: grid;
+  }
+
+  .live-dashboard {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "bridge"
+      "command"
+      "actions"
+      "search"
+      "board"
+      "hand";
+  }
+
+  .live-dashboard.fixture-mode {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "actions"
+      "search"
+      "board"
+      "hand";
+  }
+
+  .live-start-row,
+  .search-controls,
+  .fixture-panel .fixture-controls,
+  .trace-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .live-primary-actions,
+  .live-secondary-actions,
+  .combat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .search-controls input,
+  .search-controls select,
+  .search-controls button,
+  .fixture-panel select,
+  .fixture-panel button {
+    width: 100%;
+  }
+}

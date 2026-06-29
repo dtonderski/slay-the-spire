@@ -99,8 +99,24 @@ class BridgeMirror:
             raise ValueError("stale bridge action rejected")
         if before["pending_command"]:
             raise ValueError("bridge command already pending")
+        if not before["connected"]:
+            raise ValueError("bridge is disconnected")
         if before["exited"]:
             raise ValueError("bridge has exited")
+        verb = _command_verb(command)
+        available = {str(command).lower() for command in before["available_commands"]}
+        stale_start_from_menu = (
+            verb == "start"
+            and "start" in available
+            and isinstance(before.get("summary"), dict)
+            and before["summary"].get("in_game") is False
+        )
+        if before["stale"] and verb != "state" and not stale_start_from_menu:
+            raise ValueError("bridge state is stale")
+        if verb != "state" and before["ready_for_command"] is not True:
+            raise ValueError("bridge is not ready for a command")
+        if verb != "state" and verb not in available:
+            raise ValueError(f'command "{verb}" is not available')
 
         self.session_dir.mkdir(parents=True, exist_ok=True)
         command_id = uuid4().hex
@@ -156,6 +172,10 @@ def command_for_descriptor(descriptor: dict[str, Any]) -> str:
     if kind == "ReturnToPreviousScreen":
         return "RETURN"
     raise ValueError(f"unsupported bridge descriptor kind: {kind or '<missing>'}")
+
+
+def _command_verb(command: str) -> str:
+    return command.strip().split(maxsplit=1)[0].lower()
 
 
 def bridge_actions_from_status(
