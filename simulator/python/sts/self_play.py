@@ -101,6 +101,20 @@ class TraceGuidedReplayResult:
 
 
 @dataclass(frozen=True)
+class StrictTraceEnvResult:
+    env: Any | None
+    trace_path: Path
+    steps: int
+    stop_reason: str
+    verified: bool
+    blocker: dict[str, Any] | None
+    start: dict[str, Any] | None
+    final_state_id: str | None
+    final_phase: str | None
+    latest_observed_summary: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
 class TraceCombatRoot:
     trace_path: Path
     step: int
@@ -791,6 +805,133 @@ def replay_real_trace_guided(
         stop_reason=stop_reason,
         verified=verified,
         mode=mode,
+    )
+
+
+def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -> StrictTraceEnvResult:
+    """Replay a CommunicationMod trace from START and return the exact final env."""
+
+    records = _read_jsonl(trace)
+    env = None
+    last_state: dict[str, Any] | None = None
+    last_state_consumed = True
+    replayed_steps = 0
+    blocker: dict[str, Any] | None = None
+    stop_reason = "trace_exhausted"
+    start_info: dict[str, Any] | None = None
+
+    for record_index, record in enumerate(records):
+        if record.get("type") == "state":
+            last_state = record
+            last_state_consumed = False
+            continue
+        if record.get("type") != "action":
+            continue
+        command = str(record.get("command") or "")
+        if not command:
+            continue
+
+        if env is None:
+            start_info = _parse_start_command(command)
+            if start_info is None:
+                blocker = _blocker(record, command, "missing_start", "first action is not START")
+                stop_reason = "missing_start"
+                break
+            try:
+                env = omni.OmniRunEnv.new_ironclad(
+                    seed=start_info["external_seed"],
+                    ascension=start_info["ascension"],
+                )
+            except Exception as error:
+                blocker = _blocker(record, command, "unsupported_start", str(error))
+                stop_reason = f"unsupported_start: {error}"
+                break
+            continue
+
+        if replayed_steps >= max_actions:
+            stop_reason = "max_actions"
+            break
+
+        observed_game_state = _game_state_from_record(last_state)
+        has_fresh_observed_state = not last_state_consumed
+        if has_fresh_observed_state:
+            diffs = _observed_summary_diffs(env, observed_game_state)
+            if diffs:
+                blocker = _blocker(
+                    record,
+                    command,
+                    "observed_state_diff",
+                    "fresh observed trace state differs from simulator before applying command",
+                    diffs=diffs,
+                    simulator_summary=_summary(env),
+                    observed_summary=_observed_summary(observed_game_state),
+                )
+                stop_reason = "observed_state_diff"
+                break
+            last_state_consumed = True
+
+        if _next_trace_record_is_error(records, record_index):
+            continue
+
+        action = _action_for_communication_command(env, command, observed_game_state)
+        if action is None:
+            if _is_observed_noop_combat_command(env, records, record_index):
+                continue
+            blocker = _blocker(
+                record,
+                command,
+                "unsupported_command_mapping",
+                "no exact OmniRunEnv action mapping for CommunicationMod command",
+                simulator_summary=_summary(env),
+                observed_summary=_observed_summary(observed_game_state),
+            )
+            stop_reason = "unsupported_command_mapping"
+            break
+
+        try:
+            env.step(action)
+        except Exception as error:
+            blocker = _blocker(
+                record,
+                command,
+                "step_error",
+                str(error),
+                simulator_summary=_summary(env),
+                observed_summary=_observed_summary(observed_game_state),
+            )
+            stop_reason = "step_error"
+            break
+        replayed_steps += 1
+
+    latest_observed_summary = None
+    if blocker is None and env is not None and last_state is not None and not last_state_consumed:
+        observed_game_state = _game_state_from_record(last_state)
+        latest_observed_summary = _observed_summary(observed_game_state)
+        diffs = _observed_summary_diffs(env, observed_game_state)
+        if diffs:
+            blocker = _blocker(
+                last_state,
+                "",
+                "final_observed_state_diff",
+                "latest observed trace state differs from simulator after replay",
+                diffs=diffs,
+                simulator_summary=_summary(env),
+                observed_summary=latest_observed_summary,
+            )
+            stop_reason = "final_observed_state_diff"
+
+    verified = bool(env is not None and blocker is None and stop_reason == "trace_exhausted")
+    return StrictTraceEnvResult(
+        env=env if verified else None,
+        trace_path=trace,
+        steps=replayed_steps,
+        stop_reason=stop_reason,
+        verified=verified,
+        blocker=blocker,
+        start=start_info,
+        final_state_id=env.snapshot_hash() if env is not None else None,
+        final_phase=env.phase() if env is not None else None,
+        latest_observed_summary=latest_observed_summary,
     )
 
 

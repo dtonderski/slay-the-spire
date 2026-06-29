@@ -1124,6 +1124,44 @@ h3 {
   width: 3.8rem;
 }
 
+.potion-controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  font-size: 0.76rem;
+}
+
+.potion-controls > span {
+  color: var(--muted);
+}
+
+.potion-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.potion-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.55rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.potion-toggle input {
+  width: auto;
+  margin: 0;
+}
+
 .search-result {
   overflow: auto;
 }

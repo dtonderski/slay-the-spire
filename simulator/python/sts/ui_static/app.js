@@ -26,6 +26,8 @@
     liveBridgeStep: null,
     liveSearchBridgeStateId: null,
     liveSendAction: null,
+    attachFidelity: null,
+    strictReplayBlocker: null,
     mode: null,
     stateKind: null,
     phase: null,
@@ -81,6 +83,7 @@
       "actionsPanel",
       "searchPolicySelect",
       "maxDepthInput",
+      "allowedPotionsPanel",
       "searchButton",
       "applyBestButton",
       "searchStatus",
@@ -184,8 +187,10 @@
       app.snapshot = null;
       app.search = null;
       app.liveSendAction = null;
-      app.liveBridgeStateId = firstDefined(session.bridge_state_id, bridgeStateId(), null);
-      app.liveBridgeStep = firstDefined(session.bridge_step, app.bridge && app.bridge.last_state_step, null);
+    app.liveBridgeStateId = firstDefined(session.bridge_state_id, bridgeStateId(), null);
+    app.liveBridgeStep = firstDefined(session.bridge_step, app.bridge && app.bridge.last_state_step, null);
+    app.attachFidelity = firstDefined(session.attach_fidelity, session.attachFidelity, app.attachFidelity);
+    app.strictReplayBlocker = firstDefined(session.strict_replay_blocker, session.strictReplayBlocker, null);
       app.liveSearchBridgeStateId = null;
       await loadSnapshotQuietly();
       await refreshParityQuietly();
@@ -248,6 +253,7 @@
     if (!app.sessionId || !isCombatSession()) return;
     const maxDepth = Number.parseInt(el.maxDepthInput.value, 10);
     const candidate = el.searchPolicySelect.value;
+    const allowedPotions = allowedPotionsPayload();
     await singleFlight("Searching", async () => {
       app.search = null;
       renderSearch();
@@ -258,6 +264,7 @@
           body: {
             candidate,
             max_depth: Number.isFinite(maxDepth) ? maxDepth : undefined,
+            allowed_potions: allowedPotions,
           },
         },
       );
@@ -526,6 +533,8 @@
     app.sessionId = firstDefined(payload && payload.id, payload && payload.session_id, state && state.session_id, app.sessionId);
     app.state = state || null;
     app.mode = firstDefined(payload && payload.mode, state && state.mode, app.mode);
+    app.attachFidelity = firstDefined(payload && payload.attach_fidelity, payload && payload.attachFidelity, state && state.attach_fidelity, state && state.attachFidelity, app.attachFidelity);
+    app.strictReplayBlocker = firstDefined(payload && payload.strict_replay_blocker, payload && payload.strictReplayBlocker, state && state.strict_replay_blocker, state && state.strictReplayBlocker, app.strictReplayBlocker);
     app.stateKind = firstDefined(payload && payload.state_kind, payload && payload.stateKind, state && state.state_kind, state && state.stateKind, app.stateKind);
     app.phase = firstDefined(payload && payload.phase, state && state.phase, app.phase);
     app.currentDecision = firstDefined(payload && payload.current_decision, payload && payload.currentDecision, state && state.current_decision, state && state.currentDecision, app.currentDecision);
@@ -565,6 +574,7 @@
     renderBoard();
     renderHand();
     renderActions();
+    renderAllowedPotions();
     renderSearch();
     renderBridge();
     renderTrace();
@@ -746,7 +756,9 @@
     el.searchResult.className = "search-result";
     el.searchResult.append(
       statBlock("Recommendation", [
-        ["Best", best ? actionLabel(best) : "None"],
+        ["Best", best ? recommendationBestLabel() : "None"],
+        ["HP loss", hpLossText(app.search)],
+        ["Final HP", hpFinalText(app.search)],
         ["Value", firstDefined(app.search.value, "-")],
         ["Visits", firstDefined(app.search.visits, "-")],
         ["Win", percentText(app.search.win_probability)],
@@ -767,6 +779,38 @@
     }
   }
 
+  function renderAllowedPotions() {
+    if (!el.allowedPotionsPanel) return;
+    const previous = new Map(
+      Array.from(el.allowedPotionsPanel.querySelectorAll("input[type='checkbox']")).map((input) => [
+        potionToggleKey(input.dataset.potionName, input.dataset.potionIndex),
+        input.checked,
+      ]),
+    );
+    clear(el.allowedPotionsPanel);
+    const potions = usablePotions();
+    if (!potions.length) {
+      el.allowedPotionsPanel.className = "potion-toggle-row empty";
+      empty(el.allowedPotionsPanel, "No usable potions.");
+      return;
+    }
+    el.allowedPotionsPanel.className = "potion-toggle-row";
+    potions.forEach((potion) => {
+      const label = document.createElement("label");
+      label.className = "potion-toggle";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = previous.get(potionToggleKey(potion.name, potion.index)) ?? true;
+      input.dataset.potionName = potion.name;
+      input.dataset.potionIndex = potion.index === null || potion.index === undefined ? "" : String(potion.index);
+      input.disabled = app.inFlight;
+      const text = document.createElement("span");
+      text.textContent = potion.name;
+      label.append(input, text);
+      el.allowedPotionsPanel.appendChild(label);
+    });
+  }
+
   function renderLive() {
     if (!el.liveStatusPanel) return;
     const lifecycle = bridgeLifecycle();
@@ -775,6 +819,7 @@
     const startBlocker = startLiveRunBlockedReason();
     const searchBlocker = liveSearchBlockedReason();
     const sendBlocker = liveSendBlockedReason();
+    const startStatus = summary.in_game === false ? startBlocker : null;
 
     el.liveStatusBadge.textContent = lifecycle.label;
     el.liveStatusBadge.className = `status-badge ${bridgeLifecycleClass(lifecycle.status)}`;
@@ -794,13 +839,15 @@
       statBlock("Assistant", [
         ["Session", app.mode === "live_bridge" ? "Live state attached" : "Not attached"],
         ["Attached step", firstDefined(app.liveBridgeStep, "-")],
-        ["Status", sendBlocker || searchBlocker || startBlocker || "Ready"],
+        ["Fidelity", attachFidelityText()],
+        ["Replay", strictReplayText()],
+        ["Status", sendBlocker || searchBlocker || startStatus || "Ready"],
       ]),
     );
 
     const best = app.search && app.search.bestAction;
-    const bestText = best ? actionLabel(best) : "No recommendation yet.";
-    el.liveReason.textContent = sendBlocker || searchBlocker || startBlocker || bestText;
+    const bestText = best ? recommendationBestLabel() : "No recommendation yet.";
+    el.liveReason.textContent = sendBlocker || searchBlocker || startStatus || bestText;
   }
 
   function renderBridge() {
@@ -1063,6 +1110,8 @@
       value: recommendation.value,
       win_probability: recommendation.win_probability,
       diagnostics: recommendation.diagnostics,
+      predicted_hp_loss: firstDefined(recommendation.predicted_hp_loss, recommendation.predictedHpLoss, null),
+      predicted_final_hp: firstDefined(recommendation.predicted_final_hp, recommendation.predictedFinalHp, null),
       config: recommendation.config,
     };
   }
@@ -1133,7 +1182,7 @@
     const best = app.search.bestAction;
     const bridgeActions = arrayOf(app.bridge.bridge_actions);
     if (!bridgeActions.length) return null;
-    if (best.kind === "EndTurn" || best.action_kind === "end_turn") {
+    if (isEndTurnAction(best)) {
       return bridgeActions.find((action) => String(action.command || "").toUpperCase() === "END") || null;
     }
     const play = exactRunPlayCard(best);
@@ -1150,19 +1199,48 @@
     }) || null;
   }
 
+  function recommendationBestLabel() {
+    const liveAction = app.viewMode === "live" ? liveBridgeActionForBest() : null;
+    if (liveAction) return bridgeActionLabel(liveAction);
+    const best = app.search && app.search.bestAction;
+    return best ? actionLabel(best) : "None";
+  }
+
   function exactRunPlayCard(action) {
     if (!action) return null;
     if (action.kind === "PlayCard") {
       return { card_id: action.card_id, target: action.target };
+    }
+    const descriptor = action.descriptor || {};
+    const descriptorPayload = descriptor.action && descriptor.action.PlayCard;
+    if (descriptorPayload) {
+      return { card_id: descriptorPayload.card_id, target: descriptorPayload.target };
     }
     const payload = action.action && action.action.PlayCard;
     if (payload) return { card_id: payload.card_id, target: payload.target };
     return null;
   }
 
+  function isEndTurnAction(action) {
+    if (!action) return false;
+    if (action.kind === "EndTurn" || action.action_kind === "end_turn") return true;
+    const descriptor = action.descriptor || {};
+    if (descriptor.kind === "EndTurn" || descriptor.action_kind === "end_turn") return true;
+    if (descriptor.action === "EndTurn" || action.action === "EndTurn") return true;
+    return false;
+  }
+
   function observedHandSlotForCardId(cardId) {
     const hand = arrayOf(app.bridge && app.bridge.summary && app.bridge.summary.combat && app.bridge.summary.combat.hand);
-    const card = hand.find((entry) => String(firstDefined(entry.id, entry.card_id, entry.cardId, "")) === String(cardId));
+    const direct = hand.find((entry) => String(firstDefined(entry.id, entry.card_id, entry.cardId, "")) === String(cardId));
+    if (direct) {
+      const directSlot = firstDefined(direct.index, direct.slot, direct.hand_slot, direct.handSlot, null);
+      if (directSlot !== null) return directSlot;
+    }
+
+    const simHand = arrayOf(app.state && app.state.combat && app.state.combat.piles && app.state.combat.piles.hand);
+    const simIndex = simHand.findIndex((entry) => String(firstDefined(entry.id, entry.card_id, entry.cardId, "")) === String(cardId));
+    const card = simIndex >= 0 ? hand[simIndex] : null;
     const slot = card && firstDefined(card.index, card.slot, card.hand_slot, card.handSlot, null);
     return slot === undefined ? null : slot;
   }
@@ -1170,7 +1248,15 @@
   function observedMonsterSlotForTarget(target) {
     if (target === null || target === undefined) return null;
     const monsters = arrayOf(app.bridge && app.bridge.summary && app.bridge.summary.combat && app.bridge.summary.combat.monsters);
-    const monster = monsters.find((entry) => String(firstDefined(entry.id, entry.monster_id, entry.monsterId, entry.index, "")) === String(target));
+    const direct = monsters.find((entry) => String(firstDefined(entry.id, entry.monster_id, entry.monsterId, entry.index, "")) === String(target));
+    if (direct) {
+      const directSlot = firstDefined(direct.index, direct.slot, direct.target_slot, direct.targetSlot, null);
+      if (directSlot !== null) return directSlot;
+    }
+
+    const simMonsters = arrayOf(app.state && app.state.combat && app.state.combat.monsters);
+    const simIndex = simMonsters.findIndex((entry) => String(firstDefined(entry.id, entry.monster_id, entry.monsterId, "")) === String(target));
+    const monster = simIndex >= 0 ? monsters[simIndex] : null;
     const slot = monster && firstDefined(monster.index, monster.slot, monster.target_slot, monster.targetSlot, null);
     return slot === undefined ? null : slot;
   }
@@ -1182,6 +1268,66 @@
     const depth = firstDefined(config.max_depth, config.maxDepth, "-");
     const width = firstDefined(config.beam_width, config.beamWidth, "-");
     return `${algorithm} / ${objective} / d${depth} / w${width}`;
+  }
+
+  function attachFidelityText() {
+    const mode = firstDefined(app.attachFidelity, null);
+    if (!mode) return app.mode === "live_bridge" ? "Observed state" : "-";
+    if (mode === "observed_state") return "Observed state";
+    if (mode === "seed_replay") return "Seed replay";
+    return humanize(mode);
+  }
+
+  function strictReplayText() {
+    if (app.attachFidelity === "seed_replay") return "Verified";
+    const blocker = app.strictReplayBlocker;
+    if (!blocker) return app.mode === "live_bridge" ? "Not used" : "-";
+    return firstDefined(blocker.stop_reason, blocker.blocker && blocker.blocker.category, "Fallback");
+  }
+
+  function allowedPotionsPayload() {
+    const potions = usablePotions();
+    if (!potions.length) return [];
+    const checked = Array.from(el.allowedPotionsPanel.querySelectorAll("input[type='checkbox']:checked"))
+      .map((input) => input.dataset.potionName)
+      .filter(Boolean);
+    return checked;
+  }
+
+  function potionToggleKey(name, index) {
+    return `${firstDefined(index, "")}:${name}`;
+  }
+
+  function usablePotions() {
+    const bridgePotions = arrayOf(app.bridge && app.bridge.summary && app.bridge.summary.potions)
+      .filter((potion) => potion && potion.can_use)
+      .map((potion) => ({
+        name: String(firstDefined(potion.name, potion.id, `Potion ${firstDefined(potion.index, "?")}`)),
+        index: firstDefined(potion.index, null),
+      }));
+    if (bridgePotions.length) return bridgePotions;
+
+    return arrayOf(app.state && app.state.potions)
+      .map((potion, index) => ({
+        name: typeof potion === "string" ? potion : String(firstDefined(potion.name, potion.id, `Potion ${index + 1}`)),
+        index,
+      }))
+      .filter((potion) => potion.name && potion.name !== "Potion Slot");
+  }
+
+  function hpLossText(search) {
+    const loss = firstDefined(search && search.predicted_hp_loss, null);
+    if (loss === null || loss === undefined) return "-";
+    const rounded = Math.round(Number(loss) * 10) / 10;
+    if (!Number.isFinite(rounded)) return "-";
+    return rounded <= 0 ? "0" : stringify(rounded);
+  }
+
+  function hpFinalText(search) {
+    const finalHp = firstDefined(search && search.predicted_final_hp, search && search.diagnostics && search.diagnostics.rust_final_hp, null);
+    if (finalHp === null || finalHp === undefined) return "-";
+    const rounded = Math.round(Number(finalHp) * 10) / 10;
+    return Number.isFinite(rounded) ? stringify(rounded) : "-";
   }
 
   function lifecycleFromPayload(lifecycle) {
@@ -1637,8 +1783,8 @@
 
   function hpText(entity) {
     const current = firstDefined(entity.current_hp, entity.hp, entity.health, "?");
-    const max = firstDefined(entity.max_hp, entity.maxHealth, entity.max_health, null);
-    return max === null ? current : `${current}/${max}`;
+    const max = firstDefined(entity.max_hp, entity.maxHealth, entity.max_health, entity.maxHp, entity.max, null);
+    return max === null || max === undefined || max === "undefined" ? current : `${current}/${max}`;
   }
 
   function energyText(board, player) {

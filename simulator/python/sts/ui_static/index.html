@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>STS Omniscient Combat</title>
-    <link rel="stylesheet" href="./styles.css?v=live-ui-3" />
+    <link rel="stylesheet" href="./styles.css?v=live-ui-4" />
   </head>
   <body>
     <div class="app-shell">
@@ -89,6 +89,12 @@
               <input id="maxDepthInput" type="number" min="1" max="80" value="40" />
               <button id="searchButton" type="button" disabled>Search</button>
               <button id="applyBestButton" type="button" disabled>Apply</button>
+            </div>
+            <div class="potion-controls">
+              <span>Allowed potions</span>
+              <div id="allowedPotionsPanel" class="potion-toggle-row">
+                <span class="empty-text">No usable potions.</span>
+              </div>
             </div>
             <div id="searchResult" class="search-result empty">
               <span class="empty-text">No recommendation yet.</span>
@@ -218,6 +224,6 @@
       </main>
     </div>
 
-    <script src="./app.js?v=live-ui-5"></script>
+    <script src="./app.js?v=live-ui-6"></script>
   </body>
 </html>

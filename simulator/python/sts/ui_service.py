@@ -15,6 +15,7 @@ from sts.bridge import BridgeMirror, command_for_descriptor
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
+from sts.self_play import strict_replay_real_trace_to_env
 from sts.trace_replay import TraceReplayStore
 
 
@@ -63,8 +64,29 @@ class SessionManager:
         return self.serialize_session(session)
 
     def create_live_session(self, bridge_status: dict[str, Any]) -> dict[str, Any]:
-        observed = _observed_state_from_bridge_status(bridge_status)
-        env = omni.OmniRunEnv.from_communication_mod_state_json(json.dumps(observed))
+        replay = _strict_replay_from_bridge_trace(bridge_status)
+        replay_blocker = None
+        if replay and replay.verified and replay.env is not None:
+            env = replay.env
+            attach_fidelity = "seed_replay"
+            attach_source = {
+                "trace_path": str(replay.trace_path),
+                "steps": replay.steps,
+                "final_state_id": replay.final_state_id,
+                "final_phase": replay.final_phase,
+            }
+        else:
+            observed = _observed_state_from_bridge_status(bridge_status)
+            env = omni.OmniRunEnv.from_communication_mod_state_json(json.dumps(observed))
+            attach_fidelity = "observed_state"
+            attach_source = {"trace_path": bridge_status.get("trace_path")}
+            if replay:
+                replay_blocker = {
+                    "stop_reason": replay.stop_reason,
+                    "blocker": replay.blocker,
+                    "steps": replay.steps,
+                    "final_state_id": replay.final_state_id,
+                }
         session = CombatSession(
             id=uuid4().hex,
             mode="live_bridge",
@@ -75,6 +97,9 @@ class SessionManager:
         result = self.serialize_session(session)
         result["bridge_state_id"] = bridge_status.get("state_id")
         result["bridge_step"] = bridge_status.get("last_state_step")
+        result["attach_fidelity"] = attach_fidelity
+        result["attach_source"] = attach_source
+        result["strict_replay_blocker"] = replay_blocker
         return result
 
     def get_session(self, session_id: str) -> dict[str, Any]:
@@ -198,6 +223,8 @@ class SessionManager:
             (action["action_id"] for action in actions if action["exact_action"].json() == best_json),
             None,
         )
+        predicted_final_hp = _search_predicted_final_hp(recommendation.diagnostics)
+        predicted_hp_loss = _search_predicted_hp_loss(session.env, predicted_final_hp)
         return {
             "session_id": session.id,
             "state_id": session.env.snapshot_hash(),
@@ -213,6 +240,8 @@ class SessionManager:
                 "value": recommendation.value,
                 "win_probability": recommendation.win_probability,
                 "terminal_rate": recommendation.terminal_rate,
+                "predicted_final_hp": predicted_final_hp,
+                "predicted_hp_loss": predicted_hp_loss,
                 "diagnostics": recommendation.diagnostics,
                 "terminal_reason": recommendation.terminal_reason,
                 "config": config.__dict__,
@@ -464,6 +493,77 @@ def _parse_allowed_potions(value: Any) -> tuple[str, ...] | None:
     if isinstance(value, list):
         return tuple(str(part).strip() for part in value if str(part).strip())
     raise ValueError("allowed_potions must be a string, list, or null")
+
+
+def _strict_replay_from_bridge_trace(bridge_status: dict[str, Any]) -> Any | None:
+    trace_path = bridge_status.get("trace_path")
+    if not trace_path:
+        return None
+    try:
+        path = Path(str(trace_path))
+    except TypeError:
+        return None
+    if not path.is_file():
+        return None
+    try:
+        return strict_replay_real_trace_to_env(trace=path)
+    except Exception as error:
+        return type(
+            "StrictReplayFailure",
+            (),
+            {
+                "verified": False,
+                "env": None,
+                "trace_path": path,
+                "steps": 0,
+                "stop_reason": "strict_replay_error",
+                "blocker": {"category": "strict_replay_error", "reason": str(error)},
+                "final_state_id": None,
+                "final_phase": None,
+            },
+        )()
+
+
+def _search_predicted_final_hp(diagnostics: dict[str, Any]) -> float | None:
+    value = diagnostics.get("rust_final_hp")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _search_predicted_hp_loss(env: Any, predicted_final_hp: float | None) -> float | None:
+    if predicted_final_hp is None:
+        return None
+    try:
+        state = json.loads(env.state_json())
+    except (TypeError, ValueError):
+        return None
+    current_hp = _state_player_hp(state)
+    if current_hp is None:
+        return None
+    return max(0.0, float(current_hp) - predicted_final_hp)
+
+
+def _state_player_hp(state: dict[str, Any]) -> float | None:
+    candidates = [
+        state.get("player_hp"),
+        (state.get("player") or {}).get("hp") if isinstance(state.get("player"), dict) else None,
+        ((state.get("combat") or {}).get("player") or {}).get("hp")
+        if isinstance(state.get("combat"), dict)
+        and isinstance((state.get("combat") or {}).get("player"), dict)
+        else None,
+    ]
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            return float(candidate)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _public_action(action: dict[str, Any]) -> dict[str, Any]:
