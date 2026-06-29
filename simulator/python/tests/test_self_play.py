@@ -21,6 +21,7 @@ from sts.self_play import (
     replay_real_trace_guided,
     run_self_play,
     run_self_play_batch,
+    strict_replay_real_trace_to_env,
     verify_self_play_trace,
 )
 
@@ -762,6 +763,45 @@ class SelfPlayTests(unittest.TestCase):
             self.assertTrue(verification["ok"])
             records = self._read_jsonl(output_path)
             self.assertIsNone(records[0]["blocker"])
+
+    def test_strict_replay_to_env_verifies_minimal_start_trace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 TEST"},
+                ],
+            )
+
+            result = strict_replay_real_trace_to_env(trace=trace_path)
+
+            self.assertTrue(result.verified)
+            self.assertIsNotNone(result.env)
+            self.assertEqual(result.stop_reason, "trace_exhausted")
+            self.assertEqual(result.steps, 0)
+            self.assertEqual(result.start["external_seed"], "TEST")
+            self.assertEqual(result.final_state_id, result.env.snapshot_hash())
+
+    def test_strict_replay_to_env_reports_missing_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "state", "step": 1, "message": {"game_state": {"current_hp": 80}}},
+                    {"type": "action", "step": 1, "command": "state"},
+                ],
+            )
+
+            result = strict_replay_real_trace_to_env(trace=trace_path)
+
+            self.assertFalse(result.verified)
+            self.assertIsNone(result.env)
+            self.assertEqual(result.stop_reason, "missing_start")
+            self.assertEqual(result.blocker["category"], "missing_start")
 
     def test_trace_guided_replay_diagnostic_skips_unsupported_neow_until_anchor(self):
         with tempfile.TemporaryDirectory() as directory:

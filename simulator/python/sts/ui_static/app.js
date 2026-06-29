@@ -1282,7 +1282,9 @@
     if (app.attachFidelity === "seed_replay") return "Verified";
     const blocker = app.strictReplayBlocker;
     if (!blocker) return app.mode === "live_bridge" ? "Not used" : "-";
-    return firstDefined(blocker.stop_reason, blocker.blocker && blocker.blocker.category, "Fallback");
+    const reason = firstDefined(blocker.stop_reason, blocker.blocker && blocker.blocker.category, "Fallback");
+    if (reason === "missing_start") return "No START in trace";
+    return humanize(reason);
   }
 
   function allowedPotionsPayload() {
