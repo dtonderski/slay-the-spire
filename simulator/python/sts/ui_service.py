@@ -153,6 +153,25 @@ class SessionManager:
             ),
         )
 
+    def predict(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        session = self._require_session(session_id)
+        state_id = session.env.snapshot_hash()
+        source_state_id = payload.get("source_state_id")
+        if source_state_id != state_id:
+            raise ValueError(f"stale prediction: expected {state_id}, received {source_state_id}")
+
+        action = self._action_from_payload(session, payload, state_id)
+        clone = session.env.clone()
+        result = clone.step(action["exact_action"])
+        return {
+            "session_id": session.id,
+            "source_state_id": state_id,
+            "predicted_state_id": result.snapshot_hash,
+            "predicted_snapshot_json": result.snapshot_json,
+            "transition": _transition_to_json(result.transition),
+            "action": _public_action(action),
+        }
+
     def step(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         session = self._require_session(session_id)
         state_id = session.env.snapshot_hash()
@@ -331,6 +350,31 @@ class SessionManager:
             )
         return actions
 
+    def _action_from_payload(self, session: CombatSession, payload: dict[str, Any], state_id: str) -> dict[str, Any]:
+        actions = self._actions(session.env, state_id)
+        action_id = payload.get("action_id")
+        if action_id:
+            action = next((entry for entry in actions if entry["action_id"] == action_id), None)
+            if action is not None:
+                return action
+            raise ValueError(f"unknown action_id for current state: {action_id}")
+
+        descriptor = payload.get("descriptor")
+        if isinstance(descriptor, dict):
+            action = next((entry for entry in actions if entry["descriptor"] == descriptor), None)
+            if action is not None:
+                return action
+            raise ValueError("descriptor does not match any current exact legal action")
+
+        exact_action_json = payload.get("exact_action_json")
+        if isinstance(exact_action_json, str):
+            action = next((entry for entry in actions if entry["exact_action_json"] == exact_action_json), None)
+            if action is not None:
+                return action
+            raise ValueError("exact_action_json does not match any current exact legal action")
+
+        raise ValueError("prediction requires action_id, descriptor, or exact_action_json")
+
 
 class UiRequestHandler(SimpleHTTPRequestHandler):
     manager = SessionManager()
@@ -399,6 +443,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "step":
                 self._send_json(self.manager.step(parts[2], payload))
+                return
+            if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "predict":
+                self._send_json(self.manager.predict(parts[2], payload))
                 return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "restore":
                 self._send_json(self.manager.restore(parts[2], payload))

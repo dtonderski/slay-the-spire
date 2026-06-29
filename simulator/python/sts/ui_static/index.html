@@ -224,6 +224,18 @@
       </main>
     </div>
 
-    <script src="./app.js?v=live-ui-7"></script>
+    <div id="invariantModal" class="invariant-modal hidden" role="alertdialog" aria-modal="true" aria-labelledby="invariantTitle">
+      <div class="invariant-dialog">
+        <div class="status-badge bad">STOP</div>
+        <h2 id="invariantTitle">Simulator prediction mismatch</h2>
+        <p id="invariantMessage">
+          The live game reached a different state than the simulator predicted.
+        </p>
+        <div id="invariantFacts" class="invariant-facts"></div>
+        <button id="ackInvariantButton" class="primary" type="button">I understand, stop using cached plan</button>
+      </div>
+    </div>
+
+    <script src="./app.js?v=live-ui-9"></script>
   </body>
 </html>

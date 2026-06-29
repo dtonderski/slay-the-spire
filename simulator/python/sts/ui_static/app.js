@@ -22,10 +22,14 @@
     activeDebugTab: "state",
     viewMode: "live",
     bridgePollTimer: null,
+    liveAutoAttachInFlight: false,
     liveBridgeStateId: null,
     liveBridgeStep: null,
     liveSearchBridgeStateId: null,
     liveSendAction: null,
+    livePendingPrediction: null,
+    livePendingPlanIndex: null,
+    liveInvariantViolation: null,
     attachFidelity: null,
     strictReplayBlocker: null,
     mode: null,
@@ -90,6 +94,11 @@
       "searchResult",
       "refreshBridgeButton",
       "requestBridgeStateButton",
+      "invariantModal",
+      "invariantTitle",
+      "invariantMessage",
+      "invariantFacts",
+      "ackInvariantButton",
       "bridgePanel",
       "refreshTracesButton",
       "loadTraceButton",
@@ -129,6 +138,7 @@
     el.applyBestButton.addEventListener("click", applyBestAction);
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
+    el.ackInvariantButton.addEventListener("click", acknowledgeInvariantViolation);
     el.refreshTracesButton.addEventListener("click", refreshTraces);
     el.loadTraceButton.addEventListener("click", loadSelectedTrace);
     el.restoreSnapshotButton.addEventListener("click", restoreSnapshot);
@@ -158,9 +168,17 @@
       if (app.inFlight) return;
       const previousStateId = bridgeStateId();
       await refreshBridgeQuietly();
-      if (bridgeStateId() !== previousStateId || app.viewMode === "live") {
+      const currentBridgeStateId = bridgeStateId();
+      if (app.viewMode === "live" && currentBridgeStateId && currentBridgeStateId !== previousStateId) {
+        await autoAttachLiveStateQuietly();
+      }
+      if (currentBridgeStateId !== previousStateId || app.viewMode === "live") {
         renderChrome();
         renderLive();
+        renderBoard();
+        renderHand();
+        renderActions();
+        renderSearch();
         renderBridge();
         renderDebug();
       }
@@ -187,14 +205,50 @@
       app.snapshot = null;
       app.search = null;
       app.liveSendAction = null;
-    app.liveBridgeStateId = firstDefined(session.bridge_state_id, bridgeStateId(), null);
-    app.liveBridgeStep = firstDefined(session.bridge_step, app.bridge && app.bridge.last_state_step, null);
-    app.attachFidelity = firstDefined(session.attach_fidelity, session.attachFidelity, app.attachFidelity);
-    app.strictReplayBlocker = firstDefined(session.strict_replay_blocker, session.strictReplayBlocker, null);
+      app.livePendingPrediction = null;
+      app.livePendingPlanIndex = null;
+      app.liveBridgeStateId = firstDefined(session.bridge_state_id, bridgeStateId(), null);
+      app.liveBridgeStep = firstDefined(session.bridge_step, app.bridge && app.bridge.last_state_step, null);
+      app.attachFidelity = firstDefined(session.attach_fidelity, session.attachFidelity, app.attachFidelity);
+      app.strictReplayBlocker = firstDefined(session.strict_replay_blocker, session.strictReplayBlocker, null);
       app.liveSearchBridgeStateId = null;
       await loadSnapshotQuietly();
       await refreshParityQuietly();
     });
+  }
+
+  async function autoAttachLiveStateQuietly() {
+    if (app.liveAutoAttachInFlight || app.inFlight || app.viewMode !== "live") return;
+    if (!canAttachLiveSession()) return;
+    const currentBridgeStateId = bridgeStateId();
+    if (!currentBridgeStateId || app.liveBridgeStateId === currentBridgeStateId) return;
+    app.liveAutoAttachInFlight = true;
+    const previousSearch = app.search;
+    const pendingPlanIndex = app.livePendingPlanIndex;
+    try {
+      const session = await requestJson("/api/live/session", { method: "POST", body: {} });
+      adoptSession(session);
+      app.viewMode = "live";
+      app.snapshot = null;
+      app.liveSendAction = null;
+      app.liveBridgeStateId = firstDefined(session.bridge_state_id, currentBridgeStateId, null);
+      app.liveBridgeStep = firstDefined(session.bridge_step, app.bridge && app.bridge.last_state_step, null);
+      app.attachFidelity = firstDefined(session.attach_fidelity, session.attachFidelity, app.attachFidelity);
+      app.strictReplayBlocker = firstDefined(session.strict_replay_blocker, session.strictReplayBlocker, null);
+      app.liveSearchBridgeStateId = null;
+      await loadSnapshotQuietly();
+      await refreshParityQuietly();
+      if (verifyPendingLivePrediction(currentStateId())) {
+        advanceLiveSearchPlan(previousSearch, pendingPlanIndex, currentBridgeStateId);
+      } else {
+        app.search = null;
+        app.livePendingPlanIndex = null;
+      }
+    } catch (error) {
+      app.lastError = readableError(error);
+    } finally {
+      app.liveAutoAttachInFlight = false;
+    }
   }
 
   async function runLiveSearch() {
@@ -208,6 +262,7 @@
     await runSearch();
     app.liveSearchBridgeStateId = bridgeStateId();
     app.liveSendAction = liveBridgeActionForBest();
+    app.livePendingPlanIndex = null;
     renderLive();
   }
 
@@ -217,6 +272,16 @@
       showError(liveSendBlockedReason() || "Recommendation cannot be sent to the live game.");
       return;
     }
+    const prediction = await predictLiveBestAction();
+    if (!prediction) return;
+    app.livePendingPrediction = {
+      source_state_id: firstDefined(prediction.source_state_id, currentStateId(), null),
+      predicted_state_id: firstDefined(prediction.predicted_state_id, prediction.predictedStateId, null),
+      bridge_state_id: bridgeStateId(),
+      bridge_step: app.bridge && app.bridge.last_state_step,
+      action_label: recommendationBestLabel(),
+    };
+    app.livePendingPlanIndex = nextPrincipalVariationIndex();
     await submitBridgeAction(action);
     app.liveSearchBridgeStateId = null;
     app.liveSendAction = null;
@@ -269,7 +334,22 @@
         },
       );
       app.search = normalizeSearch(recommendation);
+      app.livePendingPlanIndex = null;
     });
+  }
+
+  async function predictLiveBestAction() {
+    const best = app.search && app.search.bestAction;
+    if (!app.sessionId || !best) return null;
+    try {
+      return await requestJson(`/api/sessions/${encodeURIComponent(app.sessionId)}/predict`, {
+        method: "POST",
+        body: predictionPayload(best),
+      });
+    } catch (error) {
+      showError(`Cannot predict the next simulator state: ${readableError(error)}`);
+      return null;
+    }
   }
 
   async function applyBestAction() {
@@ -579,6 +659,7 @@
     renderBridge();
     renderTrace();
     renderDebug();
+    renderInvariantModal();
   }
 
   function renderChrome() {
@@ -770,9 +851,12 @@
     if (pv.length) {
       const list = document.createElement("ol");
       list.className = "pv-list";
-      pv.forEach((item) => {
+      const activeIndex = Number.isInteger(app.search.planIndex) ? app.search.planIndex : 0;
+      pv.forEach((item, index) => {
         const li = document.createElement("li");
         li.textContent = actionLabel(item);
+        if (index < activeIndex) li.className = "pv-consumed";
+        if (index === activeIndex) li.className = "pv-current";
         list.appendChild(li);
       });
       el.searchResult.appendChild(list);
@@ -841,6 +925,7 @@
         ["Attached step", firstDefined(app.liveBridgeStep, "-")],
         ["Fidelity", attachFidelityText()],
         ["Replay", strictReplayText()],
+        ["Plan guard", livePlanGuardText()],
         ["Status", sendBlocker || searchBlocker || startStatus || "Ready"],
       ]),
     );
@@ -1113,7 +1198,96 @@
       predicted_hp_loss: firstDefined(recommendation.predicted_hp_loss, recommendation.predictedHpLoss, null),
       predicted_final_hp: firstDefined(recommendation.predicted_final_hp, recommendation.predictedFinalHp, null),
       config: recommendation.config,
+      planIndex: 0,
     };
+  }
+
+  function predictionPayload(action) {
+    const descriptor = action.descriptor || (action.kind ? action : null);
+    return {
+      action_id: firstDefined(action.action_id, action.actionId, action.id, undefined),
+      descriptor: descriptor || undefined,
+      exact_action_json: firstDefined(action.exact_action_json, action.exactActionJson, undefined),
+      source_state_id: currentStateId(),
+    };
+  }
+
+  function nextPrincipalVariationIndex() {
+    if (!app.search) return null;
+    const current = Number.isInteger(app.search.planIndex) ? app.search.planIndex : 0;
+    return current + 1;
+  }
+
+  function verifyPendingLivePrediction(observedStateId) {
+    const pending = app.livePendingPrediction;
+    if (!pending) return false;
+    app.livePendingPrediction = null;
+    const expected = firstDefined(pending.predicted_state_id, pending.predictedStateId, null);
+    if (expected && observedStateId && expected === observedStateId) return true;
+
+    const violation = {
+      title: "Simulator prediction mismatch",
+      message: "The live game reached a different state than the simulator predicted. Cached recommendations and auto-play are blocked until you inspect and reattach/research.",
+      expected,
+      observed: observedStateId || "-",
+      source: firstDefined(pending.source_state_id, "-"),
+      bridgeState: firstDefined(pending.bridge_state_id, "-"),
+      bridgeStep: firstDefined(pending.bridge_step, "-"),
+      action: firstDefined(pending.action_label, "Unknown action"),
+    };
+    app.liveInvariantViolation = violation;
+    app.search = null;
+    app.liveSearchBridgeStateId = null;
+    app.liveSendAction = null;
+    app.livePendingPlanIndex = null;
+    window.alert(`${violation.title}\n\nExpected: ${violation.expected}\nObserved: ${violation.observed}\nAction: ${violation.action}`);
+    return false;
+  }
+
+  function advanceLiveSearchPlan(previousSearch, nextIndex, bridgeId) {
+    const pv = arrayOf(previousSearch && previousSearch.principal_variation);
+    if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= pv.length) {
+      app.search = null;
+      return false;
+    }
+    app.search = Object.assign({}, previousSearch, {
+      bestAction: pv[nextIndex],
+      planIndex: nextIndex,
+    });
+    app.liveSearchBridgeStateId = bridgeId;
+    app.liveSendAction = liveBridgeActionForBest();
+    if (!app.liveSendAction) {
+      app.search = null;
+      app.liveSearchBridgeStateId = null;
+      return false;
+    }
+    app.livePendingPlanIndex = null;
+    return true;
+  }
+
+  function acknowledgeInvariantViolation() {
+    app.liveInvariantViolation = null;
+    render();
+  }
+
+  function renderInvariantModal() {
+    if (!el.invariantModal) return;
+    const violation = app.liveInvariantViolation;
+    el.invariantModal.classList.toggle("hidden", !violation);
+    if (!violation) return;
+    el.invariantTitle.textContent = violation.title || "Live plan stopped";
+    el.invariantMessage.textContent = violation.message || "The simulator and live game diverged.";
+    clear(el.invariantFacts);
+    el.invariantFacts.append(
+      statBlock("Mismatch", [
+        ["Expected", firstDefined(violation.expected, "-")],
+        ["Observed", firstDefined(violation.observed, "-")],
+        ["Source", firstDefined(violation.source, "-")],
+        ["Bridge state", firstDefined(violation.bridgeState, "-")],
+        ["Bridge step", firstDefined(violation.bridgeStep, "-")],
+        ["Action", firstDefined(violation.action, "-")],
+      ]),
+    );
   }
 
   function canAttachLiveSession() {
@@ -1137,6 +1311,7 @@
   }
 
   function liveSearchBlockedReason() {
+    if (app.liveInvariantViolation) return "Simulator/live mismatch needs acknowledgement.";
     if (app.viewMode !== "live") return "Switch to Live Game mode.";
     if (!app.bridge) return "Bridge status not loaded.";
     if (app.bridge.exited) return "Bridge exited.";
@@ -1149,6 +1324,7 @@
   }
 
   function liveSendBlockedReason() {
+    if (app.liveInvariantViolation) return "Simulator/live mismatch needs acknowledgement.";
     const searchBlocker = liveSearchBlockedReason();
     if (searchBlocker) return searchBlocker;
     if (!app.search || !app.search.bestAction) return "Run search first.";
@@ -1285,6 +1461,13 @@
     const reason = firstDefined(blocker.stop_reason, blocker.blocker && blocker.blocker.category, "Fallback");
     if (reason === "missing_start") return "No START in trace";
     return humanize(reason);
+  }
+
+  function livePlanGuardText() {
+    if (app.liveInvariantViolation) return "Stopped";
+    if (app.livePendingPrediction) return "Awaiting observed state";
+    if (app.search && app.liveSearchBridgeStateId === bridgeStateId()) return "Predicted";
+    return "Idle";
   }
 
   function allowedPotionsPayload() {
