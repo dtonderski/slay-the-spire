@@ -267,6 +267,37 @@ class UiServiceTests(unittest.TestCase):
         self.assertIn("predicted_final_hp", recommendation)
         self.assertIn("predicted_hp_loss", recommendation)
 
+    def test_predict_returns_next_state_without_mutating_session(self):
+        manager = SessionManager()
+        session = manager.create_session()
+        action = session["actions"][0]
+
+        prediction = manager.predict(
+            session["session_id"],
+            {
+                "action_id": action["action_id"],
+                "source_state_id": session["state_id"],
+            },
+        )
+        after = manager.state(session["session_id"])
+
+        self.assertEqual(prediction["source_state_id"], session["state_id"])
+        self.assertNotEqual(prediction["predicted_state_id"], session["state_id"])
+        self.assertEqual(after["state_id"], session["state_id"])
+
+    def test_predict_rejects_stale_source_state(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        with self.assertRaises(ValueError):
+            manager.predict(
+                session["session_id"],
+                {
+                    "action_id": session["actions"][0]["action_id"],
+                    "source_state_id": "old-state",
+                },
+            )
+
     def test_live_session_prefers_verified_strict_replay_env(self):
         manager = SessionManager()
         replay = SimpleNamespace(

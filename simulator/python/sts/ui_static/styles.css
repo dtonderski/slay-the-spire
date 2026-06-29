@@ -638,6 +638,54 @@ h3 {
   margin-top: 0.25rem;
 }
 
+.pv-list .pv-consumed {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.pv-list .pv-current {
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.invariant-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(24, 32, 31, 0.72);
+}
+
+.invariant-modal.hidden {
+  display: none;
+}
+
+.invariant-dialog {
+  width: min(44rem, 100%);
+  border: 3px solid var(--danger);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.32);
+  padding: 1.25rem;
+}
+
+.invariant-dialog h2 {
+  margin-top: 0.75rem;
+  color: var(--danger);
+  font-size: 1.35rem;
+}
+
+.invariant-dialog p {
+  margin-top: 0.6rem;
+  line-height: 1.45;
+}
+
+.invariant-facts {
+  margin: 1rem 0;
+}
+
 .debug-band {
   padding-bottom: 1rem;
 }
