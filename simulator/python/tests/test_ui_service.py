@@ -225,7 +225,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertTrue(recommendation["principal_variation"])
         self.assertEqual(
             recommendation["config"]["algorithm"],
-            "rust_terminal_win_hp_selector",
+            "rust_terminal_hp_commit_safe_selector",
         )
 
     def test_search_accepts_named_policy_override(self):

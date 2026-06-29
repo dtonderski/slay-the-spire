@@ -1830,13 +1830,6 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
         state.player.energy += ART_OF_WAR_ENERGY;
     }
 
-    if state.relics.contains(&Relic::Pocketwatch)
-        && state.relic_counters.player_turns_started > 1
-        && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT
-    {
-        crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW);
-    }
-
     match state.relic_counters.player_turns_started {
         HORN_CLEAT_TURN if state.relics.contains(&Relic::HornCleat) => {
             state.player.block += HORN_CLEAT_BLOCK;
@@ -1864,6 +1857,15 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
             state.relic_counters.incense_burner_counter = 0;
             state.player.powers.intangible += 1;
         }
+    }
+}
+
+pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) {
+    if state.relics.contains(&Relic::Pocketwatch)
+        && state.relic_counters.player_turns_started > 1
+        && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT
+    {
+        crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW);
     }
 }
 
@@ -2047,7 +2049,12 @@ pub fn apply_on_card_play_relics(
         state.relic_counters.letter_opener_skills_this_turn += 1;
         if state.relic_counters.letter_opener_skills_this_turn >= LETTER_OPENER_THRESHOLD {
             state.relic_counters.letter_opener_skills_this_turn = 0;
-            deal_unmodified_damage_to_living_monsters(state, LETTER_OPENER_DAMAGE);
+            follow_ups.extend(state.monsters.iter().filter(|monster| monster.alive).map(
+                |monster| InternalAction::DealUnmodifiedDamage {
+                    target: monster.id,
+                    amount: LETTER_OPENER_DAMAGE,
+                },
+            ));
         }
     }
 
@@ -2111,8 +2118,15 @@ pub fn can_play_unplayable_card_with_relics(
 }
 
 fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i32) {
+    let mut dead = Vec::new();
     for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
         crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
+        if !monster.alive {
+            dead.push(monster.id);
+        }
+    }
+    for monster_id in dead {
+        crate::combat::transition::apply_monster_death_hooks(state, monster_id);
     }
 }
 
@@ -3311,8 +3325,15 @@ mod tests {
         let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
         assert_eq!(combat.monsters[0].hp, hp_before);
 
-        let _ = apply_on_card_play_relics(&mut combat, CardType::Skill);
-        assert_eq!(combat.monsters[0].hp, hp_before - LETTER_OPENER_DAMAGE);
+        let follow_ups = apply_on_card_play_relics(&mut combat, CardType::Skill);
+        assert_eq!(combat.monsters[0].hp, hp_before);
+        assert_eq!(
+            follow_ups,
+            vec![crate::InternalAction::DealUnmodifiedDamage {
+                target: crate::MonsterId::new(1),
+                amount: LETTER_OPENER_DAMAGE,
+            }]
+        );
         assert_eq!(
             combat.monsters[1].hp,
             crate::content::monsters::CULTIST_A0.hp
@@ -3500,7 +3521,10 @@ mod tests {
 
         combat.relic_counters.player_turns_started = STONE_CALENDAR_TURN;
         apply_end_of_player_turn_relics(&mut combat);
-        assert_eq!(combat.monsters[0].hp, hp_before - STONE_CALENDAR_DAMAGE);
+        assert_eq!(
+            combat.monsters[0].hp,
+            (hp_before - STONE_CALENDAR_DAMAGE).max(0)
+        );
     }
 
     #[test]
@@ -3595,6 +3619,7 @@ mod tests {
         let draw_before = combat.piles.draw_pile.len();
 
         apply_start_of_player_turn_relics(&mut combat);
+        apply_start_of_player_turn_post_draw_relics(&mut combat);
 
         assert_eq!(combat.relic_counters.player_turns_started, 2);
         assert_eq!(combat.piles.hand.len(), hand_before + POCKETWATCH_DRAW);
@@ -3611,6 +3636,7 @@ mod tests {
         let draw_before = combat.piles.draw_pile.len();
 
         apply_start_of_player_turn_relics(&mut combat);
+        apply_start_of_player_turn_post_draw_relics(&mut combat);
 
         assert_eq!(combat.relic_counters.player_turns_started, 2);
         assert_eq!(combat.piles.hand.len(), hand_before);
@@ -3625,6 +3651,7 @@ mod tests {
         let hand_before = combat.piles.hand.len();
 
         apply_start_of_player_turn_relics(&mut combat);
+        apply_start_of_player_turn_post_draw_relics(&mut combat);
 
         assert_eq!(combat.relic_counters.player_turns_started, 1);
         assert_eq!(combat.piles.hand.len(), hand_before);

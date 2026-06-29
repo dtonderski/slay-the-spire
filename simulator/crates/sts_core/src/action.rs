@@ -29,6 +29,9 @@ pub enum InternalAction {
     PlayCard {
         card_id: CardId,
     },
+    PlayCardCopy {
+        card_id: CardId,
+    },
     SpendEnergy {
         amount: i32,
     },
@@ -101,6 +104,9 @@ pub enum InternalAction {
         content_id: crate::ContentId,
         to: CardPile,
         temp_cost: Option<u8>,
+    },
+    AddGeneratedCardToDrawPileRandomSpot {
+        content_id: crate::ContentId,
     },
     AddRandomColorlessCardToHand {
         temp_cost: Option<u8>,
@@ -226,6 +232,7 @@ pub enum InternalAction {
     },
     PlayTopDrawCard {
         target: Option<MonsterId>,
+        exhaust_played_card: bool,
     },
     PutHandCardOnTopOfDraw {
         card_id: CardId,
@@ -262,6 +269,7 @@ pub enum RestAction {
     RemoveCard { card_id: CardId },
     Lift,
     Dig,
+    Proceed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

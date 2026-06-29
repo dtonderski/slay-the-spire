@@ -7,6 +7,9 @@ future training data. Each step records the full before/after simulator
 snapshots, legal actions, chosen action, policy metadata, transition hashes, and
 compact summaries including potion inventory.
 
+For the current combat-policy train/dev/held-out workflow, start with
+`combat_policy_iteration.md` and `data_manifest.md`.
+
 Combat uses the current omniscient portfolio search policy. Non-combat choices
 use `random_viable_v1`: shuffle exact legal actions with a fixed RNG seed, then
 pick the first action that does not immediately enter an unsupported no-action
@@ -64,6 +67,10 @@ Use `eval` to compare combat search candidates from exact combat states recorded
 inside the corpus traces. The original trace is the fixed eval dataset; candidate
 policies are rolled forward from each recorded combat snapshot.
 
+For a full simulator train/dev pass followed by held-out MANUAL01 scoring, use
+`iterate-combat-policy`. The canonical run layout and current MANUAL01 baseline
+are documented in `data_manifest.md`.
+
 ```powershell
 uv run python -m sts.self_play eval --corpus-dir target\selfplay-corpus --split eval --max-roots 64 --max-actions 40 --output target\selfplay-corpus\eval.json
 ```
@@ -87,11 +94,11 @@ The eval report includes potion metadata:
 
 ## CommunicationMod Trace Boundary
 
-`eval` consumes simulator self-play traces because those records include
-`initial_snapshot_json` and per-step `before_snapshot_json`. Long
+`eval` consumes simulator-backed traces because those records include
+`initial_snapshot_json` and per-step `before_snapshot_json`. Raw
 CommunicationMod traces contain observed game states instead. They can have many
-potions, but they are not directly replayable as simulator roots until a
-state-reconstruction adapter emits simulator snapshots.
+potions, but they must first be replayed into simulator-backed snapshots before
+they are usable as policy roots.
 
 Use `real-trace-report` to inspect that boundary:
 
@@ -116,8 +123,19 @@ writes a replayable JSONL with explicit `anchor` records. If combat anchors are
 created, the generated JSONL can be passed to `eval` like any other simulator
 trace.
 
-Current limitation: the MANUAL01 clean-prefix trace still relies on observed
-combat anchors because the Python seed-start path is the local placeholder map
-path, not full target-game Neow/map parity. The replay report should show how
-many noncombat actions were skipped, how many combat anchors were created, and
-the next unsupported command if replay cannot continue.
+Current MANUAL01 status:
+
+- `target\trace-guided\manual01-strict-rerun-replay.jsonl` is the current
+  simulator-backed held-out replay.
+- Its strict report is expected to have `verified = true`, `anchor_count = 0`,
+  `restoration_count = 0`, and `blocker = null`.
+- `python -m sts.self_play verify target\trace-guided\manual01-strict-rerun-replay.jsonl`
+  should report `ok = true`, no repair anchors, and no restorations.
+
+Older files such as `target\trace-guided\manual01-replayed.jsonl` are diagnostic
+history. They were useful while fixing replay and baseline semantics, but should
+not be used as the current held-out scoreboard.
+
+If a future CommunicationMod replay creates anchors, restorations, skipped
+noncombat actions, or a blocker, treat that as a fidelity/debugging task before
+interpreting combat-policy metrics.

@@ -90,7 +90,7 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
 fn apply_end_of_turn_combust(state: &mut CombatState) {
     for _ in 0..state.player.powers.combust.max(0) {
         let hp_loss = lose_player_hp(state, COMBUST_HP_LOSS);
-        crate::relic::apply_player_hp_loss_relics(state, hp_loss);
+        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
         if state.player.hp <= 0 {
             return;
         }
@@ -158,7 +158,15 @@ fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i3
 }
 
 pub fn apply_end_of_monster_turn_powers(monster: &mut MonsterState) {
-    if monster.powers.ritual > 0 {
+    apply_end_of_monster_turn_powers_with_ritual(monster, true);
+}
+
+pub fn apply_end_of_monster_turn_powers_without_ritual(monster: &mut MonsterState) {
+    apply_end_of_monster_turn_powers_with_ritual(monster, false);
+}
+
+fn apply_end_of_monster_turn_powers_with_ritual(monster: &mut MonsterState, apply_ritual: bool) {
+    if apply_ritual && monster.powers.ritual > 0 {
         monster.powers.strength += monster.powers.ritual;
     }
     if monster.powers.metallicize > 0 {
@@ -254,6 +262,20 @@ mod tests {
 
         assert_eq!(player.hp, player.max_hp);
         assert_eq!(player.powers.regen, 4);
+    }
+
+    #[test]
+    fn combust_hp_loss_triggers_rupture_strength() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 50;
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 7;
+        state.player.powers.rupture = 2;
+
+        apply_end_of_player_turn_powers(&mut state);
+
+        assert_eq!(state.player.hp, 49);
+        assert_eq!(state.player.powers.strength, 2);
     }
 
     #[test]

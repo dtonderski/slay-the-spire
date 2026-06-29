@@ -5,20 +5,20 @@ use crate::{
     content::ascension::AscensionConfig,
     content::cards::{
         card_type_and_rarity, get_card_definition, is_basic_starter_card, is_curse_content_id,
-        upgrade_content_id, WOUND_ID,
+        upgrade_content_id,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::shop_pool::colorless_discovery_card_choices,
     ids::{CardId, ContentId, MonsterId},
-    map::{generated_map_fixture_for_ascension, milestone8_fixture, MapRunState, RoomKind},
+    map::{generate_target_fixed_map, milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BUSTED_CROWN_ENERGY,
         CAULDRON_POTIONS, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
-        DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP,
-        MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MARK_OF_PAIN_WOUNDS, MAW_BANK_GOLD, OLD_COIN_GOLD,
-        OMAMORI_CHARGES, ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP,
+        DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS,
+        FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MAW_BANK_GOLD,
+        OLD_COIN_GOLD, OMAMORI_CHARGES, ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP,
         PHILOSOPHERS_STONE_ENERGY, PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS,
         PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
         SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SNECKO_EYE_ENERGY, SOZU_ENERGY,
@@ -43,7 +43,7 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, BATTLE_TRANCE_ID, CLEAVE_ID, FEEL_NO_PAIN_ID, INFLAME_ID, INFLAME_PLUS_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, WARCRY_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, WARCRY_ID, WOUND_ID,
     };
     use crate::ids::MapNodeId;
 
@@ -1129,7 +1129,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_of_pain_pickup_adds_energy_and_two_wounds() {
+    fn mark_of_pain_pickup_adds_energy_without_permanent_wounds() {
         let mut run = RunState::map_fixture();
         let deck_len = run.deck.len();
 
@@ -1139,8 +1139,8 @@ mod tests {
             run.energy_per_turn,
             BASE_PLAYER_ENERGY + MARK_OF_PAIN_ENERGY
         );
-        assert_eq!(run.deck.len(), deck_len + MARK_OF_PAIN_WOUNDS);
-        assert_eq!(run.count_content_in_deck(WOUND_ID), MARK_OF_PAIN_WOUNDS);
+        assert_eq!(run.deck.len(), deck_len);
+        assert_eq!(run.count_content_in_deck(WOUND_ID), 0);
     }
 
     #[test]
@@ -1252,6 +1252,7 @@ mod tests {
             pending_relic_offer: None,
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
             card_reward_active: false,
             card_reward_pending: false,
             pending_card_reward_count: 0,
@@ -1587,6 +1588,10 @@ pub struct RunState {
     pub wing_boots_charges: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub neow_lament_combats_remaining: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub normal_combat_count: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub elite_combat_count: u32,
     #[serde(default)]
     pub merchant_rng_seed: u64,
     #[serde(default)]
@@ -1597,6 +1602,14 @@ pub struct RunState {
     pub misc_rng_seed: u64,
     #[serde(default)]
     pub misc_rng_counter: u32,
+    #[serde(default)]
+    pub monster_rng_seed: u64,
+    #[serde(default)]
+    pub monster_rng_counter: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub normal_encounter_list: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elite_encounter_list: Vec<String>,
     #[serde(default)]
     pub current_floor: i32,
     #[serde(default)]
@@ -1615,6 +1628,8 @@ pub struct RunState {
     pub ascension: u8,
     #[serde(default)]
     pub treasure_room: Option<super::reward::TreasureRoomState>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rest_room_complete: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1639,6 +1654,7 @@ pub struct RunRngStreamState {
 pub enum RunPhase {
     Combat,
     Reward,
+    Treasure,
     Rest,
     Event,
     Shop,
@@ -1701,6 +1717,8 @@ pub struct RewardScreen {
     pub pending_relic_key_offer: Option<RelicKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queued_relic_key_offers: Vec<RelicKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub boss_relic_choices: Vec<RelicKey>,
     #[serde(default)]
     pub card_reward_active: bool,
     /// Normal combat rewards defer card RNG until the player opens the card screen.
@@ -1741,6 +1759,7 @@ fn is_zero_u8(value: &u8) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunAction {
     SkipReward,
+    CloseCardReward,
     TakeCardReward {
         card_id: CardId,
     },
@@ -1749,6 +1768,11 @@ pub enum RunAction {
     TakeStolenGoldReward,
     TakePotionReward,
     TakeRelicReward,
+    ChooseBossRelicReward {
+        index: usize,
+    },
+    Proceed,
+    OpenChest,
     OpenCardReward,
     SkipPotionReward,
     BuyShopCard {
@@ -2053,11 +2077,17 @@ impl RunState {
             event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
             wing_boots_charges: 0,
             neow_lament_combats_remaining: 0,
+            normal_combat_count: 0,
+            elite_combat_count: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
             misc_rng_seed: 0,
             misc_rng_counter: 0,
+            monster_rng_seed: 0,
+            monster_rng_counter: 0,
+            normal_encounter_list: Vec::new(),
+            elite_encounter_list: Vec::new(),
             current_floor: 0,
             current_act: 1,
             shop_remove_count: 0,
@@ -2067,6 +2097,7 @@ impl RunState {
             act2_shrine_list: Vec::new(),
             ascension,
             treasure_room: None,
+            rest_room_complete: false,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
         run.player_hp = combat.player.hp;
@@ -2120,11 +2151,17 @@ impl RunState {
             event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
             wing_boots_charges: 0,
             neow_lament_combats_remaining: 0,
+            normal_combat_count: 0,
+            elite_combat_count: 0,
             merchant_rng_seed: 0,
             merchant_rng_counter: 0,
             event_rng_counter: 0,
             misc_rng_seed: 0,
             misc_rng_counter: 0,
+            monster_rng_seed: 0,
+            monster_rng_counter: 0,
+            normal_encounter_list: Vec::new(),
+            elite_encounter_list: Vec::new(),
             current_floor: 0,
             current_act: 1,
             shop_remove_count: 0,
@@ -2134,6 +2171,7 @@ impl RunState {
             act2_shrine_list: Vec::new(),
             ascension: 0,
             treasure_room: None,
+            rest_room_complete: false,
         }
     }
 
@@ -2145,7 +2183,13 @@ impl RunState {
     pub fn placeholder_seeded_ironclad(seed: u64, ascension: u8) -> Self {
         let mut run = Self::map_fixture();
         run.deck = crate::content::deck::ironclad_starter_deck_for_ascension(ascension);
-        run.map = Some(generated_map_fixture_for_ascension(seed, ascension));
+        run.map = Some(generate_target_fixed_map(
+            seed as i64,
+            TargetMapAct::Exordium,
+        ));
+        run.relics = vec![Relic::BurningBlood];
+        run.phase = RunPhase::Event;
+        run.event = Some(super::event::neow_talk_screen());
         run.ascension = ascension;
         run.event_rng_seed = seed;
         run.reward_rng_seed = seed;
@@ -2154,6 +2198,7 @@ impl RunState {
         run.relic_rng_seed = seed;
         run.merchant_rng_seed = seed;
         run.misc_rng_seed = seed;
+        run.monster_rng_seed = seed;
         run
     }
 
@@ -2161,6 +2206,11 @@ impl RunState {
         let base = self.reward_rng_seed as i64;
         self.misc_rng_seed = base.wrapping_add(i64::from(self.current_floor)) as u64;
         self.misc_rng_counter = 0;
+    }
+
+    pub fn reinit_room_rngs_for_floor(&mut self) {
+        self.card_random_rng_counter = 0;
+        self.reinit_misc_rng_for_floor();
     }
 
     pub fn ensure_ironclad_relic_pools(&mut self) {
@@ -2303,6 +2353,10 @@ impl RunState {
         if self.relics.contains(&Relic::AncientTeaSet) {
             self.ancient_tea_set_armed = true;
         }
+        if self.relics.contains(&Relic::EternalFeather) {
+            let heal = (self.deck.len() as i32 / 5) * ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS;
+            self.player_hp = (self.player_hp + heal).min(self.player_max_hp);
+        }
     }
 
     pub fn break_maw_bank_on_shop_spend(&mut self) {
@@ -2353,9 +2407,6 @@ impl RunState {
             }
             Relic::MarkOfPain => {
                 self.energy_per_turn += MARK_OF_PAIN_ENERGY;
-                for _ in 0..MARK_OF_PAIN_WOUNDS {
-                    self.gain_deck_card(WOUND_ID);
-                }
             }
             Relic::FusionHammer => {
                 self.energy_per_turn += FUSION_HAMMER_ENERGY;
@@ -2628,6 +2679,13 @@ impl RunState {
 
         match action {
             RunAction::SkipReward => Ok(()),
+            RunAction::CloseCardReward => {
+                if reward.card_reward_active {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction("card reward is not open"))
+                }
+            }
             RunAction::TakeGoldReward => {
                 if reward.gold_offer > 0 {
                     Ok(())
@@ -2672,6 +2730,14 @@ impl RunState {
                 }
                 Ok(())
             }
+            RunAction::ChooseBossRelicReward { index } => {
+                if index < reward.boss_relic_choices.len() {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction("boss relic choice is not offered"))
+                }
+            }
+            RunAction::Proceed => Err(SimError::IllegalAction("not a reward action")),
             RunAction::OpenCardReward => {
                 if reward.pending_card_reward_count() == 0 {
                     return Err(SimError::IllegalAction("no card reward offered"));
@@ -2681,6 +2747,7 @@ impl RunState {
                 }
                 Ok(())
             }
+            RunAction::OpenChest => Err(SimError::IllegalAction("not a reward action")),
             RunAction::SkipPotionReward => {
                 if reward.potion_offer.is_none() {
                     return Err(SimError::IllegalAction("no potion reward offered"));

@@ -7,6 +7,7 @@ const EXORDIUM_WIDTH: usize = 7;
 const EXORDIUM_PATHS: usize = 6;
 const ACT_1_SEED_OFFSET: i64 = 1;
 const ACT_2_SEED_OFFSET: i64 = 200;
+const ACT_3_SEED_OFFSET: i64 = 600;
 const EXORDIUM_SHOP_ROOM_CHANCE: f32 = 0.05;
 const EXORDIUM_REST_ROOM_CHANCE: f32 = 0.12;
 const EXORDIUM_TREASURE_ROOM_CHANCE: f32 = 0.0;
@@ -22,6 +23,7 @@ const CITY_ELITE_ROOM_CHANCE: f32 = 0.08;
 pub enum TargetMapAct {
     Exordium,
     City,
+    Beyond,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,6 +62,20 @@ impl TargetMapAct {
             Self::City => TargetMapConfig {
                 act: 2,
                 seed_offset: ACT_2_SEED_OFFSET,
+                rows: EXORDIUM_ROWS,
+                width: EXORDIUM_WIDTH,
+                paths: EXORDIUM_PATHS,
+                root_room_kind: RoomKind::Boss,
+                first_row_room_kind: RoomKind::Combat,
+                shop_room_chance: CITY_SHOP_ROOM_CHANCE,
+                rest_room_chance: CITY_REST_ROOM_CHANCE,
+                treasure_room_chance: CITY_TREASURE_ROOM_CHANCE,
+                elite_room_chance: CITY_ELITE_ROOM_CHANCE,
+                event_room_chance: CITY_EVENT_ROOM_CHANCE,
+            },
+            Self::Beyond => TargetMapConfig {
+                act: 3,
+                seed_offset: ACT_3_SEED_OFFSET,
                 rows: EXORDIUM_ROWS,
                 width: EXORDIUM_WIDTH,
                 paths: EXORDIUM_PATHS,
@@ -1256,6 +1272,22 @@ mod tests {
         assert_eq!(
             generate_city_map_choices_after_path(seed, &[first_x]),
             generate_target_map_choices_after_path(seed, TargetMapAct::City, &[first_x])
+        );
+    }
+
+    #[test]
+    fn beyond_topology_uses_target_act_three_seed_offset() {
+        let seed = 1_435_099_163_226;
+        let topology = generate_target_map_topology(seed, TargetMapAct::Beyond);
+
+        assert_eq!(topology.first_row_choices, vec![0, 4, 6]);
+        assert_eq!(
+            generate_target_map_choices_after_path(seed, TargetMapAct::Beyond, &[0]),
+            vec![TargetMapChoiceStep {
+                floor: 1,
+                x: 0,
+                next_choices: vec![1],
+            }]
         );
     }
 }

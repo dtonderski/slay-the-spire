@@ -20,6 +20,9 @@ pub const EXORDIUM_STRONG_ENCOUNTERS: [(&str, f32); 10] = [
     ("2 Fungi Beasts", 2.0),
 ];
 
+pub const EXORDIUM_ELITE_ENCOUNTERS: [(&str, f32); 3] =
+    [("GremlinNob", 1.0), ("Lagavulin", 1.0), ("3 Sentries", 1.0)];
+
 pub const CITY_WEAK_ENCOUNTERS: [(&str, f32); 5] = [
     ("Spheric Guardian", 2.0),
     ("Chosen", 2.0),
@@ -45,6 +48,23 @@ pub const CITY_ELITE_ENCOUNTERS: [(&str, f32); 3] = [
     ("Book of Stabbing", 1.0),
 ];
 
+pub const BEYOND_WEAK_ENCOUNTERS: [(&str, f32); 3] =
+    [("3 Darklings", 2.0), ("Orb Walker", 2.0), ("3 Shapes", 2.0)];
+
+pub const BEYOND_STRONG_ENCOUNTERS: [(&str, f32); 8] = [
+    ("Spire Growth", 1.0),
+    ("Transient", 1.0),
+    ("4 Shapes", 1.0),
+    ("Maw", 1.0),
+    ("Sphere and 2 Shapes", 1.0),
+    ("Jaw Worm Horde", 1.0),
+    ("3 Darklings", 1.0),
+    ("Writhing Mass", 1.0),
+];
+
+pub const BEYOND_ELITE_ENCOUNTERS: [(&str, f32); 3] =
+    [("Giant Head", 2.0), ("Nemesis", 2.0), ("Reptomancer", 2.0)];
+
 #[must_use]
 pub fn generate_exordium_weak_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
@@ -57,6 +77,14 @@ pub fn generate_exordium_normal_encounters(seed: i64) -> Vec<String> {
     let mut encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
     append_exordium_strong_encounters_with_rng(&mut rng, &mut encounters, 12);
     encounters
+}
+
+#[must_use]
+pub fn generate_exordium_elite_encounters(seed: i64) -> Vec<String> {
+    let mut rng = StsRng::new(seed);
+    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
+    append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
+    generate_exordium_elite_encounters_with_rng(&mut rng, 10)
 }
 
 #[must_use]
@@ -76,7 +104,41 @@ pub fn generate_city_normal_encounters(seed: i64) -> Vec<String> {
 #[must_use]
 pub fn generate_city_elite_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
+    let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2);
+    append_city_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
     generate_city_elite_encounters_with_rng(&mut rng, 10)
+}
+
+#[must_use]
+pub fn generate_beyond_normal_encounters(seed: i64) -> Vec<String> {
+    let mut rng = StsRng::new(seed);
+    advance_exordium_content_generation_rng(&mut rng);
+    let _ = generate_city_encounter_lists_with_rng(&mut rng);
+    let (normal, _) = generate_beyond_encounter_lists_with_rng(&mut rng);
+    normal
+}
+
+pub fn advance_exordium_content_generation_rng(rng: &mut StsRng) {
+    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(rng, 3);
+    append_exordium_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
+    let _elite_encounters = generate_exordium_elite_encounters_with_rng(rng, 10);
+    let _boss_shuffle_seed = rng.random_long();
+}
+
+pub fn generate_city_encounter_lists_with_rng(rng: &mut StsRng) -> (Vec<String>, Vec<String>) {
+    let mut normal_encounters = generate_city_weak_encounters_with_rng(rng, 2);
+    append_city_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
+    let elite_encounters = generate_city_elite_encounters_with_rng(rng, 10);
+    let _boss_shuffle_seed = rng.random_long();
+    (normal_encounters, elite_encounters)
+}
+
+pub fn generate_beyond_encounter_lists_with_rng(rng: &mut StsRng) -> (Vec<String>, Vec<String>) {
+    let mut normal_encounters = generate_beyond_weak_encounters_with_rng(rng, 2);
+    append_beyond_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
+    let elite_encounters = generate_beyond_elite_encounters_with_rng(rng, 10);
+    let _boss_shuffle_seed = rng.random_long();
+    (normal_encounters, elite_encounters)
 }
 
 /// Returns the normal encounter key for the `combat_index`-th Act 1 combat room entered.
@@ -98,6 +160,23 @@ pub fn city_normal_encounter_key_at_combat_index(seed: i64, combat_index: usize)
 }
 
 #[must_use]
+pub fn exordium_elite_encounter_key_at_combat_index(
+    seed: i64,
+    combat_index: usize,
+) -> Option<String> {
+    generate_exordium_elite_encounters(seed)
+        .into_iter()
+        .nth(combat_index)
+}
+
+#[must_use]
+pub fn city_elite_encounter_key_at_combat_index(seed: i64, combat_index: usize) -> Option<String> {
+    generate_city_elite_encounters(seed)
+        .into_iter()
+        .nth(combat_index)
+}
+
+#[must_use]
 pub fn target_normal_encounter_key_at_combat_index(
     seed: i64,
     act: TargetMapAct,
@@ -106,6 +185,9 @@ pub fn target_normal_encounter_key_at_combat_index(
     match act {
         TargetMapAct::Exordium => normal_encounter_key_at_combat_index(seed, combat_index),
         TargetMapAct::City => city_normal_encounter_key_at_combat_index(seed, combat_index),
+        TargetMapAct::Beyond => generate_beyond_normal_encounters(seed)
+            .into_iter()
+            .nth(combat_index),
     }
 }
 
@@ -119,6 +201,14 @@ pub fn generate_exordium_weak_encounters_with_rng(rng: &mut StsRng, count: usize
 
 pub fn generate_city_weak_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
     let pool = normalized_monster_weights(&CITY_WEAK_ENCOUNTERS);
+    let mut encounters = Vec::with_capacity(count);
+
+    populate_monster_list(&pool, rng, &mut encounters, count);
+    encounters
+}
+
+pub fn generate_beyond_weak_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
+    let pool = normalized_monster_weights(&BEYOND_WEAK_ENCOUNTERS);
     let mut encounters = Vec::with_capacity(count);
 
     populate_monster_list(&pool, rng, &mut encounters, count);
@@ -147,8 +237,35 @@ pub fn append_city_strong_encounters_with_rng(
     populate_monster_list(&pool, rng, encounters, count);
 }
 
+pub fn append_beyond_strong_encounters_with_rng(
+    rng: &mut StsRng,
+    encounters: &mut Vec<String>,
+    count: usize,
+) {
+    let pool = normalized_monster_weights(&BEYOND_STRONG_ENCOUNTERS);
+    let exclusions = beyond_first_strong_exclusions(encounters.last().map(String::as_str));
+    populate_first_strong_enemy(&pool, rng, encounters, &exclusions);
+    populate_monster_list(&pool, rng, encounters, count);
+}
+
+pub fn generate_exordium_elite_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
+    let pool = normalized_monster_weights(&EXORDIUM_ELITE_ENCOUNTERS);
+    let mut encounters = Vec::with_capacity(count);
+
+    populate_elite_monster_list(&pool, rng, &mut encounters, count);
+    encounters
+}
+
 pub fn generate_city_elite_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
     let pool = normalized_monster_weights(&CITY_ELITE_ENCOUNTERS);
+    let mut encounters = Vec::with_capacity(count);
+
+    populate_elite_monster_list(&pool, rng, &mut encounters, count);
+    encounters
+}
+
+pub fn generate_beyond_elite_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
+    let pool = normalized_monster_weights(&BEYOND_ELITE_ENCOUNTERS);
     let mut encounters = Vec::with_capacity(count);
 
     populate_elite_monster_list(&pool, rng, &mut encounters, count);
@@ -223,6 +340,15 @@ fn city_first_strong_exclusions(last_weak: Option<&str>) -> Vec<&'static str> {
         Some("Spheric Guardian") => vec!["Sentry and Sphere"],
         Some("3 Byrds") => vec!["Chosen and Byrds"],
         Some("Chosen") => vec!["Chosen and Byrds", "Cultist and Chosen"],
+        _ => Vec::new(),
+    }
+}
+
+fn beyond_first_strong_exclusions(last_weak: Option<&str>) -> Vec<&'static str> {
+    match last_weak {
+        Some("3 Darklings") => vec!["3 Darklings"],
+        Some("Orb Walker") => vec!["Orb Walker"],
+        Some("3 Shapes") => vec!["4 Shapes"],
         _ => Vec::new(),
     }
 }
@@ -475,5 +601,12 @@ mod tests {
                 .iter()
                 .all(|key| CITY_ELITE_ENCOUNTERS.iter().any(|(name, _)| name == key)));
         }
+    }
+
+    #[test]
+    fn exordium_elite_generation_consumes_normal_encounter_rolls_first() {
+        let encounters = generate_exordium_elite_encounters(1_435_099_163_226);
+
+        assert_eq!(encounters.first().map(String::as_str), Some("Lagavulin"));
     }
 }

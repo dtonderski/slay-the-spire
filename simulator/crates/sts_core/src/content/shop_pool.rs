@@ -483,6 +483,28 @@ pub fn discovery_card_choices(
     choices
 }
 
+pub fn burn_discovery_card_choice_generations(
+    rng: &mut StsRng,
+    card_type: CardType,
+    count: usize,
+    generations: usize,
+) {
+    let owned_pool;
+    let pool: &[ContentId] = match card_type {
+        CardType::Attack => {
+            owned_pool = ironclad_combat_attack_discovery_pool();
+            &owned_pool
+        }
+        CardType::Skill => {
+            owned_pool = ironclad_combat_skill_discovery_pool();
+            &owned_pool
+        }
+        CardType::Power => ironclad_combat_power_discovery_pool(),
+        CardType::Status => &[],
+    };
+    burn_discovery_random_picks(rng, pool.len(), count, generations);
+}
+
 #[must_use]
 pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<ContentId> {
     let pool = colorless_discovery_pool();
@@ -495,6 +517,29 @@ pub fn colorless_discovery_card_choices(rng: &mut StsRng, count: usize) -> Vec<C
         }
     }
     choices
+}
+
+pub fn burn_colorless_discovery_card_choice_generations(
+    rng: &mut StsRng,
+    count: usize,
+    generations: usize,
+) {
+    let pool = colorless_discovery_pool();
+    burn_discovery_random_picks(rng, pool.len(), count, generations);
+}
+
+fn burn_discovery_random_picks(
+    rng: &mut StsRng,
+    pool_len: usize,
+    count: usize,
+    generations: usize,
+) {
+    assert!(pool_len > 0, "discovery pool must not be empty");
+    for _ in 0..generations {
+        for _ in 0..count {
+            let _ = rng.random_int((pool_len - 1) as i32);
+        }
+    }
 }
 
 #[cfg(test)]

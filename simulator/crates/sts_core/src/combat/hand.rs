@@ -5,8 +5,9 @@ use crate::{
 };
 
 pub fn resolve_end_of_turn_hand(state: &mut CombatState) {
+    let hand_size_for_regret = state.piles.hand.len() as i32;
     apply_burn_damage_in_hand(state);
-    apply_regret_damage_in_hand(state);
+    apply_regret_damage_in_hand(state, hand_size_for_regret);
     exhaust_unplayed_ethereal_cards(state);
 }
 
@@ -19,12 +20,19 @@ pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
 }
 
 fn apply_burn_damage_in_hand(state: &mut CombatState) {
-    let burn_copies = state
-        .piles
-        .hand
-        .iter()
-        .filter(|card| card.content_id == BURN_ID)
-        .count() as i32;
+    let mut remaining = Vec::with_capacity(state.piles.hand.len());
+    let mut burns = Vec::new();
+
+    for card in state.piles.hand.drain(..) {
+        if card.content_id == BURN_ID {
+            burns.push(card);
+        } else {
+            remaining.push(card);
+        }
+    }
+    state.piles.hand = remaining;
+
+    let burn_copies = burns.len() as i32;
 
     let incoming = burn_copies * BURN_END_TURN_DAMAGE;
     let blocked = state.player.block.min(incoming);
@@ -33,10 +41,10 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
     let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp -= hp_loss;
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+    state.piles.discard_pile.extend(burns);
 }
 
-fn apply_regret_damage_in_hand(state: &mut CombatState) {
-    let hand_size = state.piles.hand.len() as i32;
+fn apply_regret_damage_in_hand(state: &mut CombatState, hand_size: i32) {
     let mut remaining = Vec::with_capacity(state.piles.hand.len());
     let mut regrets = Vec::new();
 
@@ -225,6 +233,38 @@ mod tests {
         let next = crate::combat::end_player_turn(&state);
 
         assert_eq!(next.player.hp, 16);
+    }
+
+    #[test]
+    fn burn_discards_before_regret_and_normal_hand_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 50;
+        state.monsters[0].alive = false;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), crate::content::cards::BURN_ID),
+            CardInstance::new(CardId::new(21), crate::content::cards::STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), REGRET_ID),
+            CardInstance::new(CardId::new(23), crate::content::cards::INJURY_ID),
+        ];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+        let discarded: Vec<_> = next
+            .piles
+            .discard_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+
+        assert_eq!(
+            discarded,
+            vec![
+                crate::content::cards::BURN_ID,
+                REGRET_ID,
+                crate::content::cards::INJURY_ID,
+                crate::content::cards::STRIKE_R_ID,
+            ]
+        );
     }
 
     #[test]

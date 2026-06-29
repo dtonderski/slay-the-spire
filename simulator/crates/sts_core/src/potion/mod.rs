@@ -157,7 +157,8 @@ impl Potion {
             | Potion::Strength
             | Potion::Swift
             | Potion::Weak
-            | Potion::Power => PotionRarity::Common,
+            | Potion::Power
+            | Potion::Skill => PotionRarity::Common,
             Potion::Ancient
             | Potion::DistilledChaos
             | Potion::Duplication
@@ -166,8 +167,7 @@ impl Potion {
             | Potion::Gamble
             | Potion::LiquidBronze
             | Potion::LiquidMemories
-            | Potion::Regen
-            | Potion::Skill => PotionRarity::Uncommon,
+            | Potion::Regen => PotionRarity::Uncommon,
             Potion::Cultist
             | Potion::EntropicBrew
             | Potion::Fairy
@@ -381,5 +381,14 @@ mod tests {
                 Potion::Fire,
             ]
         );
+    }
+
+    #[test]
+    fn card_discovery_potions_match_target_rarity() {
+        assert_eq!(Potion::Skill.rarity(), PotionRarity::Common);
+        assert_eq!(Potion::Attack.rarity(), PotionRarity::Common);
+        assert_eq!(Potion::Power.rarity(), PotionRarity::Common);
+        assert_eq!(Potion::Colorless.rarity(), PotionRarity::Common);
+        assert_eq!(Potion::Elixir.rarity(), PotionRarity::Uncommon);
     }
 }

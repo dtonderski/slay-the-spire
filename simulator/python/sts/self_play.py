@@ -80,6 +80,15 @@ class CorpusBatchResult:
 
 
 @dataclass(frozen=True)
+class CombatPolicyIterationResult:
+    output_dir: Path
+    report_path: Path
+    train_corpus: Path
+    dev_corpus: Path
+    promoted_candidate: str | None
+
+
+@dataclass(frozen=True)
 class TraceGuidedReplayResult:
     trace_path: Path
     output_path: Path
@@ -88,6 +97,7 @@ class TraceGuidedReplayResult:
     combat_roots: int
     stop_reason: str
     verified: bool
+    mode: str = "strict"
 
 
 @dataclass(frozen=True)
@@ -254,8 +264,19 @@ def verify_self_play_trace(path: Path) -> dict[str, Any]:
 
     env = omni.OmniRunEnv.from_snapshot_json(initial_snapshot)
     steps = 0
+    repair_anchors: list[dict[str, Any]] = []
+    restorations: list[dict[str, Any]] = []
     for record in records[1:]:
         if record.get("type") == "anchor":
+            if record.get("pre_anchor_diffs"):
+                repair_anchors.append(
+                    {
+                        "step": record.get("step"),
+                        "trace_step": record.get("trace_step"),
+                        "diff_count": len(record.get("pre_anchor_diffs") or []),
+                        "diffs": record.get("pre_anchor_diffs"),
+                    }
+                )
             snapshot = record.get("snapshot_json")
             if not isinstance(snapshot, str):
                 return {"ok": False, "error": "anchor has no snapshot_json", "steps": steps}
@@ -269,6 +290,19 @@ def verify_self_play_trace(path: Path) -> dict[str, Any]:
                     "expected": expected_hash,
                     "actual": env.snapshot_hash(),
                 }
+            continue
+        if record.get("type") == "restoration":
+            restorations.append(
+                {
+                    "step": record.get("step"),
+                    "trace_step": record.get("trace_step"),
+                    "category": record.get("category"),
+                    "reason": record.get("reason"),
+                }
+            )
+            snapshot = record.get("snapshot_json")
+            if isinstance(snapshot, str):
+                env = omni.OmniRunEnv.from_snapshot_json(snapshot)
             continue
         if record.get("type") != "step":
             continue
@@ -302,12 +336,33 @@ def verify_self_play_trace(path: Path) -> dict[str, Any]:
             }
         steps += 1
 
-    return {
-        "ok": True,
+    replay_result = {
+        "replay_ok": True,
         "steps": steps,
         "final_state_id": env.snapshot_hash(),
         "final_phase": env.phase(),
         "metadata_stop_reason": metadata.get("stop_reason"),
+        "repair_anchor_count": len(repair_anchors),
+        "restoration_count": len(restorations),
+    }
+    if repair_anchors:
+        return {
+            **replay_result,
+            "ok": False,
+            "error": "trace contains state repair anchors",
+            "first_repair_anchor": repair_anchors[0],
+        }
+    if restorations:
+        return {
+            **replay_result,
+            "ok": False,
+            "error": "trace contains restorations",
+            "first_restoration": restorations[0],
+        }
+
+    return {
+        **replay_result,
+        "ok": True,
     }
 
 
@@ -383,8 +438,14 @@ def replay_real_trace_guided(
     output: Path,
     report_output: Path | None = None,
     max_actions: int = 10_000,
+    diagnostic_continue_after_diff: bool = False,
 ) -> TraceGuidedReplayResult:
-    """Replay a CommunicationMod trace through OmniRunEnv until the first hard boundary."""
+    """Replay a CommunicationMod trace through OmniRunEnv.
+
+    Strict mode is the verifier path: the first observed-vs-simulated diff, unsupported command
+    mapping, or step error stops the replay. Diagnostic mode preserves the old restore-and-continue
+    behavior for collecting downstream clues, but it is not verification.
+    """
 
     records = _read_jsonl(trace)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -394,6 +455,7 @@ def replay_real_trace_guided(
     started_at = _now()
     env = None
     last_state: dict[str, Any] | None = None
+    last_state_consumed = True
     output_records: list[dict[str, Any]] = []
     replayed_steps = 0
     combat_roots = 0
@@ -405,16 +467,20 @@ def replay_real_trace_guided(
     stop_reason = "trace_exhausted"
     blocker: dict[str, Any] | None = None
     start_info: dict[str, Any] | None = None
+    mode = "diagnostic" if diagnostic_continue_after_diff else "strict"
 
-    for record in records:
+    for record_index, record in enumerate(records):
         if record.get("type") == "state":
             last_state = record
+            last_state_consumed = False
             continue
         if record.get("type") != "action":
             continue
         command = str(record.get("command") or "")
         if not command:
             continue
+        command_parts = command.strip().split()
+        verb = command_parts[0].upper() if command_parts else ""
 
         if env is None:
             start_info = _parse_start_command(command)
@@ -443,7 +509,8 @@ def replay_real_trace_guided(
                 initial_state_id=env.snapshot_hash(),
             )
             metadata["source"] = "sim_trace_guided_replay"
-            metadata["parity"] = "trace_guided_until_first_boundary"
+            metadata["mode"] = mode
+            metadata["parity"] = "diagnostic_restore_and_continue" if diagnostic_continue_after_diff else "strict"
             metadata["source_trace"] = str(trace)
             metadata["start_command"] = command
             metadata["numeric_seed"] = start_info.get("numeric_seed")
@@ -455,8 +522,21 @@ def replay_real_trace_guided(
             break
 
         observed_game_state = _game_state_from_record(last_state)
-        diffs = _observed_summary_diffs(env, observed_game_state)
+        has_fresh_observed_state = not last_state_consumed
+        diffs = _observed_summary_diffs(env, observed_game_state) if has_fresh_observed_state else []
         if diffs:
+            if not diagnostic_continue_after_diff:
+                blocker = _blocker(
+                    record,
+                    command,
+                    "observed_state_diff",
+                    "fresh observed trace state differs from simulator before applying command",
+                    diffs=diffs,
+                    simulator_summary=_summary(env),
+                    observed_summary=_observed_summary(observed_game_state),
+                )
+                stop_reason = "observed_state_diff"
+                break
             if _observed_summary(observed_game_state).get("phase") == "combat":
                 try:
                     env = omni.OmniRunEnv.from_communication_mod_state_json(
@@ -504,14 +584,61 @@ def replay_real_trace_guided(
                     stop_reason = "observed_combat_anchor_divergence"
                     break
             else:
-                skipped_noncombat_actions += 1
-                continue
+                try:
+                    env = omni.OmniRunEnv.from_communication_mod_state_json(
+                        json.dumps(observed_game_state)
+                    )
+                    env = _env_with_observed_relics(env, observed_game_state)
+                except Exception:
+                    skipped_noncombat_actions += 1
+                    continue
+                restoration = _restoration_record(
+                    step=replayed_steps,
+                    record=record,
+                    command=command,
+                    category="observed_noncombat_boundary",
+                    reason="restored unsupported non-combat observed state before continuing replay",
+                    simulator_phase=env.phase(),
+                    simulator_decision=env.current_decision(),
+                    observed_summary=_observed_summary(observed_game_state),
+                    diffs=diffs,
+                    snapshot_hash=env.snapshot_hash(),
+                    snapshot_json=env.snapshot_json(),
+                    summary=_summary(env),
+                )
+                restorations.append(restoration)
+                output_records.append(restoration)
+                restoration_count += 1
+        if has_fresh_observed_state:
+            last_state_consumed = True
+
+        if _next_trace_record_is_error(records, record_index):
+            continue
 
         actions = env.exact_legal_actions()
-        action = _action_for_communication_command(env, command, observed_game_state)
+        action = _action_for_communication_command(
+            env,
+            command,
+            observed_game_state,
+        )
         if action is None:
+            if _is_observed_noop_combat_command(env, records, record_index):
+                continue
+            if not diagnostic_continue_after_diff:
+                blocker = _blocker(
+                    record,
+                    command,
+                    "unsupported_command_mapping",
+                    "no exact OmniRunEnv action mapping for CommunicationMod command",
+                    simulator_summary=_summary(env),
+                    observed_summary=_observed_summary(observed_game_state),
+                )
+                stop_reason = "unsupported_command_mapping"
+                break
             if _observed_summary(observed_game_state).get("phase") != "combat":
                 skipped_noncombat_actions += 1
+                continue
+            if not has_fresh_observed_state:
                 continue
             restoration = _restoration_record(
                 step=replayed_steps,
@@ -553,6 +680,17 @@ def replay_real_trace_guided(
                     error=f"step_error: {error}",
                 )
             )
+            if not diagnostic_continue_after_diff:
+                blocker = _blocker(
+                    record,
+                    command,
+                    "step_error",
+                    str(error),
+                    simulator_summary=before_summary,
+                    observed_summary=_observed_summary(observed_game_state),
+                )
+                stop_reason = "step_error"
+                break
             restoration = _restoration_record(
                 step=replayed_steps,
                 record=record,
@@ -598,6 +736,7 @@ def replay_real_trace_guided(
         )
 
     output_records[0]["ended_at"] = _now()
+    output_records[0]["mode"] = mode
     output_records[0]["stop_reason"] = stop_reason
     output_records[0]["steps"] = replayed_steps
     output_records[0]["combat_roots"] = combat_roots
@@ -614,9 +753,17 @@ def replay_real_trace_guided(
         if output_records[0].get("initial_snapshot_json")
         else {"ok": False, "error": "no initial snapshot"}
     )
+    verified = bool(
+        verification.get("ok", False)
+        and anchor_count == 0
+        and restoration_count == 0
+        and blocker is None
+        and stop_reason == "trace_exhausted"
+    )
     report = {
         "schema": 1,
         "source": "sim_trace_guided_replay_report",
+        "mode": mode,
         "source_trace": str(trace),
         "output_trace": str(output),
         "report_path": str(report_output) if report_output else None,
@@ -629,7 +776,7 @@ def replay_real_trace_guided(
         "skipped_noncombat_actions": skipped_noncombat_actions,
         "stop_reason": stop_reason,
         "blocker": blocker,
-        "verified": verification.get("ok", False),
+        "verified": verified,
         "verification": verification,
     }
     if report_output:
@@ -642,8 +789,79 @@ def replay_real_trace_guided(
         steps=replayed_steps,
         combat_roots=combat_roots,
         stop_reason=stop_reason,
-        verified=bool(verification.get("ok")),
+        verified=verified,
+        mode=mode,
     )
+
+
+def _is_ignored_invalid_combat_command(
+    records: list[dict[str, Any]],
+    record_index: int,
+    command: str,
+    observed_game_state: dict[str, Any],
+) -> bool:
+    parts = command.strip().split()
+    if len(parts) < 2 or parts[0].upper() != "PLAY":
+        return False
+    try:
+        hand_index = int(parts[1])
+    except ValueError:
+        return False
+    hand = observed_game_state.get("hand") or []
+    if hand_index <= len(hand):
+        return False
+    return _next_trace_record_before_state_is_action(records, record_index)
+
+
+def _next_trace_record_before_state_is_action(
+    records: list[dict[str, Any]], record_index: int
+) -> bool:
+    for next_record in records[record_index + 1 :]:
+        record_type = next_record.get("type")
+        if record_type == "state":
+            return False
+        if record_type == "action":
+            return True
+    return False
+
+
+def _next_trace_record_is_error(records: list[dict[str, Any]], record_index: int) -> bool:
+    if record_index + 1 >= len(records):
+        return False
+    return records[record_index + 1].get("type") == "error"
+
+
+def _is_observed_noop_combat_command(
+    env: Any,
+    records: list[dict[str, Any]],
+    record_index: int,
+) -> bool:
+    if _summary(env).get("phase") != "combat":
+        return False
+    for next_record in records[record_index + 1 :]:
+        record_type = next_record.get("type")
+        if record_type != "state":
+            continue
+        observed = _game_state_from_record(next_record)
+        if _observed_summary(observed).get("phase") != "combat":
+            return False
+        return _observed_summary_diffs(env, observed) == []
+    return False
+
+
+def _next_observed_map_state_matches_current(
+    env: Any,
+    records: list[dict[str, Any]],
+    record_index: int,
+) -> bool:
+    for next_record in records[record_index + 1 :]:
+        if next_record.get("type") != "state":
+            continue
+        observed = _game_state_from_record(next_record)
+        if observed.get("screen_type") != "MAP":
+            return False
+        return _observed_summary_diffs(env, observed) == []
+    return False
 
 
 def _evaluate_trace_root_task(task: dict[str, Any]) -> dict[str, Any]:
@@ -739,6 +957,7 @@ def evaluate_self_play_corpus(
         roots = [root for root in roots if root.split == split]
     available_roots = len(roots)
     roots = roots[:max_roots]
+    root_scope_label = _trace_eval_root_scope_label(root_scope, available_roots)
     candidates = list(candidates or trace_autopilot_candidates())
     if allowed_potions_mode == "global":
         candidates = [
@@ -809,6 +1028,7 @@ def evaluate_self_play_corpus(
         "max_actions": max_actions,
         "jobs": jobs,
         "root_scope": root_scope,
+        "root_scope_label": root_scope_label,
         "eval_set": eval_set,
         "eval_set_spec": eval_set_spec,
         "held_out": bool(eval_set_spec.get("held_out")) if eval_set_spec else split == "eval",
@@ -861,6 +1081,259 @@ def real_trace_root_report(traces: Iterable[Path]) -> dict[str, Any]:
         ],
         "files": reports,
     }
+
+
+def run_combat_policy_iteration(
+    *,
+    output_dir: Path,
+    train_seeds: Iterable[str],
+    dev_seeds: Iterable[str],
+    real_trace: Path,
+    ascension: int = 0,
+    max_steps: int = 220,
+    max_actions: int = 120,
+    candidates: Iterable[SearchCandidate] | None = None,
+) -> CombatPolicyIterationResult:
+    """Run a deterministic non-ML policy iteration pass.
+
+    Simulator corpora are train/dev inputs. The strict real trace is evaluated only after
+    simulator reports are complete, so it remains a held-out scoreboard.
+    """
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    candidates = list(candidates or _default_iteration_candidates())
+    candidate_names = [candidate.name for candidate in candidates]
+    real_trace_verification = verify_self_play_trace(real_trace)
+
+    def log(message: str) -> None:
+        print(f"[iterate-combat-policy] {message}", file=sys.stderr, flush=True)
+
+    train_corpus = output_dir / "train-sim"
+    dev_corpus = output_dir / "dev-sim"
+    log(f"generating train corpus: {train_corpus}")
+    train_batch = run_self_play_batch(
+        output_dir=train_corpus,
+        seeds=train_seeds,
+        ascension=ascension,
+        random_seed=17_000,
+        max_steps=max_steps,
+        combat_policy=DEFAULT_COMBAT_POLICY,
+    )
+    log(f"generating dev corpus: {dev_corpus}")
+    dev_batch = run_self_play_batch(
+        output_dir=dev_corpus,
+        seeds=dev_seeds,
+        ascension=ascension,
+        random_seed=23_000,
+        max_steps=max_steps,
+        combat_policy=DEFAULT_COMBAT_POLICY,
+    )
+
+    reports: dict[str, dict[str, Any]] = {}
+    for corpus_name, corpus_path in (("train", train_corpus), ("dev", dev_corpus)):
+        for root_scope in ("combat_start", "all"):
+            key = f"{corpus_name}_{root_scope}"
+            report_path = output_dir / f"{key}.json"
+            failure_path = output_dir / f"{key}-failures.json"
+            log(f"evaluating simulator {key} with {len(candidates)} candidates")
+            report = evaluate_self_play_corpus(
+                corpus_dir=corpus_path / "traces",
+                split="all",
+                max_roots=10_000,
+                max_actions=max_actions,
+                candidates=candidates,
+                allowed_potions=None,
+                allowed_potions_mode="global",
+                root_scope=root_scope,
+                failure_output=failure_path,
+                progress_every=50,
+                progress_stream=sys.stderr,
+                jobs=1,
+            )
+            report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+            reports[key] = _compact_eval_report(report, report_path)
+
+    real_reports: dict[str, dict[str, Any]] = {}
+    for root_scope in ("combat_start", "all"):
+        key = f"heldout_manual01_{root_scope}"
+        report_path = output_dir / f"{key}.json"
+        failure_path = output_dir / f"{key}-failures.json"
+        log(f"evaluating held-out {key} with trace-used potions")
+        report = evaluate_self_play_corpus(
+            traces=[real_trace],
+            split="all",
+            max_roots=10_000,
+            max_actions=max_actions,
+            candidates=candidates,
+            allowed_potions=None,
+            allowed_potions_mode="trace_used",
+            root_scope=root_scope,
+            failure_output=failure_path,
+            progress_every=50,
+            progress_stream=sys.stderr,
+            jobs=1,
+        )
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        real_reports[key] = _compact_eval_report(report, report_path)
+
+    promoted = _promoted_candidate(reports.get("dev_combat_start", {}))
+    report_doc = {
+        "type": "combat_policy_iteration_report",
+        "schema": 1,
+        "source": "sim_selfplay_policy_iteration",
+        "created_at": _now(),
+        "separation": {
+            "train": "simulator-generated self-play corpus",
+            "dev": "simulator-generated self-play corpus",
+            "heldout_eval": "strict MANUAL01 real-trace replay only",
+            "heldout_tuning_policy": "MANUAL01 reports are generated after simulator train/dev reports and are not used for candidate promotion.",
+        },
+        "candidate_names": candidate_names,
+        "promoted_candidate_from_dev": promoted,
+        "heldout_real_trace_verification": real_trace_verification,
+        "train_batch": train_batch.__dict__ | {"output_dir": str(train_batch.output_dir), "index_path": str(train_batch.index_path)},
+        "dev_batch": dev_batch.__dict__ | {"output_dir": str(dev_batch.output_dir), "index_path": str(dev_batch.index_path)},
+        "sim_reports": reports,
+        "heldout_manual01_reports": real_reports,
+        "blockers": _iteration_blockers(
+            train_batch,
+            dev_batch,
+            reports,
+            real_reports,
+            real_trace_verification,
+        ),
+    }
+    report_path = output_dir / "iteration-report.json"
+    report_path.write_text(json.dumps(report_doc, indent=2, sort_keys=True), encoding="utf-8")
+    return CombatPolicyIterationResult(
+        output_dir=output_dir,
+        report_path=report_path,
+        train_corpus=train_corpus,
+        dev_corpus=dev_corpus,
+        promoted_candidate=promoted,
+    )
+
+
+def _default_iteration_candidates() -> list[SearchCandidate]:
+    names = (
+        "rust_terminal_win_hp_bounded_w32_d40",
+        "rust_beam_terminal_w32_d40",
+        "rust_beam_terminal_w16_d40",
+        "rust_greedy_tactical_d40",
+    )
+    return [trace_autopilot_candidate_by_name(name) for name in names]
+
+
+def _compact_eval_report(report: dict[str, Any], report_path: Path) -> dict[str, Any]:
+    return {
+        "report_path": str(report_path),
+        "root_scope": report.get("root_scope"),
+        "root_scope_label": report.get("root_scope_label"),
+        "roots": report.get("roots"),
+        "available_roots": report.get("available_roots"),
+        "allowed_potions_mode": report.get("allowed_potions_mode"),
+        "blocked_traces": report.get("trace_extraction", {}).get("blocked_traces", []),
+        "ranking": [
+            {
+                "candidate": row.get("candidate"),
+                "wins": row.get("wins"),
+                "losses": row.get("losses"),
+                "nonterminal": row.get("nonterminal"),
+                "win_rate": row.get("win_rate"),
+                "mean_hp_loss": row.get("mean_hp_loss"),
+                "median_hp_loss": row.get("median_hp_loss"),
+                "mean_real_trace_hp_loss": row.get("mean_real_trace_hp_loss"),
+                "mean_hp_loss_delta_vs_trace": row.get("mean_hp_loss_delta_vs_trace"),
+                "mean_seconds_per_combat": row.get("mean_seconds_per_combat"),
+                "mean_seconds_per_decision": row.get("mean_seconds_per_decision"),
+                "mean_search_nodes": row.get("mean_search_nodes"),
+                "total_potion_uses": row.get("total_potion_uses"),
+            }
+            for row in report.get("ranking", [])
+        ],
+        "worst_regressions": _episode_extremes(report, reverse=True),
+        "best_improvements": _episode_extremes(report, reverse=False),
+    }
+
+
+def _episode_extremes(report: dict[str, Any], *, reverse: bool) -> list[dict[str, Any]]:
+    episodes = [
+        episode
+        for episode in report.get("episodes", [])
+        if episode.get("hp_loss_delta_vs_trace") is not None
+    ]
+    episodes.sort(key=lambda episode: float(episode["hp_loss_delta_vs_trace"]), reverse=reverse)
+    return [
+        {
+            "candidate": episode.get("candidate"),
+            "trace_step": episode.get("trace_step"),
+            "state_id": episode.get("state_id"),
+            "human_hp_loss": episode.get("real_trace_hp_loss"),
+            "policy_hp_loss": episode.get("hp_loss"),
+            "delta": episode.get("hp_loss_delta_vs_trace"),
+            "won": episode.get("won"),
+            "lost": episode.get("lost"),
+            "terminal_reason": episode.get("terminal_reason"),
+            "search_seconds": episode.get("search_seconds"),
+        }
+        for episode in episodes[:5]
+    ]
+
+
+def _promoted_candidate(compact_report: dict[str, Any]) -> str | None:
+    ranking = compact_report.get("ranking") or []
+    if not ranking:
+        return None
+    return str(ranking[0].get("candidate"))
+
+
+def _iteration_blockers(
+    train_batch: CorpusBatchResult,
+    dev_batch: CorpusBatchResult,
+    sim_reports: dict[str, dict[str, Any]],
+    real_reports: dict[str, dict[str, Any]],
+    real_trace_verification: dict[str, Any],
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if not real_trace_verification.get("ok"):
+        blockers.append(
+            {
+                "scope": "heldout:manual01",
+                "reason": "strict_real_trace_replay_not_clean",
+                "verification": real_trace_verification,
+            }
+        )
+    for name, batch in (("train", train_batch), ("dev", dev_batch)):
+        if batch.verified_count != batch.trace_count:
+            blockers.append(
+                {
+                    "scope": name,
+                    "reason": "not_all_simulator_traces_verified",
+                    "trace_count": batch.trace_count,
+                    "verified_count": batch.verified_count,
+                    "stop_reasons": batch.stop_reasons,
+                }
+            )
+    for family, reports in (("sim", sim_reports), ("heldout", real_reports)):
+        for name, report in reports.items():
+            blocked = report.get("blocked_traces") or []
+            if blocked:
+                blockers.append(
+                    {
+                        "scope": f"{family}:{name}",
+                        "reason": "blocked_trace_extraction",
+                        "blocked_traces": blocked,
+                    }
+                )
+    return blockers
+
+
+def _trace_eval_root_scope_label(root_scope: str, available_roots: int) -> str:
+    if root_scope == "combat_start":
+        return f"combat_start_{available_roots}"
+    if root_scope == "all":
+        return f"all_decision_states_{available_roots}"
+    return f"{root_scope}_{available_roots}"
 
 
 def _start_env(*, start: str, seed: str | None, ascension: int) -> Any:
@@ -1844,8 +2317,14 @@ def _summary(env: Any) -> dict[str, Any]:
     run = state.get("state", state)
     combat = run.get("combat") or {}
     player = combat.get("player") or {}
+    visible_hand = _visible_combat_hand(combat)
+    piles = combat.get("piles") or {}
+    reward = run.get("reward") or {}
+    visible_reward_choices = (
+        reward.get("choices") or [] if reward.get("card_reward_active") else []
+    )
     decision = env.current_decision()
-    phase = decision if env.phase() == "idle" and decision == "map" else env.phase()
+    phase = decision if decision in {"grid", "map"} else env.phase()
     return {
         "phase": phase,
         "decision": decision,
@@ -1861,10 +2340,41 @@ def _summary(env: Any) -> dict[str, Any]:
         "potion_count": len(run.get("potions") or []),
         "relics": run.get("relics") or [],
         "relic_count": len(run.get("relics") or []),
+        "map": _simulator_map_summary(run),
+        "reward": {
+            "choices": [card.get("content_id") for card in visible_reward_choices],
+            "choice_count": len(visible_reward_choices),
+            "gold_offer": None if reward.get("card_reward_active") else reward.get("gold_offer"),
+            "stolen_gold_offer": None
+            if reward.get("card_reward_active")
+            else reward.get("stolen_gold_offer"),
+            "potion_offer": None
+            if reward.get("card_reward_active")
+            else reward.get("potion_offer"),
+            "relic_offer": None
+            if reward.get("card_reward_active")
+            else reward.get("relic_offer") or reward.get("relic_key_offer"),
+            "card_reward_active": reward.get("card_reward_active"),
+            "card_reward_pending": None
+            if reward.get("card_reward_active")
+            else reward.get("card_reward_pending"),
+            "pending_card_reward_count": None
+            if reward.get("card_reward_active")
+            else reward.get("pending_card_reward_count"),
+        }
+        if reward
+        else None,
         "combat": {
             "energy": player.get("energy"),
-            "hand": [card.get("content_id") for card in ((combat.get("piles") or {}).get("hand") or [])],
-            "hand_count": len((combat.get("piles") or {}).get("hand") or []),
+            "hand": [card.get("content_id") for card in visible_hand],
+            "hand_count": len(visible_hand),
+            "draw_pile": [card.get("content_id") for card in piles.get("draw_pile") or []],
+            "discard_pile": [
+                card.get("content_id") for card in piles.get("discard_pile") or []
+            ],
+            "exhaust_pile": [
+                card.get("content_id") for card in piles.get("exhaust_pile") or []
+            ],
             "monster_count": len(combat.get("monsters", [])),
             "monsters": [
                 {
@@ -1880,6 +2390,26 @@ def _summary(env: Any) -> dict[str, Any]:
         if combat
         else None,
     }
+
+
+def _visible_combat_hand(combat: dict[str, Any]) -> list[dict[str, Any]]:
+    hand = list(((combat.get("piles") or {}).get("hand") or []))
+    selected_indices: set[int] = set()
+    exhaust_select = combat.get("exhaust_select")
+    if isinstance(exhaust_select, dict):
+        selected_indices.update(
+            index
+            for index in exhaust_select.get("selected_hand_indices") or []
+            if isinstance(index, int)
+        )
+    hand_select = combat.get("hand_select")
+    if isinstance(hand_select, dict):
+        index = hand_select.get("selected_hand_index")
+        if isinstance(index, int):
+            selected_indices.add(index)
+    if not selected_indices:
+        return hand
+    return [card for index, card in enumerate(hand) if index not in selected_indices]
 
 
 def _write_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> None:
@@ -1920,7 +2450,11 @@ def _game_state_from_record(record: dict[str, Any] | None) -> dict[str, Any]:
     return game_state if isinstance(game_state, dict) else {}
 
 
-def _action_for_communication_command(env: Any, command: str, observed: dict[str, Any]) -> Any | None:
+def _action_for_communication_command(
+    env: Any,
+    command: str,
+    observed: dict[str, Any],
+) -> Any | None:
     parts = command.strip().split()
     if not parts:
         return None
@@ -1933,14 +2467,19 @@ def _action_for_communication_command(env: Any, command: str, observed: dict[str
             index = int(parts[1])
         except ValueError:
             return None
-        return _choose_action_for_index(env, actions, index)
+        return _choose_action_for_index(env, actions, observed, index)
     if verb == "PLAY" and len(parts) >= 2:
         try:
             hand_index = int(parts[1])
             target_index = int(parts[2]) if len(parts) >= 3 else None
         except ValueError:
             return None
-        return _play_action_for_indices(env, actions, hand_index, target_index)
+        return _play_action_for_indices(
+            env,
+            actions,
+            hand_index,
+            target_index,
+        )
     if verb == "POTION" and len(parts) >= 2:
         try:
             if parts[1].upper() == "USE":
@@ -1954,23 +2493,132 @@ def _action_for_communication_command(env: Any, command: str, observed: dict[str
         except IndexError:
             return None
         return _potion_action_for_indices(env, actions, slot, target_index)
+    if verb in {"PROCEED", "LEAVE", "RETURN", "SKIP"}:
+        return _screen_exit_action(actions)
+    if verb == "CONFIRM":
+        return _confirm_action(actions)
     if verb in {"STATE", "WAIT"}:
         return None
     _ = observed
     return None
 
 
-def _choose_action_for_index(env: Any, actions: list[Any], index: int) -> Any | None:
-    phase = env.current_decision() if env.phase() == "idle" else env.phase()
+def _choose_action_for_index(
+    env: Any, actions: list[Any], observed: dict[str, Any], index: int
+) -> Any | None:
+    decision = env.current_decision()
+    phase = decision if decision == "grid" or env.phase() == "idle" else env.phase()
     if phase == "event":
         for action in actions:
             data = _action_json_data(action)
             choose = data.get("Choose") if isinstance(data, dict) else None
             if isinstance(choose, dict) and choose.get("choice_index") == index:
                 return action
-    if phase in {"map", "reward", "shop", "rest"} and 0 <= index < len(actions):
+    if phase == "combat":
+        indexed_kinds = {
+            "choose_combat_card_reward",
+            "choose_hand_select",
+            "choose_draw_select",
+            "choose_discard_select",
+            "choose_exhaust_select",
+        }
+        for action in actions:
+            kind = getattr(action, "kind", lambda: "")()
+            if kind not in indexed_kinds:
+                continue
+            effective_index = index
+            if kind == "choose_exhaust_select":
+                mapped = _exhaust_select_original_index(env, index)
+                if mapped is None:
+                    continue
+                effective_index = mapped
+            data = _action_json_data(action)
+            payload = next((value for value in data.values() if isinstance(value, dict)), {})
+            if payload.get("index") == effective_index:
+                return action
+    if phase == "reward":
+        return _reward_choose_action(actions, observed, index)
+    if phase == "grid":
+        grid_actions = [
+            action
+            for action in actions
+            if getattr(action, "kind", lambda: "")() == "select_grid_card"
+        ]
+        for action in actions:
+            if getattr(action, "kind", lambda: "")() != "select_grid_card":
+                continue
+            data = _action_json_data(action)
+            select = data.get("SelectGridCard") if isinstance(data, dict) else None
+            if isinstance(select, dict) and select.get("index") == index:
+                return action
+        if index > 0 and index - 1 < len(grid_actions):
+            return grid_actions[index - 1]
+    if phase == "map":
+        mapped = _map_choose_action_for_x(actions, observed, index)
+        if mapped is not None:
+            return mapped
+        if 0 <= index < len(actions):
+            return actions[index]
+    if phase in {"shop", "rest", "treasure"} and 0 <= index < len(actions):
         return actions[index]
     return None
+
+
+def _map_choose_action_for_x(
+    actions: list[Any], observed: dict[str, Any], chosen_x: int
+) -> Any | None:
+    screen_state = observed.get("screen_state") if isinstance(observed, dict) else {}
+    next_nodes = screen_state.get("next_nodes") if isinstance(screen_state, dict) else None
+    desired_nodes = []
+    if isinstance(next_nodes, list):
+        desired_nodes = [
+            node
+            for node in next_nodes
+            if isinstance(node, dict) and node.get("x") == chosen_x
+        ]
+    choices = observed.get("choice_list") if isinstance(observed, dict) else None
+    if not desired_nodes and isinstance(choices, list) and f"x={chosen_x}" in choices:
+        desired_nodes = [{"x": chosen_x}]
+
+    for desired in desired_nodes:
+        desired_y = desired.get("y")
+        for action in actions:
+            node_id = _map_action_node_id(action)
+            if node_id is None or node_id <= 0:
+                continue
+            x = (node_id - 1) % 7
+            y = (node_id - 1) // 7
+            if x == chosen_x and (desired_y is None or y == desired_y):
+                return action
+    return None
+
+
+def _map_action_node_id(action: Any) -> int | None:
+    data = _action_json_data(action)
+    choose = data.get("ChooseNode") if isinstance(data, dict) else None
+    if not isinstance(choose, dict):
+        return None
+    node_id = choose.get("node_id")
+    return node_id if isinstance(node_id, int) else None
+
+
+def _exhaust_select_original_index(env: Any, visible_index: int) -> int | None:
+    try:
+        state = json.loads(env.state_json())
+    except Exception:
+        return visible_index
+    combat = state.get("combat") if isinstance(state.get("combat"), dict) else {}
+    hand = ((combat.get("piles") or {}).get("hand") or [])
+    select = combat.get("exhaust_select") if isinstance(combat.get("exhaust_select"), dict) else {}
+    selected = set(select.get("selected_hand_indices") or [])
+    visible_to_original = [
+        original_index
+        for original_index in range(len(hand))
+        if original_index not in selected
+    ]
+    if visible_index < 0 or visible_index >= len(visible_to_original):
+        return None
+    return visible_to_original[visible_index]
 
 
 def _play_action_for_indices(
@@ -1983,21 +2631,26 @@ def _play_action_for_indices(
     run = state.get("state", state)
     combat = run.get("combat") or {}
     hand = ((combat.get("piles") or {}).get("hand") or [])
-    monsters = combat.get("monsters") or []
     hand_index = hand_index - 1
     if hand_index < 0 or hand_index >= len(hand):
         return None
     card_id = hand[hand_index].get("id")
     target_id = None
     if target_index is not None:
-        target_id = target_index + 1
+        target_id = _monster_id_for_visible_index(combat, target_index)
+        if target_id is None:
+            return None
     for action in actions:
         if getattr(action, "kind", lambda: "")() != "play_card":
             continue
         play = _action_json_data(action).get("PlayCard")
         if not isinstance(play, dict) or play.get("card_id") != card_id:
             continue
-        if target_id is None or play.get("target") == target_id:
+        if target_id is None:
+            if play.get("target") is None:
+                return action
+            continue
+        if play.get("target") == target_id or play.get("target") is None:
             return action
     return None
 
@@ -2013,7 +2666,9 @@ def _potion_action_for_indices(
     monsters = ((run.get("combat") or {}).get("monsters") or [])
     target_id = None
     if target_index is not None:
-        target_id = target_index + 1
+        target_id = _monster_id_for_visible_index({"monsters": monsters}, target_index)
+        if target_id is None:
+            return None
     same_slot_targetless = None
     legal_potion_actions = []
     for action in actions:
@@ -2034,8 +2689,80 @@ def _potion_action_for_indices(
     return None
 
 
+def _monster_id_for_visible_index(combat: dict[str, Any], target_index: int) -> int | None:
+    monsters = combat.get("monsters") or []
+    if target_index < 0 or target_index >= len(monsters):
+        return None
+    monster_id = monsters[target_index].get("id")
+    return monster_id if isinstance(monster_id, int) else None
+
+
 def _first_action(actions: list[Any], *, kind: str) -> Any | None:
     return next((action for action in actions if getattr(action, "kind", lambda: "")() == kind), None)
+
+
+def _screen_exit_action(actions: list[Any]) -> Any | None:
+    preferred = [
+        "close_card_reward",
+        "skip_reward",
+        "leave_shop_room",
+        "leave_shop",
+        "cancel_grid",
+        "return",
+        "rest_proceed",
+        "proceed",
+    ]
+    for kind in preferred:
+        action = _first_action(actions, kind=kind)
+        if action is not None:
+            return action
+    if len(actions) == 1 and getattr(actions[0], "kind", lambda: "")() == "event_choose":
+        return actions[0]
+    return None
+
+
+def _reward_choose_action(actions: list[Any], observed: dict[str, Any], index: int) -> Any | None:
+    choices = observed.get("choice_list") if isinstance(observed, dict) else None
+    label = None
+    if isinstance(choices, list) and 0 <= index < len(choices):
+        label = str(choices[index]).lower()
+    if label in {"gold", "stolen_gold"}:
+        return _first_action(actions, kind="take_gold_reward") or _first_action(
+            actions, kind="take_stolen_gold_reward"
+        )
+    if label == "potion":
+        take_potion = _first_action(actions, kind="take_potion_reward")
+        if take_potion is not None:
+            return take_potion
+        if _first_action(actions, kind="take_gold_reward") is not None and index > 0:
+            return _first_action(actions, kind="take_gold_reward")
+        return _first_action(actions, kind="skip_potion_reward")
+    if label == "relic":
+        return _first_action(actions, kind="take_relic_reward")
+    if label == "card":
+        return _first_action(actions, kind="open_card_reward") or _first_action(
+            actions, kind="take_card_reward"
+        )
+    card_picks = [action for action in actions if getattr(action, "kind", lambda: "")() == "take_card_reward"]
+    if card_picks and 0 <= index < len(card_picks):
+        return card_picks[index]
+    boss_relic_picks = [
+        action
+        for action in actions
+        if getattr(action, "kind", lambda: "")() == "choose_boss_relic_reward"
+    ]
+    if boss_relic_picks and 0 <= index < len(boss_relic_picks):
+        return boss_relic_picks[index]
+    if 0 <= index < len(actions):
+        return actions[index]
+    return None
+
+
+def _confirm_action(actions: list[Any]) -> Any | None:
+    for action in actions:
+        if getattr(action, "kind", lambda: "")().startswith("confirm_"):
+            return action
+    return None
 
 
 def _action_json_data(action: Any) -> dict[str, Any]:
@@ -2052,7 +2779,16 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
     simulator = _summary(env)
     observed_summary = _observed_summary(observed)
     diffs = []
-    for key in ("phase", "player_hp", "player_max_hp", "gold", "potion_count", "relic_count"):
+    for key in (
+        "phase",
+        "player_hp",
+        "player_max_hp",
+        "gold",
+        "floor",
+        "act",
+        "potion_count",
+        "relic_count",
+    ):
         if observed_summary.get(key) is None:
             continue
         if simulator.get(key) != observed_summary.get(key):
@@ -2061,6 +2797,21 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
                     "field": key,
                     "simulator": simulator.get(key),
                     "observed": observed_summary.get(key),
+                }
+            )
+    if observed_summary.get("potions") is not None:
+        simulator_potions = [
+            _normalize_potion_name(str(name)) for name in simulator.get("potions") or []
+        ]
+        observed_potions = [
+            _normalize_potion_name(str(name)) for name in observed_summary.get("potions") or []
+        ]
+        if simulator_potions != observed_potions:
+            diffs.append(
+                {
+                    "field": "potions",
+                    "simulator": simulator.get("potions") or [],
+                    "observed": observed_summary.get("potions") or [],
                 }
             )
     if simulator.get("phase") == "combat" and observed_summary.get("phase") == "combat":
@@ -2077,13 +2828,126 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
                         "observed": obs_combat.get(key),
                     }
                 )
+        observed_sim_summary = _observed_import_summary(observed)
+        if observed_sim_summary:
+            obs_import_combat = observed_sim_summary.get("combat") or {}
+            if sim_combat.get("hand") != obs_import_combat.get("hand"):
+                diffs.append(
+                    {
+                        "field": "combat.hand",
+                        "simulator": sim_combat.get("hand"),
+                        "observed": obs_import_combat.get("hand"),
+                    }
+                )
+            for pile_name in ("draw_pile", "discard_pile", "exhaust_pile"):
+                if sim_combat.get(pile_name) != obs_import_combat.get(pile_name):
+                    diffs.append(
+                        {
+                            "field": f"combat.{pile_name}",
+                            "simulator": sim_combat.get(pile_name),
+                            "observed": obs_import_combat.get(pile_name),
+                        }
+                    )
+            diffs.extend(_combat_monster_summary_diffs(sim_combat, obs_import_combat))
+    if simulator.get("phase") == "reward" and observed_summary.get("phase") == "reward":
+        observed_sim_summary = _observed_import_summary(observed)
+        if observed_sim_summary:
+            sim_reward = simulator.get("reward") or {}
+            obs_reward = observed_sim_summary.get("reward") or {}
+            for key in (
+                "choices",
+                "choice_count",
+                "gold_offer",
+                "stolen_gold_offer",
+                "potion_offer",
+                "relic_offer",
+                "card_reward_active",
+                "card_reward_pending",
+                "pending_card_reward_count",
+            ):
+                if sim_reward.get(key) != obs_reward.get(key):
+                    diffs.append(
+                        {
+                            "field": f"reward.{key}",
+                            "simulator": sim_reward.get(key),
+                            "observed": obs_reward.get(key),
+                        }
+                    )
+    if simulator.get("phase") == "map" and observed_summary.get("phase") == "map":
+        sim_map = simulator.get("map") or {}
+        obs_map = observed_summary.get("map") or {}
+        for key in ("current_x", "current_y"):
+            if obs_map.get(key) is None:
+                continue
+            if sim_map.get(key) != obs_map.get(key):
+                diffs.append(
+                    {
+                        "field": f"map.{key}",
+                        "simulator": sim_map.get(key),
+                        "observed": obs_map.get(key),
+                    }
+                )
+    return diffs
+
+
+def _observed_import_summary(observed: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        summary = _summary(omni.OmniRunEnv.from_communication_mod_state_json(json.dumps(observed)))
+    except Exception:
+        return None
+    _drop_unknown_observed_monster_intents(summary, observed)
+    return summary
+
+
+def _drop_unknown_observed_monster_intents(
+    summary: dict[str, Any], observed: dict[str, Any]
+) -> None:
+    raw_combat = observed.get("combat_state") if isinstance(observed.get("combat_state"), dict) else {}
+    raw_monsters = raw_combat.get("monsters") or []
+    summary_monsters = ((summary.get("combat") or {}).get("monsters") or [])
+    for raw_monster, summary_monster in zip(raw_monsters, summary_monsters):
+        raw_intent = str(raw_monster.get("intent") or "").upper()
+        if raw_intent in {"DEBUG", "UNKNOWN", "DEFEND_BUFF"}:
+            summary_monster["intent"] = None
+        if (
+            str(raw_monster.get("name") or "") == "Hexaghost"
+            and raw_intent == "ATTACK_DEBUFF"
+            and int(raw_monster.get("move_id") or -1) == 4
+            and isinstance(summary_monster.get("intent"), dict)
+            and isinstance(summary_monster["intent"].get("AddBurnToDiscard"), dict)
+        ):
+            summary_monster["intent"]["AddBurnToDiscard"]["count"] = 1
+
+
+def _combat_monster_summary_diffs(
+    simulator_combat: dict[str, Any], observed_combat: dict[str, Any]
+) -> list[dict[str, Any]]:
+    diffs: list[dict[str, Any]] = []
+    sim_monsters = simulator_combat.get("monsters") or []
+    obs_monsters = observed_combat.get("monsters") or []
+    for index, (sim_monster, obs_monster) in enumerate(zip(sim_monsters, obs_monsters)):
+        for key in ("alive", "hp", "block", "intent"):
+            if obs_monster.get(key) is None:
+                continue
+            if sim_monster.get(key) != obs_monster.get(key):
+                diffs.append(
+                    {
+                        "field": f"combat.monsters[{index}].{key}",
+                        "simulator": sim_monster.get(key),
+                        "observed": obs_monster.get(key),
+                    }
+                )
     return diffs
 
 
 def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
     combat = observed.get("combat_state") if isinstance(observed.get("combat_state"), dict) else {}
     player = combat.get("player") if isinstance(combat.get("player"), dict) else {}
-    potion_count = len(_observed_real_potions(observed))
+    observed_potions = _observed_real_potions(observed)
+    potion_names = [
+        str(potion.get("name") or potion.get("id") or "unknown") for potion in observed_potions
+    ]
+    potion_count = len(observed_potions)
     relic_count = (
         len(_observed_snapshot_relics(observed)) if isinstance(observed.get("relics"), list) else None
     )
@@ -2092,16 +2956,87 @@ def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
         "player_hp": observed.get("current_hp") or observed.get("player_hp") or player.get("current_hp"),
         "player_max_hp": observed.get("max_hp") or observed.get("player_max_hp") or player.get("max_hp"),
         "gold": observed.get("gold"),
+        "floor": observed.get("floor"),
+        "act": observed.get("act"),
+        "potions": potion_names,
         "potion_count": potion_count,
         "relic_count": relic_count,
+        "map": _observed_map_summary(observed),
         "combat": {
-            "energy": combat.get("energy"),
+            "energy": player.get("energy") if player.get("energy") is not None else combat.get("energy"),
             "hand_count": len(combat.get("hand") or []),
             "monster_count": len(combat.get("monsters") or []),
         }
         if combat
         else None,
     }
+
+
+def _simulator_map_summary(run: dict[str, Any]) -> dict[str, Any] | None:
+    map_state = run.get("map") if isinstance(run.get("map"), dict) else None
+    if not map_state:
+        return None
+    current_node = map_state.get("current_node")
+    if not isinstance(current_node, int):
+        return None
+    nodes = ((map_state.get("map") or {}).get("nodes") or [])
+    current = next(
+        (node for node in nodes if isinstance(node, dict) and node.get("id") == current_node),
+        {},
+    )
+    children = current.get("children") if isinstance(current, dict) else None
+    return {
+        "current_node": current_node,
+        "current_x": _target_map_node_x(current_node),
+        "current_y": _target_map_node_y(current_node),
+        "next_xs": [
+            _target_map_node_x(child)
+            for child in children
+            if isinstance(child, int) and _target_map_node_x(child) is not None
+        ]
+        if isinstance(children, list)
+        else None,
+    }
+
+
+def _observed_map_summary(observed: dict[str, Any]) -> dict[str, Any] | None:
+    screen_state = observed.get("screen_state") if isinstance(observed, dict) else None
+    if not isinstance(screen_state, dict):
+        return None
+    current = screen_state.get("current_node")
+    next_nodes = screen_state.get("next_nodes")
+    boss_available = screen_state.get("boss_available") is True
+    next_xs = [
+        node.get("x")
+        for node in next_nodes
+        if isinstance(node, dict) and isinstance(node.get("x"), int)
+    ] if isinstance(next_nodes, list) else None
+    if boss_available and not next_xs:
+        next_xs = [0]
+    current_x = current.get("x") if isinstance(current, dict) else None
+    current_y = current.get("y") if isinstance(current, dict) else None
+    if current_x == -1 and current_y == 15 and next_xs:
+        current_x = 0
+        current_y = -1
+    return {
+        "current_x": current_x,
+        "current_y": current_y,
+        "next_xs": next_xs,
+    }
+
+
+def _target_map_node_x(node_id: int) -> int | None:
+    if node_id == 0:
+        return 0
+    if node_id < 0:
+        return None
+    return (node_id - 1) % 7
+
+
+def _target_map_node_y(node_id: int) -> int | None:
+    if node_id <= 0:
+        return -1
+    return (node_id - 1) // 7
 
 
 def _observed_phase(observed: dict[str, Any]) -> str | None:
@@ -2118,7 +3053,11 @@ def _observed_phase(observed: dict[str, Any]) -> str | None:
         return "shop"
     if screen_type in {"REST", "REST_ROOM"}:
         return "rest"
-    if screen_type in {"CARD_REWARD", "COMBAT_REWARD", "BOSS_REWARD", "GRID"}:
+    if screen_type == "CHEST":
+        return "treasure"
+    if screen_type == "GRID":
+        return "grid"
+    if screen_type in {"CARD_REWARD", "COMBAT_REWARD", "BOSS_REWARD"}:
         return "reward"
     if screen_type == "NONE" and observed.get("choice_list"):
         return "idle"
@@ -2433,6 +3372,16 @@ def main(argv: list[str] | None = None) -> None:
     eval_parser.add_argument("--output", type=Path)
     eval_parser.add_argument("--failure-output", type=Path)
 
+    iteration_parser = subparsers.add_parser("iterate-combat-policy")
+    iteration_parser.add_argument("--output-dir", type=Path, required=True)
+    iteration_parser.add_argument("--train-seeds", nargs="+", required=True)
+    iteration_parser.add_argument("--dev-seeds", nargs="+", required=True)
+    iteration_parser.add_argument("--real-trace", type=Path, required=True)
+    iteration_parser.add_argument("--ascension", type=int, default=0)
+    iteration_parser.add_argument("--max-steps", type=int, default=220)
+    iteration_parser.add_argument("--max-actions", type=int, default=120)
+    iteration_parser.add_argument("--candidate", dest="candidate_names", action="append")
+
     report_parser = subparsers.add_parser("real-trace-report")
     report_parser.add_argument("--trace", dest="traces", type=Path, action="append", required=True)
 
@@ -2441,6 +3390,11 @@ def main(argv: list[str] | None = None) -> None:
     replay_parser.add_argument("--output", type=Path, required=True)
     replay_parser.add_argument("--report-output", type=Path)
     replay_parser.add_argument("--max-actions", type=int, default=10_000)
+    replay_parser.add_argument(
+        "--diagnostic-continue-after-diff",
+        action="store_true",
+        help="Restore/anchor observed states and continue after diffs. This is diagnostic, not verification.",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "run":
@@ -2495,6 +3449,20 @@ def main(argv: list[str] | None = None) -> None:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(text, encoding="utf-8")
         print(text)
+    elif args.command == "iterate-combat-policy":
+        result = run_combat_policy_iteration(
+            output_dir=args.output_dir,
+            train_seeds=_parse_seed_specs(args.train_seeds),
+            dev_seeds=_parse_seed_specs(args.dev_seeds),
+            real_trace=args.real_trace,
+            ascension=args.ascension,
+            max_steps=args.max_steps,
+            max_actions=args.max_actions,
+            candidates=_trace_candidates_by_name(_parse_candidate_names(args.candidate_names))
+            if args.candidate_names
+            else None,
+        )
+        print(json.dumps(result.__dict__, indent=2, sort_keys=True, default=str))
     elif args.command == "real-trace-report":
         print(json.dumps(real_trace_root_report(args.traces), indent=2, sort_keys=True))
     elif args.command == "replay-real-trace":
@@ -2503,6 +3471,7 @@ def main(argv: list[str] | None = None) -> None:
             output=args.output,
             report_output=args.report_output,
             max_actions=args.max_actions,
+            diagnostic_continue_after_diff=args.diagnostic_continue_after_diff,
         )
         print(json.dumps(result.__dict__, indent=2, sort_keys=True, default=str))
 

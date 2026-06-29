@@ -1736,3 +1736,289 @@ Interpretation:
 - The current goal gate is met on the strict corrected benchmark: mean HP loss delta vs trace is `-0.1286` over roots with clean same-combat HP baselines.
 - The full policy still wins every frozen root: `323/323`, with no losses and no nonterminals.
 - The comparable-root count is now lower because repaired in-combat HP jumps are no longer treated as human performance baselines. They remain useful fidelity/debug signals, but not policy-eval labels.
+
+### 37. Simulator Train/Dev Iteration Loop and Strict MANUAL01 Held-Out Reports
+
+Change:
+
+- Added a full `iterate-combat-policy` command that generates simulator-only
+  train/dev corpora, evaluates deterministic non-ML candidates on both
+  `combat_start` and `all` root scopes, then runs MANUAL01 as held-out
+  evaluation only.
+- Added compact `iteration-report.json` output with candidate names, promoted
+  dev candidate, strict held-out replay verification, report paths, blockers,
+  worst regressions, best improvements, and runtime metrics.
+- Added progress logging for long evals.
+- Changed the default full-batch iteration candidate set to bounded/Rust-backed
+  policies:
+  - `rust_terminal_win_hp_bounded_w32_d40`
+  - `rust_beam_terminal_w32_d40`
+  - `rust_beam_terminal_w16_d40`
+  - `rust_greedy_tactical_d40`
+- Left slower/wider experiments available explicitly via `--candidate`, but no
+  longer included them in the default full all-state iteration batch.
+
+Bug found and fixed:
+
+- The first iteration pass exposed a real exact-action invariant failure after a
+  Duplication Potion state. `exact_legal_actions()` could expose
+  `PlayCard(card_id=16)` while `env.step()` immediately rejected the same action
+  with `UnknownCard(CardId(16))`.
+- Fixed the PyO3 run-level legal-action bridge so combat actions are validated
+  when `duplication_potion_pending` is true.
+- Added a regression test that generates the exposing `SIMDEV002` path and
+  asserts every exact run combat action in Duplication Potion pending states can
+  be stepped on a clone.
+
+Why:
+
+- Search assumes exact legal actions are actually stepable. If that contract is
+  false, policy eval can crash or silently avoid valid futures.
+- The old default batch included useful but too-slow exploratory candidates. A
+  standard iteration harness should finish reliably and record runtime deltas;
+  expensive probes should be opt-in.
+- MANUAL01 should be a scoreboard, not the tuning set. The new command makes the
+  train/dev/held-out separation explicit.
+
+Validation:
+
+```powershell
+uv run maturin develop
+uv run python -m unittest python.tests.test_self_play python.tests.test_search_smoke python.tests.test_search_lab
+
+uv run python -m sts.self_play iterate-combat-policy `
+  --output-dir target\policy-iteration\manual01-heldout-v5 `
+  --train-seeds SIMTRAIN001 SIMTRAIN002 SIMTRAIN003 SIMTRAIN004 `
+  --dev-seeds SIMDEV001 SIMDEV002 `
+  --real-trace target\trace-guided\manual01-strict-rerun-replay.jsonl `
+  --max-steps 160 `
+  --max-actions 100
+```
+
+Artifacts:
+
+- Orientation: `simulator/docs/combat_policy_iteration.md`
+- Data manifest: `simulator/docs/data_manifest.md`
+- Canonical run: `simulator/target/policy-iteration/manual01-heldout-v5/`
+- Top-level report:
+  `simulator/target/policy-iteration/manual01-heldout-v5/iteration-report.json`
+
+Run health:
+
+- Focused tests: 48 passed.
+- Train corpus: 4 simulator traces, 4 verified.
+- Dev corpus: 2 simulator traces, 2 verified.
+- Held-out strict replay verification in `iteration-report.json`:
+  `ok = true`, `repair_anchor_count = 0`, `restoration_count = 0`,
+  `steps = 531`.
+- Blockers: none.
+- Promoted from simulator dev combat-start: `rust_beam_terminal_w32_d40`.
+
+Simulator train/dev results:
+
+| Scope | Roots | Best ranked candidate | Mean HP loss | Delta vs trace | Wins/Losses/Nonterminal | Mean sec/decision |
+| --- | ---: | --- | ---: | ---: | --- | ---: |
+| `train_combat_start` | 36 | `rust_beam_terminal_w16_d40` | 6.222 | -1.848 | 34/2/0 | 0.0066 |
+| `train_all` | 384 | `rust_beam_terminal_w16_d40` | 6.477 | -1.738 | 353/31/0 | 0.0046 |
+| `dev_combat_start` | 17 | `rust_beam_terminal_w32_d40` | 5.471 | 0.000 | 17/0/0 | 0.0114 |
+| `dev_all` | 180 | `rust_beam_terminal_w32_d40` | 5.117 | 0.000 | 180/0/0 | 0.0089 |
+
+Held-out MANUAL01 results:
+
+| Scope | Roots | Best ranked candidate | Mean HP loss | Delta vs trace | Wins/Losses/Nonterminal | Mean sec/decision |
+| --- | ---: | --- | ---: | ---: | --- | ---: |
+| `combat_start` | 21 | `rust_greedy_tactical_d40` | 16.524 | +7.286 | 20/0/1 | 0.0016 |
+| `all_decision_states` | 333 | `rust_beam_terminal_w32_d40` | 10.249 | +3.952 | 328/3/2 | 0.0129 |
+
+Interpretation:
+
+- The iteration-loop milestone is now in place: fixed simulator train/dev
+  corpora, held-out MANUAL01 reports, two root scopes, trace-used potion mode,
+  runtime metrics, failure fixtures, blockers, and a promoted candidate.
+- v5 is not a super-human result. It is the current clean harness baseline for
+  the next policy-quality goal.
+- Ranking is not pure mean HP loss. Terminal outcomes affect ordering, which is
+  why the held-out combat-start winner can have worse mean HP loss but fewer
+  losses than beam candidates.
+- The Duplication Potion exact-action bug is a simulator/search contract issue,
+  not merely a bad policy. Future policy work should stop on similar legality
+  failures before interpreting metrics.
+
+### 38. Safe Selector and Held-Out Potion Boundary
+
+Superseded by iteration 39, which fixes the remaining nonterminal roots and
+promotes the safe selector. This entry is retained as the diagnostic step that
+identified the select-loop and boss-survival problems.
+
+Change:
+
+- Added `rust_terminal_hp_commit_safe_selector`, a bounded selector variant that
+  uses width-32 and width-64 Rust terminal/HP-preserving beams but avoids
+  unconditional width 128.
+- Added `rust_terminal_hp_commit_safe_boss_selector`, which permits a width-128
+  terminal branch only for single large-monster states.
+- Registered
+  `rust_terminal_hp_commit_safe_boss_selector_w32_w64_w128_d40` in the trace
+  autopilot candidate list.
+- Added smoke coverage that the safe selectors do not introduce width 128 on
+  the ordinary small run combat fixture.
+
+Why:
+
+- The earlier bounded selector was promising on simulator dev, but unconditional
+  width-128 Rust beam could stack-overflow on the MANUAL01 step-407 multi-enemy
+  Gremlin Leader root.
+- Width 64 improved the safe selector enough to beat the human trace by mean HP
+  loss on MANUAL01 while avoiding the known width-128 crash root.
+- A boss-gated width-128 branch was tested because one remaining all-state
+  nonterminal, step 439, is a single large-monster Giant Head state.
+
+Validation:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest python.tests.test_search_smoke python.tests.test_self_play python.tests.test_search_lab
+```
+
+Focused tests: 48 passed.
+
+Generated reports:
+
+- `target/policy-iteration/superhuman-v1/dev_combat_start_safe.json`
+- `target/policy-iteration/superhuman-v1/dev_all_safe.json`
+- `target/policy-iteration/superhuman-v1/dev_all_safe_w64.json`
+- `target/policy-iteration/superhuman-v1/heldout_manual01_combat_start_safe_w64.json`
+- `target/policy-iteration/superhuman-v1/heldout_manual01_all_safe_w64.json`
+
+Results:
+
+| Scope | Candidate | Roots | Mean HP loss | Delta vs trace | Wins/Losses/Nonterminal | Mean sec/decision |
+| --- | --- | ---: | ---: | ---: | --- | ---: |
+| dev `combat_start` | safe selector, width 32/64 | 17 | 1.353 | -3.333 | 17/0/0 | 0.123 |
+| dev `all` | safe selector, width 32/64 | 180 | 1.561 | -2.827 | 180/0/0 | 0.105 |
+| held-out `combat_start` | safe selector, width 32/64 | 21 | 9.000 | -0.238 | 21/0/0 | 0.240 |
+| held-out `all_decision_states` | safe selector, width 32/64 | 333 | 5.625 | -0.673 | 330/0/3 | 0.132 |
+
+Root probes:
+
+| Trace step | Probe | Result | Lesson |
+| ---: | --- | --- | --- |
+| 407 | boss-safe selector | no crash; width candidates 32/64 only; terminal win | gate avoids the multi-enemy width-128 stack overflow |
+| 439 | boss-safe selector, unrestricted potions | can choose potion lines, but this is not comparable | unrestricted potion probes overstate held-out quality |
+| 439 | boss-safe selector, `allowed_potions=()` | still nonterminal | width 128 alone does not solve the held-out no-potion Giant Head root |
+
+Interpretation:
+
+- The safe selector is the current strongest clean held-out probe by mean HP
+  loss and removes held-out losses.
+- It is not fully promoted as "super-human and done" because all-state still has
+  three nonterminal roots. Two of those, steps 241 and 242, are shared by the
+  baseline candidate family; step 439 remains an unresolved policy/search
+  limitation under canonical `trace_used` potion rules.
+- MANUAL01 comparisons must continue to use `trace_used` potion mode. If a
+  search result depends on a potion that the trace did not use from that root,
+  record it as diagnostic only.
+
+### 39. Select Confirmation and Boss Survival Promotion
+
+Change:
+
+- Made select-screen policy purpose-aware:
+  - Burning Pact/Exhume-style single-card exhaust screens confirm once a valid
+    card is selected.
+  - Elixir/Purity/Gambling Chip-style multi-select screens may continue
+    selecting obvious bad exhaust targets before confirming.
+- Added the same select preference to Rust action filtering so Rust greedy/beam
+  candidates do not keep no-progress select toggles alive.
+- Added a safe-selector tactical survival branch:
+  `tactical_survival`, Rust beam width 32.
+- Added a single-large-monster nonterminal tie-break for the safe selector:
+  when no candidate is a terminal win, prefer non-lost candidates that preserve
+  player HP instead of only minimizing monster HP.
+- Removed the `hp_preserving_lethal` width-64 branch from the safe selectors
+  after it stack-overflowed on MANUAL01 step 414.
+
+Why:
+
+- Steps 241 and 242 were not combat-card failures. They were select-screen
+  loops: the policy selected a bad Burning Pact target, then selected more cards
+  until confirm became illegal, then toggled forever.
+- Step 439 was no longer a select loop after that fix, but the terminal
+  objective chose low-HP nonterminal lines that later died. A standalone
+  tactical-survival beam won the same root, so the selector needed a survival
+  tie-break for high-HP single-monster states with no immediate terminal win.
+- Step 414 exposed a native stack overflow in the `hp_preserving_lethal`
+  width-64 branch. The promoted safe selector must not contain known crashing
+  branches.
+
+Validation:
+
+```powershell
+.\.venv\Scripts\python.exe -m maturin develop
+.\.venv\Scripts\python.exe -m unittest python.tests.test_search_smoke python.tests.test_self_play python.tests.test_search_lab
+.\.venv\Scripts\python.exe -m sts.self_play verify target\trace-guided\manual01-strict-rerun-replay.jsonl
+```
+
+Focused tests: 48 passed.
+
+Strict replay verification:
+
+```json
+{
+  "ok": true,
+  "replay_ok": true,
+  "repair_anchor_count": 0,
+  "restoration_count": 0,
+  "steps": 531,
+  "final_phase": "idle"
+}
+```
+
+Generated reports:
+
+- `target/policy-iteration/superhuman-v1/dev_all_safe_selectfix2.json`
+- `target/policy-iteration/superhuman-v1/heldout_manual01_combat_start_selectfix2.json`
+- `target/policy-iteration/superhuman-v1/heldout_manual01_all_selectfix2.json`
+
+Results:
+
+| Scope | Candidate | Roots | Mean HP loss | Median HP loss | Delta vs trace | Wins/Losses/Nonterminal | Mean sec/decision |
+| --- | --- | ---: | ---: | ---: | ---: | --- | ---: |
+| dev `all` | `rust_terminal_hp_commit_safe_selector_w32_w64_d40` | 180 | 1.933 | -0.5 | -2.506 | 180/0/0 | 0.096 |
+| held-out `combat_start` | `rust_terminal_hp_commit_safe_selector_w32_w64_d40` | 21 | 7.333 | 2.0 | -1.905 | 21/0/0 | 0.174 |
+| held-out `all_decision_states` | `rust_terminal_hp_commit_safe_selector_w32_w64_d40` | 333 | 5.348 | 0.0 | -0.949 | 333/0/0 | 0.098 |
+
+Held-out all-state worst regressions for the promoted selector:
+
+| Trace step | Human HP loss | Policy HP loss | Delta |
+| ---: | ---: | ---: | ---: |
+| 130 | 22 | 45 | +23 |
+| 360 | 2 | 24 | +22 |
+| 94 | -6 | 14 | +20 |
+| 439 | 59 | 78 | +19 |
+
+Held-out all-state best improvements:
+
+| Trace step | Human HP loss | Policy HP loss | Delta |
+| ---: | ---: | ---: | ---: |
+| 272 | 37 | 17 | -20 |
+| 273 | 37 | 17 | -20 |
+| 445 | 58 | 39 | -19 |
+| 446 | 51 | 32 | -19 |
+
+Decision:
+
+- Promote `rust_terminal_hp_commit_safe_selector_w32_w64_d40` as the current
+  non-ML combat policy candidate for MANUAL01-style held-out scoring.
+- The current gate is met: both held-out root scopes beat the human trace by
+  mean HP loss and do not increase losses or nonterminal outcomes.
+
+Remaining risks:
+
+- The result is still one held-out trace/path, not a global proof of Slay the
+  Spire combat optimality.
+- Some individual roots regress badly despite the mean improvement. Future work
+  should target the worst-regression clusters without tuning directly on
+  MANUAL01.
+- Rust unit tests for `py_sts` compiled, but the local cargo test binary could
+  not load a Python DLL in this shell. The Python extension path was rebuilt and
+  validated through the focused Python tests and eval reports.

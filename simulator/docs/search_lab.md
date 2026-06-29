@@ -6,6 +6,10 @@ This lab compares hand-written, non-ML combat search algorithms against fixed
 simulator-generated benchmark roots. It is meant to improve the search helper
 without contaminating the evaluation with human trace choices.
 
+For the current end-to-end policy-iteration workflow, generated data locations,
+and held-out MANUAL01 rules, see `combat_policy_iteration.md` and
+`data_manifest.md`.
+
 ## Benchmark Discipline
 
 - Roots are generated deterministically from synthetic single- and multi-enemy
@@ -70,7 +74,8 @@ families when the trace corpus is available locally.
 
 ## Trace Autopilot Defaults
 
-Trace replay evaluation now uses a smaller practical candidate set by default:
+Trace replay evaluation exposes both historical Python probes and the newer
+Rust selector family. The full candidate registry currently includes:
 
 - `tactical_greedy_d40`
 - `hp_greedy_d40`
@@ -78,8 +83,41 @@ Trace replay evaluation now uses a smaller practical candidate set by default:
 - `trace_probe_potion_rescue_d40`
 - `trace_probe_aggressive_rescue_d40`
 - `trace_probe_no_potions_d40`
+- `rust_greedy_tactical_d40`
+- `rust_beam_tactical_w16_d40`
+- `rust_beam_terminal_w16_d40`
+- `rust_beam_terminal_w32_d40`
+- `rust_beam_terminal_w128_d40`
+- `rust_beam_terminal_w128_no_power_d40`
+- `rust_terminal_rescue_w32_w128_no_power_d40`
+- `rust_terminal_rescue_keyed_w32_w128_no_power_d40`
+- `rust_terminal_win_hp_bounded_w32_d40`
+- `rust_terminal_win_hp_selector_w32_w128_no_power_d40`
+- `rust_terminal_hp_selector_w32_w64_w128_d40`
+- `rust_terminal_hp_commit_won_selector_w32_w64_w128_d40`
+- `rust_terminal_hp_commit_bounded_selector_w32_w64_w128_d40`
+- `rust_terminal_hp_commit_safe_selector_w32_w64_d40`
+- `rust_terminal_hp_commit_safe_boss_selector_w32_w64_w128_d40`
+- `rust_terminal_low_hp_rollout_selector_w32_w128_no_power_d40`
+- `rust_terminal_rollout_selector_w32_w128_no_power_d40`
+- `rust_terminal_portfolio_d40`
 
 These are intentionally separate from the historical synthetic benchmark
 defaults. Expensive candidates such as `portfolio_rollout_d40` are still useful
 diagnostics, but they should be run explicitly rather than as part of every
 trace-root iteration loop.
+
+The newer `iterate-combat-policy` command uses an even tighter all-Rust default
+candidate set for full train/dev plus held-out all-state reports. See
+`combat_policy_iteration.md` for the current canonical run and candidate list.
+
+## Comparison Warnings
+
+- `trace_used` is the canonical MANUAL01 potion mode. Unrestricted potion probes
+  can find lines that are illegal for the held-out comparison.
+- `combat_start` and `all_decision_states` answer different questions. Use both
+  when promoting an autopilot candidate.
+- "Best ranked" is not the same as "lowest mean HP loss"; terminal outcomes and
+  nonterminal episodes are part of the ordering.
+- Any exact-action invariant failure or strict replay failure is a simulator
+  bug first and a policy result never.

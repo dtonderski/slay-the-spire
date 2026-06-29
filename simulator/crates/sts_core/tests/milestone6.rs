@@ -31,7 +31,11 @@ fn cultist_combat_executes_ritual_then_scaling_attack() {
     let after_ritual = end_player_turn(&state);
 
     assert_eq!(after_ritual.player.hp, 40);
-    assert_eq!(after_ritual.monsters[0].powers.strength, 2);
+    assert_eq!(
+        after_ritual.monsters[0].powers.ritual,
+        CULTIST_A0.ritual_amount
+    );
+    assert_eq!(after_ritual.monsters[0].powers.strength, 0);
     assert_eq!(
         after_ritual.monsters[0].intent,
         MonsterIntent::Attack {
@@ -41,7 +45,11 @@ fn cultist_combat_executes_ritual_then_scaling_attack() {
 
     let after_attack = end_player_turn(&after_ritual);
 
-    assert_eq!(after_attack.player.hp, 32);
+    assert_eq!(after_attack.player.hp, 34);
+    assert_eq!(
+        after_attack.monsters[0].powers.strength,
+        CULTIST_A0.ritual_amount
+    );
 }
 
 #[test]

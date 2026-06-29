@@ -33,6 +33,10 @@ pub struct CombatState {
     #[serde(default)]
     pub shuffle_rng: Option<StsRng>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monster_rng: Option<StsRng>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monster_hp_rng: Option<StsRng>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_random_rng: Option<StsRng>,
     /// In-combat zero-cost card reward from potions such as Power Potion.
     #[serde(default)]
@@ -125,6 +129,8 @@ pub struct ExhaustSelectState {
     pub purpose: ExhaustSelectPurpose,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_card_id: Option<CardId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_card: Option<CardInstance>,
     pub selected_hand_indices: Vec<usize>,
 }
 
@@ -135,6 +141,8 @@ pub enum ExhaustSelectPurpose {
     GamblingChip,
     ExhumeReturnToHand,
     PurityExhaustUpTo3,
+    BurningPactDraw2,
+    BurningPactDraw3,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +200,12 @@ pub struct MonsterState {
     pub rolled_attack_damage: Option<i32>,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub stolen_gold: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub move_history: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gremlin_leader_slot: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stasis_card: Option<CardInstance>,
     pub intent: MonsterIntent,
 }
 
@@ -315,6 +329,10 @@ pub enum MonsterIntent {
         count: i32,
         damage: i32,
     },
+    AddBurnToDiscardAndDraw {
+        count: i32,
+        damage: i32,
+    },
     AttackMultiple {
         damage: i32,
         hits: i32,
@@ -363,6 +381,8 @@ impl CombatState {
             relic_counters: RelicCounters::default(),
             ascension: 0,
             shuffle_rng: None,
+            monster_rng: None,
+            monster_hp_rng: None,
             card_random_rng: None,
             potion_card_reward: None,
             toolbox_card_reward: None,

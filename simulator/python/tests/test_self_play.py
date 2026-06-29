@@ -15,6 +15,7 @@ from sts.self_play import (
     _real_trace_combat_baselines,
     _parse_candidate_names,
     _trace_candidates_by_name,
+    _trace_combat_roots,
     evaluate_self_play_corpus,
     real_trace_root_report,
     replay_real_trace_guided,
@@ -28,9 +29,9 @@ class SelfPlayTests(unittest.TestCase):
     def test_default_combat_policy_uses_selected_trace_candidate(self):
         self.assertEqual(
             DEFAULT_COMBAT_POLICY_NAME,
-            "rust_terminal_win_hp_selector_w32_w128_no_power_d40",
+            "rust_terminal_hp_commit_safe_selector_w32_w64_d40",
         )
-        self.assertEqual(DEFAULT_COMBAT_POLICY.algorithm, "rust_terminal_win_hp_selector")
+        self.assertEqual(DEFAULT_COMBAT_POLICY.algorithm, "rust_terminal_hp_commit_safe_selector")
 
         overridden = _combat_policy_from_name(
             "rust_beam_terminal_w32_d40",
@@ -87,6 +88,31 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(records[0]["start"], "seed")
             self.assertEqual(records[0]["seed"], "TEST")
             self.assertIn("initial_snapshot_json", records[0])
+
+    def test_exact_run_combat_actions_are_stepable_after_duplication_potion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "seed-SIMDEV002-rng-23001.jsonl"
+
+            result = run_self_play(
+                output=trace_path,
+                seed="SIMDEV002",
+                random_seed=23001,
+                max_steps=140,
+            )
+
+            self.assertTrue(result.verified)
+            roots = [
+                root
+                for root in _trace_combat_roots([trace_path], root_scope="all")
+                if '"duplication_potion_pending":true' in root.snapshot_json
+            ]
+            self.assertTrue(roots)
+
+            for root in roots:
+                env = omni.OmniRunEnv.from_snapshot_json(root.snapshot_json)
+                for action in env.exact_legal_actions():
+                    with self.subTest(step=root.step, action=action.json()):
+                        env.clone().step(action)
 
     def test_seed_start_can_record_potion_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -586,13 +612,22 @@ class SelfPlayTests(unittest.TestCase):
         self.assertEqual(portfolio_candidates[0].config.algorithm, "rust_terminal_portfolio")
 
         selector_candidates = _trace_candidates_by_name(
-            ["rust_terminal_win_hp_selector_w32_w128_no_power_d40"]
+            ["rust_terminal_win_hp_bounded_w32_d40"]
         )
 
         self.assertEqual(len(selector_candidates), 1)
         self.assertEqual(
             selector_candidates[0].config.algorithm,
             "rust_terminal_win_hp_selector",
+        )
+        wide_selector_candidates = _trace_candidates_by_name(
+            ["rust_terminal_win_hp_selector_w32_w128_no_power_d40"]
+        )
+
+        self.assertEqual(len(wide_selector_candidates), 1)
+        self.assertEqual(
+            wide_selector_candidates[0].config.algorithm,
+            "rust_terminal_win_hp_wide_selector",
         )
 
         hp_selector_candidates = _trace_candidates_by_name(
@@ -695,8 +730,9 @@ class SelfPlayTests(unittest.TestCase):
             step = 2
             map_steps = 0
             while env.exact_legal_actions() and env.phase() != "combat":
-                records.append({"type": "action", "step": step, "command": "CHOOSE 0"})
-                env.step(env.exact_legal_actions()[0])
+                choice_index = 1 if map_steps == 1 else 0
+                records.append({"type": "action", "step": step, "command": f"CHOOSE {choice_index}"})
+                env.step(env.exact_legal_actions()[choice_index])
                 records.append(
                     {
                         "type": "state",
@@ -706,7 +742,6 @@ class SelfPlayTests(unittest.TestCase):
                 )
                 step += 2
                 map_steps += 1
-            records.append({"type": "action", "step": step, "command": "CHOOSE 0"})
             self._write_jsonl(
                 trace_path,
                 records,
@@ -728,7 +763,7 @@ class SelfPlayTests(unittest.TestCase):
             records = self._read_jsonl(output_path)
             self.assertIsNone(records[0]["blocker"])
 
-    def test_trace_guided_replay_skips_unsupported_neow_until_anchor(self):
+    def test_trace_guided_replay_diagnostic_skips_unsupported_neow_until_anchor(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"
             output_path = Path(directory) / "replayed.jsonl"
@@ -750,18 +785,101 @@ class SelfPlayTests(unittest.TestCase):
                             }
                         },
                     },
-                    {"type": "action", "step": 2, "command": "CHOOSE 0"},
+                    {"type": "action", "step": 2, "command": "NOPE"},
                 ],
             )
 
-            result = replay_real_trace_guided(trace=trace_path, output=output_path)
+            result = replay_real_trace_guided(
+                trace=trace_path,
+                output=output_path,
+                diagnostic_continue_after_diff=True,
+            )
             records = self._read_jsonl(output_path)
 
             self.assertEqual(result.stop_reason, "trace_exhausted")
+            self.assertEqual(result.mode, "diagnostic")
             self.assertEqual(result.steps, 0)
             self.assertEqual(result.combat_roots, 0)
             self.assertEqual(records[0]["skipped_noncombat_actions"], 1)
             self.assertIsNone(records[0]["blocker"])
+
+    def test_trace_guided_replay_strict_fails_on_unsupported_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            output_path = Path(directory) / "replayed.jsonl"
+            report_path = Path(directory) / "report.json"
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 MANUAL01"},
+                    {
+                        "type": "state",
+                        "step": 1,
+                        "message": {
+                            "game_state": {
+                                "screen_type": "EVENT",
+                                "current_hp": 80,
+                                "max_hp": 80,
+                                "gold": 99,
+                                "potions": [],
+                            }
+                        },
+                    },
+                    {"type": "action", "step": 2, "command": "NOPE"},
+                ],
+            )
+
+            result = replay_real_trace_guided(
+                trace=trace_path,
+                output=output_path,
+                report_output=report_path,
+            )
+            records = self._read_jsonl(output_path)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(result.mode, "strict")
+            self.assertEqual(result.stop_reason, "unsupported_command_mapping")
+            self.assertFalse(result.verified)
+            self.assertEqual(records[0]["restoration_count"], 0)
+            self.assertEqual(records[0]["anchor_count"], 0)
+            self.assertEqual(records[0]["blocker"]["category"], "unsupported_command_mapping")
+            self.assertFalse(report["verified"])
+            self.assertEqual(report["blocker"]["category"], "unsupported_command_mapping")
+
+    def test_trace_guided_replay_strict_fails_on_first_observed_diff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            output_path = Path(directory) / "replayed.jsonl"
+            report_path = Path(directory) / "report.json"
+            env = omni.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
+            observed = self._observed_state_from_env(env)
+            observed["gold"] = observed["gold"] + 1
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 TEST"},
+                    {"type": "state", "step": 1, "message": {"game_state": observed}},
+                    {"type": "action", "step": 2, "command": "CHOOSE 0"},
+                ],
+            )
+
+            result = replay_real_trace_guided(
+                trace=trace_path,
+                output=output_path,
+                report_output=report_path,
+            )
+            records = self._read_jsonl(output_path)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(result.stop_reason, "observed_state_diff")
+            self.assertFalse(result.verified)
+            self.assertEqual(records[0]["restoration_count"], 0)
+            self.assertEqual(records[0]["anchor_count"], 0)
+            self.assertEqual(records[0]["blocker"]["category"], "observed_state_diff")
+            self.assertEqual(report["blocker"]["category"], "observed_state_diff")
+            self.assertTrue(report["blocker"]["diffs"])
 
     def test_trace_guided_anchor_preserves_observed_relics_and_counters(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -815,7 +933,11 @@ class SelfPlayTests(unittest.TestCase):
                 ],
             )
 
-            result = replay_real_trace_guided(trace=trace_path, output=output_path)
+            result = replay_real_trace_guided(
+                trace=trace_path,
+                output=output_path,
+                diagnostic_continue_after_diff=True,
+            )
             records = self._read_jsonl(output_path)
             anchor = next(record for record in records if record.get("type") == "anchor")
             snapshot = json.loads(anchor["snapshot_json"])
@@ -840,7 +962,9 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(combat["relic_counters"]["player_turns_started"], 4)
             self.assertEqual(combat["relic_counters"]["pen_nib_attacks_played"], 9)
             self.assertEqual(combat["relic_counters"]["nunchaku_attacks_played"], 8)
-            self.assertTrue(verify_self_play_trace(output_path)["ok"])
+            verification = verify_self_play_trace(output_path)
+            self.assertFalse(verification["ok"])
+            self.assertEqual(verification["error"], "trace contains state repair anchors")
 
     def test_verify_rejects_action_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -50,9 +50,11 @@ pub fn random_normal_curse(rng: &mut StsRng) -> ContentId {
     NORMAL_CURSE_POOL[pick]
 }
 
-/// Target Ironclad combat-reward pool grouped by the observed target rarity pools.
+/// Target Ironclad combat-reward pool.
 ///
-/// Some entries are not yet implemented as playable `CardDefinition`s. They still belong here
+/// The target reward pool order follows `CardLibrary.cards.entrySet()` rather than class-file
+/// declaration order. Treat this as trace/source-backed ordering, not an alphabetized list.
+/// Some entries are not yet implemented as playable `CardDefinition`s; they still belong here
 /// because reward RNG indexes into the full target pool before the player can choose a card.
 pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
     RewardCardEntry {
@@ -284,55 +286,7 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
-        content_id: DOUBLE_TAP_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: DEMON_FORM_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: BLUDGEON_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: FEED_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: LIMIT_BREAK_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: CORRUPTION_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: BARRICADE_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: FIEND_FIRE_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: BERSERK_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: IMPERVIOUS_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: JUGGERNAUT_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: BRUTALITY_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
-        content_id: REAPER_ID,
+        content_id: OFFERING_ID,
         rarity: CardRarity::Rare,
     },
     RewardCardEntry {
@@ -340,7 +294,55 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
         rarity: CardRarity::Rare,
     },
     RewardCardEntry {
-        content_id: OFFERING_ID,
+        content_id: REAPER_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BRUTALITY_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: JUGGERNAUT_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: IMPERVIOUS_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BERSERK_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: FIEND_FIRE_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BARRICADE_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: CORRUPTION_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: LIMIT_BREAK_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: FEED_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: BLUDGEON_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: DEMON_FORM_ID,
+        rarity: CardRarity::Rare,
+    },
+    RewardCardEntry {
+        content_id: DOUBLE_TAP_ID,
         rarity: CardRarity::Rare,
     },
 ];

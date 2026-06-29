@@ -1,12 +1,18 @@
 use crate::{
     content::cards::{
-        upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID, DOUBT_ID, JAX_ID,
-        REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+        upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID,
+        JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     relic::{Relic, RelicKey},
     rng::{JavaRng, StsRng},
     run::{
         grid::{open_event_obtain_card_grid, open_event_remove_grid, open_event_transform_grid},
+        neow::{
+            apply_neow_boss_swap, apply_neow_lament_reward, apply_neow_relic_reward,
+            apply_neow_simple_drawback, apply_neow_simple_reward, generate_neow_card_reward,
+            generate_neow_options, generate_neow_three_potions, open_neow_reward_grid,
+            GeneratedNeowOption, NeowDrawback, NeowRewardType,
+        },
         reward::target_card_reward_choices_with_count,
         state::RunRngStream,
     },
@@ -18,6 +24,10 @@ pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
+pub const GOLDEN_IDOL_HP_LOSS_PERCENT: f32 = 0.25;
+pub const GOLDEN_IDOL_MAX_HP_LOSS_PERCENT: f32 = 0.08;
+pub const GOLDEN_IDOL_A15_HP_LOSS_PERCENT: f32 = 0.35;
+pub const GOLDEN_IDOL_A15_MAX_HP_LOSS_PERCENT: f32 = 0.10;
 pub const SSSSSERPENT_GOLD: i32 = 175;
 pub const SHINING_LIGHT_HP_PERCENT: f32 = 0.20;
 pub const THE_LIBRARY_HEAL_PERCENT: f32 = 0.33;
@@ -65,6 +75,26 @@ pub fn the_library_heal_for_ascension(max_hp: i32, ascension: u8) -> i32 {
         THE_LIBRARY_HEAL_PERCENT
     };
     (max_hp as f32 * percent).round() as i32
+}
+
+#[must_use]
+pub fn golden_idol_hp_loss(max_hp: i32, ascension: u8) -> i32 {
+    let percent = if ascension >= 15 {
+        GOLDEN_IDOL_A15_HP_LOSS_PERCENT
+    } else {
+        GOLDEN_IDOL_HP_LOSS_PERCENT
+    };
+    (max_hp as f32 * percent) as i32
+}
+
+#[must_use]
+pub fn golden_idol_max_hp_loss(max_hp: i32, ascension: u8) -> i32 {
+    let percent = if ascension >= 15 {
+        GOLDEN_IDOL_A15_MAX_HP_LOSS_PERCENT
+    } else {
+        GOLDEN_IDOL_MAX_HP_LOSS_PERCENT
+    };
+    (max_hp as f32 * percent) as i32
 }
 
 fn open_the_library_read_grid(run: &mut RunState) {
@@ -279,6 +309,14 @@ fn drug_dealer_choices(stage: u8, transform_enabled: bool) -> Vec<EventChoice> {
     }
 }
 
+fn dead_adventurer_choices(stage: u8) -> Vec<EventChoice> {
+    match stage {
+        0 => labeled_choices(&["Search", "Leave"]),
+        1 => labeled_choices(&["Leave"]),
+        _ => Vec::new(),
+    }
+}
+
 fn vampires_choices(has_blood_vial: bool) -> Vec<EventChoice> {
     if has_blood_vial {
         labeled_choices(&["Accept", "Give Blood Vial", "Leave"])
@@ -367,6 +405,7 @@ fn open_cursed_tome_book_reward(run: &mut RunState, key: RelicKey) {
         pending_relic_offer: None,
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
         card_reward_active: false,
         card_reward_pending: false,
         pending_card_reward_count: 0,
@@ -426,12 +465,12 @@ const ACT1_EVENTS: [Event; 11] = [
 ];
 
 const ACT1_SHRINES: [Event; 6] = [
+    Event::MatchAndKeep,
     Event::GoldenShrine,
     Event::Transmorgrifier,
     Event::Purifier,
     Event::UpgradeShrine,
     Event::WheelOfChange,
-    Event::MatchAndKeep,
 ];
 
 pub const ACT2_EVENTS: [Event; 13] = [
@@ -461,6 +500,7 @@ pub const ACT2_SHRINES: [Event; 6] = [
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
+    Neow,
     GoldenShrine,
     BigFish,
     TheCleric,
@@ -571,11 +611,53 @@ fn sssssserpent_choices(stage: u32) -> Vec<EventChoice> {
     }
 }
 
+fn golden_idol_choices(stage: u32, max_hp: i32, ascension: u8) -> Vec<EventChoice> {
+    match stage {
+        0 => labeled_choices(&["Take", "Leave"]),
+        1 => vec![
+            EventChoice {
+                label: "Outrun (obtain Injury)".to_owned(),
+            },
+            EventChoice {
+                label: format!(
+                    "Smash (take {} damage)",
+                    golden_idol_hp_loss(max_hp, ascension)
+                ),
+            },
+            EventChoice {
+                label: format!(
+                    "Hide (lose {} max HP)",
+                    golden_idol_max_hp_loss(max_hp, ascension)
+                ),
+            },
+        ],
+        2 => labeled_choices(&["Leave"]),
+        _ => Vec::new(),
+    }
+}
+
 fn labeled_choices(labels: &[&str]) -> Vec<EventChoice> {
     labels
         .iter()
         .map(|label| EventChoice {
             label: (*label).to_owned(),
+        })
+        .collect()
+}
+
+fn neow_talk_choices() -> Vec<EventChoice> {
+    labeled_choices(&["Talk"])
+}
+
+fn neow_leave_choices() -> Vec<EventChoice> {
+    labeled_choices(&["Leave"])
+}
+
+fn neow_option_choices(run: &RunState) -> Vec<EventChoice> {
+    generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
+        .into_iter()
+        .map(|option| EventChoice {
+            label: option.label,
         })
         .collect()
 }
@@ -592,26 +674,16 @@ fn initialize_act1_event_pools(run: &mut RunState) {
     if !run.act1_event_list.is_empty() {
         return;
     }
-    let mut events = ACT1_EVENTS.to_vec();
-    let mut shrines = ACT1_SHRINES.to_vec();
-    let mut rng = StsRng::new(run.event_rng_seed as i64);
-    JavaRng::new(rng.random_long()).collections_shuffle(&mut events);
-    JavaRng::new(rng.random_long()).collections_shuffle(&mut shrines);
-    run.act1_event_list = events;
-    run.act1_shrine_list = shrines;
+    run.act1_event_list = ACT1_EVENTS.to_vec();
+    run.act1_shrine_list = ACT1_SHRINES.to_vec();
 }
 
 fn initialize_act2_event_pools(run: &mut RunState) {
     if !run.act2_event_list.is_empty() {
         return;
     }
-    let mut events = ACT2_EVENTS.to_vec();
-    let mut shrines = ACT2_SHRINES.to_vec();
-    let mut rng = StsRng::new(run.event_rng_seed as i64);
-    JavaRng::new(rng.random_long()).collections_shuffle(&mut events);
-    JavaRng::new(rng.random_long()).collections_shuffle(&mut shrines);
-    run.act2_event_list = events;
-    run.act2_shrine_list = shrines;
+    run.act2_event_list = ACT2_EVENTS.to_vec();
+    run.act2_shrine_list = ACT2_SHRINES.to_vec();
 }
 
 fn event_lists_mut(run: &mut RunState) -> (&mut Vec<Event>, &mut Vec<Event>) {
@@ -647,15 +719,46 @@ fn get_shrine(run: &mut RunState, rng: &mut StsRng) -> Event {
 }
 
 fn get_event(run: &mut RunState, rng: &mut StsRng) -> Event {
-    let event_list_is_empty = {
-        let (event_list, _) = event_lists_mut(run);
-        event_list.is_empty()
+    let candidates: Vec<Event> = {
+        let event_list = {
+            let (event_list, _) = event_lists_mut(run);
+            event_list.clone()
+        };
+        event_list
+            .iter()
+            .copied()
+            .filter(|event| event_is_available(run, *event))
+            .collect()
     };
-    if event_list_is_empty {
+    if candidates.is_empty() {
         get_shrine(run, rng)
     } else {
+        let idx = rng.random_int((candidates.len() - 1) as i32) as usize;
+        let event = candidates[idx];
         let (event_list, _) = event_lists_mut(run);
-        pick_from_list(rng, event_list)
+        if let Some(index) = event_list.iter().position(|candidate| *candidate == event) {
+            event_list.remove(index);
+        }
+        event
+    }
+}
+
+fn event_is_available(run: &RunState, event: Event) -> bool {
+    match event {
+        Event::DeadAdventurer | Event::HypnotizingColoredMushrooms => run.current_floor > 6,
+        Event::TheCleric => run.gold >= 35,
+        Event::Beggar => run.gold >= BEGGAR_GOLD_COST,
+        Event::Colosseum => current_floor_in_act(run) > 7,
+        _ => true,
+    }
+}
+
+fn current_floor_in_act(run: &RunState) -> i32 {
+    match run.current_act {
+        1 => run.current_floor,
+        2 => run.current_floor - 17,
+        3 => run.current_floor - 34,
+        _ => run.current_floor,
     }
 }
 
@@ -718,7 +821,6 @@ pub fn enter_event_screen(run: &mut RunState) {
     ensure_event_lists(run);
     let mut rng = StsRng::with_counter(run.event_rng_seed as i64, run.event_rng_counter);
     let event = generate_event(run, &mut rng);
-    run.event_rng_counter = rng.counter();
     run.phase = RunPhase::Event;
     run.event = Some(event_screen_for_run(run, event));
 }
@@ -726,6 +828,7 @@ pub fn enter_event_screen(run: &mut RunState) {
 #[must_use]
 pub fn event_screen(event: Event) -> EventScreen {
     match event {
+        Event::Neow => make_event_screen(event, neow_talk_choices(), 0),
         Event::GoldenShrine => legacy_fixed_event_screen(),
         Event::Purifier => make_event_screen(
             event,
@@ -767,6 +870,8 @@ pub fn event_screen(event: Event) -> EventScreen {
         ),
         Event::ScrapOoze => make_event_screen(event, scrap_ooze_choices(0), 0),
         Event::BigFish => make_event_screen(event, big_fish_choices(0), 0),
+        Event::GoldenIdol => make_event_screen(event, golden_idol_choices(0, 0, 0), 0),
+        Event::DeadAdventurer => make_event_screen(event, dead_adventurer_choices(0), 0),
         Event::TheSsssserpent => make_event_screen(event, sssssserpent_choices(0), 0),
         Event::BackToBasics => {
             make_event_screen(event, labeled_choices(&["Elegance", "Simplicity"]), 0)
@@ -798,6 +903,7 @@ pub fn event_screen(event: Event) -> EventScreen {
 #[must_use]
 pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
     match event {
+        Event::Neow => make_event_screen(event, neow_option_choices(run), 1),
         Event::Vampires => make_event_screen(
             event,
             vampires_choices(run.relics.contains(&Relic::BloodVial)),
@@ -805,6 +911,79 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
         ),
         _ => event_screen(event),
     }
+}
+
+#[must_use]
+pub fn neow_talk_screen() -> EventScreen {
+    make_event_screen(Event::Neow, neow_talk_choices(), 0)
+}
+
+#[must_use]
+pub fn neow_screen_for_stage(run: &RunState, stage: u32) -> EventScreen {
+    match stage {
+        0 => make_event_screen(Event::Neow, neow_talk_choices(), 0),
+        1 => make_event_screen(Event::Neow, neow_option_choices(run), 1),
+        _ => make_event_screen(Event::Neow, neow_leave_choices(), 2),
+    }
+}
+
+fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption) -> SimResult<()> {
+    match option.drawback {
+        NeowDrawback::Curse => {
+            return Err(SimError::IllegalAction(
+                "Neow curse drawback is not implemented in event replay",
+            ));
+        }
+        drawback => apply_neow_simple_drawback(next, drawback),
+    }
+
+    match option.reward {
+        NeowRewardType::OneRandomRareCard => {
+            let reward = generate_neow_card_reward(next.event_rng_seed as i64, option.reward);
+            for content_id in reward.cards {
+                next.gain_deck_card(content_id);
+            }
+        }
+        NeowRewardType::ThreeSmallPotions => {
+            let reward = generate_neow_three_potions(next.event_rng_seed as i64);
+            for potion in reward.potions {
+                if next.can_gain_potions() && next.potions.len() < next.potion_capacity() {
+                    next.potions.push(potion);
+                }
+            }
+            next.potion_rng_counter = reward.potion_rng_counter;
+        }
+        NeowRewardType::RandomCommonRelic | NeowRewardType::OneRareRelic => {
+            apply_neow_relic_reward(next, option.reward);
+        }
+        NeowRewardType::TenPercentHpBonus
+        | NeowRewardType::TwentyPercentHpBonus
+        | NeowRewardType::HundredGold
+        | NeowRewardType::TwoFiftyGold => apply_neow_simple_reward(next, option.reward),
+        NeowRewardType::ThreeEnemyKill => apply_neow_lament_reward(next),
+        NeowRewardType::BossRelic => {
+            apply_neow_boss_swap(next);
+        }
+        NeowRewardType::RemoveCard
+        | NeowRewardType::RemoveTwo
+        | NeowRewardType::UpgradeCard
+        | NeowRewardType::TransformCard
+        | NeowRewardType::TransformTwoCards => {
+            open_neow_reward_grid(next, option.reward);
+            return Ok(());
+        }
+        NeowRewardType::ThreeCards
+        | NeowRewardType::RandomColorless
+        | NeowRewardType::RandomColorlessTwo
+        | NeowRewardType::ThreeRareCards => {
+            return Err(SimError::IllegalAction(
+                "Neow choice-card reward is not implemented in event replay",
+            ));
+        }
+    }
+
+    next.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
+    Ok(())
 }
 
 #[must_use]
@@ -866,11 +1045,110 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
     let EventAction::Choose { choice_index } = action;
 
     match screen.event {
+        Event::Neow => match screen.stage {
+            0 if choice_index == 0 => {
+                next.event = Some(neow_screen_for_stage(&next, 1));
+            }
+            1 => {
+                let options = generate_neow_options(next.event_rng_seed as i64, next.player_max_hp);
+                let option = options
+                    .into_iter()
+                    .find(|option| option.slot == choice_index)
+                    .ok_or(SimError::IllegalAction("Neow option is not available"))?;
+                apply_neow_immediate_option(&mut next, option)?;
+            }
+            2 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Neow",
+                ));
+            }
+        },
         Event::GoldenShrine if choice_index == 0 => {
             next.gain_gold(GOLDEN_SHRINE_GOLD);
             next.phase = RunPhase::Idle;
             next.event = None;
         }
+        Event::GoldenIdol => match screen.stage {
+            0 if choice_index == 0 => {
+                if has_relic_key(&next, RelicKey::GoldenIdol) {
+                    next.gain_relic_key(RelicKey::Circlet);
+                } else {
+                    next.gain_relic_key(RelicKey::GoldenIdol);
+                }
+                next.event = Some(EventScreen {
+                    event: Event::GoldenIdol,
+                    choices: golden_idol_choices(1, next.player_max_hp, next.ascension),
+                    stage: 1,
+                    event_data: 0,
+                });
+            }
+            0 if choice_index == 1 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            1 if choice_index == 0 => {
+                next.gain_deck_card(INJURY_ID);
+                next.event = Some(EventScreen {
+                    event: Event::GoldenIdol,
+                    choices: golden_idol_choices(2, next.player_max_hp, next.ascension),
+                    stage: 2,
+                    event_data: 0,
+                });
+            }
+            1 if choice_index == 1 => {
+                let hp_loss = golden_idol_hp_loss(next.player_max_hp, next.ascension);
+                lose_event_hp(&mut next, hp_loss);
+                next.event = Some(EventScreen {
+                    event: Event::GoldenIdol,
+                    choices: golden_idol_choices(2, next.player_max_hp, next.ascension),
+                    stage: 2,
+                    event_data: hp_loss as u32,
+                });
+            }
+            1 if choice_index == 2 => {
+                let max_hp_loss = golden_idol_max_hp_loss(next.player_max_hp, next.ascension);
+                next.player_max_hp = (next.player_max_hp - max_hp_loss).max(1);
+                next.player_hp = next.player_hp.min(next.player_max_hp);
+                next.event = Some(EventScreen {
+                    event: Event::GoldenIdol,
+                    choices: golden_idol_choices(2, next.player_max_hp, next.ascension),
+                    stage: 2,
+                    event_data: max_hp_loss as u32,
+                });
+            }
+            2 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Golden Idol",
+                ));
+            }
+        },
+        Event::DeadAdventurer => match screen.stage {
+            0 if choice_index == 1 => {
+                next.event = Some(EventScreen {
+                    event: Event::DeadAdventurer,
+                    choices: dead_adventurer_choices(1),
+                    stage: 1,
+                    event_data: 0,
+                });
+            }
+            1 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Dead Adventurer",
+                ));
+            }
+        },
         Event::TheCleric if choice_index == 0 => {
             let heal = next.player_max_hp * 25 / 100;
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
@@ -1446,6 +1724,35 @@ mod tests {
     }
 
     #[test]
+    fn golden_idol_take_then_injury_branch_adds_relic_and_curse_before_leave() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::GoldenIdol));
+
+        let after_take =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("take idol");
+        assert!(after_take.relics.contains(&Relic::GoldenIdol));
+        assert_eq!(after_take.phase, RunPhase::Event);
+        assert_eq!(after_take.event.as_ref().expect("boulder").stage, 1);
+        assert_eq!(after_take.event.as_ref().expect("boulder").choices.len(), 3);
+
+        let after_injury = apply_event_action(&after_take, EventAction::Choose { choice_index: 0 })
+            .expect("take injury");
+        assert!(after_injury
+            .deck
+            .iter()
+            .any(|card| card.content_id == INJURY_ID));
+        assert_eq!(after_injury.phase, RunPhase::Event);
+        assert_eq!(after_injury.event.as_ref().expect("leave").stage, 2);
+
+        let after_leave =
+            apply_event_action(&after_injury, EventAction::Choose { choice_index: 0 })
+                .expect("leave");
+        assert_eq!(after_leave.phase, RunPhase::Idle);
+        assert!(after_leave.event.is_none());
+    }
+
+    #[test]
     fn event_screen_selection_is_deterministic_for_seed() {
         let mut first = RunState::map_fixture();
         let mut second = RunState::map_fixture();
@@ -1461,13 +1768,14 @@ mod tests {
     }
 
     #[test]
-    fn event_screen_selection_advances_event_rng_counter() {
+    fn event_screen_selection_uses_temporary_event_rng_counter() {
         let mut run = RunState::map_fixture();
         run.event_rng_seed = 7;
+        run.event_rng_counter = 4;
 
         enter_event_screen(&mut run);
 
-        assert!(run.event_rng_counter >= 1);
+        assert_eq!(run.event_rng_counter, 4);
         assert!(
             run.act1_event_list.len() < ACT1_EVENTS.len()
                 || run.act1_shrine_list.len() < ACT1_SHRINES.len()
@@ -1607,6 +1915,43 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Continue"]
         );
+    }
+
+    #[test]
+    fn dead_adventurer_leave_path_matches_trace_choice_shape() {
+        let screen = event_screen(Event::DeadAdventurer);
+        assert_eq!(
+            screen
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Search", "Leave"]
+        );
+
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(screen);
+
+        let leave_prompt = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("leave prompt");
+        assert_eq!(leave_prompt.phase, RunPhase::Event);
+        assert_eq!(
+            leave_prompt
+                .event
+                .as_ref()
+                .expect("leave screen")
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Leave"]
+        );
+
+        let done = apply_event_action(&leave_prompt, EventAction::Choose { choice_index: 0 })
+            .expect("leave event");
+        assert_eq!(done.phase, RunPhase::Idle);
+        assert!(done.event.is_none());
     }
 
     #[test]
@@ -2807,6 +3152,7 @@ mod tests {
         run.act1_event_list = vec![Event::BigFish];
         run.act1_shrine_list = vec![Event::GoldenShrine];
         let gold_before = run.gold;
+        let mut selected_counter = None;
 
         for counter in 0..64 {
             let mut trial = run.clone();
@@ -2814,13 +3160,14 @@ mod tests {
             enter_event_screen(&mut trial);
             if trial.event.as_ref().unwrap().event == Event::GoldenShrine {
                 run = trial;
+                selected_counter = Some(counter);
                 break;
             }
         }
 
         assert_eq!(run.event.as_ref().unwrap().event, Event::GoldenShrine);
         assert!(run.act1_shrine_list.is_empty());
-        assert!(run.event_rng_counter > 0);
+        assert_eq!(run.event_rng_counter, selected_counter.expect("counter"));
         assert_eq!(run.event.as_ref().unwrap().choices[0].label, "Pray");
 
         let after =
@@ -3062,7 +3409,7 @@ mod tests {
     }
 
     #[test]
-    fn test_seed_first_two_events_are_scrap_ooze_then_big_fish() {
+    fn test_seed_event_selection_removes_events_without_advancing_counter() {
         let mut run = RunState::map_fixture();
         run.event_rng_seed = 1_218_623;
         run.misc_rng_seed = 1_218_623;
@@ -3078,15 +3425,17 @@ mod tests {
             }
         }
         let first_counter = first_counter.expect("scrap ooze counter");
-        assert_eq!(first_counter, 24, "TEST seed first event counter");
+        assert_eq!(first_counter, 1, "TEST seed first event counter");
         run.event_rng_counter = first_counter;
 
         enter_event_screen(&mut run);
         assert_eq!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
+        assert_eq!(run.event_rng_counter, first_counter);
 
         run.phase = RunPhase::Idle;
         run.event = None;
         enter_event_screen(&mut run);
-        assert_eq!(run.event.as_ref().unwrap().event, Event::BigFish);
+        assert_ne!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
+        assert_eq!(run.event_rng_counter, first_counter);
     }
 }
