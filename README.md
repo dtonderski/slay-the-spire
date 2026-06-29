@@ -54,6 +54,7 @@ Simulator mechanics must stay separate from RL feature extraction and reward sha
 
 - `RESEARCH.md`: prior-art and source notes
 - `DESIGN.md`: architecture and risk analysis
+- `PROJECT_OVERVIEW.md`: high-level RL roadmap, phase gates, evaluation protocol, and state-visibility boundaries
 - `VERIFICATION.md`: parity and testing strategy
 - `TASKS.md`: tiny ordered implementation tasks
 - `AGENT_RULES.md`: rules for future coding sessions
