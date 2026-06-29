@@ -113,6 +113,8 @@ h3 {
 }
 
 .topbar-actions,
+.fixture-controls,
+.mode-toggle,
 .search-controls,
 .bridge-actions,
 .trace-actions,
@@ -128,6 +130,25 @@ h3 {
   min-width: 11rem;
 }
 
+.mode-toggle {
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.mode-toggle button {
+  min-height: 2rem;
+  border-color: transparent;
+  padding: 0.35rem 0.65rem;
+}
+
+.mode-toggle button.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 .layout {
   display: grid;
   gap: 1rem;
@@ -137,11 +158,98 @@ h3 {
 .board-band,
 .hand-band,
 .control-band,
+.live-band,
 .sync-band,
 .trace-band,
 .debug-band {
   border-top: 1px solid var(--line);
   padding-top: 1rem;
+}
+
+.live-band {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.live-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.9fr) minmax(24rem, 1.1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.live-status-panel,
+.live-control-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 0.9rem;
+}
+
+.live-status-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.live-status-panel .stat-block {
+  gap: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  padding: 0.75rem;
+}
+
+.live-status-panel .stat-list div {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 0.7fr) minmax(0, 1fr);
+}
+
+.live-status-panel .stat-list dd {
+  text-align: left;
+  font-weight: 700;
+}
+
+.live-control-panel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.live-start-row,
+.live-primary-actions,
+.live-secondary-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.live-start-row label {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.live-start-row input[type="text"] {
+  width: 8rem;
+}
+
+.live-primary-actions button {
+  flex: 1 1 10rem;
+}
+
+.live-secondary-actions button {
+  min-height: 2.1rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.live-reason {
+  min-height: 1.25rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.diagnostics-band {
+  opacity: 0.96;
 }
 
 .section-head {
@@ -592,6 +700,7 @@ h3 {
 @media (max-width: 860px) {
   .topbar,
   .section-head,
+  .live-grid,
   .control-band,
   .combat-grid {
     grid-template-columns: 1fr;

@@ -1,6 +1,6 @@
 import unittest
 
-from sts.ui_service import CombatSession, SessionManager
+from sts.ui_service import CombatSession, SessionManager, _observed_state_from_bridge_status
 
 
 class EmptyActionEnv:
@@ -49,6 +49,21 @@ class InvalidStepEnv:
 
 
 class UiServiceTests(unittest.TestCase):
+    def test_observed_bridge_state_extracts_game_state_message(self):
+        observed = {"current_hp": 80, "max_hp": 80, "floor": 1}
+
+        result = _observed_state_from_bridge_status(
+            {"current_state": {"message": {"game_state": observed}}}
+        )
+
+        self.assertEqual(result, observed)
+
+    def test_observed_bridge_state_rejects_command_only_message(self):
+        with self.assertRaises(ValueError):
+            _observed_state_from_bridge_status(
+                {"current_state": {"message": {"available_commands": ["start", "state"]}}}
+            )
+
     def test_session_exposes_state_actions_and_snapshot(self):
         manager = SessionManager()
         session = manager.create_session()
