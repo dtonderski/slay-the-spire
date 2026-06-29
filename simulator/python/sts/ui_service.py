@@ -62,6 +62,21 @@ class SessionManager:
         self._sessions[session.id] = session
         return self.serialize_session(session)
 
+    def create_live_session(self, bridge_status: dict[str, Any]) -> dict[str, Any]:
+        observed = _observed_state_from_bridge_status(bridge_status)
+        env = omni.OmniRunEnv.from_communication_mod_state_json(json.dumps(observed))
+        session = CombatSession(
+            id=uuid4().hex,
+            mode="live_bridge",
+            state_kind="run",
+            env=env,
+        )
+        self._sessions[session.id] = session
+        result = self.serialize_session(session)
+        result["bridge_state_id"] = bridge_status.get("state_id")
+        result["bridge_step"] = bridge_status.get("last_state_step")
+        return result
+
     def get_session(self, session_id: str) -> dict[str, Any]:
         return self.serialize_session(self._require_session(session_id))
 
@@ -350,6 +365,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "sessions"]:
                 self._send_json(self.manager.create_session(payload.get("mode", "combat_fixture")))
                 return
+            if parts == ["api", "live", "session"]:
+                self._send_json(self.manager.create_live_session(self.bridge.status()))
+                return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "step":
                 self._send_json(self.manager.step(parts[2], payload))
                 return
@@ -512,6 +530,42 @@ def _decision_substate(session: CombatSession, terminal_reason: str | None) -> s
 
 def _can_search_combat(session: CombatSession) -> bool:
     return session.state_kind == "combat" or session.env.phase() == "combat"
+
+
+def _observed_state_from_bridge_status(bridge_status: dict[str, Any]) -> dict[str, Any]:
+    current_state = bridge_status.get("current_state")
+    if not isinstance(current_state, dict) or current_state.get("missing"):
+        raise ValueError("no observed bridge state is available yet")
+
+    message = current_state.get("message")
+    if isinstance(message, dict):
+        if isinstance(message.get("game_state"), dict):
+            return message["game_state"]
+        if _looks_like_communication_mod_state(message):
+            return message
+
+    if isinstance(current_state.get("game_state"), dict):
+        return current_state["game_state"]
+    if _looks_like_communication_mod_state(current_state):
+        return current_state
+
+    raise ValueError("latest bridge state is not a supported CommunicationMod game state")
+
+
+def _looks_like_communication_mod_state(value: dict[str, Any]) -> bool:
+    return any(
+        key in value
+        for key in (
+            "combat_state",
+            "screen_type",
+            "choice_list",
+            "current_hp",
+            "player_hp",
+            "floor",
+            "deck",
+            "relics",
+        )
+    )
 
 
 def _env_from_snapshot(state_kind: str, snapshot_json: str) -> Any:

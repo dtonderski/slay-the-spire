@@ -20,6 +20,12 @@
     traceError: null,
     traceLoading: false,
     activeDebugTab: "state",
+    viewMode: "live",
+    bridgePollTimer: null,
+    liveBridgeStateId: null,
+    liveBridgeStep: null,
+    liveSearchBridgeStateId: null,
+    liveSendAction: null,
     mode: null,
     stateKind: null,
     phase: null,
@@ -32,12 +38,29 @@
   document.addEventListener("DOMContentLoaded", () => {
     bindElements();
     bindEvents();
+    refreshBridgeQuietly().finally(() => render());
+    startBridgePolling();
     render();
   });
 
   function bindElements() {
     for (const id of [
       "sessionMeta",
+      "liveModeButton",
+      "simModeButton",
+      "fixtureControls",
+      "liveBand",
+      "liveSummary",
+      "liveStatusBadge",
+      "liveStatusPanel",
+      "startCharacterSelect",
+      "startAscensionInput",
+      "startSeedInput",
+      "startLiveRunButton",
+      "attachLiveButton",
+      "liveSearchButton",
+      "sendBestButton",
+      "liveReason",
       "sessionModeSelect",
       "newSessionButton",
       "reloadButton",
@@ -90,6 +113,12 @@
   }
 
   function bindEvents() {
+    el.liveModeButton.addEventListener("click", () => setViewMode("live"));
+    el.simModeButton.addEventListener("click", () => setViewMode("sim"));
+    el.startLiveRunButton.addEventListener("click", startLiveRun);
+    el.attachLiveButton.addEventListener("click", attachLiveSession);
+    el.liveSearchButton.addEventListener("click", runLiveSearch);
+    el.sendBestButton.addEventListener("click", sendBestToGame);
     el.newSessionButton.addEventListener("click", startSession);
     el.reloadButton.addEventListener("click", reloadSession);
     el.searchButton.addEventListener("click", runSearch);
@@ -112,6 +141,79 @@
         renderDebug();
       });
     });
+  }
+
+  function setViewMode(mode) {
+    app.viewMode = mode === "sim" ? "sim" : "live";
+    render();
+  }
+
+  function startBridgePolling() {
+    if (app.bridgePollTimer) return;
+    app.bridgePollTimer = window.setInterval(async () => {
+      if (app.inFlight) return;
+      const previousStateId = bridgeStateId();
+      await refreshBridgeQuietly();
+      if (bridgeStateId() !== previousStateId || app.viewMode === "live") {
+        renderChrome();
+        renderLive();
+        renderBridge();
+        renderDebug();
+      }
+    }, 1000);
+  }
+
+  async function startLiveRun() {
+    const character = (el.startCharacterSelect.value || "IRONCLAD").trim().toUpperCase();
+    const ascension = boundedInteger(el.startAscensionInput.value, 0, 0, 20);
+    const seed = (el.startSeedInput.value || "").trim();
+    if (!seed) {
+      showError("Seed is required to start a live run.");
+      return;
+    }
+    await submitBridgeCommand(`START ${character} ${ascension} ${seed}`);
+  }
+
+  async function attachLiveSession() {
+    await singleFlight("Attaching current state", async () => {
+      await refreshBridgeQuietly();
+      const session = await requestJson("/api/live/session", { method: "POST", body: {} });
+      adoptSession(session);
+      app.viewMode = "live";
+      app.snapshot = null;
+      app.search = null;
+      app.liveSendAction = null;
+      app.liveBridgeStateId = firstDefined(session.bridge_state_id, bridgeStateId(), null);
+      app.liveBridgeStep = firstDefined(session.bridge_step, app.bridge && app.bridge.last_state_step, null);
+      app.liveSearchBridgeStateId = null;
+      await loadSnapshotQuietly();
+      await refreshParityQuietly();
+    });
+  }
+
+  async function runLiveSearch() {
+    if (!app.sessionId || app.mode !== "live_bridge" || app.liveBridgeStateId !== bridgeStateId()) {
+      await attachLiveSession();
+    }
+    if (!isCombatSession()) {
+      showError("Live search is only available in combat.");
+      return;
+    }
+    await runSearch();
+    app.liveSearchBridgeStateId = bridgeStateId();
+    app.liveSendAction = liveBridgeActionForBest();
+    renderLive();
+  }
+
+  async function sendBestToGame() {
+    const action = liveBridgeActionForBest();
+    if (!action) {
+      showError(liveSendBlockedReason() || "Recommendation cannot be sent to the live game.");
+      return;
+    }
+    await submitBridgeAction(action);
+    app.liveSearchBridgeStateId = null;
+    app.liveSendAction = null;
   }
 
   async function startSession() {
@@ -334,10 +436,15 @@
   }
 
   async function requestBridgeState() {
-    await singleFlight("Requesting bridge state", async () => {
+    await submitBridgeCommand("state");
+  }
+
+  async function submitBridgeCommand(command) {
+    if (!command) return;
+    await singleFlight(`Sending ${humanize(command)}`, async () => {
       const result = await requestJson("/api/bridge/command", {
         method: "POST",
-        body: { command: "state", source_state_id: bridgeStateId() || undefined },
+        body: { command, source_state_id: bridgeStateId() || undefined },
       });
       app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
       await refreshParityQuietly();
@@ -453,6 +560,7 @@
 
   function render() {
     renderChrome();
+    renderLive();
     renderBoard();
     renderHand();
     renderActions();
@@ -471,8 +579,16 @@
     el.searchButton.disabled = !app.sessionId || app.inFlight || !isCombatSession();
     el.newSessionButton.disabled = app.inFlight;
     el.sessionModeSelect.disabled = app.inFlight;
+    el.liveModeButton.classList.toggle("active", app.viewMode === "live");
+    el.simModeButton.classList.toggle("active", app.viewMode === "sim");
+    el.fixtureControls.classList.toggle("hidden", app.viewMode !== "sim");
+    el.liveBand.classList.toggle("hidden", app.viewMode !== "live");
     el.refreshBridgeButton.disabled = app.inFlight;
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
+    el.startLiveRunButton.disabled = app.inFlight || !!(app.bridge && app.bridge.pending_command);
+    el.attachLiveButton.disabled = app.inFlight || !canAttachLiveSession();
+    el.liveSearchButton.disabled = app.inFlight || !!liveSearchBlockedReason();
+    el.sendBestButton.disabled = app.inFlight || !!liveSendBlockedReason();
     el.restoreSnapshotButton.disabled = !app.sessionId || app.inFlight || !hasLoadedSnapshotJson();
 
     el.stateSummary.textContent = summarizeState();
@@ -642,6 +758,42 @@
       });
       el.searchResult.appendChild(list);
     }
+  }
+
+  function renderLive() {
+    if (!el.liveStatusPanel) return;
+    const lifecycle = bridgeLifecycle();
+    const summary = (app.bridge && app.bridge.summary) || {};
+    const phase = firstDefined(summary.room_phase, summary.screen_type, app.phase, "-");
+    const searchBlocker = liveSearchBlockedReason();
+    const sendBlocker = liveSendBlockedReason();
+
+    el.liveStatusBadge.textContent = lifecycle.label;
+    el.liveStatusBadge.className = `status-badge ${bridgeLifecycleClass(lifecycle.status)}`;
+    el.liveSummary.textContent = app.bridge
+      ? "Auto-refresh reads bridge files only. Manual state command sends a trace-recorded command."
+      : "Waiting for bridge status.";
+
+    clear(el.liveStatusPanel);
+    el.liveStatusPanel.append(
+      statBlock("Bridge", [
+        ["Connection", lifecycle.label],
+        ["Step", firstDefined(app.bridge && app.bridge.last_state_step, "-")],
+        ["Phase", phase],
+        ["Ready", firstDefined(app.bridge && app.bridge.ready_for_command, "-")],
+        ["Pending", app.bridge && app.bridge.pending_command ? "Yes" : "No"],
+      ]),
+      statBlock("Assistant", [
+        ["Session", app.mode === "live_bridge" ? "Live state attached" : "Not attached"],
+        ["Attached step", firstDefined(app.liveBridgeStep, "-")],
+        ["Search", searchBlocker || "Ready"],
+        ["Send", sendBlocker || "Ready"],
+      ]),
+    );
+
+    const best = app.search && app.search.bestAction;
+    const bestText = best ? actionLabel(best) : "No recommendation yet.";
+    el.liveReason.textContent = sendBlocker || searchBlocker || bestText;
   }
 
   function renderBridge() {
@@ -908,6 +1060,91 @@
     };
   }
 
+  function canAttachLiveSession() {
+    if (!app.bridge || !app.bridge.connected || app.bridge.stale || app.bridge.pending_command) return false;
+    const current = app.bridge.current_state || {};
+    return !!(current.message || current.game_state);
+  }
+
+  function liveSearchBlockedReason() {
+    if (app.viewMode !== "live") return "Switch to Live Game mode.";
+    if (!app.bridge) return "Bridge status not loaded.";
+    if (app.bridge.exited) return "Bridge exited.";
+    if (!app.bridge.connected) return "Bridge disconnected.";
+    if (app.bridge.stale) return "Bridge state is stale.";
+    if (app.bridge.pending_command) return "Waiting for pending bridge command.";
+    if (!canAttachLiveSession()) return "No observed game state yet.";
+    if (!bridgeLooksLikeCombat()) return "Search is available once the live game is in combat.";
+    return null;
+  }
+
+  function liveSendBlockedReason() {
+    const searchBlocker = liveSearchBlockedReason();
+    if (searchBlocker) return searchBlocker;
+    if (!app.search || !app.search.bestAction) return "Run search first.";
+    if (app.liveSearchBridgeStateId !== bridgeStateId()) return "Recommendation is for an older bridge state.";
+    if (!liveBridgeActionForBest()) return "Recommendation cannot be mapped to a current bridge command.";
+    return null;
+  }
+
+  function bridgeLooksLikeCombat() {
+    const summary = (app.bridge && app.bridge.summary) || {};
+    if (summary.combat) return true;
+    if (String(firstDefined(summary.room_phase, "")).toUpperCase() === "COMBAT") return true;
+    const current = app.bridge && app.bridge.current_state;
+    const message = current && current.message;
+    const observed = firstDefined(message && message.game_state, message, current && current.game_state, null);
+    return !!(observed && observed.combat_state);
+  }
+
+  function liveBridgeActionForBest() {
+    if (!app.bridge || !app.search || !app.search.bestAction) return null;
+    if (app.liveSearchBridgeStateId !== bridgeStateId()) return null;
+    const best = app.search.bestAction;
+    const bridgeActions = arrayOf(app.bridge.bridge_actions);
+    if (!bridgeActions.length) return null;
+    if (best.kind === "EndTurn" || best.action_kind === "end_turn") {
+      return bridgeActions.find((action) => String(action.command || "").toUpperCase() === "END") || null;
+    }
+    const play = exactRunPlayCard(best);
+    if (!play) return null;
+    const slot = observedHandSlotForCardId(play.card_id);
+    if (slot === null) return null;
+    const targetSlot = observedMonsterSlotForTarget(play.target);
+    return bridgeActions.find((action) => {
+      const descriptor = action.descriptor || {};
+      if (descriptor.kind !== "PlayHandSlot") return false;
+      if (Number(descriptor.hand_slot) !== Number(slot)) return false;
+      if (play.target === null || play.target === undefined) return descriptor.target_slot === undefined || descriptor.target_slot === null;
+      return Number(descriptor.target_slot) === Number(targetSlot);
+    }) || null;
+  }
+
+  function exactRunPlayCard(action) {
+    if (!action) return null;
+    if (action.kind === "PlayCard") {
+      return { card_id: action.card_id, target: action.target };
+    }
+    const payload = action.action && action.action.PlayCard;
+    if (payload) return { card_id: payload.card_id, target: payload.target };
+    return null;
+  }
+
+  function observedHandSlotForCardId(cardId) {
+    const hand = arrayOf(app.bridge && app.bridge.summary && app.bridge.summary.combat && app.bridge.summary.combat.hand);
+    const card = hand.find((entry) => String(firstDefined(entry.id, entry.card_id, entry.cardId, "")) === String(cardId));
+    const slot = card && firstDefined(card.index, card.slot, card.hand_slot, card.handSlot, null);
+    return slot === undefined ? null : slot;
+  }
+
+  function observedMonsterSlotForTarget(target) {
+    if (target === null || target === undefined) return null;
+    const monsters = arrayOf(app.bridge && app.bridge.summary && app.bridge.summary.combat && app.bridge.summary.combat.monsters);
+    const monster = monsters.find((entry) => String(firstDefined(entry.id, entry.monster_id, entry.monsterId, entry.index, "")) === String(target));
+    const slot = monster && firstDefined(monster.index, monster.slot, monster.target_slot, monster.targetSlot, null);
+    return slot === undefined ? null : slot;
+  }
+
   function searchPolicyLabel(config) {
     if (!config) return "-";
     const algorithm = firstDefined(config.algorithm, "-");
@@ -1086,7 +1323,11 @@
   }
 
   function summarizeState() {
-    if (!app.state) return "Start a fixture to inspect simulator state.";
+    if (!app.state) {
+      return app.viewMode === "live"
+        ? "Attach the current live combat state to inspect simulator advice."
+        : "Start a fixture to inspect simulator state.";
+    }
     const kind = stateKindText();
     const phase = sessionPhaseText() || "combat";
     const terminal = firstDefined(app.state.terminal_reason, app.state.terminalReason, null);

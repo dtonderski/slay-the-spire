@@ -14,17 +14,60 @@
           <p id="sessionMeta" class="subtle">No session</p>
         </div>
         <div class="topbar-actions">
-          <select id="sessionModeSelect" aria-label="Fixture type">
-            <option value="combat_fixture">Combat fixture</option>
-            <option value="run_map_fixture">Run map fixture</option>
-            <option value="run_combat_fixture">Run combat fixture</option>
-          </select>
-          <button id="newSessionButton" class="primary" type="button">Start fixture</button>
-          <button id="reloadButton" type="button" disabled>Reload</button>
+          <div class="mode-toggle" role="group" aria-label="UI mode">
+            <button id="liveModeButton" class="active" type="button">Live Game</button>
+            <button id="simModeButton" type="button">Simulator Fixture</button>
+          </div>
+          <div id="fixtureControls" class="fixture-controls">
+            <select id="sessionModeSelect" aria-label="Fixture type">
+              <option value="combat_fixture">Combat fixture</option>
+              <option value="run_map_fixture">Run map fixture</option>
+              <option value="run_combat_fixture">Run combat fixture</option>
+            </select>
+            <button id="newSessionButton" class="primary" type="button">Start fixture</button>
+            <button id="reloadButton" type="button" disabled>Reload</button>
+          </div>
         </div>
       </header>
 
       <main class="layout">
+        <section id="liveBand" class="live-band" aria-labelledby="liveTitle">
+          <div class="section-head">
+            <div>
+              <h2 id="liveTitle">Live Game</h2>
+              <p id="liveSummary" class="subtle">Reading bridge status without sending game commands.</p>
+            </div>
+            <div id="liveStatusBadge" class="status-badge neutral">Unknown</div>
+          </div>
+
+          <div class="live-grid">
+            <div id="liveStatusPanel" class="live-status-panel"></div>
+            <div class="live-control-panel">
+              <div class="live-start-row">
+                <label for="startCharacterSelect">Character</label>
+                <select id="startCharacterSelect">
+                  <option value="IRONCLAD">Ironclad</option>
+                </select>
+                <label for="startAscensionInput">Asc</label>
+                <input id="startAscensionInput" type="number" min="0" max="20" value="0" />
+                <label for="startSeedInput">Seed</label>
+                <input id="startSeedInput" type="text" value="LIVE01" />
+                <button id="startLiveRunButton" type="button">Start run</button>
+              </div>
+              <div class="live-primary-actions">
+                <button id="attachLiveButton" type="button">Attach current state</button>
+                <button id="liveSearchButton" class="primary" type="button" disabled>Search best move</button>
+                <button id="sendBestButton" type="button" disabled>Send recommended move</button>
+              </div>
+              <div class="live-secondary-actions">
+                <button id="refreshBridgeButton" type="button">Refresh status</button>
+                <button id="requestBridgeStateButton" type="button">Manual state command</button>
+              </div>
+              <div id="liveReason" class="live-reason"></div>
+            </div>
+          </div>
+        </section>
+
         <section class="board-band" aria-labelledby="boardTitle">
           <div class="section-head">
             <div>
@@ -100,13 +143,10 @@
           </div>
         </section>
 
-        <section class="sync-band" aria-labelledby="syncTitle">
+        <section class="sync-band diagnostics-band" aria-labelledby="syncTitle">
           <div class="section-head compact">
             <h2 id="syncTitle">Bridge Mirror</h2>
-            <div class="bridge-actions">
-              <button id="requestBridgeStateButton" type="button">Request state</button>
-              <button id="refreshBridgeButton" type="button">Refresh</button>
-            </div>
+            <span class="subtle">Read-only mirror; manual state command is in Live Game.</span>
           </div>
           <div id="bridgePanel" class="bridge-panel empty">
             <span class="empty-text">Bridge status not loaded.</span>
@@ -168,6 +208,6 @@
       </main>
     </div>
 
-    <script src="./app.js"></script>
+    <script src="./app.js?v=live-ui-1"></script>
   </body>
 </html>
