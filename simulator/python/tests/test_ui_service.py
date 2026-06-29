@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from sts.ui_service import CombatSession, SessionManager, _observed_state_from_bridge_status
 
@@ -46,6 +48,26 @@ class InvalidStepEnv:
 
     def step(self, _action):
         raise RuntimeError("simulator said no")
+
+
+class FakeLiveEnv:
+    def snapshot_hash(self):
+        return "fake-live-state"
+
+    def state_json(self):
+        return '{"phase":"Combat","combat":{"player":{"hp":80},"monsters":[],"piles":{"hand":[]}}}'
+
+    def snapshot_json(self):
+        return "{}"
+
+    def phase(self):
+        return "combat"
+
+    def current_decision(self):
+        return "combat"
+
+    def exact_legal_actions(self):
+        return []
 
 
 class UiServiceTests(unittest.TestCase):
@@ -242,6 +264,57 @@ class UiServiceTests(unittest.TestCase):
             recommendation["config"]["algorithm"],
             "rust_terminal_hp_commit_safe_selector",
         )
+        self.assertIn("predicted_final_hp", recommendation)
+        self.assertIn("predicted_hp_loss", recommendation)
+
+    def test_live_session_prefers_verified_strict_replay_env(self):
+        manager = SessionManager()
+        replay = SimpleNamespace(
+            verified=True,
+            env=FakeLiveEnv(),
+            trace_path="trace.jsonl",
+            steps=3,
+            final_state_id="fake-live-state",
+            final_phase="combat",
+        )
+
+        with patch("sts.ui_service._strict_replay_from_bridge_trace", return_value=replay):
+            session = manager.create_live_session(
+                {"state_id": "bridge-state", "last_state_step": 12, "trace_path": "trace.jsonl"}
+            )
+
+        self.assertEqual(session["attach_fidelity"], "seed_replay")
+        self.assertEqual(session["strict_replay_blocker"], None)
+        self.assertEqual(session["attach_source"]["final_state_id"], "fake-live-state")
+        self.assertEqual(session["state_id"], "fake-live-state")
+
+    def test_live_session_falls_back_to_observed_state_with_replay_blocker(self):
+        manager = SessionManager()
+        replay = SimpleNamespace(
+            verified=False,
+            env=None,
+            trace_path="trace.jsonl",
+            steps=2,
+            stop_reason="observed_state_diff",
+            blocker={"category": "observed_state_diff"},
+            final_state_id="old-state",
+        )
+        bridge_status = {
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "trace_path": "trace.jsonl",
+            "current_state": {"message": {"game_state": {"current_hp": 80, "max_hp": 80, "floor": 1}}},
+        }
+
+        with patch("sts.ui_service._strict_replay_from_bridge_trace", return_value=replay), patch(
+            "sts.ui_service.omni.OmniRunEnv.from_communication_mod_state_json",
+            return_value=FakeLiveEnv(),
+        ):
+            session = manager.create_live_session(bridge_status)
+
+        self.assertEqual(session["attach_fidelity"], "observed_state")
+        self.assertEqual(session["strict_replay_blocker"]["stop_reason"], "observed_state_diff")
+        self.assertEqual(session["strict_replay_blocker"]["blocker"]["category"], "observed_state_diff")
 
     def test_search_accepts_named_policy_override(self):
         manager = SessionManager()
