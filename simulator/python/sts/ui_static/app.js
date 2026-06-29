@@ -66,6 +66,7 @@
       "reloadButton",
       "stateSummary",
       "lifecycleBadge",
+      "actionsTitle",
       "playerPanel",
       "monsterPanel",
       "energyStat",
@@ -582,10 +583,12 @@
     el.liveModeButton.classList.toggle("active", app.viewMode === "live");
     el.simModeButton.classList.toggle("active", app.viewMode === "sim");
     el.fixtureControls.classList.toggle("hidden", app.viewMode !== "sim");
-    el.liveBand.classList.toggle("hidden", app.viewMode !== "live");
+    el.liveBand.classList.toggle("fixture-mode", app.viewMode === "sim");
+    el.searchButton.classList.toggle("hidden", app.viewMode === "live");
+    el.applyBestButton.classList.toggle("hidden", app.viewMode === "live");
     el.refreshBridgeButton.disabled = app.inFlight;
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
-    el.startLiveRunButton.disabled = app.inFlight || !!(app.bridge && app.bridge.pending_command);
+    el.startLiveRunButton.disabled = app.inFlight || !!startLiveRunBlockedReason();
     el.attachLiveButton.disabled = app.inFlight || !canAttachLiveSession();
     el.liveSearchButton.disabled = app.inFlight || !!liveSearchBlockedReason();
     el.sendBestButton.disabled = app.inFlight || !!liveSendBlockedReason();
@@ -686,11 +689,15 @@
   }
 
   function renderActions() {
-    const actions = app.actions.length ? app.actions : app.lastError ? app.lastActions : [];
-    el.actionCount.textContent = `${actions.length} ${actions.length === 1 ? "available" : "available"}`;
+    const live = app.viewMode === "live";
+    const actions = live
+      ? arrayOf(app.bridge && app.bridge.bridge_actions)
+      : app.actions.length ? app.actions : app.lastError ? app.lastActions : [];
+    el.actionsTitle.textContent = live ? "Live Actions" : "Simulator Actions";
+    el.actionCount.textContent = `${actions.length} available`;
     clear(el.actionsPanel);
     if (!actions.length) {
-      const reason = emptyActionReason();
+      const reason = live ? emptyLiveActionReason() : emptyActionReason();
       empty(el.actionsPanel, reason);
       return;
     }
@@ -703,9 +710,9 @@
       button.type = "button";
       button.className = "action-button";
       button.disabled = app.inFlight || action.enabled === false;
-      button.textContent = actionLabel(action);
-      button.title = pendingReason || disabledReason || sourceTitle(action);
-      button.addEventListener("click", () => submitAction(action));
+      button.textContent = live ? bridgeActionLabel(action) : actionLabel(action);
+      button.title = pendingReason || disabledReason || (live ? `Sends ${bridgeActionLabel(action)}` : sourceTitle(action));
+      button.addEventListener("click", () => live ? submitBridgeAction(action) : submitAction(action));
       if (disabledReason) {
         const reason = document.createElement("span");
         reason.className = "button-reason";
@@ -765,6 +772,7 @@
     const lifecycle = bridgeLifecycle();
     const summary = (app.bridge && app.bridge.summary) || {};
     const phase = firstDefined(summary.room_phase, summary.screen_type, app.phase, "-");
+    const startBlocker = startLiveRunBlockedReason();
     const searchBlocker = liveSearchBlockedReason();
     const sendBlocker = liveSendBlockedReason();
 
@@ -786,14 +794,13 @@
       statBlock("Assistant", [
         ["Session", app.mode === "live_bridge" ? "Live state attached" : "Not attached"],
         ["Attached step", firstDefined(app.liveBridgeStep, "-")],
-        ["Search", searchBlocker || "Ready"],
-        ["Send", sendBlocker || "Ready"],
+        ["Status", sendBlocker || searchBlocker || startBlocker || "Ready"],
       ]),
     );
 
     const best = app.search && app.search.bestAction;
     const bestText = best ? actionLabel(best) : "No recommendation yet.";
-    el.liveReason.textContent = sendBlocker || searchBlocker || bestText;
+    el.liveReason.textContent = sendBlocker || searchBlocker || startBlocker || bestText;
   }
 
   function renderBridge() {
@@ -1066,6 +1073,20 @@
     return !!(current.message || current.game_state);
   }
 
+  function startLiveRunBlockedReason() {
+    if (!app.bridge) return "Bridge status not loaded.";
+    if (app.bridge.exited) return "Bridge exited.";
+    if (!app.bridge.connected) return "Bridge disconnected.";
+    if (app.bridge.pending_command) return "Waiting for pending bridge command.";
+    const commands = arrayOf(app.bridge.available_commands).map((command) => String(command).toLowerCase());
+    const staleStartFromMenu = app.bridge.stale && commands.includes("start") && app.bridge.summary && app.bridge.summary.in_game === false;
+    if (app.bridge.stale && !staleStartFromMenu) return "Bridge state is stale.";
+    if (!commands.includes("start")) {
+      return "Start is not available from the current game screen.";
+    }
+    return null;
+  }
+
   function liveSearchBlockedReason() {
     if (app.viewMode !== "live") return "Switch to Live Game mode.";
     if (!app.bridge) return "Bridge status not loaded.";
@@ -1095,6 +1116,15 @@
     const message = current && current.message;
     const observed = firstDefined(message && message.game_state, message, current && current.game_state, null);
     return !!(observed && observed.combat_state);
+  }
+
+  function emptyLiveActionReason() {
+    if (!app.bridge) return "Bridge status not loaded.";
+    if (app.bridge.exited) return "Bridge exited.";
+    if (!app.bridge.connected) return "Bridge disconnected.";
+    if (app.bridge.pending_command) return "Waiting for pending bridge command.";
+    if (app.bridge.stale) return "Bridge state is stale. Use Manual State only if you intentionally want a trace-recorded state command.";
+    return "No live actions available on this screen.";
   }
 
   function liveBridgeActionForBest() {
