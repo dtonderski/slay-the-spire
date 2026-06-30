@@ -175,6 +175,43 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(grid["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(grid["target"], "Bash")
 
+    def test_match_visible_choice_selects_remaining_reward_from_script_evidence(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "card_choices": [{"floor": 1, "picked": "Inflame"}],
+                    "relics_obtained": [{"floor": 1, "key": "Oddly Smooth Stone"}],
+                    "potions_obtained": [{"floor": 1, "key": "Fire Potion"}],
+                }
+            }
+        )
+
+        relic = match_visible_choice(
+            script,
+            floor=1,
+            choice_labels=["Gold", "Card", "Relic", "Potion"],
+            category="reward",
+        )
+        card = match_visible_choice(
+            script,
+            floor=1,
+            choice_labels=["Gold", "Card"],
+            category="reward",
+        )
+        gold = match_visible_choice(
+            script,
+            floor=1,
+            choice_labels=["Gold"],
+            category="reward",
+        )
+
+        self.assertEqual(relic["status"], "matched")
+        self.assertEqual(relic["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 2})
+        self.assertEqual(card["status"], "matched")
+        self.assertEqual(card["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(gold["status"], "matched")
+        self.assertEqual(gold["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
     def test_match_map_choice_finds_next_path_room(self):
         script = build_guided_run_script(
             {
