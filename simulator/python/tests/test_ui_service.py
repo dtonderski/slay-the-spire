@@ -12,6 +12,7 @@ from sts.ui_service import (
     _observed_state_from_bridge_status,
     _slaythedata_candidates_from_query,
     _slaythedata_status_from_query,
+    _start_guided_live_run,
     _tick_live_collector,
 )
 from sts.guided_collector import GuidedCollector
@@ -197,6 +198,42 @@ class UiServiceTests(unittest.TestCase):
         result = _collector_status_with_preflight(GuidedCollector(), bridge)
 
         self.assertEqual(result["preflight"]["problems"], ["not ready"])
+
+    def test_start_guided_live_run_sends_script_start_with_provenance(self):
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "run_id": 77,
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 3,
+                            "seed_played": "LIVE01",
+                        },
+                    }
+                )
+            }
+        )
+        bridge = FakeBridge({"state_id": "menu-state"})
+
+        result = _start_guided_live_run(collector, bridge)
+
+        self.assertEqual(result["command"], "START IRONCLAD 3 LIVE01")
+        self.assertEqual(bridge.sent[0][0], "START IRONCLAD 3 LIVE01")
+        self.assertEqual(bridge.sent[0][1]["source_state_id"], "menu-state")
+        self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector_start")
+        self.assertEqual(bridge.sent[0][1]["metadata"]["script_source"]["run_id"], 77)
+
+    def test_start_guided_live_run_requires_active_script_seed(self):
+        collector = GuidedCollector()
+        bridge = FakeBridge({"state_id": "menu-state"})
+        with self.assertRaisesRegex(ValueError, "active collector"):
+            _start_guided_live_run(collector, bridge)
+
+        collector.start({"script": {"config": {"character": "IRONCLAD", "ascension": 0}}})
+        with self.assertRaisesRegex(ValueError, "seed is required"):
+            _start_guided_live_run(collector, bridge)
 
     def test_slaythedata_candidates_query_uses_filters(self):
         with patch(

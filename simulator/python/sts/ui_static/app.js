@@ -118,6 +118,7 @@
       "findSlaythedataRunsButton",
       "loadSlaythedataRunButton",
       "startCollectorButton",
+      "startGuidedLiveRunButton",
       "previewCollectorButton",
       "sendCollectorButton",
       "autoCollectorButton",
@@ -174,6 +175,7 @@
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
     el.liveRequestStateButton.addEventListener("click", requestBridgeState);
     el.startCollectorButton.addEventListener("click", startGuidedCollector);
+    el.startGuidedLiveRunButton.addEventListener("click", startGuidedLiveRun);
     el.findSlaythedataRunsButton.addEventListener("click", findSlaythedataRuns);
     el.loadSlaythedataRunButton.addEventListener("click", loadSelectedSlaythedataRun);
     el.slaythedataCandidateSelect.addEventListener("change", () => {
@@ -709,6 +711,21 @@
       applyGuidedRunStartControls(app.collector && app.collector.config);
       app.collectorLastError = null;
       app.slaythedataLastError = null;
+    });
+  }
+
+  async function startGuidedLiveRun() {
+    if (!app.collector || !app.collector.active) {
+      showError("Load or start a guided collector before starting the live run.");
+      return;
+    }
+    await singleFlight("Starting guided live run", async () => {
+      pauseCollectorAutoRun();
+      const result = await requestJson("/api/collector/start-live-run", { method: "POST", body: {} });
+      app.collector = result.collector || app.collector;
+      app.collectorLastError = null;
+      await refreshBridgeQuietly();
+      renderCollector();
     });
   }
 
@@ -1367,11 +1384,13 @@
     el.startCollectorButton.disabled = app.inFlight;
     el.findSlaythedataRunsButton.disabled = app.inFlight;
     el.loadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
+    el.startGuidedLiveRunButton.disabled = !active || app.inFlight || !!bridgeIdentityWarningText();
     el.previewCollectorButton.disabled = !canTick;
     el.sendCollectorButton.disabled = !canTick || !app.bridge || app.bridge.pending_command;
     el.autoCollectorButton.disabled = !canTick || app.collectorAutoRun;
     el.pauseCollectorButton.disabled = !app.collectorAutoRun;
     el.stopCollectorButton.disabled = !active || app.inFlight;
+    el.startGuidedLiveRunButton.title = active ? "Send START from the loaded guided script seed." : "Load a guided script first.";
     el.previewCollectorButton.title = canTick ? "Preview the next guided decision without sending." : "Start a collector and keep the bridge ready.";
     el.sendCollectorButton.title = canTick ? "Send one safe guided action." : "Collector cannot send right now.";
     el.autoCollectorButton.title = canTick ? "Keep sending safe guided actions until blocked." : "Collector cannot auto-run right now.";

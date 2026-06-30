@@ -677,6 +677,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "collector", "start"]:
                 self._send_json(self.collector.start(_collector_start_payload(payload)))
                 return
+            if parts == ["api", "collector", "start-live-run"]:
+                self._send_json(_start_guided_live_run(self.collector, self.bridge))
+                return
             if parts == ["api", "collector", "tick"]:
                 self._send_json(_tick_live_collector(self.collector, self.manager, self.bridge, payload))
                 return
@@ -1143,6 +1146,42 @@ def _tick_live_collector(
     )
 
 
+def _start_guided_live_run(collector: GuidedCollector, bridge: BridgeMirror) -> dict[str, Any]:
+    collector_status = collector.status()
+    if not collector_status.get("active"):
+        raise ValueError("start guided live run requires an active collector")
+
+    config = collector_status.get("config") if isinstance(collector_status.get("config"), dict) else {}
+    character = _required_command_token(config.get("character") or config.get("character_chosen"), "character").upper()
+    ascension = _required_ascension(
+        config.get("ascension") if config.get("ascension") is not None else config.get("ascension_level")
+    )
+    seed = _required_command_token(config.get("seed_played") or config.get("seed"), "seed")
+    bridge_status = bridge.status()
+    command = f"START {character} {ascension} {seed}"
+    metadata = {
+        "source": "guided_collector_start",
+        "collector_id": collector_status.get("collector_id"),
+        "script_source": collector_status.get("source"),
+        "replay_policy": collector_status.get("replay_policy"),
+    }
+    send_result = bridge.send_command(
+        command,
+        source_state_id=bridge_status.get("state_id"),
+        metadata=metadata,
+    )
+    return {
+        "ok": True,
+        "command": command,
+        "collector": collector.status(),
+        "send_result": {
+            "ok": send_result.get("ok"),
+            "command_id": send_result.get("command_id"),
+            "command": send_result.get("command"),
+        },
+    }
+
+
 def _collector_status_with_preflight(collector: GuidedCollector, bridge: BridgeMirror) -> dict[str, Any]:
     return collector.status() | {"preflight": bridge.preflight()}
 
@@ -1313,6 +1352,25 @@ def _optional_string(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _required_command_token(value: Any, label: str) -> str:
+    text = _optional_string(value)
+    if not text:
+        raise ValueError(f"guided run {label} is required")
+    if any(ch.isspace() for ch in text):
+        raise ValueError(f"guided run {label} must not contain whitespace")
+    return text
+
+
+def _required_ascension(value: Any) -> int:
+    try:
+        ascension = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("guided run ascension is required") from exc
+    if ascension < 0 or ascension > 20:
+        raise ValueError("guided run ascension must be between 0 and 20")
+    return ascension
 
 
 if __name__ == "__main__":
