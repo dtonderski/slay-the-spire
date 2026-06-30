@@ -147,6 +147,61 @@ async function testCommandMetadataIsPreservedInTraceActions() {
   }
 }
 
+async function testAutoStatePollsAreMarkedAsPassive() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-poll-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_AUTO_STATE_MS: "25",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["state"],
+      game_state: {
+        screen_type: "MAP",
+        floor: 1,
+      },
+    })}\n`);
+    await waitFor(() => stdout.includes("ready\nstate\n"), 3000);
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+
+    const traceFiles = fs.readdirSync(outDir).filter((name) => name.endsWith(".jsonl"));
+    assert.strictEqual(traceFiles.length, 1, stderr);
+    const records = readJsonLines(path.join(outDir, traceFiles[0]));
+    const action = records.find((record) => record.type === "action" && record.command === "state");
+    assert.ok(action, `missing passive state action; stderr=${stderr}`);
+    assert.strictEqual(action.command_meta.source, "passive_poll");
+    assert.strictEqual(action.command_meta.auto_state_ms, 25);
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-"));
   const sessionDir = path.join(root, "session");
@@ -472,6 +527,7 @@ async function testTcpControlRecordsObservedUpdateTimeout() {
 
 Promise.resolve()
   .then(testCommandMetadataIsPreservedInTraceActions)
+  .then(testAutoStatePollsAreMarkedAsPassive)
   .then(testTcpControlRejectsStaleAndAcceptsGuardedCommand)
   .then(testTcpControlDisablesLegacyFileCommandsByDefault)
   .then(testTcpControlRecordsObservedUpdateTimeout)
