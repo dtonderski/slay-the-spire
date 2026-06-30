@@ -132,6 +132,10 @@ The collector can now:
   so startup blockers are visible before pressing Auto
 - provide a guarded UI repair for orphan `next_command.json` metadata when no
   `next_command.txt` command is pending
+- cover the composed offline workflow with a temp-bridge smoke test: guided
+  script start writes a provenance-tagged `START`, the bridge advances to a
+  decision state, the collector sends a strict non-combat choice, records a
+  prediction, and clears it after the predicted state is observed
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot

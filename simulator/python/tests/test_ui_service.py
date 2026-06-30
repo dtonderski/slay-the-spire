@@ -1,7 +1,11 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from sts.bridge import BridgeMirror
 from sts.ui_service import (
     CombatSession,
     SessionManager,
@@ -234,6 +238,105 @@ class UiServiceTests(unittest.TestCase):
         collector.start({"script": {"config": {"character": "IRONCLAD", "ascension": 0}}})
         with self.assertRaisesRegex(ValueError, "seed is required"):
             _start_guided_live_run(collector, bridge)
+
+    def test_guided_start_then_strict_collector_tick_smoke(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_bridge_files(
+                root,
+                status={"status": "waiting", "step": 0},
+                summary={
+                    "ready_for_command": True,
+                    "available_commands": ["start", "state"],
+                    "in_game": False,
+                    "step": 0,
+                },
+                current_state={"message": {"available_commands": ["start", "state"]}},
+            )
+            bridge = BridgeMirror(root, stale_after_seconds=9999)
+            manager = SessionManager()
+            manager._sessions["live"] = CombatSession(
+                id="live",
+                mode="live_bridge",
+                state_kind="run",
+                env=FakeEventRunEnv(),
+            )
+            collector = GuidedCollector()
+            collector.start(
+                {
+                    "script": build_guided_run_script(
+                        {
+                            "run_id": 99,
+                            "event": {
+                                "character_chosen": "IRONCLAD",
+                                "ascension_level": 0,
+                                "seed_played": "LIVE01",
+                                "event_choices": [
+                                    {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
+                                ],
+                            },
+                        }
+                    )
+                }
+            )
+
+            start = _start_guided_live_run(collector, bridge)
+            command_meta = json.loads((root / "next_command.json").read_text(encoding="utf-8"))
+            self.assertEqual(start["command"], "START IRONCLAD 0 LIVE01")
+            self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "START IRONCLAD 0 LIVE01\n")
+            self.assertEqual(command_meta["metadata"]["source"], "guided_collector_start")
+            self.assertEqual(command_meta["metadata"]["script_source"]["run_id"], 99)
+
+            (root / "next_command.txt").unlink()
+            (root / "next_command.json").unlink()
+            self._write_bridge_files(
+                root,
+                status={"status": "waiting", "step": 12},
+                summary={
+                    "floor": 2,
+                    "screen_type": "EVENT",
+                    "choices": ["Pray", "Leave"],
+                    "ready_for_command": True,
+                    "available_commands": ["choose", "state"],
+                    "step": 12,
+                },
+                current_state={
+                    "message": {
+                        "game_state": {
+                            "floor": 2,
+                            "screen_type": "EVENT",
+                            "choice_list": ["Pray", "Leave"],
+                        }
+                    }
+                },
+            )
+            live_session = {
+                "session_id": "live",
+                "state_id": "fake-event-state",
+                "attach_fidelity": "seed_replay",
+                "state_kind": "run",
+                "state": {"phase": "event"},
+            }
+            with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+                manager,
+                "predict",
+                return_value={"predicted_state_id": "predicted-event-state"},
+            ):
+                sent = _tick_live_collector(collector, manager, bridge, {"send": True})
+
+            self.assertEqual(sent["suggestion"]["status"], "sent_non_combat")
+            self.assertEqual(sent["pending_prediction"]["predicted_state_id"], "predicted-event-state")
+            self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "CHOOSE 0\n")
+            choose_meta = json.loads((root / "next_command.json").read_text(encoding="utf-8"))
+            self.assertEqual(choose_meta["metadata"]["source"], "guided_collector")
+
+            (root / "next_command.txt").unlink()
+            (root / "next_command.json").unlink()
+            observed_session = live_session | {"state_id": "predicted-event-state"}
+            with patch.object(manager, "create_live_session", return_value=observed_session):
+                verified = _tick_live_collector(collector, manager, bridge, {"send": False})
+
+            self.assertIsNone(verified["pending_prediction"])
 
     def test_slaythedata_candidates_query_uses_filters(self):
         with patch(
@@ -899,6 +1002,12 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["parity"]["status"], "diverged")
         self.assertTrue(result["parity"]["diffs"])
+
+    def _write_bridge_files(self, root, *, status, summary, current_state):
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "status.json").write_text(json.dumps(status), encoding="utf-8")
+        (root / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        (root / "current_state.json").write_text(json.dumps(current_state), encoding="utf-8")
 
 
 if __name__ == "__main__":
