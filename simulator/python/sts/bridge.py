@@ -933,7 +933,7 @@ def _acquire_control_owner(control: dict[str, Any]) -> dict[str, Any]:
         control,
         {
             "type": "acquire",
-            "owner_id": "sts-python-ui",
+            "owner_id": f"sts-python-ui-{os.getpid()}",
         },
     )
     if not response.get("ok"):

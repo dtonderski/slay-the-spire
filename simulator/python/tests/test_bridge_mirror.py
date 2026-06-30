@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import tempfile
 import threading
@@ -217,13 +218,13 @@ class BridgeMirrorTests(unittest.TestCase):
                 self.assertEqual(result["transport"], "tcp-jsonl")
                 self.assertEqual(result["accepted_state_id"], "bridge-protocol-state")
                 self.assertEqual(result["accepted_state_seq"], 7)
-                self.assertEqual(result["owner_id"], "sts-python-ui")
+                self.assertEqual(result["owner_id"], f"sts-python-ui-{os.getpid()}")
                 self.assertFalse((root / "next_command.txt").exists())
                 self.assertFalse((root / "next_command.json").exists())
 
         self.assertEqual(len(received), 2)
         self.assertEqual(received[0]["type"], "acquire")
-        self.assertEqual(received[0]["owner_id"], "sts-python-ui")
+        self.assertEqual(received[0]["owner_id"], f"sts-python-ui-{os.getpid()}")
         self.assertEqual(received[1]["type"], "command")
         self.assertEqual(received[1]["command"], "CHOOSE 0")
         self.assertEqual(received[1]["expected_state_id"], "bridge-protocol-state")

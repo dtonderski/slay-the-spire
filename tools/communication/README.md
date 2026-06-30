@@ -32,6 +32,10 @@ Messages are newline-delimited JSON objects:
   elapses. The response still records the accepted state, plus an
   `observed_update` object when the bridge saw the post-command state.
 
+The Python UI/controller uses a process-specific owner id
+(`sts-python-ui-<pid>`) when acquiring the socket, so two UI service processes
+do not silently share one controller identity.
+
 `BridgeMirror.send_command(...)` prefers this socket when advertised and falls
 back to `next_command.txt` for older bridge clients. When a trace client is
 launched with `TRACE_CONTROL_PORT` set, legacy `next_command.txt` ingestion is
