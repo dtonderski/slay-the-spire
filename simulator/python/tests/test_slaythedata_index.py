@@ -324,6 +324,57 @@ class SlayTheDataIndexTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in rows], [2])
         self.assertEqual(rows[0]["guided_score"], 10 + 2 * 2 + 2 * 3 + 3)
 
+    def test_candidate_selection_can_require_guided_safe_neow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER,
+                    neow_bonus TEXT,
+                    neow_cost TEXT
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 50, 0, 0, 0, 0, "SAFE", 0, 50, 10, 2, 1, 0, "THREE_ENEMY_KILL", "NONE"),
+                    (2, "IRONCLAD", 0, 50, 0, 0, 0, 0, "GRID", 0, 50, 10, 2, 1, 0, "REMOVE_CARD", "NONE"),
+                    (3, "IRONCLAD", 0, 50, 0, 0, 0, 0, "COST", 0, 50, 10, 2, 1, 0, "ONE_RARE_RELIC", "CURSE"),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,), (3,)])
+            conn.commit()
+            conn.close()
+
+            rows = select_guided_collection_candidates(
+                db,
+                min_floor_reached=45,
+                min_path_length=45,
+                require_guided_safe_neow=True,
+                ranked=False,
+                limit=10,
+            )
+
+        self.assertEqual([row["id"] for row in rows], [1, 3])
+
     def test_chunk_export_args_builds_indexer_invocation_for_run_ids(self):
         args = chunk_export_args(
             db_path="runs.sqlite3",

@@ -251,6 +251,7 @@ class UiServiceTests(unittest.TestCase):
                     "min_event_choices": ["1"],
                     "min_shop_purchases": ["1"],
                     "min_potion_usage": ["0"],
+                    "safe_neow": ["1"],
                     "limit": ["3"],
                     "ranked": ["0"],
                 }
@@ -269,6 +270,7 @@ class UiServiceTests(unittest.TestCase):
             min_event_choices=1,
             min_shop_purchases=1,
             min_potion_usage=0,
+            require_guided_safe_neow=True,
             limit=3,
             ranked=False,
         )

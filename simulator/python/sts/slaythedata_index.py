@@ -17,6 +17,28 @@ DEFAULT_SLAYTHEDATA_DB = DEFAULT_SLAYTHEDATA_ROOT / "slaythedata-chunks.sqlite3"
 DEFAULT_SLAYTHEDATA_CHUNKS = DEFAULT_SLAYTHEDATA_ROOT / "chunks"
 DEFAULT_INDEXER = Path(__file__).resolve().parents[3] / "tools" / "slaythedata" / "index_slaythedata.py"
 
+_GUIDED_SAFE_NEOW_BONUSES = (
+    "THREE_ENEMY_KILL",
+    "RANDOM_COMMON_RELIC",
+    "ONE_RARE_RELIC",
+    "TEN_PERCENT_HP_BONUS",
+    "TWENTY_PERCENT_HP_BONUS",
+    "HUNDRED_GOLD",
+    "TWO_FIFTY_GOLD",
+    "ONE_RANDOM_RARE_CARD",
+    "RANDOM_RARE_CARD",
+    "THREE_SMALL_POTIONS",
+    "BOSS_RELIC",
+)
+
+_GUIDED_SAFE_NEOW_COSTS = (
+    "NONE",
+    "CURSE",
+    "NO_GOLD",
+    "TEN_PERCENT_HP_LOSS",
+    "PERCENT_DAMAGE",
+)
+
 
 def select_guided_collection_candidates(
     db_path: str | Path = DEFAULT_SLAYTHEDATA_DB,
@@ -30,6 +52,7 @@ def select_guided_collection_candidates(
     min_event_choices: int | None = None,
     min_shop_purchases: int | None = None,
     min_potion_usage: int | None = None,
+    require_guided_safe_neow: bool = False,
     require_supported: bool = True,
     limit: int = 50,
     ranked: bool = True,
@@ -46,6 +69,7 @@ def select_guided_collection_candidates(
         min_event_choices=min_event_choices,
         min_shop_purchases=min_shop_purchases,
         min_potion_usage=min_potion_usage,
+        require_guided_safe_neow=require_guided_safe_neow,
         require_supported=require_supported,
     )
     query = f"""
@@ -86,6 +110,10 @@ def _candidate_order_clause(ranked: bool) -> str:
     return "ORDER BY path_length DESC, guided_score DESC, floor_reached DESC, id ASC"
 
 
+def _placeholders(values: tuple[str, ...]) -> str:
+    return ", ".join("?" for _ in values)
+
+
 def slaythedata_index_status(
     db_path: str | Path = DEFAULT_SLAYTHEDATA_DB,
     *,
@@ -123,6 +151,8 @@ def slaythedata_index_status(
         if missing:
             status["problems"].append(f"missing required table(s): {', '.join(missing)}")
             return status
+        run_columns = set(_sqlite_table_columns(conn, "runs"))
+        safe_neow_filter_supported = {"neow_bonus", "neow_cost"}.issubset(run_columns)
 
         status["counts_included"] = bool(include_counts)
         if include_counts:
@@ -148,6 +178,7 @@ def slaythedata_index_status(
             ascension=ascension,
             min_floor_reached=min_floor_reached,
             min_path_length=min_path_length,
+            require_guided_safe_neow=safe_neow_filter_supported,
             require_supported=True,
         )
         status["candidate_filters"] = {
@@ -155,6 +186,7 @@ def slaythedata_index_status(
             "ascension": ascension,
             "min_floor_reached": min_floor_reached,
             "min_path_length": min_path_length,
+            "require_guided_safe_neow": safe_neow_filter_supported,
             "require_supported": True,
         }
         candidate_row = _sqlite_fetchone_with_step_limit(
@@ -203,6 +235,7 @@ def guided_collection_where(
     min_event_choices: int | None = None,
     min_shop_purchases: int | None = None,
     min_potion_usage: int | None = None,
+    require_guided_safe_neow: bool = False,
     require_supported: bool = True,
 ) -> tuple[str, list[Any]]:
     clauses = [
@@ -230,6 +263,11 @@ def guided_collection_where(
         if value is not None:
             clauses.append(f"{column} >= ?")
             params.append(value)
+    if require_guided_safe_neow:
+        clauses.append(f"neow_bonus IN ({_placeholders(_GUIDED_SAFE_NEOW_BONUSES)})")
+        params.extend(_GUIDED_SAFE_NEOW_BONUSES)
+        clauses.append(f"neow_cost IN ({_placeholders(_GUIDED_SAFE_NEOW_COSTS)})")
+        params.extend(_GUIDED_SAFE_NEOW_COSTS)
     if require_supported:
         clauses.append("unsupported_any = 0")
     return " AND ".join(clauses), params
@@ -314,6 +352,12 @@ def _sqlite_table_names(conn: sqlite3.Connection) -> list[str]:
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
     ]
+
+
+def _sqlite_table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
+    if not table.replace("_", "").isalnum():
+        raise ValueError(f"unsafe table name: {table}")
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
 
 
 def _sqlite_count(conn: sqlite3.Connection, table: str) -> int:

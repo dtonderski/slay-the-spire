@@ -85,6 +85,9 @@ The collector can now:
 - load UI candidates with `ranked=0` by default to avoid global sort latency on
   the huge partial local index; ranked selection remains available for slower
   diagnostics
+- filter UI candidates to guided-safe Neow bonuses by default, avoiding starts
+  that immediately require unsupported Neow follow-up grids such as remove,
+  transform, upgrade, or choose-card screens
 - export a selected run from local chunks and start the collector from it
 - prime the live run start controls from the selected/loaded SlayTheData run
   so the bridge starts the same seed the collector is following
@@ -163,8 +166,8 @@ agreement, conservative map path matching, boss relic matching, campfire/grid
 matching, post-send prediction checks, and generated-trace provenance are
 implemented, and the UI can repeatedly call tick until blocked. Remaining work
 is map tie-breaking when room symbols are ambiguous, reward edge cases that
-need hidden identity checks, Neow bonuses that open unsupported follow-up grids,
-and end-to-end live bridge smoke coverage.
+need hidden identity checks, broader support for Neow bonuses that open
+follow-up grids, and end-to-end live bridge smoke coverage.
 
 ## Important Boundaries
 
