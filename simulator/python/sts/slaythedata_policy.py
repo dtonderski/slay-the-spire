@@ -191,6 +191,24 @@ def potion_uses_allowed_on_floor(script: dict[str, Any], floor: int) -> int:
     return int(potions.get("uses_allowed") or 0)
 
 
+def guided_script_support_blocker(script: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a blocker for guided scripts that need unrecorded follow-up choices."""
+
+    config = script.get("config") if isinstance(script.get("config"), dict) else {}
+    bonus = str(config.get("neow_bonus") or "").upper()
+    if bonus in _NEOW_GRID_TARGET_BONUSES:
+        return _blocked(
+            "unsupported_neow_followup",
+            f"Neow bonus {bonus} requires a card grid target that SlayTheData does not record",
+        )
+    if bonus in _NEOW_CARD_REWARD_BONUSES and not _has_floor_zero_card_reward(script):
+        return _blocked(
+            "missing_neow_card_reward",
+            f"Neow bonus {bonus} requires a floor-0 card reward choice in the exported SlayTheData row",
+        )
+    return None
+
+
 def match_visible_choice(
     script: dict[str, Any],
     *,
@@ -487,6 +505,33 @@ _NEOW_COST_TEXT = {
     "TEN_PERCENT_HP_LOSS": "lose max hp",
     "PERCENT_DAMAGE": "take damage",
 }
+
+
+_NEOW_CARD_REWARD_BONUSES = {
+    "RANDOM_COLORLESS",
+    "RANDOM_COLORLESS_2",
+    "THREE_CARDS",
+    "THREE_RARE_CARDS",
+}
+
+
+_NEOW_GRID_TARGET_BONUSES = {
+    "REMOVE_CARD",
+    "REMOVE_TWO",
+    "TRANSFORM_CARD",
+    "TRANSFORM_TWO_CARDS",
+    "UPGRADE_CARD",
+}
+
+
+def _has_floor_zero_card_reward(script: dict[str, Any]) -> bool:
+    decision = floor_decision(script, 0)
+    if not decision:
+        return False
+    for entry in _list(decision.get("card_rewards")):
+        if isinstance(entry, dict) and entry.get("picked"):
+            return True
+    return False
 
 
 def _shop_leave_visible(choice_labels: list[str]) -> bool:

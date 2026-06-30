@@ -3,6 +3,7 @@ import unittest
 from sts.slaythedata_policy import (
     build_guided_run_script,
     floor_decision,
+    guided_script_support_blocker,
     identity_blocker,
     match_map_choice,
     match_visible_choice,
@@ -229,6 +230,31 @@ class SlayTheDataPolicyTests(unittest.TestCase):
 
                 self.assertEqual(result["status"], "matched")
                 self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+
+    def test_guided_script_support_blocks_unrecorded_neow_grids(self):
+        for bonus in ("REMOVE_CARD", "REMOVE_TWO", "TRANSFORM_CARD", "TRANSFORM_TWO_CARDS", "UPGRADE_CARD"):
+            with self.subTest(bonus=bonus):
+                script = build_guided_run_script({"event": {"neow_bonus": bonus, "neow_cost": "NONE"}})
+
+                blocker = guided_script_support_blocker(script)
+
+                self.assertIsNotNone(blocker)
+                self.assertEqual(blocker["reason"], "unsupported_neow_followup")
+
+    def test_guided_script_support_requires_floor_zero_neow_card_choice(self):
+        missing = build_guided_run_script({"event": {"neow_bonus": "THREE_CARDS", "neow_cost": "NONE"}})
+        present = build_guided_run_script(
+            {
+                "event": {
+                    "neow_bonus": "THREE_CARDS",
+                    "neow_cost": "NONE",
+                    "card_choices": [{"floor": 0, "picked": "Bash", "not_picked": ["Strike"]}],
+                }
+            }
+        )
+
+        self.assertEqual(guided_script_support_blocker(missing)["reason"], "missing_neow_card_reward")
+        self.assertIsNone(guided_script_support_blocker(present))
 
     def test_identity_blocker_rejects_visible_character_or_ascension_mismatch(self):
         script = build_guided_run_script(

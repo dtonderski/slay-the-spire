@@ -1164,6 +1164,10 @@ def _start_guided_live_run(
     collector_status = collector.status()
     if not collector_status.get("active"):
         raise ValueError("start guided live run requires an active collector")
+    if collector_status.get("status") == "blocked":
+        blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {}
+        detail = blocker.get("detail") or blocker.get("reason") or "collector is blocked"
+        raise ValueError(f"start guided live run blocked: {detail}")
 
     config = collector_status.get("config") if isinstance(collector_status.get("config"), dict) else {}
     character = _required_command_token(config.get("character") or config.get("character_chosen"), "character").upper()

@@ -14,6 +14,7 @@ from uuid import uuid4
 from sts.bridge import command_for_descriptor
 from sts.slaythedata_policy import (
     build_guided_run_script,
+    guided_script_support_blocker,
     identity_blocker,
     match_map_choice,
     match_visible_choice,
@@ -44,6 +45,12 @@ class GuidedCollector:
                 raise ValueError("collector start requires script or exported_run")
             script = build_guided_run_script(exported)
         self._run = CollectorRun(id=uuid4().hex, script=script)
+        support_blocker = guided_script_support_blocker(script)
+        if support_blocker is not None:
+            self._run.status = "blocked"
+            self._run.blocker = support_blocker
+            self._run.last_suggestion = support_blocker
+            self._run.history.append(support_blocker)
         return self.status()
 
     def stop(self) -> dict[str, Any]:

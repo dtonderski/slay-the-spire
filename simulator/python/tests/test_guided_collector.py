@@ -286,6 +286,29 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["category"], "neow")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
+    def test_collector_start_blocks_unsupported_neow_followup_before_send(self):
+        collector = GuidedCollector()
+
+        started = collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 0,
+                            "seed_played": "GRID01",
+                            "neow_bonus": "REMOVE_CARD",
+                            "neow_cost": "NONE",
+                        }
+                    }
+                )
+            }
+        )
+
+        self.assertTrue(started["active"])
+        self.assertEqual(started["status"], "blocked")
+        self.assertEqual(started["blocker"]["reason"], "unsupported_neow_followup")
+
     def test_suggest_guided_action_blocks_visible_run_identity_mismatch(self):
         bridge = self.ready_event_bridge()
         bridge["summary"]["class"] = "THE_SILENT"
