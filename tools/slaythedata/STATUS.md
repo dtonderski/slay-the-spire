@@ -38,6 +38,15 @@ While the build is running, some newly indexed `runs` rows may not yet be
 available in `chunk_runs` until the current chunk is flushed. For export, only
 select rows that already have a `chunk_runs` entry.
 
+Latest observed UI-fast status on 2026-06-30:
+
+- `52,666,330` rows in `runs`
+- `52,639,808` rows in `chunk_runs`
+- `1,949` rows in `chunk_files`
+- `31,680` archive files indexed and `13,142` pending
+- supported exportable Ironclad A0 guided candidates are available for the UI
+  default filters
+
 ## Check Progress
 
 ```powershell

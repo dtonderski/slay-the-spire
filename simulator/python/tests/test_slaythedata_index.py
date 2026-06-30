@@ -8,10 +8,86 @@ from sts.slaythedata_index import (
     chunk_export_args,
     export_guided_run_script,
     select_guided_collection_candidates,
+    slaythedata_index_status,
 )
 
 
 class SlayTheDataIndexTests(unittest.TestCase):
+    def test_slaythedata_index_status_reports_missing_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            status = slaythedata_index_status(Path(tmp) / "missing.sqlite3")
+
+        self.assertFalse(status["ok"])
+        self.assertFalse(status["exists"])
+        self.assertIn("missing", status["problems"][0])
+
+    def test_slaythedata_index_status_summarizes_exportable_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                CREATE TABLE chunk_files (id INTEGER);
+                CREATE TABLE archive_files (source_file TEXT, status TEXT);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 50, 0, 0, 0, 0, "A", 1, 50, 10, 2, 1, 0),
+                    (2, "IRONCLAD", 0, 50, 0, 0, 0, 1, "B", 0, 50, 10, 2, 1, 0),
+                ],
+            )
+            conn.execute("INSERT INTO chunk_runs VALUES (1)")
+            conn.execute("INSERT INTO chunk_files VALUES (1)")
+            conn.executemany(
+                "INSERT INTO archive_files VALUES (?, ?)",
+                [("a.json", "indexed"), ("b.json", "pending")],
+            )
+            conn.commit()
+            conn.close()
+
+            status = slaythedata_index_status(db)
+
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["runs_count"], 2)
+        self.assertEqual(status["chunk_runs_count"], 1)
+        self.assertEqual(status["chunk_files_count"], 1)
+        self.assertTrue(status["exportable_candidate_available"])
+        self.assertEqual(status["archive_status_counts"], {"indexed": 1, "pending": 1})
+        self.assertIn("partial", status["warnings"][0])
+
+    def test_slaythedata_index_status_reports_missing_required_tables(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.execute("CREATE TABLE runs (id INTEGER PRIMARY KEY)")
+            conn.commit()
+            conn.close()
+
+            status = slaythedata_index_status(db)
+
+        self.assertFalse(status["ok"])
+        self.assertIn("chunk_runs", status["problems"][0])
+
     def test_select_guided_collection_candidates_filters_exportable_supported_runs(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "runs.sqlite3"
