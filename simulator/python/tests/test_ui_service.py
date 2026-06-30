@@ -337,6 +337,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 3 LIVE01")
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "menu-state")
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
+        self.assertTrue(bridge.sent[0][1]["wait_for_state_update"])
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector_start")
         self.assertEqual(bridge.sent[0][1]["metadata"]["script_source"]["run_id"], 77)
 

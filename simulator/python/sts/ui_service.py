@@ -1199,6 +1199,7 @@ def _start_guided_live_run(
         source_state_id=bridge_status.get("state_id"),
         metadata=metadata,
         require_tcp_control=require_tcp_control,
+        wait_for_state_update=True,
     )
     return {
         "ok": True,
@@ -1208,6 +1209,8 @@ def _start_guided_live_run(
             "ok": send_result.get("ok"),
             "command_id": send_result.get("command_id"),
             "command": send_result.get("command"),
+            "transport": send_result.get("transport"),
+            "observed_update": send_result.get("observed_update"),
         },
     }
 
