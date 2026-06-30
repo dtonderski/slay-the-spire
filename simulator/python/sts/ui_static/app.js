@@ -67,6 +67,7 @@
       "liveSearchButton",
       "sendBestButton",
       "sendBestReviewButton",
+      "liveWorkflow",
       "liveReason",
       "sessionModeSelect",
       "newSessionButton",
@@ -805,8 +806,13 @@
     const actions = live
       ? arrayOf(app.bridge && app.bridge.bridge_actions)
       : app.actions.length ? app.actions : app.lastError ? app.lastActions : [];
-    el.actionsTitle.textContent = live ? "Live Actions" : "Simulator Actions";
-    el.actionCount.textContent = `${actions.length} available`;
+    el.actionsTitle.textContent = live ? "Manual Live Actions" : "Simulator Actions";
+    const enabledCount = live
+      ? actions.filter((action) => !bridgeActionDisabledReason(action) && action.enabled !== false).length
+      : actions.filter((action) => action.enabled !== false).length;
+    el.actionCount.textContent = live
+      ? `${enabledCount} ready / ${actions.length} shown`
+      : `${enabledCount} available`;
     clear(el.actionsPanel);
     if (!actions.length) {
       const reason = live ? emptyLiveActionReason() : emptyActionReason();
@@ -823,6 +829,9 @@
       button.className = "action-button";
       if (live && isRecommendedBridgeAction(action)) {
         button.classList.add("recommended-action");
+      }
+      if (live && disabledReason) {
+        button.classList.add("unavailable-action");
       }
       button.disabled = app.inFlight || !!disabledReason || action.enabled === false;
       button.textContent = live ? bridgeActionLabel(action) : actionLabel(action);
@@ -935,8 +944,9 @@
     el.liveStatusBadge.textContent = lifecycle.label;
     el.liveStatusBadge.className = `status-badge ${bridgeLifecycleClass(lifecycle.status)}`;
     el.liveSummary.textContent = app.bridge
-      ? "Auto-refresh reads bridge files only. Manual state command sends a trace-recorded command."
+      ? "Auto-refresh reads bridge files only."
       : "Waiting for bridge status.";
+    renderLiveWorkflow({ searchBlocker, sendBlocker, startStatus });
 
     clear(el.liveStatusPanel);
     el.liveStatusPanel.append(
@@ -958,6 +968,30 @@
     );
 
     el.liveReason.textContent = liveReasonText({ sendBlocker, searchBlocker, startStatus });
+  }
+
+  function renderLiveWorkflow({ searchBlocker, sendBlocker, startStatus }) {
+    if (!el.liveWorkflow) return;
+    clear(el.liveWorkflow);
+    const attached = app.mode === "live_bridge" && app.liveBridgeStateId === bridgeStateId();
+    const searched = Boolean(app.search && app.liveSearchBridgeStateId === bridgeStateId());
+    const sendReady = !sendBlocker && searched;
+    el.liveWorkflow.append(
+      workflowStep("1", attached ? "Attached" : startStatus ? "Start run" : "Start / attach", attached ? "done" : startStatus ? "blocked" : "ready"),
+      workflowStep("2", searched ? "Recommendation ready" : "Search best", searched ? "done" : searchBlocker ? "blocked" : "ready"),
+      workflowStep("3", sendReady ? "Send ready" : "Send safely", sendReady ? "ready" : sendBlocker ? "blocked" : "ready"),
+    );
+  }
+
+  function workflowStep(number, labelText, state) {
+    const node = document.createElement("span");
+    node.className = `workflow-step ${state || "ready"}`;
+    const badge = document.createElement("strong");
+    badge.textContent = number;
+    const label = document.createElement("span");
+    label.textContent = labelText;
+    node.append(badge, label);
+    return node;
   }
 
   function renderBridge() {
