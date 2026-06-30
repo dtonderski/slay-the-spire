@@ -485,11 +485,11 @@ fn sentry_encounter_beams_then_attacks() {
     );
     assert_eq!(
         after_beam.monsters[0].intent,
-        MonsterIntent::Attack { damage: 6 }
+        MonsterIntent::Attack { damage: 9 }
     );
 
     let after_attack = end_player_turn(&after_beam);
-    assert_eq!(after_attack.player.hp, 82);
+    assert_eq!(after_attack.player.hp, 73);
 }
 
 #[test]

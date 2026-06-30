@@ -76,6 +76,7 @@ const LAGAVULIN_SLEEP_TURNS: u32 = 3;
 const LAGAVULIN_SIPHON_STRENGTH: i32 = 1;
 const LAGAVULIN_SIPHON_DEXTERITY: i32 = 1;
 const LAGAVULIN_ATTACK_DAMAGE: i32 = 18;
+const LAGAVULIN_A3_ATTACK_DAMAGE: i32 = 20;
 
 const SENTRY_BEAM_DAZED: i32 = 2;
 const SENTRY_ATTACK_DAMAGE: i32 = 9;
@@ -113,14 +114,18 @@ const GUARDIAN_DEFENSIVE_BLOCK: i32 = 20;
 const GUARDIAN_DEFENSIVE_SPIKES: i32 = 3;
 pub const GUARDIAN_CHARGE_BLOCK: i32 = 9;
 const GUARDIAN_FIERCE_BASH_DAMAGE: i32 = 32;
+const GUARDIAN_A4_FIERCE_BASH_DAMAGE: i32 = 36;
 const GUARDIAN_DEFENSIVE_ATTACK_DAMAGE: i32 = 9;
+const GUARDIAN_A4_DEFENSIVE_ATTACK_DAMAGE: i32 = 10;
 const GUARDIAN_DEFENSIVE_COMBO_DAMAGE: i32 = 8;
 const GUARDIAN_WHIRLWIND_DAMAGE: i32 = 5;
 const GUARDIAN_WHIRLWIND_HITS: i32 = 4;
 const GUARDIAN_VENT_DEBUFF: i32 = 2;
 
 const GREMLIN_NOB_RUSH_DAMAGE: i32 = 14;
+const GREMLIN_NOB_A3_RUSH_DAMAGE: i32 = 16;
 const GREMLIN_NOB_SKULL_BASH_DAMAGE: i32 = 6;
+const GREMLIN_NOB_A3_SKULL_BASH_DAMAGE: i32 = 8;
 pub const GREMLIN_NOB_A0_ENRAGE: i32 = 2;
 pub const GREMLIN_NOB_A17_ENRAGE: i32 = 3;
 
@@ -144,8 +149,7 @@ const MUGGER_BIG_SWIPE_DAMAGE: i32 = 16;
 const MUGGER_A2_BIG_SWIPE_DAMAGE: i32 = 18;
 const MUGGER_THEFT: i32 = 15;
 const MUGGER_A17_THEFT: i32 = 20;
-const MUGGER_ESCAPE_BLOCK: i32 = 11;
-const MUGGER_A17_ESCAPE_BLOCK: i32 = 17;
+const MUGGER_SMOKE_BOMB_BLOCK: i32 = 28;
 const CHOSEN_POKE_DAMAGE: i32 = 5;
 const CHOSEN_A2_POKE_DAMAGE: i32 = 6;
 const CHOSEN_POKE_HITS: i32 = 2;
@@ -253,15 +257,20 @@ const GREMLIN_TSUNDERE_A2_BASH_DAMAGE: i32 = 8;
 const GREMLIN_WIZARD_MAGIC_DAMAGE: i32 = 25;
 const GREMLIN_WIZARD_A2_MAGIC_DAMAGE: i32 = 30;
 const BRONZE_AUTOMATON_FLAIL_DAMAGE: i32 = 7;
+const BRONZE_AUTOMATON_A4_FLAIL_DAMAGE: i32 = 8;
 const BRONZE_AUTOMATON_FLAIL_HITS: i32 = 2;
 const BRONZE_AUTOMATON_HYPER_BEAM_DAMAGE: i32 = 45;
+const BRONZE_AUTOMATON_A4_HYPER_BEAM_DAMAGE: i32 = 50;
 const BRONZE_AUTOMATON_BOOST_BLOCK: i32 = 9;
 const BRONZE_ORB_BEAM_DAMAGE: i32 = 8;
+const BRONZE_ORB_SUPPORT_BEAM_BLOCK: i32 = 12;
 const THE_COLLECTOR_BLOCK: i32 = 15;
 const THE_COLLECTOR_STRENGTH: i32 = 3;
 pub(crate) const TORCH_HEAD_ATTACK_DAMAGE: i32 = 7;
-const ORB_WALKER_LASER_DAMAGE: i32 = 15;
-const ORB_WALKER_CLAW_DAMAGE: i32 = 10;
+const ORB_WALKER_LASER_DAMAGE: i32 = 10;
+const ORB_WALKER_A2_LASER_DAMAGE: i32 = 11;
+const ORB_WALKER_CLAW_DAMAGE: i32 = 15;
+const ORB_WALKER_A2_CLAW_DAMAGE: i32 = 16;
 const ORB_WALKER_STRENGTH_UP: i32 = 3;
 const DARKLING_CHOMP_DAMAGE: i32 = 8;
 const DARKLING_BLOCK: i32 = 12;
@@ -3120,10 +3129,15 @@ fn prepare_monster_intent_for_monster(
     rolled_attack_damage: Option<i32>,
 ) -> MonsterIntent {
     if definition.content_id == LAGAVULIN_ID {
-        return lagavulin_intent(sleep_turns_remaining, moves_executed);
+        return lagavulin_intent(sleep_turns_remaining, moves_executed, ascension);
     }
     if definition.content_id == GUARDIAN_ID {
-        return guardian_intent(in_defensive_mode, defensive_turns_remaining, moves_executed);
+        return guardian_intent(
+            in_defensive_mode,
+            defensive_turns_remaining,
+            moves_executed,
+            ascension,
+        );
     }
     if definition.content_id == MUGGER_ID {
         return mugger_intent(moves_executed, ascension);
@@ -3170,14 +3184,20 @@ fn prepare_monster_intent_for_monster(
     if definition.content_id == GREMLIN_LEADER_ID {
         return gremlin_leader_intent(moves_executed, ascension);
     }
+    if definition.content_id == GREMLIN_NOB_ID {
+        return gremlin_nob_intent(moves_executed, ascension);
+    }
+    if definition.content_id == SENTRY_ID {
+        return sentry_intent(moves_executed, ascension);
+    }
     if definition.content_id == BRONZE_AUTOMATON_ID {
-        return bronze_automaton_intent(moves_executed);
+        return bronze_automaton_intent(moves_executed, ascension);
     }
     if definition.content_id == BRONZE_ORB_ID {
         return bronze_orb_intent(moves_executed);
     }
     if definition.content_id == ORB_WALKER_ID {
-        return orb_walker_intent(moves_executed);
+        return orb_walker_intent(moves_executed, ascension);
     }
     if definition.content_id == DARKLING_ID {
         return darkling_intent(moves_executed, rolled_attack_damage);
@@ -3233,13 +3253,13 @@ pub fn prepare_monster_intent_for(
         BOOK_OF_STABBING_ID => book_of_stabbing_intent(moves_executed, 0),
         TASKMASTER_ID => taskmaster_intent(),
         GREMLIN_LEADER_ID => gremlin_leader_intent(moves_executed, 0),
-        BRONZE_AUTOMATON_ID => bronze_automaton_intent(moves_executed),
+        BRONZE_AUTOMATON_ID => bronze_automaton_intent(moves_executed, 0),
         THE_COLLECTOR_ID => collector_intent(moves_executed),
         TORCH_HEAD_ID => MonsterIntent::Attack {
             damage: TORCH_HEAD_ATTACK_DAMAGE,
         },
         BRONZE_ORB_ID => bronze_orb_intent(moves_executed),
-        ORB_WALKER_ID => orb_walker_intent(moves_executed),
+        ORB_WALKER_ID => orb_walker_intent(moves_executed, 0),
         DARKLING_ID => darkling_intent(moves_executed, rolled_attack_damage),
         EXPLODER_ID => exploder_intent(moves_executed, 0),
         SPIKER_ID => spiker_intent(moves_executed, 0),
@@ -3253,7 +3273,7 @@ pub fn prepare_monster_intent_for(
         }
         SPIKE_SLIME_ID => spike_slime_s_intent(moves_executed),
         ACID_SLIME_ID => acid_slime_intent(moves_executed),
-        SENTRY_ID => sentry_intent(moves_executed),
+        SENTRY_ID => sentry_intent(moves_executed, 0),
         SPHERIC_GUARDIAN_ID => spheric_guardian_intent(moves_executed, 0),
         HEXAGHOST_ID => hexaghost_intent(moves_executed),
         SLIME_BOSS_ID => slime_boss_intent(moves_executed, 0),
@@ -3595,12 +3615,8 @@ fn mugger_theft(ascension: u8) -> i32 {
 }
 
 #[must_use]
-fn mugger_escape_block(ascension: u8) -> i32 {
-    if ascension >= 17 {
-        MUGGER_A17_ESCAPE_BLOCK
-    } else {
-        MUGGER_ESCAPE_BLOCK
-    }
+fn mugger_escape_block(_ascension: u8) -> i32 {
+    MUGGER_SMOKE_BOMB_BLOCK
 }
 
 #[must_use]
@@ -4847,11 +4863,29 @@ fn gremlin_leader_minion_intent(
 }
 
 #[must_use]
-fn bronze_automaton_intent(moves_executed: u32) -> MonsterIntent {
+fn bronze_automaton_flail_damage(ascension: u8) -> i32 {
+    if ascension >= 4 {
+        BRONZE_AUTOMATON_A4_FLAIL_DAMAGE
+    } else {
+        BRONZE_AUTOMATON_FLAIL_DAMAGE
+    }
+}
+
+#[must_use]
+fn bronze_automaton_hyper_beam_damage(ascension: u8) -> i32 {
+    if ascension >= 4 {
+        BRONZE_AUTOMATON_A4_HYPER_BEAM_DAMAGE
+    } else {
+        BRONZE_AUTOMATON_HYPER_BEAM_DAMAGE
+    }
+}
+
+#[must_use]
+fn bronze_automaton_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
     match moves_executed {
         0 => MonsterIntent::SummonGremlins { count: 2 },
         1 | 3 => MonsterIntent::AttackMultiple {
-            damage: BRONZE_AUTOMATON_FLAIL_DAMAGE,
+            damage: bronze_automaton_flail_damage(ascension),
             hits: BRONZE_AUTOMATON_FLAIL_HITS,
         },
         2 | 4 => MonsterIntent::StrengthAndBlock {
@@ -4859,11 +4893,11 @@ fn bronze_automaton_intent(moves_executed: u32) -> MonsterIntent {
             block: BRONZE_AUTOMATON_BOOST_BLOCK,
         },
         5 => MonsterIntent::Attack {
-            damage: BRONZE_AUTOMATON_HYPER_BEAM_DAMAGE,
+            damage: bronze_automaton_hyper_beam_damage(ascension),
         },
         6 => MonsterIntent::Stun,
         _ => MonsterIntent::AttackMultiple {
-            damage: BRONZE_AUTOMATON_FLAIL_DAMAGE,
+            damage: bronze_automaton_flail_damage(ascension),
             hits: BRONZE_AUTOMATON_FLAIL_HITS,
         },
     }
@@ -4930,7 +4964,9 @@ fn bronze_orb_intent(moves_executed: u32) -> MonsterIntent {
         1..=3 => MonsterIntent::Attack {
             damage: BRONZE_ORB_BEAM_DAMAGE,
         },
-        _ => MonsterIntent::Block { block: 0 },
+        _ => MonsterIntent::Block {
+            block: BRONZE_ORB_SUPPORT_BEAM_BLOCK,
+        },
     }
 }
 
@@ -4943,25 +4979,46 @@ pub fn target_bronze_orb_next_intent_from_roll(move_history: &[u8], roll: i32) -
         };
     }
     if roll >= 70 && !last_two_moves(move_history, 2) {
-        return MonsterIntent::Block { block: 0 };
+        return MonsterIntent::Block {
+            block: BRONZE_ORB_SUPPORT_BEAM_BLOCK,
+        };
     }
     if !last_two_moves(move_history, 1) {
         return MonsterIntent::Attack {
             damage: BRONZE_ORB_BEAM_DAMAGE,
         };
     }
-    MonsterIntent::Block { block: 0 }
+    MonsterIntent::Block {
+        block: BRONZE_ORB_SUPPORT_BEAM_BLOCK,
+    }
 }
 
 #[must_use]
-fn orb_walker_intent(moves_executed: u32) -> MonsterIntent {
+fn orb_walker_laser_damage(ascension: u8) -> i32 {
+    if ascension >= 2 {
+        ORB_WALKER_A2_LASER_DAMAGE
+    } else {
+        ORB_WALKER_LASER_DAMAGE
+    }
+}
+
+#[must_use]
+fn orb_walker_claw_damage(ascension: u8) -> i32 {
+    if ascension >= 2 {
+        ORB_WALKER_A2_CLAW_DAMAGE
+    } else {
+        ORB_WALKER_CLAW_DAMAGE
+    }
+}
+
+#[must_use]
+fn orb_walker_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
     match moves_executed {
-        0 | 1 => MonsterIntent::AddBurnToDiscardAndDraw {
-            count: 1,
-            damage: ORB_WALKER_CLAW_DAMAGE,
+        0 => MonsterIntent::Attack {
+            damage: orb_walker_laser_damage(ascension),
         },
         _ => MonsterIntent::Attack {
-            damage: ORB_WALKER_LASER_DAMAGE,
+            damage: orb_walker_claw_damage(ascension),
         },
     }
 }
@@ -5899,13 +5956,22 @@ pub fn target_medium_or_large_spike_slime_next_intent_from_roll(
 }
 
 #[must_use]
-fn sentry_intent(moves_executed: u32) -> MonsterIntent {
+fn sentry_attack_damage(ascension: u8) -> i32 {
+    if ascension >= 3 {
+        SENTRY_A3_ATTACK_DAMAGE
+    } else {
+        SENTRY_ATTACK_DAMAGE
+    }
+}
+
+#[must_use]
+fn sentry_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
     match moves_executed % 2 {
         0 => MonsterIntent::AddDazedToDiscard {
             count: SENTRY_BEAM_DAZED,
         },
         _ => MonsterIntent::Attack {
-            damage: SENTRY_ATTACK_DAMAGE,
+            damage: sentry_attack_damage(ascension),
         },
     }
 }
@@ -5954,6 +6020,7 @@ fn guardian_intent(
     in_defensive_mode: bool,
     defensive_turns_remaining: u32,
     moves_executed: u32,
+    ascension: u8,
 ) -> MonsterIntent {
     if in_defensive_mode {
         let turn_in_sequence =
@@ -5963,7 +6030,7 @@ fn guardian_intent(
                 sharp_hide: GUARDIAN_DEFENSIVE_SPIKES,
             },
             1 => MonsterIntent::Attack {
-                damage: GUARDIAN_DEFENSIVE_ATTACK_DAMAGE,
+                damage: guardian_roll_attack_damage(ascension),
             },
             _ => MonsterIntent::AttackMultiple {
                 damage: GUARDIAN_DEFENSIVE_COMBO_DAMAGE,
@@ -5976,7 +6043,7 @@ fn guardian_intent(
                 block: GUARDIAN_CHARGE_BLOCK,
             },
             1 => MonsterIntent::Attack {
-                damage: GUARDIAN_FIERCE_BASH_DAMAGE,
+                damage: guardian_fierce_bash_damage(ascension),
             },
             2 => MonsterIntent::ApplyPlayerWeak {
                 amount: GUARDIAN_VENT_DEBUFF,
@@ -5986,6 +6053,24 @@ fn guardian_intent(
                 hits: GUARDIAN_WHIRLWIND_HITS,
             },
         }
+    }
+}
+
+#[must_use]
+fn guardian_fierce_bash_damage(ascension: u8) -> i32 {
+    if ascension >= 4 {
+        GUARDIAN_A4_FIERCE_BASH_DAMAGE
+    } else {
+        GUARDIAN_FIERCE_BASH_DAMAGE
+    }
+}
+
+#[must_use]
+fn guardian_roll_attack_damage(ascension: u8) -> i32 {
+    if ascension >= 4 {
+        GUARDIAN_A4_DEFENSIVE_ATTACK_DAMAGE
+    } else {
+        GUARDIAN_DEFENSIVE_ATTACK_DAMAGE
     }
 }
 
@@ -6002,6 +6087,7 @@ pub fn enter_guardian_defensive_mode(monster: &mut MonsterState) {
         true,
         monster.defensive_turns_remaining,
         monster.moves_executed,
+        0,
     );
 }
 
@@ -6014,7 +6100,7 @@ fn exit_guardian_defensive_mode(monster: &mut MonsterState) {
     monster.powers.spikes = 0;
     monster.mode_shift = GUARDIAN_MODE_SHIFT_RESET;
     monster.moves_executed = 2;
-    monster.intent = guardian_intent(false, 0, monster.moves_executed);
+    monster.intent = guardian_intent(false, 0, monster.moves_executed, 0);
 }
 
 /// Decrements Mode Shift when the Guardian loses HP outside defensive mode.
@@ -6072,6 +6158,7 @@ fn finish_guardian_defensive_turn(monster: &mut MonsterState) {
             true,
             monster.defensive_turns_remaining,
             monster.moves_executed,
+            0,
         );
     }
 }
@@ -6118,7 +6205,20 @@ fn hexaghost_intent(moves_executed: u32) -> MonsterIntent {
 }
 
 #[must_use]
-fn lagavulin_intent(sleep_turns_remaining: u32, moves_executed: u32) -> MonsterIntent {
+fn lagavulin_attack_damage(ascension: u8) -> i32 {
+    if ascension >= 3 {
+        LAGAVULIN_A3_ATTACK_DAMAGE
+    } else {
+        LAGAVULIN_ATTACK_DAMAGE
+    }
+}
+
+#[must_use]
+fn lagavulin_intent(
+    sleep_turns_remaining: u32,
+    moves_executed: u32,
+    ascension: u8,
+) -> MonsterIntent {
     if sleep_turns_remaining > 0 {
         MonsterIntent::Sleep
     } else if moves_executed % 3 == 2 {
@@ -6128,7 +6228,7 @@ fn lagavulin_intent(sleep_turns_remaining: u32, moves_executed: u32) -> MonsterI
         }
     } else {
         MonsterIntent::Attack {
-            damage: LAGAVULIN_ATTACK_DAMAGE,
+            damage: lagavulin_attack_damage(ascension),
         }
     }
 }
@@ -6174,17 +6274,35 @@ pub fn check_slime_boss_split(state: &mut crate::CombatState, monster_id: Monste
 
 /// Gremlin Nob opens with Bellow, then Skull Bash, then Rush attacks.
 #[must_use]
+fn gremlin_nob_rush_damage(ascension: u8) -> i32 {
+    if ascension >= 3 {
+        GREMLIN_NOB_A3_RUSH_DAMAGE
+    } else {
+        GREMLIN_NOB_RUSH_DAMAGE
+    }
+}
+
+#[must_use]
+fn gremlin_nob_skull_bash_damage(ascension: u8) -> i32 {
+    if ascension >= 3 {
+        GREMLIN_NOB_A3_SKULL_BASH_DAMAGE
+    } else {
+        GREMLIN_NOB_SKULL_BASH_DAMAGE
+    }
+}
+
+#[must_use]
 fn gremlin_nob_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
     match moves_executed {
         0 => MonsterIntent::StrengthSelf {
             amount: gremlin_nob_enrage(ascension),
         },
         1 => MonsterIntent::AttackApplyPlayerVulnerable {
-            damage: GREMLIN_NOB_SKULL_BASH_DAMAGE,
+            damage: gremlin_nob_skull_bash_damage(ascension),
             vulnerable: 2,
         },
         _ => MonsterIntent::Attack {
-            damage: GREMLIN_NOB_RUSH_DAMAGE,
+            damage: gremlin_nob_rush_damage(ascension),
         },
     }
 }
@@ -8021,6 +8139,28 @@ mod tests {
     }
 
     #[test]
+    fn gremlin_nob_ascension_damage_upgrades_skull_bash_and_rush() {
+        let mut monster = monster_state(&GREMLIN_NOB_A0, MonsterId::new(1));
+
+        monster.moves_executed = 1;
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 3),
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: GREMLIN_NOB_A3_SKULL_BASH_DAMAGE,
+                vulnerable: 2,
+            }
+        );
+
+        monster.moves_executed = 2;
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 3),
+            MonsterIntent::Attack {
+                damage: GREMLIN_NOB_A3_RUSH_DAMAGE
+            }
+        );
+    }
+
+    #[test]
     fn gremlin_nob_enrages_on_skill() {
         assert_eq!(GREMLIN_NOB_A0.enrage_weak_on_skill, GREMLIN_NOB_A0_ENRAGE);
     }
@@ -8604,7 +8744,7 @@ mod tests {
         assert_eq!(
             prepare_monster_intent_for(&MUGGER_A0, 3, None),
             MonsterIntent::Block {
-                block: MUGGER_ESCAPE_BLOCK
+                block: MUGGER_SMOKE_BOMB_BLOCK
             }
         );
         assert_eq!(
@@ -8636,7 +8776,7 @@ mod tests {
         assert_eq!(
             prepare_monster_intent_for_ascension(&mugger, 17),
             MonsterIntent::Block {
-                block: MUGGER_A17_ESCAPE_BLOCK,
+                block: MUGGER_SMOKE_BOMB_BLOCK,
             }
         );
     }
@@ -8689,7 +8829,7 @@ mod tests {
     fn mugger_escape_marks_monster_escaped_and_not_alive() {
         let mut monster = monster_state(&MUGGER_A0, MonsterId::new(1));
         monster.intent = MonsterIntent::Escape;
-        monster.block = MUGGER_ESCAPE_BLOCK;
+        monster.block = MUGGER_SMOKE_BOMB_BLOCK;
         monster.stolen_gold = MUGGER_THEFT;
         let mut player = dummy_player();
         let player_before = player.clone();
@@ -10583,6 +10723,44 @@ mod tests {
     }
 
     #[test]
+    fn bronze_automaton_ascension_damage_upgrades_flail_and_hyper_beam() {
+        let mut monster = monster_state(&BRONZE_AUTOMATON_A0, MonsterId::new(1));
+
+        monster.moves_executed = 1;
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 4),
+            MonsterIntent::AttackMultiple {
+                damage: BRONZE_AUTOMATON_A4_FLAIL_DAMAGE,
+                hits: BRONZE_AUTOMATON_FLAIL_HITS,
+            }
+        );
+
+        monster.moves_executed = 5;
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 4),
+            MonsterIntent::Attack {
+                damage: BRONZE_AUTOMATON_A4_HYPER_BEAM_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn bronze_orb_support_beam_grants_block() {
+        assert_eq!(
+            prepare_monster_intent_for(&BRONZE_ORB_A0, 4, None),
+            MonsterIntent::Block {
+                block: BRONZE_ORB_SUPPORT_BEAM_BLOCK
+            }
+        );
+        assert_eq!(
+            target_bronze_orb_next_intent_from_roll(&[3, 1, 1], 70),
+            MonsterIntent::Block {
+                block: BRONZE_ORB_SUPPORT_BEAM_BLOCK
+            }
+        );
+    }
+
+    #[test]
     fn spheric_guardian_source_sequence_starts_with_harden_then_frail_attack() {
         let mut monster = monster_state(&SPHERIC_GUARDIAN_A0, MonsterId::new(1));
         let mut player = dummy_player();
@@ -10754,6 +10932,19 @@ mod tests {
     }
 
     #[test]
+    fn lagavulin_ascension_damage_upgrades_strong_attack() {
+        let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+        monster.sleep_turns_remaining = 0;
+
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 3),
+            MonsterIntent::Attack {
+                damage: LAGAVULIN_A3_ATTACK_DAMAGE
+            }
+        );
+    }
+
+    #[test]
     fn lagavulin_sleep_decrements_remaining_turns() {
         let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
         monster.intent = MonsterIntent::Sleep;
@@ -10872,25 +11063,56 @@ mod tests {
     }
 
     #[test]
-    fn orb_walker_opens_with_two_claws_then_laser() {
+    fn sentry_ascension_damage_uses_a3_beam_damage() {
+        let mut monster = monster_state(&SENTRY_A0, MonsterId::new(1));
+        monster.moves_executed = 1;
+
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 3),
+            MonsterIntent::Attack {
+                damage: SENTRY_A3_ATTACK_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn orb_walker_laser_then_claw_attacks_without_burns() {
         assert_eq!(
             prepare_monster_intent_for(&ORB_WALKER_A0, 0, None),
-            MonsterIntent::AddBurnToDiscardAndDraw {
-                count: 1,
-                damage: ORB_WALKER_CLAW_DAMAGE
+            MonsterIntent::Attack {
+                damage: ORB_WALKER_LASER_DAMAGE
             }
         );
         assert_eq!(
             prepare_monster_intent_for(&ORB_WALKER_A0, 1, None),
-            MonsterIntent::AddBurnToDiscardAndDraw {
-                count: 1,
+            MonsterIntent::Attack {
                 damage: ORB_WALKER_CLAW_DAMAGE
             }
         );
         assert_eq!(
             prepare_monster_intent_for(&ORB_WALKER_A0, 2, None),
             MonsterIntent::Attack {
-                damage: ORB_WALKER_LASER_DAMAGE
+                damage: ORB_WALKER_CLAW_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn orb_walker_ascension_damage_upgrades_laser_and_claw() {
+        let mut monster = monster_state(&ORB_WALKER_A0, MonsterId::new(1));
+
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 2),
+            MonsterIntent::Attack {
+                damage: ORB_WALKER_A2_LASER_DAMAGE
+            }
+        );
+
+        monster.moves_executed = 1;
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 2),
+            MonsterIntent::Attack {
+                damage: ORB_WALKER_A2_CLAW_DAMAGE
             }
         );
     }
@@ -10916,11 +11138,10 @@ mod tests {
             &[],
         );
 
-        assert_eq!(first_damage, 11);
+        assert_eq!(first_damage, 7);
         assert_eq!(monster.powers.strength, 3);
 
-        monster.intent = MonsterIntent::AddBurnToDiscardAndDraw {
-            count: 1,
+        monster.intent = MonsterIntent::Attack {
             damage: ORB_WALKER_CLAW_DAMAGE,
         };
         let player_before = player.clone();
@@ -10933,7 +11154,7 @@ mod tests {
             &[],
         );
 
-        assert_eq!(second_damage, 9);
+        assert_eq!(second_damage, 13);
         assert_eq!(monster.powers.strength, 6);
         assert!(piles.discard_pile.is_empty());
         assert!(piles.draw_pile.is_empty());
@@ -11380,6 +11601,28 @@ mod tests {
             prepare_monster_intent(&monster),
             MonsterIntent::Attack {
                 damage: GUARDIAN_FIERCE_BASH_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn guardian_ascension_damage_upgrades_fierce_bash_and_roll_attack() {
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.moves_executed = 1;
+
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 4),
+            MonsterIntent::Attack {
+                damage: GUARDIAN_A4_FIERCE_BASH_DAMAGE
+            }
+        );
+
+        monster.in_defensive_mode = true;
+        monster.defensive_turns_remaining = 2;
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster, 4),
+            MonsterIntent::Attack {
+                damage: GUARDIAN_A4_DEFENSIVE_ATTACK_DAMAGE
             }
         );
     }
