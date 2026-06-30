@@ -63,6 +63,18 @@ def skipped_card_reward_script():
     )
 
 
+def neow_card_reward_script():
+    return build_guided_run_script(
+        {
+            "event": {
+                "neow_bonus": "THREE_CARDS",
+                "neow_cost": "NONE",
+                "card_choices": [{"floor": 0, "picked": "True Grit", "not_picked": ["Flex", "Anger"]}],
+            },
+        }
+    )
+
+
 class GuidedCollectorTests(unittest.TestCase):
     def ready_event_bridge(self):
         return {
@@ -214,6 +226,13 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_neow_card_reward_bridge(self):
+        bridge = self.ready_card_reward_bridge()
+        bridge["summary"]["floor"] = 0
+        bridge["state_id"] = "neow-card-reward-bridge-state"
+        bridge["summary"]["choices"] = ["Flex", "True Grit", "Anger"]
+        return bridge
+
     def ready_shop_bridge(self, choices=None):
         return {
             "connected": True,
@@ -321,6 +340,13 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["category"], "card_reward")
         self.assertEqual(result["descriptor"], {"kind": "SkipVisibleReward"})
+
+    def test_suggest_guided_action_matches_neow_floor_zero_card_reward(self):
+        result = suggest_guided_action(neow_card_reward_script(), self.ready_neow_card_reward_bridge())
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "card_reward")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
 
     def test_suggest_guided_action_matches_shop_purchase_and_leave(self):
         buy = suggest_guided_action(sample_script(), self.ready_shop_bridge())

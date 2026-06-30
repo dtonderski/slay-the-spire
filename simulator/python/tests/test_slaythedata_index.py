@@ -365,9 +365,10 @@ class SlayTheDataIndexTests(unittest.TestCase):
                     (1, "IRONCLAD", 0, 50, 0, 0, 0, 0, "SAFE", 0, 50, 10, 2, 1, 0, "THREE_ENEMY_KILL", "NONE"),
                     (2, "IRONCLAD", 0, 50, 0, 0, 0, 0, "GRID", 0, 50, 10, 2, 1, 0, "REMOVE_CARD", "NONE"),
                     (3, "IRONCLAD", 0, 50, 0, 0, 0, 0, "COST", 0, 50, 10, 2, 1, 0, "ONE_RARE_RELIC", "CURSE"),
+                    (4, "IRONCLAD", 0, 50, 0, 0, 0, 0, "CARD", 0, 50, 10, 2, 1, 0, "THREE_CARDS", "NONE"),
                 ],
             )
-            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,), (3,)])
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,), (3,), (4,)])
             conn.commit()
             conn.close()
 
@@ -380,7 +381,9 @@ class SlayTheDataIndexTests(unittest.TestCase):
                 limit=10,
             )
 
-        self.assertEqual([row["id"] for row in rows], [1, 3])
+        self.assertEqual([row["id"] for row in rows], [1, 3, 4])
+        self.assertEqual(rows[0]["neow_bonus"], "THREE_ENEMY_KILL")
+        self.assertEqual(rows[0]["neow_cost"], "NONE")
 
     def test_chunk_export_args_builds_indexer_invocation_for_run_ids(self):
         args = chunk_export_args(

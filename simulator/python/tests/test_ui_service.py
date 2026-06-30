@@ -378,6 +378,17 @@ class UiServiceTests(unittest.TestCase):
             ranked=False,
         )
 
+    def test_slaythedata_candidates_default_to_safe_neow(self):
+        with patch(
+            "sts.ui_service.select_guided_collection_candidates",
+            return_value=[],
+        ) as select:
+            result = _slaythedata_candidates_from_query({})
+
+        self.assertTrue(result["filters"]["safe_neow"])
+        self.assertEqual(result["candidates"], [])
+        self.assertTrue(select.call_args.kwargs["require_guided_safe_neow"])
+
     def test_slaythedata_status_query_uses_filters(self):
         with patch(
             "sts.ui_service.slaythedata_index_status",

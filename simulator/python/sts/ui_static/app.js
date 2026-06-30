@@ -2283,7 +2283,10 @@
     const shops = firstDefined(candidate && candidate.shop_purchase_count, 0);
     const potions = firstDefined(candidate && candidate.potion_usage_count, 0);
     const score = firstDefined(candidate && candidate.guided_score, 0);
-    return `#${runId} ${seed} F${floor} path ${path} ${result} | score ${score} cards ${cards} events ${events} shops ${shops} pots ${potions}`;
+    const neowBonus = firstDefined(candidate && candidate.neow_bonus, candidate && candidate.neowBonus, "");
+    const neowCost = firstDefined(candidate && candidate.neow_cost, candidate && candidate.neowCost, "");
+    const neow = neowBonus ? ` Neow ${neowBonus}${neowCost ? `:${neowCost}` : ""} |` : "";
+    return `#${runId} ${seed} F${floor} path ${path} ${result} |${neow} score ${score} cards ${cards} events ${events} shops ${shops} pots ${potions}`;
   }
 
   function attachFidelityText() {

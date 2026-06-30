@@ -94,6 +94,30 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(result["target"], "Inflame")
 
+    def test_match_visible_choice_preserves_floor_zero_neow_card_reward(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "neow_bonus": "THREE_CARDS",
+                    "neow_cost": "NONE",
+                    "card_choices": [
+                        {"floor": 0, "picked": "True Grit", "not_picked": ["Flex", "Anger"]}
+                    ],
+                }
+            }
+        )
+
+        result = match_visible_choice(
+            script,
+            floor=0,
+            choice_labels=["Flex", "True Grit", "Anger"],
+            category="card_reward",
+        )
+
+        self.assertEqual(floor_decision(script, 0)["card_rewards"][0]["picked"], "True Grit")
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+
     def test_match_visible_choice_skips_card_reward_when_script_skipped(self):
         script = build_guided_run_script(
             {
