@@ -238,7 +238,7 @@ def match_visible_choice(
     matches = [
         index
         for index, label in enumerate(choice_labels)
-        if _normalized_token(target) and _normalized_token(target) in _normalized_token(label)
+        if _target_matches_label(target, label)
     ]
     if len(matches) == 1:
         return {
@@ -442,14 +442,22 @@ _NEOW_BONUS_TEXT = {
     "THREE_ENEMY_KILL": "enemies in your next three combats have 1 hp",
     "RANDOM_COLORLESS": "choose a colorless card to obtain",
     "RANDOM_COLORLESS_2": "choose a rare colorless card to obtain",
+    "ONE_RANDOM_RARE_CARD": "obtain a random rare card",
     "RANDOM_RARE_CARD": "obtain a random rare card",
     "HUNDRED_GOLD": "obtain 100 gold",
+    "TWO_FIFTY_GOLD": "obtain 250 gold",
     "TEN_PERCENT_HP_BONUS": "gain max hp",
+    "TWENTY_PERCENT_HP_BONUS": "gain max hp",
+    "THREE_RARE_CARDS": "choose a rare card to obtain",
     "THREE_CARDS": "choose a card to obtain",
     "REMOVE_CARD": "remove a card from your deck",
+    "REMOVE_TWO": "remove 2 cards from your deck",
     "TRANSFORM_CARD": "transform a card",
+    "TRANSFORM_TWO_CARDS": "transform 2 cards",
     "UPGRADE_CARD": "upgrade a card",
     "RANDOM_COMMON_RELIC": "obtain a random common relic",
+    "ONE_RARE_RELIC": "obtain a random rare relic",
+    "THREE_SMALL_POTIONS": "3 random potions",
     "BOSS_RELIC": "obtain a random boss relic",
 }
 
@@ -693,3 +701,17 @@ def _clean_card_name(value: Any) -> str | None:
 
 def _normalized_token(value: Any) -> str:
     return "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+
+def _normalized_token_without_digits(value: Any) -> str:
+    return "".join(ch.lower() for ch in str(value) if ch.isalpha())
+
+
+def _target_matches_label(target: Any, label: Any) -> bool:
+    normalized_target = _normalized_token(target)
+    normalized_label = _normalized_token(label)
+    if normalized_target and normalized_target in normalized_label:
+        return True
+    digitless_target = _normalized_token_without_digits(target)
+    digitless_label = _normalized_token_without_digits(label)
+    return bool(digitless_target and digitless_target in digitless_label)

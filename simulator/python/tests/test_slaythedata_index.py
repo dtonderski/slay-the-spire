@@ -5,14 +5,21 @@ from types import SimpleNamespace
 import unittest
 
 from sts.slaythedata_index import (
+    _GUIDED_SAFE_NEOW_BONUSES,
     chunk_export_args,
     export_guided_run_script,
     select_guided_collection_candidates,
     slaythedata_index_status,
 )
+from sts.slaythedata_policy import _NEOW_BONUS_TEXT
 
 
 class SlayTheDataIndexTests(unittest.TestCase):
+    def test_guided_safe_neow_filter_only_lists_policy_mapped_bonuses(self):
+        missing = sorted(set(_GUIDED_SAFE_NEOW_BONUSES) - set(_NEOW_BONUS_TEXT))
+
+        self.assertEqual(missing, [])
+
     def test_slaythedata_index_status_reports_missing_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             status = slaythedata_index_status(Path(tmp) / "missing.sqlite3")
