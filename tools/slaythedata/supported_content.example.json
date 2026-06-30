@@ -1,0 +1,17 @@
+{
+  "characters": ["IRONCLAD"],
+  "build_versions": ["2020-07-30"],
+  "ascension_levels": [0],
+  "cards": [
+    "Strike_R",
+    "Defend_R",
+    "Bash",
+    "AscendersBane"
+  ],
+  "relics": [
+    "Burning Blood"
+  ],
+  "potions": [],
+  "events": [],
+  "shop_items": []
+}
