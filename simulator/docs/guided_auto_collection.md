@@ -261,6 +261,18 @@ candidate from the local SlayTheData chunk index. Guided collection requires a
 fresh TCP-enabled bridge by default; `--allow-file-bridge` exists only for
 diagnostics and compatibility tests.
 
+To audit SlayTheData selection without touching the live bridge or game, run:
+
+```powershell
+cd D:\dev\slay-the-spire\simulator
+uv run python -m sts.guided_collect --select-only --max-floor 55
+```
+
+This exports candidate rows, skips known-unsupported scripts, reports the
+selected run id/seed, and includes any script support blockers. On 2026-06-30
+the local index selected run `3512726` / seed `-5923198701240311727` with no
+known support blockers after skipping two unsupported candidates.
+
 The runner preflights the bridge before exporting a SlayTheData run. If the
 bridge is stale, file-only, or has a pending command, it writes a
 `preflight_blocked` report instead of sending anything.

@@ -13,6 +13,7 @@ from sts.guided_collect import (
     _validate_trace,
     collect_one_run,
     main,
+    select_run_audit_report,
 )
 
 
@@ -455,6 +456,66 @@ class GuidedCollectTests(unittest.TestCase):
             "unsupported_neow_followup",
         )
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 0 LIVE02")
+
+    def test_select_run_audit_report_auto_selects_supported_script_without_bridge(self):
+        unsupported = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "GRID01",
+                "neow_bonus": "REMOVE_CARD",
+                "neow_cost": "NONE",
+            }
+        }
+        supported = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "LIVE02",
+                "neow_bonus": "THREE_ENEMY_KILL",
+                "neow_cost": "NONE",
+            },
+            "floor_decisions": [{"floor": 1}],
+            "boss_relic_choices": [{"picked": "Black Blood"}],
+        }
+
+        with patch(
+            "sts.guided_collect.select_guided_collection_candidates",
+            return_value=[{"id": 11}, {"id": 22}],
+        ), patch(
+            "sts.guided_collect.export_guided_run_script",
+            side_effect=[unsupported, supported],
+        ):
+            report = select_run_audit_report(GuidedCollectConfig(run_id=None), started_at=0)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["stop_reason"], "select_only")
+        self.assertEqual(report["run_id"], 22)
+        self.assertEqual(report["seed"], "LIVE02")
+        self.assertEqual(report["selection"]["skipped_unsupported"][0]["run_id"], 11)
+        self.assertEqual(report["script_summary"]["floor_decision_count"], 1)
+        self.assertEqual(report["script_summary"]["boss_relic_count"], 1)
+
+    def test_select_run_audit_report_reports_explicit_script_blockers(self):
+        script = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "GRID01",
+                "neow_bonus": "REMOVE_CARD",
+                "neow_cost": "NONE",
+            }
+        }
+
+        with patch("sts.guided_collect.export_guided_run_script", return_value=script):
+            report = select_run_audit_report(GuidedCollectConfig(run_id=321), started_at=0)
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["run_id"], 321)
+        self.assertEqual(report["seed"], "GRID01")
+        self.assertEqual(report["blocker"]["reason"], "unsupported_neow_followup")
+        self.assertEqual(report["support_blockers"][0]["reason"], "unsupported_neow_followup")
+        self.assertEqual(report["selection"]["mode"], "explicit")
 
     def test_collect_one_run_auto_selection_forwards_potion_usage_filter(self):
         bridge = FakeBridge()
