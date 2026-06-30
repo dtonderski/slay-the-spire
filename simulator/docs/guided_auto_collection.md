@@ -102,6 +102,8 @@ The collector can now:
   provenance path used by manual UI sends
 - expose bridge preflight status in the guided collector panel and disable
   collector sends while hard preflight problems are present
+- refresh and show that preflight status even before a guided script is loaded,
+  so startup blockers are visible before pressing Auto
 - provide a guarded UI repair for orphan `next_command.json` metadata when no
   `next_command.txt` command is pending
 
