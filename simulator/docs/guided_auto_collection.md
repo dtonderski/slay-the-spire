@@ -147,6 +147,10 @@ The collector can now:
   `Start + Auto` control. It sends guided `START` through the TCP-required
   backend path, then lets the existing collector loop wait for ready states and
   tick until a strict blocker appears
+- disable guided `START`, `Start + Auto`, send-next, and auto controls when
+  collector preflight reports that TCP bridge control is unavailable. Manual
+  bridge actions remain separate compatibility tooling, but guided collection
+  must use a fresh TCP-enabled bridge
 - expose bridge preflight status in the guided collector panel and disable
   collector sends while hard preflight problems are present
 - refresh and show that preflight status even before a guided script is loaded,
