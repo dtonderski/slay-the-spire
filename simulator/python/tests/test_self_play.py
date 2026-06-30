@@ -11,9 +11,11 @@ from sts.self_play import (
     DEFAULT_COMBAT_POLICY_NAME,
     _action_for_communication_command,
     _candidate_with_allowed_potions,
+    _combat_intents_match,
     _combat_policy_from_name,
     _real_trace_combat_baselines,
     _parse_candidate_names,
+    _reward_choose_action,
     _trace_candidates_by_name,
     _trace_combat_roots,
     evaluate_self_play_corpus,
@@ -24,6 +26,14 @@ from sts.self_play import (
     strict_replay_real_trace_to_env,
     verify_self_play_trace,
 )
+
+
+class _FakeAction:
+    def __init__(self, kind: str):
+        self._kind = kind
+
+    def kind(self) -> str:
+        return self._kind
 
 
 class SelfPlayTests(unittest.TestCase):
@@ -920,6 +930,41 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(records[0]["blocker"]["category"], "observed_state_diff")
             self.assertEqual(report["blocker"]["category"], "observed_state_diff")
             self.assertTrue(report["blocker"]["diffs"])
+
+    def test_observed_defend_intent_wildcards_hidden_block_amount_only(self):
+        self.assertTrue(
+            _combat_intents_match(
+                {"Block": {"block": 6}},
+                {"Block": {"block": None}},
+            )
+        )
+        self.assertFalse(
+            _combat_intents_match(
+                {"Attack": {"damage": 6}},
+                {"Block": {"block": None}},
+            )
+        )
+
+    def test_reward_choose_action_honors_stolen_gold_choice_label(self):
+        normal_gold = _FakeAction("take_gold_reward")
+        stolen_gold = _FakeAction("take_stolen_gold_reward")
+
+        action = _reward_choose_action(
+            [normal_gold, stolen_gold],
+            {"choice_list": ["stolen_gold", "gold", "potion", "card"]},
+            0,
+        )
+
+        self.assertIs(action, stolen_gold)
+
+    def test_reward_choose_action_does_not_fallback_to_unrelated_action_with_observed_choices(self):
+        action = _reward_choose_action(
+            [_FakeAction("use_potion")],
+            {"choice_list": ["uppercut"]},
+            0,
+        )
+
+        self.assertIsNone(action)
 
     def test_trace_guided_anchor_preserves_observed_relics_and_counters(self):
         with tempfile.TemporaryDirectory() as directory:
