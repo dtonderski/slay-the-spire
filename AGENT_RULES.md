@@ -15,6 +15,7 @@ These rules are for Codex or any other coding agent working on this project.
 9. Keep simulator logic separate from RL feature extraction.
 10. Do not implement simulator code during design-only tasks.
 11. Read `RESEARCH.md` before implementing RNG, action queue, save loading, map generation, reward generation, shop generation, or real-game verification tools.
+12. If a missing dependency or tool would materially simplify the task, improve correctness, or avoid a substantially worse workaround, stop and tell the user. Do not quietly build an inferior workaround around a missing crucial dependency.
 
 ## Determinism Rules
 

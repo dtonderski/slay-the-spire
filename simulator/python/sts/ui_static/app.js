@@ -34,6 +34,7 @@
     liveSendAction: null,
     livePendingPrediction: null,
     livePendingPlanIndex: null,
+    liveAutoPlayPlan: false,
     liveInvariantViolation: null,
     attachFidelity: null,
     strictReplayBlocker: null,
@@ -142,8 +143,8 @@
     el.startLiveRunButton.addEventListener("click", startLiveRun);
     el.attachLiveButton.addEventListener("click", attachLiveSession);
     el.liveSearchButton.addEventListener("click", runLiveSearch);
-    el.sendBestButton.addEventListener("click", sendBestToGame);
-    el.sendBestReviewButton.addEventListener("click", sendBestToGame);
+    el.sendBestButton.addEventListener("click", () => sendBestToGame({ autoPlay: false }));
+    el.sendBestReviewButton.addEventListener("click", () => sendBestToGame({ autoPlay: true }));
     el.newSessionButton.addEventListener("click", startSession);
     el.reloadButton.addEventListener("click", reloadSession);
     el.searchButton.addEventListener("click", runSearch);
@@ -226,6 +227,7 @@
       app.liveSendAction = null;
       app.livePendingPrediction = null;
       app.livePendingPlanIndex = null;
+      app.liveAutoPlayPlan = false;
       app.liveBridgeStateId = firstDefined(session.bridge_state_id, bridgeStateId(), null);
       app.liveBridgeStep = firstDefined(session.bridge_step, app.bridge && app.bridge.last_state_step, null);
       app.attachFidelity = firstDefined(session.attach_fidelity, session.attachFidelity, app.attachFidelity);
@@ -258,10 +260,14 @@
       await loadSnapshotQuietly();
       await refreshParityQuietly();
       if (verifyPendingLivePrediction(currentStateId())) {
-        advanceLiveSearchPlan(previousSearch, pendingPlanIndex, currentBridgeStateId);
-      } else {
+        const advanced = advanceLiveSearchPlan(previousSearch, pendingPlanIndex, currentBridgeStateId);
+        if (advanced && app.liveAutoPlayPlan) {
+          scheduleAutoPlayPlanStep();
+        }
+      } else if (app.liveInvariantViolation) {
         app.search = null;
         app.livePendingPlanIndex = null;
+        app.liveAutoPlayPlan = false;
       }
     } catch (error) {
       app.lastError = readableError(error);
@@ -285,14 +291,19 @@
     renderLive();
   }
 
-  async function sendBestToGame() {
+  async function sendBestToGame(options = {}) {
     const action = liveBridgeActionForBest();
     if (!action) {
       showError(liveSendBlockedReason() || "Recommendation cannot be sent to the live game.");
+      if (options.autoPlay) app.liveAutoPlayPlan = false;
       return;
     }
+    app.liveAutoPlayPlan = !!options.autoPlay;
     const prediction = await predictLiveBestAction();
-    if (!prediction) return;
+    if (!prediction) {
+      if (options.autoPlay) app.liveAutoPlayPlan = false;
+      return;
+    }
     app.livePendingPrediction = {
       source_state_id: firstDefined(prediction.source_state_id, currentStateId(), null),
       predicted_state_id: firstDefined(prediction.predicted_state_id, prediction.predictedStateId, null),
@@ -302,8 +313,22 @@
     };
     app.livePendingPlanIndex = nextPrincipalVariationIndex();
     await submitBridgeAction(action);
-    app.liveSearchBridgeStateId = null;
     app.liveSendAction = null;
+  }
+
+  function scheduleAutoPlayPlanStep() {
+    window.setTimeout(async () => {
+      if (!app.liveAutoPlayPlan || app.livePendingPrediction || app.inFlight) return;
+      const blocker = liveSendBlockedReason();
+      if (blocker) {
+        app.liveAutoPlayPlan = false;
+        app.lastError = `Auto-play stopped: ${blocker}`;
+        render();
+        return;
+      }
+      await sendBestToGame({ autoPlay: true });
+      render();
+    }, 150);
   }
 
   async function startSession() {
@@ -355,6 +380,7 @@
       );
       app.search = normalizeSearch(recommendation);
       app.livePendingPlanIndex = null;
+      app.liveAutoPlayPlan = false;
     });
   }
 
@@ -781,8 +807,8 @@
     el.startLiveRunButton.title = startReason || "Start a live run through CommunicationMod.";
     el.attachLiveButton.title = canAttachLiveSession() ? "Attach the latest observed live state to the simulator." : "No current observed bridge state is available to attach.";
     el.liveSearchButton.title = searchReason || "Search the attached live combat state.";
-    el.sendBestButton.title = sendReason || "Send the mapped recommendation to the live game.";
-    el.sendBestReviewButton.title = sendReason || "Send the mapped recommendation to the live game.";
+    el.sendBestButton.title = sendReason || "Send only the current recommended move.";
+    el.sendBestReviewButton.title = sendReason || "Keep sending the current principal variation while simulator predictions match.";
     el.requestBridgeStateButton.title = "Trace-mutating: sends a CommunicationMod state command and records it.";
     el.liveRequestStateButton.title = "Trace-mutating: asks CommunicationMod to publish a fresh state.";
     el.refreshBridgeButton.title = "Read-only: refreshes local bridge files without sending a game command.";
@@ -939,7 +965,8 @@
     }
     el.searchStatus.textContent = !combatSearch
       ? "Combat only"
-      : app.inFlight && app.lifecycle.label === "Searching" ? "Running" : app.search ? "Ready" : "Idle";
+      : app.liveAutoPlayPlan ? "Auto-playing"
+        : app.inFlight && app.lifecycle.label === "Searching" ? "Running" : app.search ? "Ready" : "Idle";
     clear(el.searchResult);
 
     if (!combatSearch) {
@@ -1473,6 +1500,7 @@
     app.liveSearchBridgeStateId = null;
     app.liveSendAction = null;
     app.livePendingPlanIndex = null;
+    app.liveAutoPlayPlan = false;
     window.alert(`${violation.title}\n\nExpected: ${violation.expected}\nObserved: ${violation.observed}\nAction: ${violation.action}`);
     return false;
   }
@@ -1481,6 +1509,7 @@
     const pv = arrayOf(previousSearch && previousSearch.principal_variation);
     if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= pv.length) {
       app.search = null;
+      app.liveAutoPlayPlan = false;
       return false;
     }
     app.search = Object.assign({}, previousSearch, {
