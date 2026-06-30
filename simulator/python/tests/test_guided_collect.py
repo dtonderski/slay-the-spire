@@ -169,7 +169,10 @@ class GuidedCollectTests(unittest.TestCase):
             }
         )
 
-        with patch("sts.guided_collect.export_guided_run_script") as export:
+        with patch("sts.guided_collect.export_guided_run_script") as export, patch(
+            "sts.guided_collect._validate_trace",
+            return_value={"verified": True, "stop_reason": "trace_exhausted", "steps": 107},
+        ) as validate_trace:
             report = collect_one_run(
                 GuidedCollectConfig(run_id=123),
                 bridge=bridge,
@@ -177,6 +180,7 @@ class GuidedCollectTests(unittest.TestCase):
             )
 
         export.assert_not_called()
+        validate_trace.assert_called_once_with("trace.jsonl")
         self.assertFalse(report["ok"])
         self.assertEqual(report["producer"], "sts.guided_collect")
         self.assertEqual(report["stop_reason"], "preflight_blocked")
@@ -189,6 +193,8 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertFalse(report["blocker"]["tcp_control_available"])
         self.assertEqual(report["preflight"]["ages"]["status_age_seconds"], 130.0)
         self.assertEqual(report["preflight"]["pending_command"]["present"], False)
+        self.assertTrue(report["trace_validation"]["verified"])
+        self.assertEqual(report["trace_validation"]["steps"], 107)
         self.assertEqual(report["actions_sent"], 0)
 
     def test_collect_one_run_reports_tcp_required_as_hard_preflight_problem(self):

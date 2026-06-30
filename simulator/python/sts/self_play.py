@@ -742,6 +742,21 @@ def replay_real_trace_guided(
         )
         replayed_steps += 1
 
+    if blocker is None and env is not None and last_state is not None and not last_state_consumed:
+        observed_game_state = _game_state_from_record(last_state)
+        diffs = _observed_summary_diffs(env, observed_game_state)
+        if diffs:
+            blocker = _blocker(
+                last_state,
+                "",
+                "final_observed_state_diff",
+                "latest observed trace state differs from simulator after replay",
+                diffs=diffs,
+                simulator_summary=_summary(env),
+                observed_summary=_observed_summary(observed_game_state),
+            )
+            stop_reason = "final_observed_state_diff"
+
     if not output_records:
         output_records.append(
             {

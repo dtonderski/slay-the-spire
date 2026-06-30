@@ -932,6 +932,42 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(report["blocker"]["category"], "observed_state_diff")
             self.assertTrue(report["blocker"]["diffs"])
 
+    def test_trace_guided_replay_strict_fails_on_final_observed_diff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            output_path = Path(directory) / "replayed.jsonl"
+            report_path = Path(directory) / "report.json"
+            env = omni.OmniRunEnv.new_ironclad(seed="TEST", ascension=0)
+            initial = self._observed_state_from_env(env)
+            action = env.exact_legal_actions()[0]
+            env.step(action)
+            final = self._observed_state_from_env(env)
+            final["gold"] = final["gold"] + 1
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 TEST"},
+                    {"type": "state", "step": 1, "message": {"game_state": initial}},
+                    {"type": "action", "step": 2, "command": "CHOOSE 0"},
+                    {"type": "state", "step": 3, "message": {"game_state": final}},
+                ],
+            )
+
+            result = replay_real_trace_guided(
+                trace=trace_path,
+                output=output_path,
+                report_output=report_path,
+            )
+            records = self._read_jsonl(output_path)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(result.stop_reason, "final_observed_state_diff")
+            self.assertFalse(result.verified)
+            self.assertEqual(records[0]["blocker"]["category"], "final_observed_state_diff")
+            self.assertEqual(report["blocker"]["category"], "final_observed_state_diff")
+            self.assertTrue(report["blocker"]["diffs"])
+
     def test_observed_defend_intent_wildcards_hidden_block_amount_only(self):
         self.assertTrue(
             _combat_intents_match(
