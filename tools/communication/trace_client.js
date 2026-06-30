@@ -206,6 +206,14 @@ function publishState(message) {
 
 function enqueueCommand(command, commandMeta) {
   const item = { command, command_meta: commandMeta ?? null };
+  if (latestStatus) {
+    writeStatus({
+      ...latestStatus,
+      pending_command: true,
+      queued_command: command,
+      queued_command_meta: commandMeta ?? null,
+    });
+  }
   const waiter = commandWaiters.shift();
   if (waiter) {
     waiter(item);
@@ -361,6 +369,7 @@ function handleControlMessage(payload) {
       accepted_state_id: latestSummary?.state_id ?? null,
       accepted_state_seq: stateSeq,
       step,
+      state: currentProtocolState(),
     };
   }
   return { ok: false, error: `unknown control message type "${type}"` };

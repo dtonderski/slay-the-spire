@@ -35,7 +35,14 @@ class BridgeMirror:
         summary = _read_json(self.session_dir / "summary.json")
         current_state = _read_json(self.session_dir / "current_state.json")
         command_path = self.session_dir / "next_command.txt"
-        command_meta = _read_json(self.session_dir / "next_command.json") if command_path.exists() else {}
+        file_pending = command_path.exists()
+        tcp_pending = bool(status.get("pending_command")) if isinstance(status, dict) else False
+        pending_command = file_pending or tcp_pending
+        command_meta = (
+            _read_json(self.session_dir / "next_command.json")
+            if file_pending
+            else status.get("queued_command_meta", {}) if isinstance(status, dict) and tcp_pending else {}
+        )
         ages = {
             "status_age_seconds": _age_seconds(self.session_dir / "status.json", now),
             "summary_age_seconds": _age_seconds(self.session_dir / "summary.json", now),
@@ -44,7 +51,6 @@ class BridgeMirror:
         stale = _is_stale(ages, self.stale_after_seconds)
         exited = status.get("status") == "exited" if isinstance(status, dict) else False
         connected = bool(status) and not status.get("missing", False) and not exited
-        pending_command = command_path.exists()
         state_id = _bridge_state_id(status, summary, current_state)
         lifecycle = bridge_lifecycle_from_status(
             status if isinstance(status, dict) else {},
@@ -99,6 +105,7 @@ class BridgeMirror:
         status_age = _age_seconds(status_path, now)
         summary_age = _age_seconds(summary_path, now)
         command_exists = command_path.exists()
+        tcp_pending = bool(status.get("pending_command")) if isinstance(status, dict) else False
         command_meta_exists = command_meta_path.exists()
         problems = []
         warnings = []
@@ -111,8 +118,8 @@ class BridgeMirror:
             problems.append("session files are stale")
         if status.get("status") == "exited":
             problems.append(f"bridge exited: {status.get('reason') or 'unknown'}")
-        if command_exists:
-            problems.append("next_command.txt already exists")
+        if command_exists or tcp_pending:
+            problems.append("bridge command already pending")
         if command_meta_exists and not command_exists:
             problems.append("next_command.json exists without next_command.txt")
         if summary.get("ready_for_command") is not True:

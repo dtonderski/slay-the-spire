@@ -181,6 +181,9 @@ The collector can now:
 - advertise a monotonic bridge `state_seq` alongside each `state_id`, acquire a
   single TCP controller owner token before Python UI commands, and require both
   the expected state id and sequence for TCP command acceptance
+- publish accepted in-memory TCP commands into `session/status.json` as pending
+  commands, so the UI and collector wait for CommunicationMod to consume them
+  even though no legacy `next_command.txt` file exists
 - require TCP control for guided collector `START` and tick sends. Manual bridge
   commands may still use the legacy file fallback, but guided auto-collection
   now refuses to send on an old/file-only bridge

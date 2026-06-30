@@ -69,6 +69,43 @@ class BridgeMirrorTests(unittest.TestCase):
 
         self.assertEqual(status["state_id"], "bridge-protocol-state")
 
+    def test_status_treats_tcp_queued_command_as_pending(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "waiting",
+                        "pending_command": True,
+                        "queued_command_meta": {
+                            "command_id": "tcp-cmd-1",
+                            "command": "CHOOSE 0",
+                            "protocol": "tcp-jsonl",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-state",
+                        "ready_for_command": True,
+                        "available_commands": ["choose", "state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status = BridgeMirror(root, stale_after_seconds=9999).status()
+            preflight = BridgeMirror(root, stale_after_seconds=9999).preflight()
+
+        self.assertTrue(status["pending_command"])
+        self.assertEqual(status["command_id"], "tcp-cmd-1")
+        self.assertEqual(status["pending_command_meta"]["protocol"], "tcp-jsonl")
+        self.assertFalse(preflight["ok"])
+        self.assertIn("bridge command already pending", preflight["problems"])
+
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
