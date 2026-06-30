@@ -380,7 +380,6 @@ class BridgeMirror:
         process_info: Any | None = None,
     ) -> dict[str, Any]:
         now = time.time() if now is None else now
-        process_info = process_info or _process_info
         status = self.status(now=now)
         repo_root = Path(__file__).resolve().parents[3]
         trace_dir = trace_dir or repo_root / "verification" / "corpus" / "communication_mod"
@@ -440,8 +439,13 @@ class BridgeMirror:
             )
 
         rows: list[dict[str, Any]] = []
+        process_infos = (
+            {pid: process_info(pid) for pid in clients}
+            if process_info is not None
+            else _process_infos(clients.keys())
+        )
         for pid, entry in clients.items():
-            info = process_info(pid)
+            info = process_infos.get(pid, {"alive": False, "name": None})
             entry.update(info if isinstance(info, dict) else {"alive": False})
             entry["killable"] = _is_killable_bridge_client(entry)
             entry.pop("_trace_modified_epoch", None)
@@ -819,6 +823,20 @@ def _process_info(pid: int) -> dict[str, Any]:
     return {"alive": True, "name": None}
 
 
+def _process_infos(pids: Any) -> dict[int, dict[str, Any]]:
+    parsed_pids = []
+    for value in pids:
+        try:
+            pid = int(value)
+        except (TypeError, ValueError):
+            continue
+        if pid > 0:
+            parsed_pids.append(pid)
+    if os.name == "nt":
+        return _windows_process_infos(parsed_pids)
+    return {pid: _process_info(pid) for pid in parsed_pids}
+
+
 def _is_killable_bridge_client(client: dict[str, Any]) -> bool:
     if not client.get("alive"):
         return False
@@ -856,6 +874,49 @@ def _windows_process_info(pid: int) -> dict[str, Any]:
         "name": row[0] if row else None,
         "session_name": row[2] if len(row) > 2 else None,
         "memory": row[4] if len(row) > 4 else None,
+    }
+
+
+def _windows_process_infos(pids: list[int]) -> dict[int, dict[str, Any]]:
+    unique_pids = sorted(set(pids))
+    if not unique_pids:
+        return {}
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {pid: {"alive": False, "name": None, "process_error": str(error)} for pid in unique_pids}
+
+    rows_by_pid: dict[int, dict[str, Any]] = {}
+    output = result.stdout.strip()
+    if output:
+        try:
+            for row in csv.reader(output.splitlines()):
+                if len(row) < 2:
+                    continue
+                try:
+                    pid = int(row[1])
+                except (TypeError, ValueError):
+                    continue
+                if pid not in unique_pids:
+                    continue
+                rows_by_pid[pid] = {
+                    "alive": True,
+                    "name": row[0] if row else None,
+                    "session_name": row[2] if len(row) > 2 else None,
+                    "memory": row[4] if len(row) > 4 else None,
+                }
+        except csv.Error:
+            return {pid: _windows_process_info(pid) for pid in unique_pids}
+
+    return {
+        pid: rows_by_pid.get(pid, {"alive": False, "name": None})
+        for pid in unique_pids
     }
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from sts.bridge import (
     BridgeMirror,
+    _windows_process_infos,
     bridge_actions_from_status,
     bridge_lifecycle_from_status,
     command_for_descriptor,
@@ -40,6 +41,29 @@ def run_fake_tcp_control(responder, body):
 
 
 class BridgeMirrorTests(unittest.TestCase):
+    def test_windows_process_infos_parses_tasklist_csv_once(self):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+
+            class Result:
+                stdout = (
+                    '"node.exe","111","Console","1","10,000 K"\n'
+                    '"nvcontainer.exe","222","Console","1","20,000 K"\n'
+                )
+
+            return Result()
+
+        with unittest.mock.patch("sts.bridge.subprocess.run", side_effect=fake_run):
+            result = _windows_process_infos([111, 222, 333])
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result[111]["alive"], True)
+        self.assertEqual(result[111]["name"], "node.exe")
+        self.assertEqual(result[222]["name"], "nvcontainer.exe")
+        self.assertEqual(result[333]["alive"], False)
+
     def test_missing_session_reports_disconnected_and_stale(self):
         with tempfile.TemporaryDirectory() as directory:
             status = BridgeMirror(Path(directory)).status(now=1000.0)
