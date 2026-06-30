@@ -28,6 +28,7 @@ from sts.trace_replay import TraceReplayStore
 
 
 UI_STATIC_DIR = Path(__file__).with_name("ui_static")
+DEFAULT_GUIDED_REPORT_PATH = Path(__file__).resolve().parents[2] / "target" / "guided-collect" / "latest.json"
 
 
 @dataclass
@@ -603,6 +604,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "collector", "status"]:
                 self._send_json(_collector_status_with_preflight(self.collector, self.bridge))
+                return
+            if parts == ["api", "collector", "report"]:
+                self._send_json(_guided_collect_report())
                 return
             if parts[:2] == ["api", "traces"] and len(parts) == 3:
                 self._send_json(
@@ -1195,6 +1199,43 @@ def _start_guided_live_run(
 
 def _collector_status_with_preflight(collector: GuidedCollector, bridge: BridgeMirror) -> dict[str, Any]:
     return collector.status() | {"preflight": bridge.preflight()}
+
+
+def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> dict[str, Any]:
+    if not report_path.exists():
+        return {
+            "ok": False,
+            "report_path": str(report_path),
+            "missing": True,
+            "error": "guided collection report not found",
+        }
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        raise ValueError("guided collection report is not a JSON object")
+    blocker = report.get("blocker") if isinstance(report.get("blocker"), dict) else None
+    return {
+        "ok": bool(report.get("ok")),
+        "report_path": str(report_path),
+        "missing": False,
+        "run_id": report.get("run_id"),
+        "seed": report.get("seed"),
+        "stop_reason": report.get("stop_reason"),
+        "actions_sent": report.get("actions_sent", 0),
+        "trace_path": report.get("trace_path"),
+        "bridge_step": report.get("bridge_step"),
+        "tcp_control_available": bool(report.get("tcp_control_available")),
+        "blocker": {
+            "reason": blocker.get("reason"),
+            "problems": blocker.get("problems") or [],
+            "warnings": blocker.get("warnings") or [],
+            "detail": blocker.get("detail"),
+        }
+        if blocker
+        else None,
+        "history_tail_count": len(report.get("history_tail") or [])
+        if isinstance(report.get("history_tail"), list)
+        else 0,
+    }
 
 
 def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str, Any]:

@@ -12,6 +12,7 @@ from sts.ui_service import (
     _bridge_action_for_exact_action,
     _collector_start_payload,
     _collector_status_with_preflight,
+    _guided_collect_report,
     _guided_script_from_payload,
     _observed_state_from_bridge_status,
     _slaythedata_candidates_from_query,
@@ -259,6 +260,48 @@ class UiServiceTests(unittest.TestCase):
         result = _collector_status_with_preflight(GuidedCollector(), bridge)
 
         self.assertEqual(result["preflight"]["problems"], ["not ready"])
+
+    def test_guided_collect_report_reports_missing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = _guided_collect_report(Path(directory) / "missing.json")
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["missing"])
+        self.assertIn("not found", result["error"])
+
+    def test_guided_collect_report_summarizes_blocked_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "latest.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "run_id": 123,
+                        "seed": None,
+                        "stop_reason": "preflight_blocked",
+                        "actions_sent": 0,
+                        "trace_path": "trace.jsonl",
+                        "bridge_step": 7,
+                        "tcp_control_available": False,
+                        "blocker": {
+                            "reason": "bridge_preflight",
+                            "problems": ["session files are stale"],
+                            "warnings": ["TCP bridge control is not available"],
+                        },
+                        "history_tail": [{"event": "preflight"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = _guided_collect_report(report_path)
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["missing"])
+        self.assertEqual(result["run_id"], 123)
+        self.assertEqual(result["stop_reason"], "preflight_blocked")
+        self.assertEqual(result["blocker"]["reason"], "bridge_preflight")
+        self.assertEqual(result["history_tail_count"], 1)
 
     def test_start_guided_live_run_sends_script_start_with_provenance(self):
         collector = GuidedCollector()
