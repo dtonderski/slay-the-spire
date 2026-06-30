@@ -683,7 +683,9 @@ def replay_real_trace_guided(
 
         try:
             result = env.step(action)
-        except Exception as error:
+        except BaseException as error:
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
             output_records.append(
                 _step_record(
                     step=replayed_steps,
@@ -2870,10 +2872,10 @@ def _reward_choose_action(actions: list[Any], observed: dict[str, Any], index: i
     label = None
     if isinstance(choices, list) and 0 <= index < len(choices):
         label = str(choices[index]).lower()
-    if label in {"gold", "stolen_gold"}:
-        return _first_action(actions, kind="take_gold_reward") or _first_action(
-            actions, kind="take_stolen_gold_reward"
-        )
+    if label == "gold":
+        return _first_action(actions, kind="take_gold_reward")
+    if label == "stolen_gold":
+        return _first_action(actions, kind="take_stolen_gold_reward")
     if label == "potion":
         take_potion = _first_action(actions, kind="take_potion_reward")
         if take_potion is not None:
@@ -2897,6 +2899,8 @@ def _reward_choose_action(actions: list[Any], observed: dict[str, Any], index: i
     ]
     if boss_relic_picks and 0 <= index < len(boss_relic_picks):
         return boss_relic_picks[index]
+    if isinstance(choices, list):
+        return None
     if 0 <= index < len(actions):
         return actions[index]
     return None
@@ -3054,6 +3058,12 @@ def _drop_unknown_observed_monster_intents(
         if raw_intent in {"DEBUG", "UNKNOWN", "DEFEND_BUFF"}:
             summary_monster["intent"] = None
         if (
+            raw_intent == "DEFEND"
+            and isinstance(summary_monster.get("intent"), dict)
+            and isinstance(summary_monster["intent"].get("Block"), dict)
+        ):
+            summary_monster["intent"]["Block"]["block"] = None
+        if (
             str(raw_monster.get("name") or "") == "Hexaghost"
             and raw_intent == "ATTACK_DEBUFF"
             and int(raw_monster.get("move_id") or -1) == 4
@@ -3073,7 +3083,11 @@ def _combat_monster_summary_diffs(
         for key in ("alive", "hp", "block", "intent"):
             if obs_monster.get(key) is None:
                 continue
-            if sim_monster.get(key) != obs_monster.get(key):
+            if key == "intent":
+                matches = _combat_intents_match(sim_monster.get(key), obs_monster.get(key))
+            else:
+                matches = sim_monster.get(key) == obs_monster.get(key)
+            if not matches:
                 diffs.append(
                     {
                         "field": f"combat.monsters[{index}].{key}",
@@ -3082,6 +3096,23 @@ def _combat_monster_summary_diffs(
                     }
                 )
     return diffs
+
+
+def _combat_intents_match(simulator_intent: Any, observed_intent: Any) -> bool:
+    if simulator_intent == observed_intent:
+        return True
+    if not isinstance(simulator_intent, dict) or not isinstance(observed_intent, dict):
+        return False
+    if set(simulator_intent.keys()) != set(observed_intent.keys()):
+        return False
+    intent_key = next(iter(observed_intent.keys()), None)
+    if intent_key != "Block":
+        return False
+    sim_payload = simulator_intent.get(intent_key)
+    obs_payload = observed_intent.get(intent_key)
+    if not isinstance(sim_payload, dict) or not isinstance(obs_payload, dict):
+        return False
+    return obs_payload.get("block") is None and isinstance(sim_payload.get("block"), int)
 
 
 def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:

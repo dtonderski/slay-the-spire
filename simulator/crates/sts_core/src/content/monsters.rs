@@ -50,9 +50,10 @@ pub const ORB_WALKER_ID: ContentId = ContentId::new(136);
 pub const DARKLING_ID: ContentId = ContentId::new(137);
 
 pub(crate) const RED_LOUSE_BITE_DAMAGE: i32 = 6;
-const LOUSE_CURL_STRENGTH: i32 = 3;
+pub(crate) const LOUSE_CURL_STRENGTH: i32 = 3;
 
 pub(crate) const GREEN_LOUSE_BITE_DAMAGE: i32 = 6;
+pub(crate) const GREEN_LOUSE_WEAK: i32 = 1;
 const GREEN_LOUSE_SPIKES: i32 = 3;
 
 const SPIKE_SLIME_LICK_WEAK: i32 = 1;
@@ -380,6 +381,8 @@ pub const LOUSE_A0_BITE_DAMAGE_RANGE: MonsterHpRange = MonsterHpRange::new(5, 7)
 pub const LOUSE_A2_BITE_DAMAGE_RANGE: MonsterHpRange = MonsterHpRange::new(6, 8);
 pub const LOUSE_A0_CURL_UP_RANGE: MonsterHpRange = MonsterHpRange::new(3, 7);
 pub const LOUSE_A7_CURL_UP_RANGE: MonsterHpRange = MonsterHpRange::new(4, 8);
+pub const LAGAVULIN_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(109, 111);
+pub const LAGAVULIN_A8_HP_RANGE: MonsterHpRange = MonsterHpRange::new(112, 115);
 pub const SENTRY_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(38, 42);
 pub const SENTRY_A8_HP_RANGE: MonsterHpRange = MonsterHpRange::new(39, 45);
 
@@ -814,11 +817,11 @@ pub const DARKLING_A0: MonsterDefinition = MonsterDefinition {
     starting_defensive_turns: 0,
 };
 
-/// Act 1 Lagavulin at ascension 0: 109 HP, sleeps 3 turns, then attacks twice and siphons.
+/// Act 1 Lagavulin fixture at ascension 0: 109-111 HP, sleeps 3 turns, then attacks twice and siphons.
 pub const LAGAVULIN_A0: MonsterDefinition = MonsterDefinition {
     content_id: LAGAVULIN_ID,
     name: "Lagavulin",
-    hp: 109,
+    hp: 110,
     attack_damage: 0,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
@@ -1033,6 +1036,15 @@ pub fn target_sentry_hp_range(ascension: u8) -> MonsterHpRange {
         SENTRY_A8_HP_RANGE
     } else {
         SENTRY_A0_HP_RANGE
+    }
+}
+
+#[must_use]
+pub fn target_lagavulin_hp_range(ascension: u8) -> MonsterHpRange {
+    if ascension >= 8 {
+        LAGAVULIN_A8_HP_RANGE
+    } else {
+        LAGAVULIN_A0_HP_RANGE
     }
 }
 
@@ -2076,6 +2088,9 @@ pub fn target_encounter_spawn_for_key(
         }
         "2 Louse" => target_two_louse_spawn_states(seed, floor_num, ascension, neow_lament),
         "3 Louse" => target_three_louse_spawn_states(seed, floor_num, ascension, neow_lament),
+        "2 Fungi Beasts" => {
+            target_two_fungi_beasts_spawn_states(seed, floor_num, ascension, neow_lament)
+        }
         "Looter" => {
             let max_hp = target_looter_hp_roll(seed, floor_num, ascension);
             vec![target_combat_entry_spawn(
@@ -2095,14 +2110,29 @@ pub fn target_encounter_spawn_for_key(
             Vec::new(),
         )],
         "Lagavulin" => {
-            let mut spawn =
-                target_combat_entry_spawn("Lagavulin", LAGAVULIN_A0.hp, neow_lament, Vec::new());
+            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            let max_hp = target_lagavulin_hp_range(ascension).roll(&mut hp_rng);
+            let mut spawn = target_combat_entry_spawn("Lagavulin", max_hp, neow_lament, Vec::new());
             spawn.block = 8;
             vec![spawn]
         }
         "3 Sentries" => target_three_sentries_spawn_states(seed, floor_num, ascension, neow_lament),
         _ => Vec::new(),
     }
+}
+
+fn target_two_fungi_beasts_spawn_states(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
+    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    (0..2)
+        .filter_map(|_| {
+            target_city_member_spawn("FungiBeast", &mut hp_rng, None, ascension, neow_lament)
+        })
+        .collect()
 }
 
 fn target_three_sentries_spawn_states(
@@ -2625,9 +2655,8 @@ fn red_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) -> M
 #[must_use]
 fn green_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) -> MonsterIntent {
     match moves_executed % 2 {
-        0 => MonsterIntent::StrengthAndBlock {
-            strength: LOUSE_CURL_STRENGTH,
-            block: 0,
+        0 => MonsterIntent::ApplyPlayerWeak {
+            amount: GREEN_LOUSE_WEAK,
         },
         _ => MonsterIntent::Attack {
             damage: rolled_attack_damage.unwrap_or(GREEN_LOUSE_BITE_DAMAGE),
@@ -2640,16 +2669,14 @@ pub fn target_louse_entry_intent_from_roll(
     roll: i32,
     rolled_attack_damage: Option<i32>,
     fallback_damage: i32,
+    non_attack_intent: MonsterIntent,
 ) -> MonsterIntent {
     if roll >= 75 {
         MonsterIntent::Attack {
             damage: rolled_attack_damage.unwrap_or(fallback_damage),
         }
     } else {
-        MonsterIntent::StrengthAndBlock {
-            strength: LOUSE_CURL_STRENGTH,
-            block: 0,
-        }
+        non_attack_intent
     }
 }
 
@@ -5974,6 +6001,46 @@ mod tests {
     }
 
     #[test]
+    fn live01_floor_seven_two_fungi_beasts_spawn_matches_trace() {
+        let spawns = target_encounter_spawn_for_key(1_131_274_026, 7, "2 Fungi Beasts", 0, false);
+
+        assert_eq!(
+            spawns.iter().map(|spawn| spawn.name).collect::<Vec<_>>(),
+            vec!["FungiBeast", "FungiBeast"]
+        );
+        assert_eq!(
+            spawns.iter().map(|spawn| spawn.max_hp).collect::<Vec<_>>(),
+            vec![23, 25]
+        );
+        assert_eq!(
+            spawns
+                .iter()
+                .map(|spawn| spawn.powers.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                vec![TargetSpawnPower {
+                    id: "Spore Cloud",
+                    amount: FUNGI_BEAST_SPORE_CLOUD,
+                }],
+                vec![TargetSpawnPower {
+                    id: "Spore Cloud",
+                    amount: FUNGI_BEAST_SPORE_CLOUD,
+                }],
+            ]
+        );
+    }
+
+    #[test]
+    fn live01_floor_eight_lagavulin_spawn_matches_trace() {
+        let spawns = target_encounter_spawn_for_key(1_131_274_026, 8, "Lagavulin", 0, false);
+
+        assert_eq!(spawns.len(), 1);
+        assert_eq!(spawns[0].name, "Lagavulin");
+        assert_eq!(spawns[0].max_hp, 110);
+        assert_eq!(spawns[0].block, 8);
+    }
+
+    #[test]
     fn floor_one_codex03_jaw_worm_hp_roll_matches_lament_trace_max_hp() {
         assert_eq!(target_jaw_worm_hp_roll(22_079_335_078, 1, 0), 43);
     }
@@ -6455,20 +6522,25 @@ mod tests {
     }
 
     #[test]
-    fn green_louse_move_selection_cycles_curl_bite() {
+    fn green_louse_move_selection_cycles_weak_bite() {
         let definition = &GREEN_LOUSE_A0;
 
         assert_eq!(
             prepare_monster_intent_for(definition, 0, None),
-            MonsterIntent::StrengthAndBlock {
-                strength: LOUSE_CURL_STRENGTH,
-                block: 0
+            MonsterIntent::ApplyPlayerWeak {
+                amount: GREEN_LOUSE_WEAK
             }
         );
         assert_eq!(
             prepare_monster_intent_for(definition, 1, None),
             MonsterIntent::Attack {
                 damage: GREEN_LOUSE_BITE_DAMAGE
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 2, None),
+            MonsterIntent::ApplyPlayerWeak {
+                amount: GREEN_LOUSE_WEAK
             }
         );
     }
@@ -8584,10 +8656,10 @@ mod tests {
     }
 
     #[test]
-    fn lagavulin_has_one_hundred_nine_hp_and_starts_asleep() {
+    fn lagavulin_has_midpoint_fixture_hp_and_starts_asleep() {
         let monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
 
-        assert_eq!(LAGAVULIN_A0.hp, 109);
+        assert_eq!(LAGAVULIN_A0.hp, 110);
         assert_eq!(monster.sleep_turns_remaining, LAGAVULIN_SLEEP_TURNS);
         assert_eq!(monster.intent, MonsterIntent::Sleep);
     }

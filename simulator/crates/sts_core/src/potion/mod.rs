@@ -265,6 +265,7 @@ impl Potion {
         matches!(
             self,
             Potion::Fire
+                | Potion::Ancient
                 | Potion::Fear
                 | Potion::Attack
                 | Potion::Block
@@ -348,6 +349,12 @@ mod tests {
     fn block_potion_does_not_require_target() {
         assert!(Potion::Fire.requires_target());
         assert!(!Potion::Block.requires_target());
+    }
+
+    #[test]
+    fn ancient_potion_requires_combat_but_fruit_juice_does_not() {
+        assert!(Potion::Ancient.requires_combat());
+        assert!(!Potion::FruitJuice.requires_combat());
     }
 
     #[test]

@@ -15,9 +15,10 @@ use crate::{
         target_shelled_parasite_next_intent_from_roll, target_snake_plant_next_intent_from_roll,
         target_spike_slime_entry_intent_from_roll, TargetEncounterSpawn, ACID_SLIME_ID,
         ACID_SLIME_M_A7_HP_RANGE, BRONZE_AUTOMATON_A0, CENTURION_ID, CHOSEN_ID, DARKLING_ID,
-        FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREMLIN_LEADER_ID, HEALER_ID,
-        JAW_WORM_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID,
-        SPIKE_SLIME_ID, SPIKE_SLIME_M_A7_HP_RANGE,
+        FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, RED_LOUSE_BITE_DAMAGE,
+        RED_LOUSE_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SPIKE_SLIME_ID,
+        SPIKE_SLIME_M_A7_HP_RANGE,
     },
     ids::CardId,
     map::{
@@ -246,12 +247,19 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
                 roll,
                 monster.rolled_attack_damage,
                 RED_LOUSE_BITE_DAMAGE,
+                crate::MonsterIntent::StrengthAndBlock {
+                    strength: LOUSE_CURL_STRENGTH,
+                    block: 0,
+                },
             );
         } else if monster.content_id == GREEN_LOUSE_ID {
             monster.intent = target_louse_entry_intent_from_roll(
                 roll,
                 monster.rolled_attack_damage,
                 GREEN_LOUSE_BITE_DAMAGE,
+                crate::MonsterIntent::ApplyPlayerWeak {
+                    amount: GREEN_LOUSE_WEAK,
+                },
             );
         } else if monster.content_id == CHOSEN_ID {
             monster.intent =

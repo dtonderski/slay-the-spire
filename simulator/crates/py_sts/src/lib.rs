@@ -3,11 +3,12 @@ use pyo3::prelude::*;
 use sts_core::combat::ExhaustSelectPurpose;
 use sts_core::{
     apply_combat_action_on_run, apply_combat_action_with_events, apply_event_action,
-    apply_map_action_on_run, apply_rest_action, apply_run_action, cancel_grid, confirm_grid,
-    leave_shop_room, legal_combat_actions, legal_event_actions, legal_map_actions_on_run,
-    legal_rest_actions, legal_shop_actions, select_grid_card, CardId, CombatAction, CombatPhase,
-    CombatState, EventAction, MapAction, MonsterId, MonsterIntent, Potion, RestAction, RunAction,
-    RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    apply_map_action_on_run, apply_rest_action, apply_run_action as apply_core_run_action,
+    cancel_grid, confirm_grid, leave_shop_room, legal_combat_actions, legal_event_actions,
+    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, select_grid_card,
+    validate_potion_action, CardId, CombatAction, CombatPhase, CombatState, EventAction, MapAction,
+    MonsterId, MonsterIntent, Potion, RestAction, RunAction, RunPhase, RunState, Snapshot,
+    SNAPSHOT_SCHEMA_VERSION,
 };
 
 #[pyclass(name = "ExactCombatAction")]
@@ -609,7 +610,7 @@ fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
 
     if state.phase == RunPhase::Treasure {
         for action in [RunAction::OpenChest, RunAction::Proceed] {
-            if apply_run_action(state, action).is_ok() {
+            if apply_core_run_action(state, action).is_ok() {
                 actions.push(ExactRunActionKind::Run(action));
             }
         }
@@ -882,7 +883,9 @@ fn preferred_select_actions(
     if actions.is_empty() || !actions.iter().all(is_run_select_action) {
         return None;
     }
-    let confirm = actions.iter().find(|action| is_run_select_confirm(action))?;
+    let confirm = actions
+        .iter()
+        .find(|action| is_run_select_confirm(action))?;
     if should_confirm_selected_single_exhaust(state) {
         return Some(vec![confirm.clone()]);
     }
@@ -957,19 +960,15 @@ fn preferred_bad_exhaust_action(
         if after.selected_hand_indices.len() <= before.selected_hand_indices.len() {
             continue;
         }
-        if after
-            .selected_hand_indices
-            .iter()
-            .any(|index| {
-                !before.selected_hand_indices.contains(index)
-                    && combat
-                        .piles
-                        .hand
-                        .get(*index)
-                        .map(|card| is_bad_exhaust_content_id(card.content_id.get()))
-                        .unwrap_or(false)
-            })
-        {
+        if after.selected_hand_indices.iter().any(|index| {
+            !before.selected_hand_indices.contains(index)
+                && combat
+                    .piles
+                    .hand
+                    .get(*index)
+                    .map(|card| is_bad_exhaust_content_id(card.content_id.get()))
+                    .unwrap_or(false)
+        }) {
             return Some(action.clone());
         }
     }
@@ -1169,7 +1168,7 @@ fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) ->
     {
         return (0..choices.len())
             .map(|index| RunAction::ChooseCombatCardReward { index })
-            .filter(|action| apply_run_action(state, *action).is_ok())
+            .filter(|action| apply_core_run_action(state, *action).is_ok())
             .collect();
     }
 
@@ -1201,7 +1200,7 @@ fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) ->
     }
     candidates
         .into_iter()
-        .filter(|action| apply_run_action(state, *action).is_ok())
+        .filter(|action| apply_core_run_action(state, *action).is_ok())
         .collect()
 }
 
@@ -1242,7 +1241,7 @@ fn legal_potion_actions_on_run(state: &RunState) -> Vec<RunAction> {
         .iter()
         .enumerate()
         .flat_map(|(slot, potion)| potion_use_candidates(slot, *potion, state.combat.as_ref()))
-        .filter(|action| apply_run_action(state, *action).is_ok())
+        .filter(|action| validate_potion_action(state, *action).is_ok())
         .collect()
 }
 
@@ -1285,7 +1284,7 @@ fn apply_exact_run_action(
         }
         ExactRunActionKind::Map(action) => apply_map_action_on_run(state, *action),
         ExactRunActionKind::Rest(action) => apply_rest_action(state, *action),
-        ExactRunActionKind::Run(action) => apply_run_action(state, *action),
+        ExactRunActionKind::Run(action) => apply_core_run_action(state, *action),
     }
 }
 
@@ -1561,6 +1560,49 @@ mod tests {
         assert_eq!(env.state.player_hp, 80);
         assert_eq!(env.state.player_max_hp, 85);
         assert_eq!(env.state.potions, vec![Potion::Attack]);
+    }
+
+    #[test]
+    fn reward_exact_take_potion_reward_steps_without_combat_state() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        env.state.phase = RunPhase::Reward;
+        env.state.combat = None;
+        env.state.reward = Some(sts_core::RewardScreen {
+            choices: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: Some(Potion::Ancient),
+            relic_offer: None,
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_active: false,
+            card_reward_pending: false,
+            pending_card_reward_count: 0,
+        });
+        env.state.potions.clear();
+
+        let take_potion = env
+            .exact_legal_actions()
+            .into_iter()
+            .find(|action| action.kind() == "take_potion_reward")
+            .expect("potion reward can be taken")
+            .clone();
+
+        env.step(&take_potion)
+            .expect("reward-screen potion reward is collected");
+
+        assert_eq!(env.state.potions, vec![Potion::Ancient]);
+        assert_eq!(
+            env.state
+                .reward
+                .as_ref()
+                .expect("reward remains")
+                .potion_offer,
+            None
+        );
     }
 
     #[test]

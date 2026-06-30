@@ -256,10 +256,7 @@ fn green_louse_fixture_has_expected_hp_spikes_and_opening_intent() {
     assert_eq!(state.monsters[0].powers.spikes, 3);
     assert_eq!(
         state.monsters[0].intent,
-        MonsterIntent::StrengthAndBlock {
-            strength: 3,
-            block: 0
-        }
+        MonsterIntent::ApplyPlayerWeak { amount: 1 }
     );
 }
 
@@ -281,21 +278,22 @@ fn green_louse_spikes_reflect_damage_when_struck() {
 }
 
 #[test]
-fn green_louse_combat_executes_curl_bite_cycle() {
+fn green_louse_combat_executes_weak_bite_cycle() {
     let mut state = CombatState::green_louse_fixture();
     state.player.hp = 100;
     state.piles.draw_pile.clear();
 
-    let after_curl = end_player_turn(&state);
-    assert_eq!(after_curl.player.hp, 100);
-    assert_eq!(after_curl.monsters[0].block, 0);
+    let after_weak = end_player_turn(&state);
+    assert_eq!(after_weak.player.hp, 100);
+    assert_eq!(after_weak.player.powers.weak, 1);
+    assert_eq!(after_weak.monsters[0].block, 0);
     assert_eq!(
-        after_curl.monsters[0].intent,
+        after_weak.monsters[0].intent,
         MonsterIntent::Attack { damage: 6 }
     );
 
-    let after_bite = end_player_turn(&after_curl);
-    assert_eq!(after_bite.player.hp, 91);
+    let after_bite = end_player_turn(&after_weak);
+    assert_eq!(after_bite.player.hp, 94);
 }
 
 #[test]
