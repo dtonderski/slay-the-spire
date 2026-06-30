@@ -50,6 +50,8 @@ let latestSummary = null;
 let latestStatus = null;
 let controlServer = null;
 let controlAddress = null;
+let stateSeq = 0;
+let controlOwner = null;
 
 function writeRecord(record) {
   logStream.write(`${JSON.stringify(record)}\n`);
@@ -72,6 +74,12 @@ function writeStatus(value) {
   latestStatus = {
     ...value,
     control: controlAddress,
+    controller: controlOwner
+      ? {
+        owner_id: controlOwner.owner_id,
+        acquired_at: controlOwner.acquired_at,
+      }
+      : null,
   };
   writeJson(statusPath, latestStatus);
 }
@@ -173,9 +181,11 @@ function summarize(message) {
 
 function publishState(message) {
   const summary = summarize(message);
+  stateSeq += 1;
   const stateId = stateIdFor(message, summary);
   latestState = {
     step,
+    state_seq: stateSeq,
     state_id: stateId,
     client_pid: clientPid,
     trace_path: tracePath,
@@ -184,6 +194,7 @@ function publishState(message) {
   };
   latestSummary = {
     ...summary,
+    state_seq: stateSeq,
     state_id: stateId,
   };
   writeJson(statePath, {
@@ -230,6 +241,7 @@ function currentProtocolState() {
     client_pid: clientPid,
     trace_path: tracePath,
     step,
+    state_seq: stateSeq,
     state_id: latestSummary?.state_id ?? null,
     ready_for_command: latestSummary?.ready_for_command ?? false,
     available_commands: latestSummary?.available_commands ?? [],
@@ -237,6 +249,12 @@ function currentProtocolState() {
     summary: latestSummary,
     state: latestState,
     status: latestStatus,
+    controller: controlOwner
+      ? {
+        owner_id: controlOwner.owner_id,
+        acquired_at: controlOwner.acquired_at,
+      }
+      : null,
   };
 }
 
@@ -248,6 +266,12 @@ function validateProtocolCommand(payload) {
   if (queuedCommands.length > 0) return "a command is already queued";
   if (payload.expected_state_id && payload.expected_state_id !== latestSummary.state_id) {
     return "expected_state_id does not match current state";
+  }
+  if (payload.expected_state_seq !== undefined && Number(payload.expected_state_seq) !== stateSeq) {
+    return "expected_state_seq does not match current state";
+  }
+  if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
+    return "controller owner_token is required";
   }
   const verb = command.split(/\s+/)[0].toLowerCase();
   const available = new Set((latestSummary.available_commands ?? []).map((item) => String(item).toLowerCase()));
@@ -265,6 +289,43 @@ function handleControlMessage(payload) {
   if (type === "hello") {
     return { ok: true, protocol: "sts-bridge-jsonl-v1", client_pid: clientPid, trace_path: tracePath };
   }
+  if (type === "acquire") {
+    const ownerId = String(payload.owner_id ?? "").trim();
+    if (!ownerId) return { ok: false, error: "owner_id is required" };
+    if (controlOwner && controlOwner.owner_id !== ownerId) {
+      return {
+        ok: false,
+        error: "bridge is already owned by another controller",
+        owner_id: controlOwner.owner_id,
+      };
+    }
+    if (!controlOwner) {
+      controlOwner = {
+        owner_id: ownerId,
+        owner_token: crypto.randomUUID(),
+        acquired_at: new Date().toISOString(),
+      };
+      if (latestStatus) writeStatus(latestStatus);
+    }
+    return {
+      ok: true,
+      protocol: "sts-bridge-jsonl-v1",
+      owner_id: controlOwner.owner_id,
+      owner_token: controlOwner.owner_token,
+      state_id: latestSummary?.state_id ?? null,
+      state_seq: stateSeq,
+    };
+  }
+  if (type === "release") {
+    if (!controlOwner) return { ok: true, released: false };
+    if (payload.owner_token !== controlOwner.owner_token) {
+      return { ok: false, error: "owner_token does not match active controller" };
+    }
+    const ownerId = controlOwner.owner_id;
+    controlOwner = null;
+    if (latestStatus) writeStatus(latestStatus);
+    return { ok: true, released: true, owner_id: ownerId };
+  }
   if (type === "state") {
     return currentProtocolState();
   }
@@ -273,18 +334,21 @@ function handleControlMessage(payload) {
     if (error) {
       return {
         ok: false,
-        error,
-        state_id: latestSummary?.state_id ?? null,
-        step,
-      };
+      error,
+      state_id: latestSummary?.state_id ?? null,
+      state_seq: stateSeq,
+      step,
+    };
     }
     const commandId = payload.command_id || crypto.randomUUID();
     const commandMeta = {
       command_id: commandId,
       command: String(payload.command).trim(),
       source_state_id: payload.expected_state_id ?? latestSummary?.state_id ?? null,
+      source_state_seq: payload.expected_state_seq ?? stateSeq,
       submitted_at: Date.now() / 1000,
       protocol: "tcp-jsonl",
+      owner_id: controlOwner?.owner_id ?? null,
     };
     if (payload.metadata !== undefined) {
       commandMeta.metadata = payload.metadata;
@@ -295,6 +359,7 @@ function handleControlMessage(payload) {
       command_id: commandId,
       command: commandMeta.command,
       accepted_state_id: latestSummary?.state_id ?? null,
+      accepted_state_seq: stateSeq,
       step,
     };
   }

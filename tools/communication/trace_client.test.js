@@ -189,11 +189,30 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     const liveState = await controlRequest(port, { type: "state" });
     assert.strictEqual(liveState.ok, true);
     assert.ok(liveState.state_id);
+    assert.ok(liveState.state_seq);
+
+    const acquired = await controlRequest(port, {
+      type: "acquire",
+      owner_id: "test-controller",
+    });
+    assert.strictEqual(acquired.ok, true);
+    assert.strictEqual(acquired.owner_id, "test-controller");
+    assert.ok(acquired.owner_token);
+
+    const missingOwner = await controlRequest(port, {
+      type: "command",
+      command: "CHOOSE 0",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+    });
+    assert.strictEqual(missingOwner.ok, false);
+    assert.match(missingOwner.error, /owner_token/);
 
     const stale = await controlRequest(port, {
       type: "command",
       command: "CHOOSE 0",
       expected_state_id: "not-current",
+      owner_token: acquired.owner_token,
     });
     assert.strictEqual(stale.ok, false);
     assert.match(stale.error, /expected_state_id/);
@@ -202,10 +221,13 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       type: "command",
       command: "CHOOSE 0",
       expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
       metadata: { source: "tcp-test" },
     });
     assert.strictEqual(accepted.ok, true);
     assert.strictEqual(accepted.accepted_state_id, liveState.state_id);
+    assert.strictEqual(accepted.accepted_state_seq, liveState.state_seq);
 
     await waitFor(() => stdout.includes("CHOOSE 0\n"));
     child.stdin.end();
@@ -219,6 +241,8 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(action.command, "CHOOSE 0");
     assert.strictEqual(action.command_meta.protocol, "tcp-jsonl");
     assert.strictEqual(action.command_meta.source_state_id, liveState.state_id);
+    assert.strictEqual(action.command_meta.source_state_seq, liveState.state_seq);
+    assert.strictEqual(action.command_meta.owner_id, "test-controller");
     assert.deepStrictEqual(action.command_meta.metadata, { source: "tcp-test" });
   } finally {
     if (!child.killed && child.exitCode === null) child.kill();

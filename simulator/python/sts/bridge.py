@@ -61,6 +61,8 @@ class BridgeMirror:
             "exited": exited,
             "bridge_lifecycle": lifecycle,
             "state_id": state_id,
+            "control": _bridge_control({"status": status}),
+            "controller": status.get("controller") if isinstance(status, dict) else None,
             "session_dir": str(self.session_dir),
             "pending_command": pending_command,
             "pending_command_meta": command_meta if pending_command else None,
@@ -124,13 +126,19 @@ class BridgeMirror:
         available_commands = summary.get("available_commands") if isinstance(summary.get("available_commands"), list) else []
         if available_commands and "state" not in available_commands:
             warnings.append("available_commands does not include state")
+        control = _bridge_control({"status": status})
+        if control is None:
+            warnings.append("TCP bridge control is not available; guided auto-collection will not send")
 
         return {
             "ok": not problems,
             "problems": problems,
             "warnings": warnings,
+            "tcp_control_available": control is not None,
+            "control": control,
             "summary": {
                 "step": summary.get("step"),
+                "state_seq": summary.get("state_seq"),
                 "client_pid": summary.get("client_pid"),
                 "screen_type": summary.get("screen_type"),
                 "floor": summary.get("floor"),
@@ -168,6 +176,7 @@ class BridgeMirror:
         *,
         source_state_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        require_tcp_control: bool = False,
     ) -> dict[str, Any]:
         command = command.strip()
         if not command:
@@ -205,9 +214,14 @@ class BridgeMirror:
                 command,
                 control=control,
                 source_state_id=source_state_id or before["state_id"],
+                source_state_seq=before.get("summary", {}).get("state_seq")
+                if isinstance(before.get("summary"), dict)
+                else None,
                 metadata=metadata,
                 now=now,
             )
+        if require_tcp_control:
+            raise ValueError("TCP bridge control is required for this command")
 
         self.session_dir.mkdir(parents=True, exist_ok=True)
         command_id = uuid4().hex
@@ -239,16 +253,21 @@ class BridgeMirror:
         *,
         control: dict[str, Any],
         source_state_id: str | None,
+        source_state_seq: Any,
         metadata: dict[str, Any] | None,
         now: float | None,
     ) -> dict[str, Any]:
         command_id = uuid4().hex
+        owner = _acquire_control_owner(control)
         payload: dict[str, Any] = {
             "type": "command",
             "command": command,
             "command_id": command_id,
             "expected_state_id": source_state_id,
+            "owner_token": owner.get("owner_token"),
         }
+        if source_state_seq is not None:
+            payload["expected_state_seq"] = source_state_seq
         if metadata is not None:
             payload["metadata"] = metadata
         response = _control_request(control, payload)
@@ -261,6 +280,8 @@ class BridgeMirror:
             "command_id": response.get("command_id") or command_id,
             "command": response.get("command") or command,
             "accepted_state_id": response.get("accepted_state_id"),
+            "accepted_state_seq": response.get("accepted_state_seq"),
+            "owner_id": owner.get("owner_id"),
             "bridge_status": after,
         }
 
@@ -800,6 +821,21 @@ def _control_request(control: dict[str, Any], payload: dict[str, Any], timeout: 
     response = json.loads(data.decode("utf-8"))
     if not isinstance(response, dict):
         raise ValueError("bridge control returned a non-object response")
+    return response
+
+
+def _acquire_control_owner(control: dict[str, Any]) -> dict[str, Any]:
+    response = _control_request(
+        control,
+        {
+            "type": "acquire",
+            "owner_id": "sts-python-ui",
+        },
+    )
+    if not response.get("ok"):
+        raise ValueError(str(response.get("error") or "bridge control ownership rejected"))
+    if not response.get("owner_token"):
+        raise ValueError("bridge control did not return an owner_token")
     return response
 
 
