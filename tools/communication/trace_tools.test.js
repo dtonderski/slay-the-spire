@@ -41,6 +41,24 @@ function testCoverageSummaryForEliteRewardPrefix() {
   assert.strictEqual(result.summary.coverage.ended_cleanly, true);
 }
 
+function testPassivePollsAreSummarizedSeparately() {
+  const records = [
+    state(0, { floor: 0, screen_type: "MAIN_MENU" }),
+    { type: "action", step: 1, command: "STATE", command_meta: { source: "passive_poll" } },
+    state(1, { floor: 0, screen_type: "MAIN_MENU" }),
+    action(2, "START IRONCLAD 0 M290001"),
+    state(2, { floor: 0, screen_type: "NEOW", seed: "M290001", act_boss: "Hexaghost" }),
+  ];
+
+  const result = validate(records);
+
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.summary.actions, 2);
+  assert.strictEqual(result.summary.control_actions, 1);
+  assert.strictEqual(result.summary.passive_polls, 1);
+  assert.strictEqual(result.summary.coverage.score, 1);
+}
+
 function testMissingActionStillFailsValidation() {
   const result = validate([state(0, { floor: 0 }), action(1, "END")]);
   assert.strictEqual(result.ok, false);
@@ -138,6 +156,7 @@ function testExtractBestRunRebasesSelectedRun() {
 }
 
 testCoverageSummaryForEliteRewardPrefix();
+testPassivePollsAreSummarizedSeparately();
 testMissingActionStillFailsValidation();
 testProtocolRowsAreSummarizedButDoNotRequireStateResponses();
 testDeathTerminal();

@@ -50,10 +50,22 @@ function missingActionResponses(records) {
     .filter(({ record }) => record.type === "action" && !responseSteps.has(record.step));
 }
 
+function isPassivePollAction(record) {
+  return (
+    record?.type === "action" &&
+    typeof record.command === "string" &&
+    record.command.trim().toUpperCase() === "STATE" &&
+    record.command_meta?.source === "passive_poll"
+  );
+}
+
 function summarize(records) {
   const states = records.filter((record) => record.type === "state").length;
   const errors = records.filter((record) => record.type === "error").length;
-  const actions = records.filter((record) => record.type === "action").length;
+  const actionRecords = records.filter((record) => record.type === "action");
+  const actions = actionRecords.length;
+  const passivePolls = actionRecords.filter(isPassivePollAction).length;
+  const controlActions = actions - passivePolls;
   const commandAccepts = records.filter((record) => record.type === "command_accept").length;
   const commandObservedTimeouts = records.filter((record) => record.type === "command_observed_timeout").length;
   const floors = new Set();
@@ -101,6 +113,8 @@ function summarize(records) {
     states,
     errors,
     actions,
+    control_actions: controlActions,
+    passive_polls: passivePolls,
     command_accepts: commandAccepts,
     command_observed_timeouts: commandObservedTimeouts,
     starts,
@@ -113,6 +127,7 @@ function summarize(records) {
     terminal: summarizeTerminal(lastState),
     coverage: summarizeCoverage({
       actions,
+      controlActions,
       deaths,
       maxFloor: floors.size ? Math.max(...floors) : null,
       eliteRooms: eliteRoomKeys.size,
@@ -158,10 +173,11 @@ function summarizeTerminal(gameState) {
   };
 }
 
-function summarizeCoverage({ actions, deaths, maxFloor, eliteRooms, bossRooms, lastState }) {
+function summarizeCoverage({ actions, controlActions, deaths, maxFloor, eliteRooms, bossRooms, lastState }) {
   const terminal = summarizeTerminal(lastState);
+  const scoredActions = controlActions ?? actions;
   const score =
-    actions +
+    scoredActions +
     (maxFloor || 0) * 10 +
     eliteRooms * 25 +
     bossRooms * 50 -
@@ -441,6 +457,7 @@ module.exports = {
   extractBestRun,
   extractRun,
   bestRun,
+  isPassivePollAction,
   missingActionResponses,
   readTrace,
   report,

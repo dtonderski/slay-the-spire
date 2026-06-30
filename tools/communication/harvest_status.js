@@ -21,6 +21,8 @@ function validatePath(filePath) {
     ok: result.ok,
     missing: result.missing,
     actions: result.summary.actions,
+    control_actions: result.summary.control_actions,
+    passive_polls: result.summary.passive_polls,
     max_floor: result.summary.max_floor,
     elite_rooms: result.summary.elite_rooms,
     boss_rooms: result.summary.boss_rooms,
