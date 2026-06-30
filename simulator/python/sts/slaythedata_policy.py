@@ -207,8 +207,9 @@ def match_visible_choice(
     ambiguous or unsupported.
     """
 
-    decision = None if category == "boss_relic" else floor_decision(script, floor)
-    if category != "boss_relic" and not decision:
+    decisionless_categories = {"boss_relic", "neow"}
+    decision = None if category in decisionless_categories else floor_decision(script, floor)
+    if category not in decisionless_categories and not decision:
         return _blocked("missing_floor_decision", f"no SlayTheData decision for floor {floor}")
 
     target = _target_text_for_category(
@@ -362,6 +363,8 @@ def _target_text_for_category(
             return None
         entry = _ordinal_entry(decision.get("events"), ordinal)
         return entry.get("player_choice") if entry else None
+    if category == "neow":
+        return _neow_target_text(script, choice_labels)
     if category == "shop":
         if decision is None:
             return None
@@ -408,6 +411,48 @@ def _descriptor_for_target(category: str, target: str) -> dict[str, Any] | None:
     if category == "shop" and target == "__leave_shop__":
         return {"kind": "LeaveScreen"}
     return None
+
+
+def _neow_target_text(script: dict[str, Any], choice_labels: list[str]) -> str | None:
+    normalized_choices = {_normalized_token(label) for label in choice_labels}
+    if "talk" in normalized_choices:
+        return "talk"
+    if "leave" in normalized_choices:
+        return "leave"
+
+    config = script.get("config") if isinstance(script.get("config"), dict) else {}
+    bonus = _optional_string(config.get("neow_bonus"))
+    cost = _optional_string(config.get("neow_cost"))
+    bonus_text = _NEOW_BONUS_TEXT.get(str(bonus or "").upper())
+    if not bonus_text:
+        return None
+    cost_text = _NEOW_COST_TEXT.get(str(cost or "NONE").upper())
+    return f"{cost_text} {bonus_text}".strip() if cost_text else bonus_text
+
+
+_NEOW_BONUS_TEXT = {
+    "THREE_ENEMY_KILL": "enemies in your next three combats have 1 hp",
+    "RANDOM_COLORLESS": "choose a colorless card to obtain",
+    "RANDOM_COLORLESS_2": "choose a rare colorless card to obtain",
+    "RANDOM_RARE_CARD": "obtain a random rare card",
+    "HUNDRED_GOLD": "obtain 100 gold",
+    "TEN_PERCENT_HP_BONUS": "gain max hp",
+    "THREE_CARDS": "choose a card to obtain",
+    "REMOVE_CARD": "remove a card from your deck",
+    "TRANSFORM_CARD": "transform a card",
+    "UPGRADE_CARD": "upgrade a card",
+    "RANDOM_COMMON_RELIC": "obtain a random common relic",
+    "BOSS_RELIC": "obtain a random boss relic",
+}
+
+
+_NEOW_COST_TEXT = {
+    "NONE": "",
+    "CURSE": "obtain a curse",
+    "NO_GOLD": "lose all gold",
+    "TEN_PERCENT_HP_LOSS": "lose max hp",
+    "PERCENT_DAMAGE": "take damage",
+}
 
 
 def _shop_leave_visible(choice_labels: list[str]) -> bool:

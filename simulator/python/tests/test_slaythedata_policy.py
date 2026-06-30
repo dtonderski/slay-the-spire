@@ -94,6 +94,66 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(result["target"], "Inflame")
 
+    def test_match_visible_choice_handles_neow_talk_bonus_and_leave(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "neow_bonus": "THREE_ENEMY_KILL",
+                    "neow_cost": "NONE",
+                }
+            }
+        )
+
+        talk = match_visible_choice(
+            script,
+            floor=0,
+            choice_labels=["talk"],
+            category="neow",
+        )
+        bonus = match_visible_choice(
+            script,
+            floor=0,
+            choice_labels=[
+                "obtain a random rare card",
+                "enemies in your next three combats have 1 hp",
+                "obtain a curse choose a rare colorless card to obtain",
+            ],
+            category="neow",
+        )
+        leave = match_visible_choice(
+            script,
+            floor=0,
+            choice_labels=["leave"],
+            category="neow",
+        )
+
+        self.assertEqual(talk["status"], "matched")
+        self.assertEqual(talk["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+        self.assertEqual(bonus["status"], "matched")
+        self.assertEqual(bonus["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(leave["status"], "matched")
+        self.assertEqual(leave["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
+    def test_match_visible_choice_handles_neow_cost_bonus_phrase(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "neow_bonus": "RANDOM_COLORLESS_2",
+                    "neow_cost": "CURSE",
+                }
+            }
+        )
+
+        result = match_visible_choice(
+            script,
+            floor=0,
+            choice_labels=["obtain a curse choose a rare colorless card to obtain"],
+            category="neow",
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
     def test_identity_blocker_rejects_visible_character_or_ascension_mismatch(self):
         script = build_guided_run_script(
             {

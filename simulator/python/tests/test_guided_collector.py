@@ -12,6 +12,8 @@ def sample_script():
                 "character_chosen": "IRONCLAD",
                 "ascension_level": 0,
                 "seed_played": "ABC",
+                "neow_bonus": "THREE_ENEMY_KILL",
+                "neow_cost": "NONE",
                 "path_per_floor": ["M", "?"],
                 "card_choices": [{"floor": 1, "picked": "Inflame"}],
                 "relics_obtained": [{"floor": 1, "key": "Oddly Smooth Stone"}],
@@ -63,6 +65,34 @@ class GuidedCollectorTests(unittest.TestCase):
                 "floor": 2,
                 "screen_type": "EVENT",
                 "choices": ["Pray", "Leave"],
+                "available_commands": ["choose"],
+            },
+        }
+
+    def ready_neow_bridge(self, choices=None):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "neow-bridge-state",
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 0,
+                        "screen_type": "EVENT",
+                        "choice_list": choices or ["talk"],
+                        "screen_state": {
+                            "event_id": "Neow Event",
+                            "event_name": "Neow",
+                        },
+                    }
+                }
+            },
+            "summary": {
+                "floor": 0,
+                "screen_type": "EVENT",
+                "choices": choices or ["talk"],
                 "available_commands": ["choose"],
             },
         }
@@ -201,6 +231,16 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
         self.assertEqual(result["category"], "event")
+
+    def test_suggest_guided_action_infers_neow_event_choice(self):
+        result = suggest_guided_action(
+            sample_script(),
+            self.ready_neow_bridge(["enemies in your next three combats have 1 hp"]),
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "neow")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
     def test_suggest_guided_action_blocks_visible_run_identity_mismatch(self):
         bridge = self.ready_event_bridge()
