@@ -68,12 +68,55 @@ class SlayTheDataIndexTests(unittest.TestCase):
             status = slaythedata_index_status(db)
 
         self.assertTrue(status["ok"])
-        self.assertEqual(status["runs_count"], 2)
-        self.assertEqual(status["chunk_runs_count"], 1)
-        self.assertEqual(status["chunk_files_count"], 1)
+        self.assertFalse(status["counts_included"])
+        self.assertNotIn("runs_count", status)
+        self.assertNotIn("chunk_runs_count", status)
         self.assertTrue(status["exportable_candidate_available"])
         self.assertEqual(status["archive_status_counts"], {"indexed": 1, "pending": 1})
         self.assertIn("partial", status["warnings"][0])
+
+    def test_slaythedata_index_status_can_include_exact_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                CREATE TABLE chunk_files (id INTEGER);
+                """
+            )
+            conn.execute(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (1, "IRONCLAD", 0, 50, 0, 0, 0, 0, "A", 1, 50, 10, 2, 1, 0),
+            )
+            conn.execute("INSERT INTO chunk_runs VALUES (1)")
+            conn.execute("INSERT INTO chunk_files VALUES (1)")
+            conn.commit()
+            conn.close()
+
+            status = slaythedata_index_status(db, include_counts=True)
+
+        self.assertTrue(status["counts_included"])
+        self.assertEqual(status["runs_count"], 1)
+        self.assertEqual(status["chunk_runs_count"], 1)
+        self.assertEqual(status["chunk_files_count"], 1)
 
     def test_slaythedata_index_status_reports_missing_required_tables(self):
         with tempfile.TemporaryDirectory() as tmp:

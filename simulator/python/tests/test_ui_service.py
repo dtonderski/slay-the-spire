@@ -244,6 +244,7 @@ class UiServiceTests(unittest.TestCase):
                     "ascension": ["0"],
                     "min_floor": ["40"],
                     "min_path_length": ["40"],
+                    "include_counts": ["1"],
                 }
             )
 
@@ -253,6 +254,7 @@ class UiServiceTests(unittest.TestCase):
             ascension=0,
             min_floor_reached=40,
             min_path_length=40,
+            include_counts=True,
         )
 
     def test_session_exposes_state_actions_and_snapshot(self):

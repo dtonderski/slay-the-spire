@@ -1466,8 +1466,10 @@
     const msg = document.createElement("div");
     msg.className = problems.length ? "message error" : warnings.length ? "message info" : "message success";
     const available = firstDefined(status.exportable_candidate_available, null);
-    const chunkRows = firstDefined(status.chunk_runs_count, "-");
-    const runs = firstDefined(status.runs_count, "-");
+    const hasCounts = status.counts_included === true;
+    const countText = hasCounts
+      ? `${firstDefined(status.runs_count, "-")} runs, ${firstDefined(status.chunk_runs_count, "-")} export rows`
+      : "fast readiness check";
     const prefix = problems.length ? "SlayTheData blocked" : warnings.length ? "SlayTheData usable with warnings" : "SlayTheData ready";
     const detail = problems.length
       ? problems.join("; ")
@@ -1478,7 +1480,7 @@
           : available === false
             ? "no supported guided candidates for current filters"
             : "candidate availability unknown";
-    msg.textContent = `${prefix}: ${detail} (${runs} runs, ${chunkRows} export rows)`;
+    msg.textContent = `${prefix}: ${detail} (${countText})`;
     el.collectorStatusPanel.appendChild(msg);
   }
 
