@@ -109,6 +109,17 @@ function testInspectReportValidatesTrace() {
     writeJsonl(tracePath, [
       { type: "command_accept", step: 1, command: "START IRONCLAD 0 GUIDED01" },
       { type: "command_observed_timeout", step: 1, command: "START IRONCLAD 0 GUIDED01" },
+      { type: "action", step: 0, command: "STATE", command_meta: { source: "passive_poll" } },
+      {
+        type: "state",
+        step: 0,
+        message: {
+          game_state: {
+            floor: 0,
+            screen_type: "MAIN_MENU",
+          },
+        },
+      },
       { type: "action", step: 1, command: "START IRONCLAD 0 GUIDED01" },
       {
         type: "state",
@@ -146,7 +157,9 @@ function testInspectReportValidatesTrace() {
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.producer, "sts.guided_collect");
     assert.strictEqual(result.trace.ok, true);
-    assert.strictEqual(result.trace.actions, 1);
+    assert.strictEqual(result.trace.actions, 2);
+    assert.strictEqual(result.trace.control_actions, 1);
+    assert.strictEqual(result.trace.passive_polls, 1);
     assert.strictEqual(result.trace.command_accepts, 1);
     assert.strictEqual(result.trace.command_observed_timeouts, 1);
     assert.strictEqual(result.trace.max_floor, 1);
