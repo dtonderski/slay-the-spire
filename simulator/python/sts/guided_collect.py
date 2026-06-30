@@ -147,12 +147,19 @@ def collect_one_run(
             "send_result": _compact_send_result(start_result.get("send_result")),
         }
     ]
+    bridge_anchor = _bridge_identity_anchor(_bridge_status_from_start_result(start_result) or bridge.status())
     actions_sent = 0
     stop_reason = "unknown"
     blocker: dict[str, Any] | None = None
 
     while actions_sent < config.max_actions and time.time() - started_at < config.max_seconds:
         status = bridge.status()
+        identity_blocker = _bridge_identity_blocker(bridge_anchor, status)
+        if identity_blocker is not None:
+            stop_reason = "bridge_identity_changed"
+            blocker = identity_blocker
+            history.append({"status": "blocked", **identity_blocker})
+            break
         terminal_stop = _terminal_stop_reason(status)
         if terminal_stop is not None:
             stop_reason = terminal_stop
@@ -204,7 +211,15 @@ def collect_one_run(
         stop_reason = "max_actions" if actions_sent >= config.max_actions else "timeout"
 
     final_bridge = bridge.status()
-    trace_validation = _validate_trace(final_bridge.get("trace_path"))
+    final_identity_blocker = _bridge_identity_blocker(bridge_anchor, final_bridge)
+    if final_identity_blocker is not None and blocker is None:
+        stop_reason = "bridge_identity_changed"
+        blocker = final_identity_blocker
+        history.append({"status": "blocked", **final_identity_blocker})
+    trace_validation = _validate_trace(
+        bridge_anchor.get("trace_path") or final_bridge.get("trace_path"),
+        require_tcp_protocol=True,
+    )
     return {
         "producer": "sts.guided_collect",
         "generated_at": _utc_now(),
@@ -361,6 +376,50 @@ def _compact_send_result(send_result: Any) -> dict[str, Any] | None:
     return compact
 
 
+def _bridge_status_from_start_result(start_result: dict[str, Any]) -> dict[str, Any] | None:
+    send_result = start_result.get("send_result") if isinstance(start_result.get("send_result"), dict) else {}
+    observed_update = send_result.get("observed_update") if isinstance(send_result.get("observed_update"), dict) else {}
+    bridge_status = observed_update.get("bridge_status")
+    return bridge_status if isinstance(bridge_status, dict) else None
+
+
+def _bridge_identity_anchor(bridge_status: dict[str, Any]) -> dict[str, Any]:
+    control = bridge_status.get("control") if isinstance(bridge_status.get("control"), dict) else None
+    return {
+        "client_pid": bridge_status.get("client_pid"),
+        "trace_path": bridge_status.get("trace_path"),
+        "control": _compact_control(control),
+    }
+
+
+def _bridge_identity_blocker(anchor: dict[str, Any], bridge_status: dict[str, Any]) -> dict[str, Any] | None:
+    observed = _bridge_identity_anchor(bridge_status)
+    fields = [
+        key
+        for key in ("client_pid", "trace_path", "control")
+        if anchor.get(key) is not None and observed.get(key) != anchor.get(key)
+    ]
+    if not fields:
+        return None
+    return {
+        "reason": "bridge_identity_changed",
+        "detail": "bridge client, trace, or TCP endpoint changed during guided collection",
+        "fields": fields,
+        "expected": anchor,
+        "observed": observed,
+    }
+
+
+def _compact_control(control: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(control, dict):
+        return None
+    return {
+        "protocol": control.get("protocol"),
+        "host": control.get("host"),
+        "port": control.get("port"),
+    }
+
+
 def _is_clean_collection_stop(stop_reason: str) -> bool:
     return stop_reason in {"trace_exhausted", "game_complete"}
 
@@ -407,7 +466,7 @@ def _is_dead_game_state(game_state: dict[str, Any]) -> bool:
         return False
 
 
-def _validate_trace(trace_path: Any) -> dict[str, Any]:
+def _validate_trace(trace_path: Any, *, require_tcp_protocol: bool = False) -> dict[str, Any]:
     if not trace_path:
         return {"verified": False, "reason": "missing_trace_path"}
     path = Path(str(trace_path))
@@ -423,16 +482,37 @@ def _validate_trace(trace_path: Any) -> dict[str, Any]:
             "detail": str(error),
             "trace_path": str(path),
         }
+    protocol_blocker = _tcp_protocol_blocker(protocol_counts) if require_tcp_protocol else None
     return {
-        "verified": result.verified,
+        "verified": bool(result.verified) and protocol_blocker is None,
+        "reason": protocol_blocker["reason"] if protocol_blocker is not None else None,
         "stop_reason": result.stop_reason,
         "steps": result.steps,
         "final_state_id": result.final_state_id,
         "final_phase": result.final_phase,
-        "blocker": result.blocker,
+        "blocker": protocol_blocker if protocol_blocker is not None else result.blocker,
         "trace_path": str(path),
         **protocol_counts,
     }
+
+
+def _tcp_protocol_blocker(protocol_counts: dict[str, int]) -> dict[str, Any] | None:
+    if protocol_counts.get("command_observed_timeouts", 0) > 0:
+        return {
+            "reason": "tcp_observed_timeout",
+            "detail": "one or more accepted TCP commands timed out before an observed state update",
+            "command_observed_timeouts": protocol_counts.get("command_observed_timeouts", 0),
+        }
+    command_accepts = int(protocol_counts.get("command_accepts", 0))
+    control_actions = int(protocol_counts.get("control_actions", 0))
+    if command_accepts > 0 and command_accepts != control_actions:
+        return {
+            "reason": "tcp_accept_action_mismatch",
+            "detail": "accepted TCP command count does not match trace control action count",
+            "command_accepts": command_accepts,
+            "control_actions": control_actions,
+        }
+    return None
 
 
 def _trace_protocol_counts(path: Path) -> dict[str, int]:
