@@ -564,7 +564,13 @@ async function waitForCommand(message) {
       }
     }
     if (Number.isFinite(autoStateMs) && autoStateMs > 0 && Date.now() - started >= autoStateMs) {
-      return { command: "state", command_meta: null };
+      return {
+        command: "state",
+        command_meta: {
+          source: "passive_poll",
+          auto_state_ms: autoStateMs,
+        },
+      };
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
