@@ -146,6 +146,35 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(result["target"], "Runic Pyramid")
 
+    def test_match_visible_choice_uses_campfire_key_before_grid_target(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "campfire_choices": [{"floor": 4, "key": "SMITH", "data": "Bash+"}],
+                }
+            }
+        )
+
+        campfire = match_visible_choice(
+            script,
+            floor=4,
+            choice_labels=["Rest", "Smith"],
+            category="campfire",
+        )
+        grid = match_visible_choice(
+            script,
+            floor=4,
+            choice_labels=["Strike", "Bash"],
+            category="grid",
+        )
+
+        self.assertEqual(campfire["status"], "matched")
+        self.assertEqual(campfire["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(campfire["target"], "SMITH")
+        self.assertEqual(grid["status"], "matched")
+        self.assertEqual(grid["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(grid["target"], "Bash")
+
     def test_match_map_choice_finds_next_path_room(self):
         script = build_guided_run_script(
             {

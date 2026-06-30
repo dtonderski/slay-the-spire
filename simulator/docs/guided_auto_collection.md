@@ -74,6 +74,8 @@ The collector can now:
   current exact simulator action
 - match map choices against SlayTheData `path_per_floor` when visible next-node
   room symbols identify exactly one target
+- match campfire rest-site choices by campfire key, then card grids by the
+  SlayTheData campfire card target
 - match boss relic reward choices by act from SlayTheData boss relic history
 - delegate one combat action to the live combat search policy
 - store the predicted simulator state after a sent combat or strict non-combat
@@ -112,11 +114,12 @@ Tick algorithm:
    unsupported, or would require guessing.
 
 Steps 1, 3, 4, simple visible-choice sending, strict non-combat legal-action
-agreement, conservative map path matching, boss relic matching, and post-send
-prediction checks are implemented, and the UI can repeatedly call tick until
-blocked. Remaining work is broader reward/shop/campfire coverage beyond simple
-visible text matching, map tie-breaking when room symbols are ambiguous, and
-candidate filtering/ranking beyond the initial "find supported runs" UI.
+agreement, conservative map path matching, boss relic matching, campfire/grid
+matching, and post-send prediction checks are implemented, and the UI can
+repeatedly call tick until blocked. Remaining work is broader reward/shop
+coverage beyond simple visible text matching, map tie-breaking when room
+symbols are ambiguous, and candidate filtering/ranking beyond the initial
+"find supported runs" UI.
 
 ## Important Boundaries
 
