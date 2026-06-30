@@ -143,6 +143,8 @@ class BridgeMirror:
         control = _bridge_control({"status": status})
         if control is None:
             warnings.append("TCP bridge control is not available; guided auto-collection will not send")
+        elif any(command != "state" for command in available_commands) and summary.get("state_seq") is None:
+            problems.append("TCP bridge summary is missing state_seq for guarded commands")
 
         return {
             "ok": not problems,
@@ -236,13 +238,18 @@ class BridgeMirror:
 
         control = _bridge_control(before)
         if control is not None:
+            source_state_seq = (
+                before.get("summary", {}).get("state_seq")
+                if isinstance(before.get("summary"), dict)
+                else None
+            )
+            if verb != "state" and source_state_seq is None:
+                raise ValueError("TCP bridge summary is missing state_seq for guarded command")
             return self._send_command_via_control(
                 command,
                 control=control,
                 source_state_id=source_state_id or before["state_id"],
-                source_state_seq=before.get("summary", {}).get("state_seq")
-                if isinstance(before.get("summary"), dict)
-                else None,
+                source_state_seq=source_state_seq,
                 metadata=metadata,
                 now=now,
                 wait_for_state_update=wait_for_state_update,
@@ -324,6 +331,13 @@ class BridgeMirror:
                     session_dir=self.session_dir,
                     now=now,
                 )
+            if wait_for_state_update and (
+                observed_update.get("ok") is not True
+                or observed_update.get("application_status") in {"timeout", "unchanged"}
+                or observed_update.get("observed_changed") is False
+            ):
+                detail = observed_update.get("application_status") or observed_update.get("error") or "not_applied"
+                raise ValueError(f"bridge command was accepted but not observed as applied: {detail}")
         after = self.status(now=now)
         return {
             "ok": True,

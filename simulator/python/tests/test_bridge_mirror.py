@@ -14,6 +14,31 @@ from sts.bridge import (
 )
 
 
+def run_fake_tcp_control(responder, body):
+    received = []
+
+    def run_server(server_socket):
+        for _ in range(3):
+            conn, _addr = server_socket.accept()
+            with conn:
+                data = b""
+                while b"\n" not in data:
+                    data += conn.recv(4096)
+                payload = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
+                received.append(payload)
+                conn.sendall((json.dumps(responder(payload)) + "\n").encode("utf-8"))
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        thread = threading.Thread(target=run_server, args=(server,), daemon=True)
+        thread.start()
+        body(server.getsockname()[1])
+        thread.join(timeout=2)
+
+    return received
+
+
 class BridgeMirrorTests(unittest.TestCase):
     def test_missing_session_reports_disconnected_and_stale(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -417,6 +442,131 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(observed_status["bridge_actions"][0]["command"], "CHOOSE 0")
         self.assertEqual(observed_status["bridge_actions"][0]["source_state_id"], "bridge-protocol-state-2")
 
+    def test_send_command_rejects_tcp_observed_update_timeout(self):
+        owner_token = "owner-token-1"
+
+        def responder(payload):
+            if payload["type"] == "acquire":
+                return {
+                    "ok": True,
+                    "owner_id": payload["owner_id"],
+                    "owner_token": owner_token,
+                    "state_id": "bridge-protocol-state",
+                    "state_seq": 7,
+                }
+            if payload["type"] == "release":
+                return {"ok": True, "released": payload.get("owner_token") == owner_token}
+            return {
+                "ok": True,
+                "command_id": payload["command_id"],
+                "command": payload["command"],
+                "accepted_state_id": payload["expected_state_id"],
+                "accepted_state_seq": payload.get("expected_state_seq"),
+                "observed_update": {
+                    "ok": False,
+                    "error": "timed out waiting for observed state update",
+                    "observed_changed": False,
+                    "application_status": "timeout",
+                },
+            }
+
+        def exercise(port):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "status.json").write_text(
+                    json.dumps(
+                        {
+                            "status": "waiting",
+                            "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": port},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (root / "summary.json").write_text(
+                    json.dumps(
+                        {
+                            "state_id": "bridge-protocol-state",
+                            "state_seq": 7,
+                            "ready_for_command": True,
+                            "available_commands": ["choose", "state"],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, "not observed as applied: timeout"):
+                    BridgeMirror(root, stale_after_seconds=9999).send_command(
+                        "CHOOSE 0",
+                        source_state_id="bridge-protocol-state",
+                        wait_for_state_update=True,
+                    )
+
+        received = run_fake_tcp_control(responder, exercise)
+
+        self.assertEqual(received[2]["type"], "release")
+
+    def test_send_command_rejects_tcp_unchanged_observed_update(self):
+        owner_token = "owner-token-1"
+
+        def responder(payload):
+            if payload["type"] == "acquire":
+                return {
+                    "ok": True,
+                    "owner_id": payload["owner_id"],
+                    "owner_token": owner_token,
+                    "state_id": "bridge-protocol-state",
+                    "state_seq": 7,
+                }
+            if payload["type"] == "release":
+                return {"ok": True, "released": payload.get("owner_token") == owner_token}
+            return {
+                "ok": True,
+                "command_id": payload["command_id"],
+                "command": payload["command"],
+                "accepted_state_id": payload["expected_state_id"],
+                "accepted_state_seq": payload.get("expected_state_seq"),
+                "observed_update": {
+                    "ok": True,
+                    "state_id": "bridge-protocol-state",
+                    "state_seq": 8,
+                    "observed_changed": False,
+                    "application_status": "unchanged",
+                },
+            }
+
+        def exercise(port):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "status.json").write_text(
+                    json.dumps(
+                        {
+                            "status": "waiting",
+                            "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": port},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (root / "summary.json").write_text(
+                    json.dumps(
+                        {
+                            "state_id": "bridge-protocol-state",
+                            "state_seq": 7,
+                            "ready_for_command": True,
+                            "available_commands": ["choose", "state"],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, "not observed as applied: unchanged"):
+                    BridgeMirror(root, stale_after_seconds=9999).send_command(
+                        "CHOOSE 0",
+                        source_state_id="bridge-protocol-state",
+                        wait_for_state_update=True,
+                    )
+
+        received = run_fake_tcp_control(responder, exercise)
+
+        self.assertEqual(received[2]["type"], "release")
+
     def test_preflight_reports_orphan_command_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -458,6 +608,58 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertIn("status_age_seconds", result["ages"])
             self.assertIn("summary_age_seconds", result["ages"])
             self.assertFalse(result["pending_command"]["present"])
+
+    def test_preflight_blocks_tcp_control_without_state_seq_for_guarded_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "waiting",
+                        "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": 12345},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["choose", "state"], "step": 1}),
+                encoding="utf-8",
+            )
+
+            result = BridgeMirror(root, stale_after_seconds=9999).preflight()
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["tcp_control_available"])
+        self.assertIn("TCP bridge summary is missing state_seq for guarded commands", result["problems"])
+
+    def test_send_command_rejects_tcp_control_without_state_seq_for_guarded_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "waiting",
+                        "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": 12345},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-protocol-state",
+                        "ready_for_command": True,
+                        "available_commands": ["choose", "state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "missing state_seq"):
+                BridgeMirror(root, stale_after_seconds=9999).send_command(
+                    "CHOOSE 0",
+                    source_state_id="bridge-protocol-state",
+                )
 
     def test_clear_orphan_command_metadata_removes_only_orphan_file(self):
         with tempfile.TemporaryDirectory() as directory:
