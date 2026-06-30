@@ -213,6 +213,10 @@ candidate from the local SlayTheData chunk index. Guided collection requires a
 fresh TCP-enabled bridge by default; `--allow-file-bridge` exists only for
 diagnostics and compatibility tests.
 
+The runner preflights the bridge before exporting a SlayTheData run. If the
+bridge is stale, file-only, or has a pending command, it writes a
+`preflight_blocked` report instead of sending anything.
+
 Tick algorithm:
 
 1. Read bridge status.
