@@ -88,11 +88,21 @@ class GuidedCollector:
         if pending_blocker is not None:
             return self._record_suggestion(pending_blocker)
 
+        requested_category = payload.get("category")
+        requested_ordinal = payload.get("ordinal")
+        summary = bridge_status.get("summary") if isinstance(bridge_status.get("summary"), dict) else {}
+        category = str(requested_category or _infer_category(summary, bridge_status))
+        ordinal = (
+            int(requested_ordinal)
+            if requested_ordinal is not None
+            else _next_script_ordinal(self._run, bridge_status, category)
+        )
+
         suggestion = suggest_guided_action(
             self._run.script,
             bridge_status,
-            category=payload.get("category"),
-            ordinal=int(payload.get("ordinal", 0)),
+            category=category,
+            ordinal=ordinal,
         )
         if payload.get("send"):
             send_payload = payload | {"provenance": _guided_provenance(self._run, suggestion)}
@@ -354,6 +364,28 @@ def _guided_provenance(run: CollectorRun, suggestion: dict[str, Any]) -> dict[st
             if key in suggestion
         },
     }
+
+
+def _next_script_ordinal(run: CollectorRun, bridge_status: dict[str, Any], category: str) -> int:
+    if category in {"map", "reward", "unsupported"}:
+        return 0
+    summary = bridge_status.get("summary") if isinstance(bridge_status.get("summary"), dict) else {}
+    floor = _current_floor(summary, bridge_status)
+    act = _current_act(summary, bridge_status)
+    sent = 0
+    for entry in run.history:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("status") not in {"sent", "sent_non_combat"}:
+            continue
+        if entry.get("category") != category:
+            continue
+        if floor is not None and entry.get("floor") != floor:
+            continue
+        if category == "boss_relic" and act is not None and entry.get("act") != act:
+            continue
+        sent += 1
+    return sent
 
 
 def _bridge_send_blocker(bridge_status: dict[str, Any]) -> dict[str, Any] | None:

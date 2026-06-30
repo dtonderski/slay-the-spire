@@ -84,6 +84,9 @@ The collector can now:
 - prime the live run start controls from the selected/loaded SlayTheData run
   so the bridge starts the same seed the collector is following
 - preview the next SlayTheData-guided non-combat choice
+- automatically advance scripted decision ordinals after successful sends, so
+  repeated auto ticks can handle multiple same-floor shop buys or similar
+  multi-step choices without manual ordinal overrides
 - send one matched non-combat bridge command when `tick` receives
   `{ "send": true }`, after strict seed replay confirms the command maps to a
   current exact simulator action

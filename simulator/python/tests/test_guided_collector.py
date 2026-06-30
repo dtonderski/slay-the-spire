@@ -40,6 +40,17 @@ def shop_purge_script():
     )
 
 
+def multi_shop_script():
+    return build_guided_run_script(
+        {
+            "event": {
+                "items_purchased": ["Shrug It Off", "Membership Card"],
+                "item_purchase_floors": [3, 3],
+            },
+        }
+    )
+
+
 class GuidedCollectorTests(unittest.TestCase):
     def ready_event_bridge(self):
         return {
@@ -321,6 +332,47 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["source_state_id"], "bridge-state")
         self.assertEqual(calls[0][1]["metadata"]["source"], "guided_collector")
         self.assertEqual(calls[0][1]["metadata"]["script_source"]["run_id"], 42)
+
+    def test_collector_auto_advances_script_ordinals_after_successful_sends(self):
+        collector = GuidedCollector()
+        collector.start({"script": multi_shop_script()})
+        calls = []
+
+        first = collector.tick(
+            self.ready_shop_bridge(["Shrug It Off", "Membership Card", "Leave"]),
+            {"send": True},
+            send_command=lambda command, **kwargs: calls.append((command, kwargs)) or {
+                "ok": True,
+                "command_id": f"cmd-{len(calls)}",
+                "command": command,
+            },
+        )
+        second = collector.tick(
+            self.ready_shop_bridge(["Shrug It Off", "Membership Card", "Leave"]),
+            {"send": True},
+            send_command=lambda command, **kwargs: calls.append((command, kwargs)) or {
+                "ok": True,
+                "command_id": f"cmd-{len(calls)}",
+                "command": command,
+            },
+        )
+        leave = collector.tick(
+            self.ready_shop_bridge(["Leave"]),
+            {"send": True},
+            send_command=lambda command, **kwargs: calls.append((command, kwargs)) or {
+                "ok": True,
+                "command_id": f"cmd-{len(calls)}",
+                "command": command,
+            },
+        )
+
+        self.assertEqual(first["suggestion"]["ordinal"], 0)
+        self.assertEqual(first["suggestion"]["target"], "Shrug It Off")
+        self.assertEqual(second["suggestion"]["ordinal"], 1)
+        self.assertEqual(second["suggestion"]["target"], "Membership Card")
+        self.assertEqual(leave["suggestion"]["ordinal"], 2)
+        self.assertEqual(leave["suggestion"]["command"], "LEAVE")
+        self.assertEqual([call[0] for call in calls], ["CHOOSE 0", "CHOOSE 1", "LEAVE"])
 
     def test_suggest_guided_action_reports_combat_potion_budget(self):
         result = suggest_guided_action(
