@@ -3,6 +3,7 @@ import unittest
 from sts.slaythedata_policy import (
     build_guided_run_script,
     floor_decision,
+    match_map_choice,
     match_visible_choice,
     potion_uses_allowed_on_floor,
 )
@@ -144,6 +145,45 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(result["target"], "Runic Pyramid")
+
+    def test_match_map_choice_finds_next_path_room(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "path_per_floor": ["M", "?", "$"],
+                }
+            }
+        )
+
+        result = match_map_choice(
+            script,
+            floor=1,
+            choice_labels=["x=2 ?", "x=4 $"],
+            next_nodes=[
+                {"x": 2, "room_symbol": "?"},
+                {"x": 4, "room_symbol": "$"},
+            ],
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+        self.assertEqual(result["target"], "?")
+
+    def test_match_map_choice_blocks_ambiguous_route(self):
+        script = build_guided_run_script({"event": {"path_per_floor": ["M"]}})
+
+        result = match_map_choice(
+            script,
+            floor=0,
+            choice_labels=["left monster", "right monster"],
+            next_nodes=[
+                {"choice_index": 0, "room_symbol": "M"},
+                {"choice_index": 1, "room_symbol": "monster"},
+            ],
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "ambiguous_target")
 
 
 if __name__ == "__main__":

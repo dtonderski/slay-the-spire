@@ -235,6 +235,60 @@ def match_visible_choice(
     return _blocked("ambiguous_target", f"{target!r} matched {len(matches)} visible choices")
 
 
+def match_map_choice(
+    script: dict[str, Any],
+    *,
+    floor: int,
+    choice_labels: list[str],
+    next_nodes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Match the next SlayTheData path entry against visible map choices."""
+
+    target = _route_target_for_next_choice(script, floor)
+    if not target:
+        return _blocked("missing_target", f"no map route target after floor {floor}")
+
+    node_matches = [
+        node
+        for node in _list(next_nodes)
+        if isinstance(node, dict) and _room_symbol_matches(target, _node_room_symbol(node))
+    ]
+    if len(node_matches) == 1:
+        slot = _node_choice_slot(node_matches[0], choice_labels)
+        if slot is not None:
+            return {
+                "status": "matched",
+                "descriptor": {"kind": "ChooseVisibleOption", "option_slot": slot},
+                "target": target,
+                "matched_label": choice_labels[slot] if 0 <= slot < len(choice_labels) else str(node_matches[0]),
+                "floor": floor,
+                "category": "map",
+                "ordinal": 0,
+            }
+        return _blocked("target_not_visible", f"matched route {target!r} has no visible map choice slot")
+    if len(node_matches) > 1:
+        return _blocked("ambiguous_target", f"route {target!r} matched {len(node_matches)} map nodes")
+
+    label_matches = [
+        index
+        for index, label in enumerate(choice_labels)
+        if _room_symbol_matches(target, label)
+    ]
+    if len(label_matches) == 1:
+        return {
+            "status": "matched",
+            "descriptor": {"kind": "ChooseVisibleOption", "option_slot": label_matches[0]},
+            "target": target,
+            "matched_label": choice_labels[label_matches[0]],
+            "floor": floor,
+            "category": "map",
+            "ordinal": 0,
+        }
+    if not label_matches:
+        return _blocked("target_not_visible", f"route {target!r} is not visible")
+    return _blocked("ambiguous_target", f"route {target!r} matched {len(label_matches)} visible choices")
+
+
 def _target_text_for_category(
     script: dict[str, Any],
     decision: dict[str, Any] | None,
@@ -328,6 +382,78 @@ def _act_for_boss_relic_floor(floor: int) -> int | None:
     if floor <= 34:
         return 2
     return 3
+
+
+def _route_target_for_next_choice(script: dict[str, Any], floor: int) -> str | None:
+    for candidate_floor in (floor + 1, floor):
+        decision = floor_decision(script, candidate_floor)
+        route = decision.get("route") if decision else None
+        if route:
+            return str(route)
+    path = ((script.get("route") or {}).get("path_per_floor") if isinstance(script.get("route"), dict) else None)
+    if isinstance(path, list):
+        for index in (floor, floor - 1):
+            if 0 <= index < len(path) and path[index]:
+                return str(path[index])
+    return None
+
+
+def _node_room_symbol(node: dict[str, Any]) -> str | None:
+    for key in ("symbol", "room_symbol", "roomSymbol", "room", "room_type", "roomType", "type"):
+        value = node.get(key)
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _node_choice_slot(node: dict[str, Any], choice_labels: list[str]) -> int | None:
+    for key in ("choice_index", "choiceIndex", "slot", "index", "option_slot", "optionSlot"):
+        parsed = _parse_int(node.get(key))
+        if parsed is not None:
+            return parsed
+    x = _parse_int(node.get("x"))
+    if x is not None:
+        for index, label in enumerate(choice_labels):
+            if f"x={x}" in str(label).lower():
+                return index
+        if 0 <= x < len(choice_labels):
+            return x
+    return 0 if len(choice_labels) == 1 else None
+
+
+def _room_symbol_matches(target: Any, value: Any) -> bool:
+    target_symbol = _canonical_room_symbol(target)
+    value_symbol = _canonical_room_symbol(value)
+    return bool(target_symbol and value_symbol and target_symbol == value_symbol)
+
+
+def _canonical_room_symbol(value: Any) -> str:
+    token = _normalized_token(value)
+    aliases = {
+        "m": "M",
+        "monster": "M",
+        "enemy": "M",
+        "e": "E",
+        "elite": "E",
+        "?": "?",
+        "event": "?",
+        "unknown": "?",
+        "$": "$",
+        "shop": "$",
+        "merchant": "$",
+        "r": "R",
+        "rest": "R",
+        "campfire": "R",
+        "t": "T",
+        "treasure": "T",
+        "chest": "T",
+        "b": "B",
+        "boss": "B",
+    }
+    raw = str(value).strip() if value is not None else ""
+    if raw in aliases:
+        return aliases[raw]
+    return aliases.get(token, "")
 
 
 def _ordinal_entry(entries: Any, ordinal: int) -> dict[str, Any] | None:

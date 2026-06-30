@@ -72,6 +72,8 @@ The collector can now:
 - send one matched non-combat bridge command when `tick` receives
   `{ "send": true }`, after strict seed replay confirms the command maps to a
   current exact simulator action
+- match map choices against SlayTheData `path_per_floor` when visible next-node
+  room symbols identify exactly one target
 - match boss relic reward choices by act from SlayTheData boss relic history
 - delegate one combat action to the live combat search policy
 - store the predicted simulator state after a sent combat or strict non-combat
@@ -110,11 +112,11 @@ Tick algorithm:
    unsupported, or would require guessing.
 
 Steps 1, 3, 4, simple visible-choice sending, strict non-combat legal-action
-agreement, boss relic matching, and post-send prediction checks are
-implemented, and the UI can repeatedly call tick until blocked. Remaining work
-is broader path/reward/shop/campfire coverage beyond simple visible text
-matching and candidate filtering/ranking beyond the initial "find supported
-runs" UI.
+agreement, conservative map path matching, boss relic matching, and post-send
+prediction checks are implemented, and the UI can repeatedly call tick until
+blocked. Remaining work is broader reward/shop/campfire coverage beyond simple
+visible text matching, map tie-breaking when room symbols are ambiguous, and
+candidate filtering/ranking beyond the initial "find supported runs" UI.
 
 ## Important Boundaries
 
