@@ -173,6 +173,7 @@ def suggest_guided_action(
     floor = _current_floor(summary, bridge_status)
     if floor is None:
         return _blocked("missing_floor", "bridge status does not expose a current floor")
+    act = _current_act(summary, bridge_status)
 
     if _looks_like_combat(summary):
         return {
@@ -197,9 +198,11 @@ def suggest_guided_action(
         choice_labels=choices,
         category=decision_category,
         ordinal=ordinal,
+        act=act,
     )
     return match | {
         "floor": floor,
+        "act": act,
         "visible_choices": choices,
         "category": decision_category,
         "ordinal": ordinal,
@@ -336,6 +339,19 @@ def _current_floor(summary: dict[str, Any], bridge_status: dict[str, Any]) -> in
     return None
 
 
+def _current_act(summary: dict[str, Any], bridge_status: dict[str, Any]) -> int | None:
+    for value in (
+        summary.get("act"),
+        (summary.get("run") or {}).get("act") if isinstance(summary.get("run"), dict) else None,
+        _game_state(bridge_status).get("act"),
+        _game_state(bridge_status).get("act_num"),
+    ):
+        parsed = _parse_int(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def _visible_choices(summary: dict[str, Any], bridge_status: dict[str, Any]) -> list[str]:
     choices = summary.get("choices")
     if isinstance(choices, list):
@@ -357,6 +373,8 @@ def _infer_category(summary: dict[str, Any], bridge_status: dict[str, Any]) -> s
         )
         if value is not None
     )
+    if "boss" in text and "relic" in text:
+        return "boss_relic"
     if "card" in text and "reward" in text:
         return "card_reward"
     if "shop" in text:
