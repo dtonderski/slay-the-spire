@@ -150,6 +150,16 @@ class BridgeMirror:
             else None,
         }
 
+    def clear_orphan_command_metadata(self) -> dict[str, Any]:
+        command_path = self.session_dir / "next_command.txt"
+        command_meta_path = self.session_dir / "next_command.json"
+        if command_path.exists():
+            raise ValueError("cannot clear command metadata while next_command.txt exists")
+        if not command_meta_path.exists():
+            return {"ok": True, "cleared": False, "reason": "next_command.json is already absent"}
+        command_meta_path.unlink()
+        return {"ok": True, "cleared": True}
+
     def send_command(
         self,
         command: str,

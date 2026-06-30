@@ -98,6 +98,27 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertIn("next_command.json exists without next_command.txt", result["problems"])
 
+    def test_clear_orphan_command_metadata_removes_only_orphan_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "next_command.json").write_text(json.dumps({"command_id": "orphan"}), encoding="utf-8")
+
+            result = BridgeMirror(root).clear_orphan_command_metadata()
+
+            self.assertEqual(result, {"ok": True, "cleared": True})
+            self.assertFalse((root / "next_command.json").exists())
+
+    def test_clear_orphan_command_metadata_rejects_pending_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "next_command.txt").write_text("state\n", encoding="utf-8")
+            (root / "next_command.json").write_text(json.dumps({"command_id": "pending"}), encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                BridgeMirror(root).clear_orphan_command_metadata()
+
+            self.assertTrue((root / "next_command.json").exists())
+
     def test_send_command_rejects_stale_bridge_source_without_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
