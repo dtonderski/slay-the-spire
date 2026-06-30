@@ -508,9 +508,15 @@ def _shop_purge_target(decision: dict[str, Any], choice_labels: list[str]) -> st
 
 def _reward_target(decision: dict[str, Any], choice_labels: list[str]) -> str | None:
     visible = [_canonical_reward_label(label) for label in choice_labels]
+    exact_relic = _first_visible_reward_identity(decision.get("relics_obtained"), "key", choice_labels)
+    if exact_relic is not None:
+        return exact_relic
+    potions = decision.get("potions") if isinstance(decision.get("potions"), dict) else {}
+    exact_potion = _first_visible_reward_identity(potions.get("obtained"), "key", choice_labels)
+    if exact_potion is not None:
+        return exact_potion
     if decision.get("relics_obtained") and "relic" in visible:
         return "relic"
-    potions = decision.get("potions") if isinstance(decision.get("potions"), dict) else {}
     if potions.get("obtained") and "potion" in visible:
         return "potion"
     if decision.get("card_rewards") and "card" in visible:
@@ -519,6 +525,16 @@ def _reward_target(decision: dict[str, Any], choice_labels: list[str]) -> str | 
         return "stolen_gold"
     if "gold" in visible:
         return "gold"
+    return None
+
+
+def _first_visible_reward_identity(entries: Any, key: str, choice_labels: list[str]) -> str | None:
+    for entry in _list(entries):
+        if not isinstance(entry, dict):
+            continue
+        value = _optional_string(entry.get(key))
+        if value and any(_target_matches_label(value, label) for label in choice_labels):
+            return value
     return None
 
 

@@ -370,6 +370,36 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(gold["status"], "matched")
         self.assertEqual(gold["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
+    def test_match_visible_choice_prefers_named_reward_identity(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "relics_obtained": [{"floor": 1, "key": "Oddly Smooth Stone"}],
+                    "potions_obtained": [{"floor": 2, "key": "Fire Potion"}],
+                }
+            }
+        )
+
+        relic = match_visible_choice(
+            script,
+            floor=1,
+            choice_labels=["Gold", "Oddly Smooth Stone", "Card"],
+            category="reward",
+        )
+        potion = match_visible_choice(
+            script,
+            floor=2,
+            choice_labels=["Gold", "Fire Potion"],
+            category="reward",
+        )
+
+        self.assertEqual(relic["status"], "matched")
+        self.assertEqual(relic["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(relic["target"], "Oddly Smooth Stone")
+        self.assertEqual(potion["status"], "matched")
+        self.assertEqual(potion["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(potion["target"], "Fire Potion")
+
     def test_match_visible_choice_selects_shop_purchase_then_leave(self):
         script = build_guided_run_script(
             {
