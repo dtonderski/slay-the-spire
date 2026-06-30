@@ -138,6 +138,26 @@ function summarizeStrictTraceValidation(value) {
   };
 }
 
+function summarizeBridgeClients(value) {
+  if (!value || typeof value !== "object") return null;
+  const clients = Array.isArray(value.clients) ? value.clients : [];
+  const visibleClients = clients.filter((client) => client && (client.current || client.alive));
+  const exitedCount = clients.length - visibleClients.length;
+  return {
+    alive_count: value.alive_count ?? visibleClients.filter((client) => client.alive).length,
+    active_bridge_count: value.active_bridge_count ?? null,
+    current_pid: value.current_pid ?? null,
+    omitted_exited_count: Math.max(0, exitedCount),
+    clients: visibleClients.map((client) => ({
+      pid: client.pid ?? null,
+      current: Boolean(client.current),
+      alive: Boolean(client.alive),
+      killable: client.killable ?? null,
+      trace_paths: client.trace_paths || [],
+    })),
+  };
+}
+
 function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir = defaultArchiveDir, options = {}) {
   const current_bridge_preflight = options.current_bridge_preflight === false
     ? null
@@ -189,7 +209,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
         ok: Boolean(preflight.ok),
         ages: preflight.ages || null,
         pending_command: preflight.pending_command || null,
-        bridge_clients: preflight.bridge_clients || null,
+        bridge_clients: summarizeBridgeClients(preflight.bridge_clients),
         summary: preflight.summary || null,
         status: preflight.status || null,
       }
