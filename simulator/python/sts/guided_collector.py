@@ -446,16 +446,22 @@ def _next_map_nodes(bridge_status: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _infer_category(summary: dict[str, Any], bridge_status: dict[str, Any]) -> str:
+    game_state = _game_state(bridge_status)
+    screen_state = game_state.get("screen_state") if isinstance(game_state.get("screen_state"), dict) else {}
     text = " ".join(
         str(value).lower()
         for value in (
             summary.get("screen_type"),
             summary.get("phase"),
             summary.get("current_decision"),
-            _game_state(bridge_status).get("screen_type"),
+            game_state.get("screen_type"),
+            screen_state.get("event_name"),
+            screen_state.get("event_id"),
         )
         if value is not None
     )
+    if "neow" in text:
+        return "neow"
     if "boss" in text and "relic" in text:
         return "boss_relic"
     if "map" in text:
