@@ -340,6 +340,30 @@ class UiServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "seed is required"):
             _start_guided_live_run(collector, bridge)
 
+    def test_start_guided_live_run_refuses_blocked_script(self):
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 0,
+                            "seed_played": "GRID01",
+                            "neow_bonus": "REMOVE_CARD",
+                            "neow_cost": "NONE",
+                        }
+                    }
+                )
+            }
+        )
+        bridge = FakeBridge({"state_id": "menu-state"})
+
+        with self.assertRaisesRegex(ValueError, "unsupported_neow_followup|card grid target"):
+            _start_guided_live_run(collector, bridge)
+
+        self.assertEqual(bridge.sent, [])
+
     def test_guided_start_then_strict_collector_tick_smoke(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

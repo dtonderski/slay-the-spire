@@ -118,6 +118,9 @@ The collector can now:
 - match boss relic reward choices by act from SlayTheData boss relic history
 - match generic reward screens against SlayTheData floor evidence for relics,
   potions, card rewards, and visible gold
+- prefer visible named relic/potion reward identities from SlayTheData before
+  falling back to generic `Relic`/`Potion` buckets, so named reward screens do
+  not accidentally fall through to gold
 - skip card reward screens when SlayTheData records `picked: "SKIP"`, using the
   bridge `SKIP` command and the same strict simulator legality check as other
   guided non-combat sends
@@ -143,6 +146,10 @@ The collector can now:
   repeatedly ticks the collector, and writes a compact JSON report with run id,
   seed, trace path, bridge step/state, stop reason, blocker, and recent tick
   history
+- block guided scripts before sending `START` when the exported SlayTheData row
+  would require an unrecorded Neow follow-up card grid target, such as remove,
+  transform, or upgrade, or when Neow card-choice bonuses lack a floor-0 picked
+  card row
 - arm browser-driven auto collection from the guided collector with a single
   `Start + Auto` control. It sends guided `START` through the TCP-required
   backend path, then lets the existing collector loop wait for ready states and
@@ -243,10 +250,10 @@ post-send prediction checks, and generated-trace provenance are implemented,
 and the UI can repeatedly call tick until blocked. The bridge write path now
 has an acknowledged TCP option with controller ownership, state sequence guards,
 and guided-auto enforcement. The browser UI still needs an end-to-end live
-smoke against a freshly restarted TCP-enabled bridge. Remaining work is reward
-edge cases that need hidden identity checks, broader support for Neow bonuses
-whose follow-up target is not explicitly recorded by SlayTheData, and
-end-to-end live bridge smoke coverage.
+smoke against a freshly restarted TCP-enabled bridge. Remaining work is broader
+support for Neow bonuses whose follow-up target is not explicitly recorded by
+SlayTheData, only if a non-guessing data source is added, plus end-to-end live
+bridge smoke coverage.
 
 ## Important Boundaries
 

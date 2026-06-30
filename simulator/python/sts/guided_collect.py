@@ -75,7 +75,21 @@ def collect_one_run(
         )
     run_id = config.run_id if config.run_id is not None else _select_run_id(config)
     script = export_guided_run_script(run_id)
-    collector.start({"script": script})
+    collector_status = collector.start({"script": script})
+    if collector_status.get("status") == "blocked":
+        blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {
+            "reason": "collector_blocked",
+            "detail": "collector blocked after loading guided script",
+        }
+        return _blocked_report(
+            config,
+            started_at=started_at,
+            stop_reason="script_blocked",
+            blocker=blocker,
+            bridge_status=bridge.status(),
+            run_id=run_id,
+            seed=((collector_status.get("config") or {}).get("seed_played")),
+        )
     start_result = _start_guided_live_run(
         collector,
         bridge,
@@ -183,11 +197,13 @@ def _blocked_report(
     blocker: dict[str, Any],
     bridge_status: dict[str, Any],
     preflight: dict[str, Any] | None = None,
+    run_id: int | None = None,
+    seed: str | None = None,
 ) -> dict[str, Any]:
     return {
         "ok": False,
-        "run_id": config.run_id,
-        "seed": None,
+        "run_id": config.run_id if run_id is None else run_id,
+        "seed": seed,
         "stop_reason": stop_reason,
         "blocker": blocker,
         "actions_sent": 0,
