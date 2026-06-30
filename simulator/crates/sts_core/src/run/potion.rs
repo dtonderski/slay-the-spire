@@ -2463,4 +2463,20 @@ mod tests {
             "chosen Demon Form should be playable"
         );
     }
+
+    #[test]
+    fn attack_potion_discovery_matches_live01_floor_eight() {
+        use crate::content::cards::{BLUDGEON_ID, CARNAGE_ID, PERFECTED_STRIKE_ID};
+        use crate::content::shop_pool::discovery_card_choices;
+        use crate::rng::StsRng;
+
+        let mut rng = StsRng::new(1_131_274_026 + 8);
+        let choices = discovery_card_choices(&mut rng, CardType::Attack, 3);
+
+        assert_eq!(
+            choices,
+            vec![CARNAGE_ID, BLUDGEON_ID, PERFECTED_STRIKE_ID],
+            "unexpected LIVE01 floor 8 Attack Potion choices"
+        );
+    }
 }
