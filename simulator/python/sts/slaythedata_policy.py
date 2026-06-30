@@ -194,19 +194,39 @@ def potion_uses_allowed_on_floor(script: dict[str, Any], floor: int) -> int:
 def guided_script_support_blocker(script: dict[str, Any]) -> dict[str, Any] | None:
     """Return a blocker for guided scripts that need unrecorded follow-up choices."""
 
+    blockers = guided_script_support_audit(script)
+    return blockers[0] if blockers else None
+
+
+def guided_script_support_audit(script: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return every known guided-script support blocker.
+
+    SlayTheData is a high-level run log.  Some screens need follow-up targets
+    that the export does not record precisely enough for unattended replay.
+    This audit is intentionally conservative: if a script needs an unrecorded
+    grid target or multiple same-floor grid targets, guided collection should
+    reject it before sending live commands.
+    """
+
+    blockers: list[dict[str, Any]] = []
     config = script.get("config") if isinstance(script.get("config"), dict) else {}
     bonus = str(config.get("neow_bonus") or "").upper()
     if bonus in _NEOW_GRID_TARGET_BONUSES:
-        return _blocked(
+        blockers.append(_blocked(
             "unsupported_neow_followup",
             f"Neow bonus {bonus} requires a card grid target that SlayTheData does not record",
-        )
+        ) | {"category": "neow", "bonus": bonus})
     if bonus in _NEOW_CARD_REWARD_BONUSES and not _has_floor_zero_card_reward(script):
-        return _blocked(
+        blockers.append(_blocked(
             "missing_neow_card_reward",
             f"Neow bonus {bonus} requires a floor-0 card reward choice in the exported SlayTheData row",
-        )
-    return None
+        ) | {"category": "neow", "bonus": bonus})
+
+    for decision in _list(script.get("floor_decisions")):
+        if not isinstance(decision, dict):
+            continue
+        blockers.extend(_grid_support_blockers_for_floor(decision))
+    return blockers
 
 
 def match_visible_choice(
@@ -532,6 +552,59 @@ def _has_floor_zero_card_reward(script: dict[str, Any]) -> bool:
         if isinstance(entry, dict) and entry.get("picked"):
             return True
     return False
+
+
+def _grid_support_blockers_for_floor(decision: dict[str, Any]) -> list[dict[str, Any]]:
+    floor = decision.get("floor")
+    targets: list[dict[str, Any]] = []
+
+    for entry in _list(decision.get("campfires")):
+        if not isinstance(entry, dict) or not entry.get("data"):
+            continue
+        targets.append(
+            {
+                "category": "campfire",
+                "ordinal": entry.get("ordinal"),
+                "kind": str(entry.get("key") or "campfire_grid").lower(),
+                "target_count": 1,
+            }
+        )
+
+    for entry in _list(decision.get("events")):
+        if not isinstance(entry, dict):
+            continue
+        for key in ("cards_removed", "cards_upgraded", "cards_obtained"):
+            values = [value for value in _list(entry.get(key)) if value]
+            if not values:
+                continue
+            targets.append(
+                {
+                    "category": "event",
+                    "ordinal": entry.get("ordinal"),
+                    "kind": key,
+                    "target_count": len(values),
+                }
+            )
+
+    blockers: list[dict[str, Any]] = []
+    for target in targets:
+        if int(target["target_count"]) > 1:
+            blockers.append(
+                _blocked(
+                    "unsupported_multi_card_grid",
+                    f"floor {floor} {target['category']} {target['kind']} needs {target['target_count']} card targets",
+                )
+                | {"floor": floor, **target}
+            )
+    if len(targets) > 1:
+        blockers.append(
+            _blocked(
+                "ambiguous_repeated_grid_floor",
+                f"floor {floor} has {len(targets)} grid follow-up targets; SlayTheData does not order repeated grids precisely enough",
+            )
+            | {"floor": floor, "grid_target_count": len(targets)}
+        )
+    return blockers
 
 
 def _shop_leave_visible(choice_labels: list[str]) -> bool:
