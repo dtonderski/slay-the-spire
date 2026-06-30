@@ -201,6 +201,9 @@ The collector can now:
 - require TCP control for guided collector `START` and tick sends. Manual bridge
   commands may still use the legacy file fallback, but guided auto-collection
   now refuses to send on an old/file-only bridge
+- request a post-command observed state for guided `START` as well as guided
+  tick sends, so the first live auto-collection command has the same
+  acknowledged/observed boundary as later actions
 - let TCP command callers request `wait_for_state_update`, which keeps the
   command response open until the next observed CommunicationMod state arrives
   or a bounded timeout fires; the Python mirror normalizes that observed update
