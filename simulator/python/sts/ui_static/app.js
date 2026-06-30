@@ -38,6 +38,8 @@
     liveInvariantViolation: null,
     collector: null,
     collectorLastError: null,
+    collectorAutoRun: false,
+    collectorAutoTimer: null,
     attachFidelity: null,
     strictReplayBlocker: null,
     mode: null,
@@ -110,6 +112,8 @@
       "startCollectorButton",
       "previewCollectorButton",
       "sendCollectorButton",
+      "autoCollectorButton",
+      "pauseCollectorButton",
       "stopCollectorButton",
       "collectorStatusPanel",
       "requestBridgeStateButton",
@@ -163,6 +167,8 @@
     el.startCollectorButton.addEventListener("click", startGuidedCollector);
     el.previewCollectorButton.addEventListener("click", () => tickGuidedCollector({ send: false }));
     el.sendCollectorButton.addEventListener("click", () => tickGuidedCollector({ send: true }));
+    el.autoCollectorButton.addEventListener("click", startCollectorAutoRun);
+    el.pauseCollectorButton.addEventListener("click", pauseCollectorAutoRun);
     el.stopCollectorButton.addEventListener("click", stopGuidedCollector);
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
     el.refreshBridgeClientsButton.addEventListener("click", (event) => {
@@ -617,6 +623,7 @@
     }
     const body = parsed && parsed.schema ? { script: parsed } : { exported_run: parsed };
     await singleFlight("Starting guided collector", async () => {
+      pauseCollectorAutoRun();
       app.collector = await requestJson("/api/collector/start", { method: "POST", body });
       app.collectorLastError = null;
     });
@@ -630,7 +637,7 @@
     await singleFlight(options.send ? "Sending guided choice" : "Previewing guided choice", async () => {
       app.collector = await requestJson("/api/collector/tick", {
         method: "POST",
-        body: { send: !!options.send },
+        body: collectorTickPayload(options),
       });
       app.collectorLastError = null;
       await refreshBridgeQuietly();
@@ -642,8 +649,108 @@
     });
   }
 
+  function collectorTickPayload(options = {}) {
+    const body = { send: !!options.send };
+    const maxDepth = Number.parseInt(el.maxDepthInput.value, 10);
+    if (Number.isFinite(maxDepth)) body.max_depth = maxDepth;
+    if (el.searchPolicySelect && el.searchPolicySelect.value) body.candidate = el.searchPolicySelect.value;
+    const potions = usablePotions();
+    if (potions.length) body.allowed_potions = allowedPotionsPayload();
+    return body;
+  }
+
+  function startCollectorAutoRun() {
+    if (!app.collector || !app.collector.active) {
+      showError("Start the guided collector before auto-collecting.");
+      return;
+    }
+    app.collectorAutoRun = true;
+    app.collectorLastError = null;
+    scheduleCollectorAutoStep(0);
+    renderCollector();
+  }
+
+  function pauseCollectorAutoRun() {
+    app.collectorAutoRun = false;
+    if (app.collectorAutoTimer) {
+      window.clearTimeout(app.collectorAutoTimer);
+      app.collectorAutoTimer = null;
+    }
+    renderCollector();
+  }
+
+  function scheduleCollectorAutoStep(delayMs = 650) {
+    if (!app.collectorAutoRun) return;
+    if (app.collectorAutoTimer) window.clearTimeout(app.collectorAutoTimer);
+    app.collectorAutoTimer = window.setTimeout(runCollectorAutoStep, delayMs);
+  }
+
+  async function runCollectorAutoStep() {
+    app.collectorAutoTimer = null;
+    if (!app.collectorAutoRun) return;
+    if (app.inFlight) {
+      scheduleCollectorAutoStep(350);
+      return;
+    }
+    try {
+      await refreshBridgeQuietly();
+      await refreshCollectorQuietly();
+      if (!app.collector || !app.collector.active) {
+        app.collectorAutoRun = false;
+        renderCollector();
+        return;
+      }
+      const waitReason = collectorAutoWaitReason();
+      if (waitReason) {
+        app.collectorLastError = null;
+        renderCollector();
+        scheduleCollectorAutoStep(850);
+        return;
+      }
+      await tickGuidedCollector({ send: true });
+      const blocker = app.collector && app.collector.blocker;
+      if (app.lastError && !(blocker && isTransientCollectorBlocker(blocker))) {
+        app.collectorAutoRun = false;
+        renderCollector();
+        return;
+      }
+      if (blocker && !isTransientCollectorBlocker(blocker)) {
+        app.collectorAutoRun = false;
+        renderCollector();
+        return;
+      }
+      scheduleCollectorAutoStep(850);
+    } catch (error) {
+      const blocker = app.collector && app.collector.blocker;
+      if (blocker && isTransientCollectorBlocker(blocker)) {
+        app.collectorLastError = null;
+        scheduleCollectorAutoStep(850);
+      } else {
+        app.collectorAutoRun = false;
+        app.collectorLastError = readableError(error);
+      }
+      renderCollector();
+    }
+  }
+
+  function collectorAutoWaitReason() {
+    if (app.liveInvariantViolation) return "simulator/live mismatch needs acknowledgement";
+    if (bridgeIdentityWarningText()) return "bridge client identity changed";
+    if (!app.bridge || !app.bridge.connected) return "bridge disconnected";
+    if (app.bridge.exited) return "bridge exited";
+    if (app.bridge.pending_command) return "waiting for pending bridge command";
+    if (app.bridge.ready_for_command !== true) return "waiting for bridge ready state";
+    return "";
+  }
+
+  function isTransientCollectorBlocker(blocker) {
+    const reason = firstDefined(blocker && blocker.reason, "");
+    return reason === "pending_command" || reason === "bridge_not_ready";
+  }
+
   async function stopGuidedCollector() {
     await singleFlight("Stopping guided collector", async () => {
+      pauseCollectorAutoRun();
       app.collector = await requestJson("/api/collector/stop", { method: "POST", body: {} });
       app.collectorLastError = null;
     });
@@ -1122,9 +1229,13 @@
     el.startCollectorButton.disabled = app.inFlight;
     el.previewCollectorButton.disabled = !canTick;
     el.sendCollectorButton.disabled = !canTick || !app.bridge || app.bridge.pending_command;
+    el.autoCollectorButton.disabled = !canTick || app.collectorAutoRun;
+    el.pauseCollectorButton.disabled = !app.collectorAutoRun;
     el.stopCollectorButton.disabled = !active || app.inFlight;
     el.previewCollectorButton.title = canTick ? "Preview the next guided decision without sending." : "Start a collector and keep the bridge ready.";
     el.sendCollectorButton.title = canTick ? "Send one safe guided action." : "Collector cannot send right now.";
+    el.autoCollectorButton.title = canTick ? "Keep sending safe guided actions until blocked." : "Collector cannot auto-run right now.";
+    el.pauseCollectorButton.title = app.collectorAutoRun ? "Pause guided auto-collection." : "Auto-collection is not running.";
 
     clear(el.collectorStatusPanel);
     if (app.collectorLastError) {
@@ -1145,6 +1256,7 @@
         ["Status", status],
         ["Run", firstDefined(app.collector.source && app.collector.source.run_id, "-")],
         ["Seed", firstDefined(app.collector.config && app.collector.config.seed_played, "-")],
+        ["Auto", app.collectorAutoRun ? collectorAutoWaitReason() || "Running" : "Paused"],
         ["History", firstDefined(app.collector.history_count, 0)],
       ]),
     );
