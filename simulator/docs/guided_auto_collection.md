@@ -143,6 +143,10 @@ The collector can now:
   repeatedly ticks the collector, and writes a compact JSON report with run id,
   seed, trace path, bridge step/state, stop reason, blocker, and recent tick
   history
+- arm browser-driven auto collection from the guided collector with a single
+  `Start + Auto` control. It sends guided `START` through the TCP-required
+  backend path, then lets the existing collector loop wait for ready states and
+  tick until a strict blocker appears
 - expose bridge preflight status in the guided collector panel and disable
   collector sends while hard preflight problems are present
 - refresh and show that preflight status even before a guided script is loaded,
