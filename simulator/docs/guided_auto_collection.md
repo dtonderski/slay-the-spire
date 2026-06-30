@@ -175,6 +175,9 @@ The collector can now:
   collector sends while hard preflight problems are present
 - refresh and show that preflight status even before a guided script is loaded,
   so startup blockers are visible before pressing Auto
+- run the same bridge-client audit in the browser collector status path as the
+  headless collector preflight, so multiple live trace clients are shown as a
+  hard startup problem in both surfaces
 - provide a guarded UI repair for orphan `next_command.json` metadata when no
   `next_command.txt` command is pending
 - cover the composed offline workflow with a temp-bridge smoke test: guided
@@ -211,6 +214,11 @@ The collector can now:
   bridge commands use the same TCP-required send-and-observe path, and fresh
   TCP-enabled bridge clients reject legacy `next_command.txt` writes by default
   unless `TRACE_ALLOW_FILE_COMMANDS=1` is set for compatibility diagnostics
+- allow the Python controller to explicitly take over a stale TCP controller
+  lease while still rejecting fresh competing controllers. The trace client
+  records a `controller_takeover` metadata row when this recovery path is used,
+  so dead-owner recovery is visible in audits instead of silently changing
+  ownership
 - request a post-command observed state for guided `START` as well as guided
   tick sends, so the first live auto-collection command has the same
   acknowledged/observed boundary as later actions
