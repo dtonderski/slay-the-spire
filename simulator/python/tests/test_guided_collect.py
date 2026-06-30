@@ -52,6 +52,28 @@ class FakeBridge:
         return {"ok": True, "command_id": f"cmd-{len(self.sent)}", "command": command}
 
 
+class VerboseObservedUpdateBridge(FakeBridge):
+    def send_command(self, command, **kwargs):
+        self.sent.append((command, kwargs))
+        return {
+            "ok": True,
+            "command_id": f"cmd-{len(self.sent)}",
+            "command": command,
+            "transport": "tcp-jsonl",
+            "observed_update": {
+                "ok": True,
+                "state_id": "observed-state",
+                "state_seq": 9,
+                "step": 3,
+                "bridge_status": {
+                    "state_id": "observed-state",
+                    "last_state_step": 3,
+                    "current_state": {"large": "x" * 1000},
+                },
+            },
+        }
+
+
 class GuidedCollectTests(unittest.TestCase):
     def test_collect_one_run_reports_blocker_and_requires_tcp(self):
         bridge = FakeBridge()
@@ -102,6 +124,36 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["selection"]["mode"], "explicit")
         self.assertEqual(report["selection"]["selected_run_id"], 123)
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
+
+    def test_collect_one_run_compacts_start_observed_update_in_history(self):
+        bridge = VerboseObservedUpdateBridge()
+        ticks = [
+            {
+                "status": "blocked",
+                "blocker": {"status": "blocked", "reason": "done"},
+                "suggestion": {"status": "blocked", "reason": "done"},
+            }
+        ]
+
+        with patch(
+            "sts.guided_collect.export_guided_run_script",
+            return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
+        ), patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=lambda *_args, **_kwargs: ticks.pop(0),
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123, max_actions=5, max_seconds=5),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        start_send = report["history_tail"][0]["send_result"]
+        self.assertEqual(start_send["transport"], "tcp-jsonl")
+        self.assertEqual(start_send["observed_update"]["state_id"], "observed-state")
+        self.assertEqual(start_send["observed_update"]["bridge_step"], 3)
+        self.assertNotIn("bridge_status", start_send["observed_update"])
+        self.assertNotIn("current_state", json.dumps(start_send))
 
     def test_collect_one_run_blocks_before_export_when_preflight_fails(self):
         bridge = FakeBridge(
