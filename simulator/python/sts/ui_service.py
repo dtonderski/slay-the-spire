@@ -332,6 +332,7 @@ class SessionManager:
         if payload.get("provenance") is not None:
             send_kwargs["metadata"] = payload["provenance"]
         result = send_command(bridge_action["command"], **send_kwargs)
+        observed_update = _observed_update_or_raise(result, "live combat send")
         return {
             "session_id": live_session["session_id"],
             "source_state_id": live_session["state_id"],
@@ -345,7 +346,7 @@ class SessionManager:
                 "command_id": result.get("command_id"),
                 "command": result.get("command"),
                 "transport": result.get("transport"),
-                "observed_update": result.get("observed_update"),
+                "observed_update": observed_update,
             },
         }
 
@@ -400,6 +401,7 @@ class SessionManager:
         if payload.get("provenance") is not None:
             send_kwargs["metadata"] = payload["provenance"]
         result = send_command(command, **send_kwargs)
+        observed_update = _observed_update_or_raise(result, "live non-combat send")
         return {
             "session_id": live_session["session_id"],
             "source_state_id": live_session["state_id"],
@@ -413,7 +415,7 @@ class SessionManager:
                 "command_id": result.get("command_id"),
                 "command": result.get("command"),
                 "transport": result.get("transport"),
-                "observed_update": result.get("observed_update"),
+                "observed_update": observed_update,
             },
         }
 
@@ -819,6 +821,18 @@ def _search_predicted_hp_loss(env: Any, predicted_final_hp: float | None) -> flo
     if current_hp is None:
         return None
     return max(0.0, float(current_hp) - predicted_final_hp)
+
+
+def _observed_update_or_raise(send_result: dict[str, Any], context: str) -> dict[str, Any] | None:
+    observed_update = send_result.get("observed_update")
+    if send_result.get("transport") != "tcp-jsonl":
+        return observed_update if isinstance(observed_update, dict) else None
+    if not isinstance(observed_update, dict):
+        raise ValueError(f"{context} did not return an observed TCP state update")
+    if observed_update.get("ok") is not True:
+        detail = observed_update.get("error") or "timed out waiting for observed state update"
+        raise ValueError(f"{context} did not observe post-command state: {detail}")
+    return observed_update
 
 
 def _state_player_hp(state: dict[str, Any]) -> float | None:
