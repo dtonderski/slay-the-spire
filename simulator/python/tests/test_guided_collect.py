@@ -379,6 +379,42 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["selection"]["skipped_unsupported"][0]["reason"], "unsupported_neow_followup")
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 0 LIVE02")
 
+    def test_collect_one_run_auto_selection_forwards_potion_usage_filter(self):
+        bridge = FakeBridge()
+
+        with patch(
+            "sts.guided_collect.select_guided_collection_candidates",
+            return_value=[{"id": 22}],
+        ) as select, patch(
+            "sts.guided_collect.export_guided_run_script",
+            return_value={
+                "config": {
+                    "character": "IRONCLAD",
+                    "ascension": 0,
+                    "seed_played": "POTION01",
+                    "neow_bonus": "THREE_ENEMY_KILL",
+                    "neow_cost": "NONE",
+                }
+            },
+        ), patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=lambda *_args, **_kwargs: {
+                "status": "blocked",
+                "blocker": {"status": "blocked", "reason": "done"},
+                "suggestion": {"status": "blocked", "reason": "done"},
+            },
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=None, min_potion_usage=2),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        select.assert_called_once()
+        self.assertEqual(select.call_args.kwargs["min_potion_usage"], 2)
+        self.assertEqual(report["run_id"], 22)
+        self.assertEqual(report["seed"], "POTION01")
+
     def test_collect_one_run_waits_for_preflight_to_become_ready(self):
         bridge = FakeBridge(
             preflight=[
