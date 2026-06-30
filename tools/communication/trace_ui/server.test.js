@@ -81,7 +81,7 @@ async function testTcpCommandPathUsesExpectedStateAndNoFileWrite() {
     assert.strictEqual(fs.existsSync(path.join(sessionDir, "next_command.txt")), false);
     assert.strictEqual(control.received.length, 2);
     assert.strictEqual(control.received[0].type, "acquire");
-    assert.strictEqual(control.received[0].owner_id, "trace-ui");
+    assert.strictEqual(control.received[0].owner_id, `trace-ui-${process.pid}`);
     assert.strictEqual(control.received[1].type, "command");
     assert.strictEqual(control.received[1].expected_state_id, "state-1");
     assert.strictEqual(control.received[1].expected_state_seq, 7);
