@@ -353,6 +353,48 @@ def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any]
     raise RuntimeError(f"no auto-selected SlayTheData candidates had supported guided scripts ({detail})")
 
 
+def select_run_audit_report(config: GuidedCollectConfig, *, started_at: float | None = None) -> dict[str, Any]:
+    started_at = time.time() if started_at is None else started_at
+    try:
+        run_id, script, selection = _select_run_script(config)
+    except Exception as error:
+        return {
+            "producer": "sts.guided_collect",
+            "generated_at": _utc_now(),
+            "ok": False,
+            "run_id": None,
+            "seed": None,
+            "stop_reason": "selection_failed",
+            "blocker": {"reason": "selection_failed", "detail": str(error)},
+            "elapsed_seconds": time.time() - started_at,
+            "selection": None,
+            "support_blockers": [],
+        }
+
+    blockers = guided_script_support_audit(script)
+    config_data = script.get("config") if isinstance(script.get("config"), dict) else {}
+    return {
+        "producer": "sts.guided_collect",
+        "generated_at": _utc_now(),
+        "ok": not blockers,
+        "run_id": run_id,
+        "seed": config_data.get("seed_played"),
+        "stop_reason": "select_only",
+        "blocker": blockers[0] if blockers else None,
+        "elapsed_seconds": time.time() - started_at,
+        "selection": selection,
+        "support_blockers": blockers,
+        "script_summary": {
+            "character": config_data.get("character"),
+            "ascension": config_data.get("ascension"),
+            "neow_bonus": config_data.get("neow_bonus"),
+            "neow_cost": config_data.get("neow_cost"),
+            "floor_decision_count": len(script.get("floor_decisions") or []),
+            "boss_relic_count": len(script.get("boss_relic_choices") or []),
+        },
+    }
+
+
 def _compact_tick(tick: dict[str, Any]) -> dict[str, Any]:
     suggestion = tick.get("suggestion") if isinstance(tick.get("suggestion"), dict) else {}
     send = suggestion.get("combat_send") or suggestion.get("non_combat_send") or suggestion.get("send_result")
@@ -517,30 +559,30 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--report-output", type=Path, default=None)
     parser.add_argument("--archive-report-dir", type=Path, default=None)
     parser.add_argument("--fail-on-not-ok", action="store_true")
+    parser.add_argument("--select-only", action="store_true")
     parser.add_argument("--preflight-timeout-seconds", type=float, default=0.0)
     parser.add_argument("--preflight-poll-seconds", type=float, default=1.0)
     args = parser.parse_args(argv)
 
     started_at = time.time()
+    config = GuidedCollectConfig(
+        run_id=args.run_id,
+        character=args.character,
+        ascension=args.ascension,
+        min_floor=args.min_floor,
+        max_floor=args.max_floor,
+        min_potion_usage=args.min_potion_usage,
+        max_actions=args.max_actions,
+        max_seconds=args.max_seconds,
+        poll_seconds=args.poll_seconds,
+        combat_policy=args.combat_policy,
+        max_depth=args.max_depth,
+        require_tcp_control=not args.allow_file_bridge,
+        preflight_timeout_seconds=args.preflight_timeout_seconds,
+        preflight_poll_seconds=args.preflight_poll_seconds,
+    )
     try:
-        report = collect_one_run(
-            GuidedCollectConfig(
-                run_id=args.run_id,
-                character=args.character,
-                ascension=args.ascension,
-                min_floor=args.min_floor,
-                max_floor=args.max_floor,
-                min_potion_usage=args.min_potion_usage,
-                max_actions=args.max_actions,
-                max_seconds=args.max_seconds,
-                poll_seconds=args.poll_seconds,
-                combat_policy=args.combat_policy,
-                max_depth=args.max_depth,
-                require_tcp_control=not args.allow_file_bridge,
-                preflight_timeout_seconds=args.preflight_timeout_seconds,
-                preflight_poll_seconds=args.preflight_poll_seconds,
-            )
-        )
+        report = select_run_audit_report(config, started_at=started_at) if args.select_only else collect_one_run(config)
     except Exception as error:
         report = _internal_error_report(error, elapsed_seconds=time.time() - started_at)
     encoded = json.dumps(report, indent=2, sort_keys=True)
