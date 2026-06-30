@@ -104,6 +104,10 @@ The collector can now:
   current exact simulator action
 - match map choices against SlayTheData `path_per_floor` when visible next-node
   room symbols identify exactly one target
+- disambiguate same-symbol map choices when the live CommunicationMod map
+  topology proves that exactly one visible node can satisfy the next
+  SlayTheData route symbols, while still blocking if multiple paths remain
+  compatible
 - match campfire rest-site choices by campfire key, then card grids by the
   SlayTheData campfire card target
 - match boss relic reward choices by act from SlayTheData boss relic history
@@ -166,12 +170,12 @@ Tick algorithm:
    unsupported, or would require guessing.
 
 Steps 1, 3, 4, simple visible-choice sending, strict non-combat legal-action
-agreement, conservative map path matching, boss relic matching, campfire/grid
-matching, post-send prediction checks, and generated-trace provenance are
-implemented, and the UI can repeatedly call tick until blocked. Remaining work
-is map tie-breaking when room symbols are ambiguous, reward edge cases that
-need hidden identity checks, broader support for Neow bonuses that open
-follow-up grids, and end-to-end live bridge smoke coverage.
+agreement, conservative map path matching including topology-backed
+same-symbol disambiguation, boss relic matching, campfire/grid matching,
+post-send prediction checks, and generated-trace provenance are implemented,
+and the UI can repeatedly call tick until blocked. Remaining work is reward
+edge cases that need hidden identity checks, broader support for Neow bonuses
+that open follow-up grids, and end-to-end live bridge smoke coverage.
 
 ## Important Boundaries
 

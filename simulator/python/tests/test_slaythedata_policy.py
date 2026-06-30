@@ -421,6 +421,55 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["reason"], "ambiguous_target")
 
+    def test_match_map_choice_disambiguates_ambiguous_route_with_map_lookahead(self):
+        script = build_guided_run_script({"event": {"path_per_floor": ["M", "?", "$"]}})
+
+        result = match_map_choice(
+            script,
+            floor=0,
+            choice_labels=["x=1", "x=2"],
+            next_nodes=[
+                {"x": 1, "y": 0, "symbol": "M"},
+                {"x": 2, "y": 0, "symbol": "M"},
+            ],
+            map_nodes=[
+                {"x": 1, "y": 0, "symbol": "M", "children": [{"x": 1, "y": 1}]},
+                {"x": 2, "y": 0, "symbol": "M", "children": [{"x": 2, "y": 1}]},
+                {"x": 1, "y": 1, "symbol": "?", "children": [{"x": 1, "y": 2}]},
+                {"x": 2, "y": 1, "symbol": "$", "children": [{"x": 2, "y": 2}]},
+                {"x": 1, "y": 2, "symbol": "$", "children": []},
+                {"x": 2, "y": 2, "symbol": "?", "children": []},
+            ],
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+        self.assertEqual(result["match_evidence"], "map_topology_lookahead")
+
+    def test_match_map_choice_still_blocks_when_map_lookahead_is_ambiguous(self):
+        script = build_guided_run_script({"event": {"path_per_floor": ["M", "?", "$"]}})
+
+        result = match_map_choice(
+            script,
+            floor=0,
+            choice_labels=["x=1", "x=2"],
+            next_nodes=[
+                {"x": 1, "y": 0, "symbol": "M"},
+                {"x": 2, "y": 0, "symbol": "M"},
+            ],
+            map_nodes=[
+                {"x": 1, "y": 0, "symbol": "M", "children": [{"x": 1, "y": 1}]},
+                {"x": 2, "y": 0, "symbol": "M", "children": [{"x": 2, "y": 1}]},
+                {"x": 1, "y": 1, "symbol": "?", "children": [{"x": 1, "y": 2}]},
+                {"x": 2, "y": 1, "symbol": "?", "children": [{"x": 2, "y": 2}]},
+                {"x": 1, "y": 2, "symbol": "$", "children": []},
+                {"x": 2, "y": 2, "symbol": "$", "children": []},
+            ],
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "ambiguous_target")
+
 
 if __name__ == "__main__":
     unittest.main()
