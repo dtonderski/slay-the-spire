@@ -2091,6 +2091,9 @@ pub fn target_encounter_spawn_for_key(
         "2 Fungi Beasts" => {
             target_two_fungi_beasts_spawn_states(seed, floor_num, ascension, neow_lament)
         }
+        "Exordium Thugs" => {
+            target_exordium_thugs_spawn_states(seed, floor_num, ascension, neow_lament)
+        }
         "Looter" => {
             let max_hp = target_looter_hp_roll(seed, floor_num, ascension);
             vec![target_combat_entry_spawn(
@@ -2133,6 +2136,31 @@ fn target_two_fungi_beasts_spawn_states(
             target_city_member_spawn("FungiBeast", &mut hp_rng, None, ascension, neow_lament)
         })
         .collect()
+}
+
+fn target_exordium_thugs_spawn_states(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
+    // Captured LIVE01 shows this mixed encounter entering through constructor-specific
+    // monsterHpRng offsets rather than one simple sequential group stream.
+    let mut slime_hp_rng = StsRng::with_counter(seed + i64::from(floor_num), 2);
+    let slime_hp = target_spike_slime_m_hp_range(ascension).roll(&mut slime_hp_rng);
+    let mut spawns = vec![target_combat_entry_spawn(
+        "Spike Slime (M)",
+        slime_hp,
+        neow_lament,
+        Vec::new(),
+    )];
+    let mut slaver_hp_rng = StsRng::with_counter(seed + i64::from(floor_num), 5);
+    if let Some(slaver) =
+        target_city_member_spawn("SlaverBlue", &mut slaver_hp_rng, None, ascension, neow_lament)
+    {
+        spawns.push(slaver);
+    }
+    spawns
 }
 
 fn target_three_sentries_spawn_states(
@@ -6044,6 +6072,25 @@ mod tests {
         assert_eq!(spawns[0].name, "Lagavulin");
         assert_eq!(spawns[0].max_hp, 110);
         assert_eq!(spawns[0].block, 8);
+    }
+
+    #[test]
+    fn live01_floor_twelve_exordium_thugs_spawn_matches_trace() {
+        assert_eq!(
+            crate::content::encounters::normal_encounter_key_at_combat_index(1_131_274_026, 6)
+                .as_deref(),
+            Some("Exordium Thugs")
+        );
+        let spawns = target_encounter_spawn_for_key(1_131_274_026, 12, "Exordium Thugs", 0, false);
+
+        assert_eq!(
+            spawns.iter().map(|spawn| spawn.name).collect::<Vec<_>>(),
+            vec!["Spike Slime (M)", "SlaverBlue"]
+        );
+        assert_eq!(
+            spawns.iter().map(|spawn| spawn.max_hp).collect::<Vec<_>>(),
+            vec![28, 49]
+        );
     }
 
     #[test]
