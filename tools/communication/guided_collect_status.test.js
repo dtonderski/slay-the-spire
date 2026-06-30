@@ -107,6 +107,8 @@ function testInspectReportValidatesTrace() {
   withTempDir((dir) => {
     const tracePath = path.join(dir, "trace.jsonl");
     writeJsonl(tracePath, [
+      { type: "command_accept", step: 1, command: "START IRONCLAD 0 GUIDED01" },
+      { type: "command_observed_timeout", step: 1, command: "START IRONCLAD 0 GUIDED01" },
       { type: "action", step: 1, command: "START IRONCLAD 0 GUIDED01" },
       {
         type: "state",
@@ -145,6 +147,8 @@ function testInspectReportValidatesTrace() {
     assert.strictEqual(result.producer, "sts.guided_collect");
     assert.strictEqual(result.trace.ok, true);
     assert.strictEqual(result.trace.actions, 1);
+    assert.strictEqual(result.trace.command_accepts, 1);
+    assert.strictEqual(result.trace.command_observed_timeouts, 1);
     assert.strictEqual(result.trace.max_floor, 1);
     assert.strictEqual(result.strict_trace_validation.verified, true);
     assert.strictEqual(result.strict_trace_validation.steps, 1);
