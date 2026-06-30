@@ -152,6 +152,19 @@ The collector can now:
   Neow card reward, topology-disambiguated map choice, delegated combat, and
   card reward skip, verifying command provenance and prediction handoff at
   each step
+- verify the 2026-06-30 LIVE01 trace through strict Python replay to trace
+  exhaustion after fixing Headbutt discard-grid parity; the report has
+  `verified=true`, `stop_reason=trace_exhausted`, `anchor_count=0`, and
+  `restoration_count=0`
+- run the older Rust seed-start verifier on the same trace with
+  `unexpected_diffs=0`; it still reports a documented unsupported `PROCEED`
+  boundary in the seed-start harness, separate from the live strict replay
+  gate used by the UI
+- expose an optional trace-client TCP JSONL control socket. Fresh
+  `run_bridge.cmd` and `run_passive_bridge.cmd` launches bind an ephemeral
+  localhost port and advertise it in `session/status.json`; Python
+  `BridgeMirror.send_command` prefers that socket and falls back to the legacy
+  `next_command.txt` path when unavailable
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot
@@ -185,9 +198,11 @@ Steps 1, 3, 4, simple visible-choice sending, strict non-combat legal-action
 agreement, conservative map path matching including topology-backed
 same-symbol disambiguation, boss relic matching, campfire/grid matching,
 post-send prediction checks, and generated-trace provenance are implemented,
-and the UI can repeatedly call tick until blocked. Remaining work is reward
-edge cases that need hidden identity checks, broader support for Neow bonuses
-whose follow-up target is not explicitly recorded by SlayTheData, and
+and the UI can repeatedly call tick until blocked. The bridge write path now
+has an acknowledged TCP option, but the browser UI still needs an end-to-end
+live smoke against a freshly restarted TCP-enabled bridge. Remaining work is
+reward edge cases that need hidden identity checks, broader support for Neow
+bonuses whose follow-up target is not explicitly recorded by SlayTheData, and
 end-to-end live bridge smoke coverage.
 
 ## Important Boundaries

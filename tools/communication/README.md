@@ -7,6 +7,30 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 - `trace_client.js` is the stdin/stdout bridge used by CommunicationMod. It writes JSONL traces under `verification/corpus/communication_mod/` and publishes current state files under `tools/communication/session/`.
 - `run_bridge.cmd` starts the interactive bridge.
 - `run_passive_bridge.cmd` starts the bridge in state-polling mode.
+- Fresh bridge launch scripts enable the optional localhost TCP JSONL control
+  socket with `TRACE_CONTROL_PORT=0`. The assigned port is advertised in
+  `session/status.json` under `control`.
+
+### TCP JSONL Control
+
+The TCP control socket is an in-memory control plane beside the legacy files.
+It does not replace CommunicationMod stdin/stdout; it sends commands through
+the same bridge process and records accepted commands in the same trace.
+
+Messages are newline-delimited JSON objects:
+
+- `{ "type": "hello" }` returns protocol metadata.
+- `{ "type": "state" }` returns the latest state, summary, trace path, step,
+  and bridge-advertised `state_id`.
+- `{ "type": "command", "command": "CHOOSE 0", "expected_state_id": "...",
+  "metadata": { ... } }` enqueues one command only if the latest state id still
+  matches, the bridge is ready, and the command verb is currently available.
+
+`BridgeMirror.send_command(...)` prefers this socket when advertised and falls
+back to `next_command.txt` for older bridge clients. The legacy session files
+remain the read model and compatibility fallback; the socket is the preferred
+write path because it gives immediate accepted/rejected acknowledgements and
+does not rely on file polling for command submission.
 
 ## Manual Control
 
@@ -52,6 +76,8 @@ Useful environment variables:
 - `STS_SUPERVISOR_STALE_MS`: session summary/status age treated as stale, default `120000`
 - `STS_SUPERVISOR_RESTART_DELAY_MS`: delay between collector restarts, default `3000`
 - `STS_PREFLIGHT_STALE_MS`: session summary/status age treated as stale by preflight, default `120000`
+- `TRACE_CONTROL_PORT`: optional trace-client TCP JSONL control port. Use `0`
+  to bind any free localhost port and publish it in `session/status.json`.
 
 ## Trace Health
 

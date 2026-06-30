@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import time
 from typing import Any
@@ -198,6 +199,16 @@ class BridgeMirror:
         if verb != "state" and verb not in available:
             raise ValueError(f'command "{verb}" is not available')
 
+        control = _bridge_control(before)
+        if control is not None:
+            return self._send_command_via_control(
+                command,
+                control=control,
+                source_state_id=source_state_id or before["state_id"],
+                metadata=metadata,
+                now=now,
+            )
+
         self.session_dir.mkdir(parents=True, exist_ok=True)
         command_id = uuid4().hex
         command_path = self.session_dir / "next_command.txt"
@@ -219,6 +230,37 @@ class BridgeMirror:
             "ok": True,
             "command_id": command_id,
             "command": command,
+            "bridge_status": after,
+        }
+
+    def _send_command_via_control(
+        self,
+        command: str,
+        *,
+        control: dict[str, Any],
+        source_state_id: str | None,
+        metadata: dict[str, Any] | None,
+        now: float | None,
+    ) -> dict[str, Any]:
+        command_id = uuid4().hex
+        payload: dict[str, Any] = {
+            "type": "command",
+            "command": command,
+            "command_id": command_id,
+            "expected_state_id": source_state_id,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        response = _control_request(control, payload)
+        if not response.get("ok"):
+            raise ValueError(str(response.get("error") or "bridge control command rejected"))
+        after = self.status(now=now)
+        return {
+            "ok": True,
+            "transport": "tcp-jsonl",
+            "command_id": response.get("command_id") or command_id,
+            "command": response.get("command") or command,
+            "accepted_state_id": response.get("accepted_state_id"),
             "bridge_status": after,
         }
 
@@ -708,6 +750,9 @@ def _kill_process(pid: int) -> None:
 
 
 def _bridge_state_id(status: dict[str, Any], summary: dict[str, Any], current_state: dict[str, Any]) -> str:
+    for value in (summary.get("state_id"), current_state.get("state_id"), status.get("state_id")):
+        if value:
+            return str(value)
     payload = {
         "status": status,
         "summary": summary,
@@ -715,6 +760,47 @@ def _bridge_state_id(status: dict[str, Any], summary: dict[str, Any], current_st
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:32]
+
+
+def _bridge_control(status: dict[str, Any]) -> dict[str, Any] | None:
+    raw = status.get("status") if isinstance(status, dict) else None
+    control = raw.get("control") if isinstance(raw, dict) else None
+    if not isinstance(control, dict):
+        return None
+    if control.get("protocol") != "tcp-jsonl":
+        return None
+    host = str(control.get("host") or "127.0.0.1")
+    try:
+        port = int(control.get("port"))
+    except (TypeError, ValueError):
+        return None
+    if port <= 0 or port > 65535:
+        return None
+    return {"host": host, "port": port, "protocol": "tcp-jsonl"}
+
+
+def _control_request(control: dict[str, Any], payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:
+    host = str(control["host"])
+    port = int(control["port"])
+    encoded = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        sock.sendall(encoded)
+        chunks: list[bytes] = []
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            if b"\n" in chunk:
+                break
+    data = b"".join(chunks).split(b"\n", 1)[0]
+    if not data:
+        raise ValueError("bridge control returned no response")
+    response = json.loads(data.decode("utf-8"))
+    if not isinstance(response, dict):
+        raise ValueError("bridge control returned a non-object response")
+    return response
 
 
 def _first(*values: dict[str, Any], key: str) -> Any:
