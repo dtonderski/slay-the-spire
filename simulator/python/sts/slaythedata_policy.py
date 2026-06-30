@@ -263,7 +263,7 @@ def match_visible_choice(
         return _blocked("missing_target", f"no {category} target at ordinal {ordinal} on floor {floor}")
     descriptor = _descriptor_for_target(category, target)
     if descriptor is not None:
-        return {
+        result = {
             "status": "matched",
             "descriptor": descriptor,
             "target": target,
@@ -272,6 +272,10 @@ def match_visible_choice(
             "category": category,
             "ordinal": ordinal,
         }
+        evidence = _match_evidence_for_category(category, target, decision, choice_labels)
+        if evidence is not None:
+            result["match_evidence"] = evidence
+        return result
 
     matches = [
         index
@@ -279,7 +283,7 @@ def match_visible_choice(
         if _target_matches_label(target, label)
     ]
     if len(matches) == 1:
-        return {
+        result = {
             "status": "matched",
             "descriptor": {"kind": "ChooseVisibleOption", "option_slot": matches[0]},
             "target": target,
@@ -288,6 +292,10 @@ def match_visible_choice(
             "category": category,
             "ordinal": ordinal,
         }
+        evidence = _match_evidence_for_category(category, target, decision, choice_labels)
+        if evidence is not None:
+            result["match_evidence"] = evidence
+        return result
     if not matches:
         return _blocked("target_not_visible", f"{target!r} is not visible")
     return _blocked("ambiguous_target", f"{target!r} matched {len(matches)} visible choices")
@@ -474,6 +482,36 @@ def _descriptor_for_target(category: str, target: str) -> dict[str, Any] | None:
         return {"kind": "SkipVisibleReward"}
     if category == "shop" and target == "__leave_shop__":
         return {"kind": "LeaveScreen"}
+    return None
+
+
+def _match_evidence_for_category(
+    category: str,
+    target: str,
+    decision: dict[str, Any] | None,
+    choice_labels: list[str],
+) -> str | None:
+    if category == "reward" and isinstance(decision, dict):
+        potions = decision.get("potions") if isinstance(decision.get("potions"), dict) else {}
+        if _first_visible_reward_identity(decision.get("relics_obtained"), "key", choice_labels) == target:
+            return "named_identity"
+        if _first_visible_reward_identity(potions.get("obtained"), "key", choice_labels) == target:
+            return "named_identity"
+        token = _canonical_reward_label(target)
+        if token in {"relic", "potion", "card"}:
+            return "generic_floor_evidence"
+        if token in {"gold", "stolen_gold"}:
+            return "implicit_gold"
+    if category == "shop" and isinstance(decision, dict):
+        if target == "__leave_shop__":
+            return "leave_after_script"
+        if target in {"purge", "remove", "remove card"}:
+            return "remove_card_grid_entry"
+        if any(
+            isinstance(entry, dict) and _optional_string(entry.get("item")) == target
+            for entry in _list(decision.get("shop_purchases"))
+        ):
+            return "buy_if_visible"
     return None
 
 
