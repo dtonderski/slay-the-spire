@@ -1295,6 +1295,85 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertIsNone(verified["pending_prediction"])
 
+    def test_tick_live_collector_clears_prediction_from_observed_tcp_update(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeEventRunEnv(),
+        )
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "run_id": 42,
+                        "event": {
+                            "event_choices": [
+                                {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
+                            ],
+                        },
+                    }
+                )
+            }
+        )
+        bridge_status = {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 2,
+                        "screen_type": "EVENT",
+                        "choice_list": ["Pray", "Leave"],
+                    }
+                }
+            },
+            "summary": {
+                "floor": 2,
+                "screen_type": "EVENT",
+                "choices": ["Pray", "Leave"],
+                "available_commands": ["choose"],
+            },
+        }
+
+        class ObservedUpdateBridge(FakeBridge):
+            def send_command(self, command, **kwargs):
+                self.sent.append((command, kwargs))
+                return {
+                    "ok": True,
+                    "command_id": "cmd-guided",
+                    "command": command,
+                    "observed_update": {
+                        "ok": True,
+                        "bridge_status": bridge_status | {"state_id": "predicted-event-state"},
+                    },
+                }
+
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-event-state",
+            "attach_fidelity": "seed_replay",
+            "state_kind": "run",
+            "state": {"phase": "event"},
+        }
+        observed_session = live_session | {"state_id": "predicted-event-state"}
+
+        with patch.object(manager, "create_live_session", side_effect=[live_session, observed_session]), patch.object(
+            manager,
+            "predict",
+            return_value={"predicted_state_id": "predicted-event-state"},
+        ):
+            sent = _tick_live_collector(collector, manager, ObservedUpdateBridge(bridge_status), {"send": True})
+
+        self.assertEqual(sent["suggestion"]["status"], "sent_non_combat")
+        self.assertIsNone(sent["pending_prediction"])
+
     def test_verify_live_prediction_reports_mismatch(self):
         manager = SessionManager()
         live_session = {

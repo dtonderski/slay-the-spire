@@ -304,6 +304,16 @@ class BridgeMirror:
         response = _control_request(control, payload, timeout=max(2.0, update_timeout_seconds + 1.0))
         if not response.get("ok"):
             raise ValueError(str(response.get("error") or "bridge control command rejected"))
+        observed_update = response.get("observed_update")
+        if isinstance(observed_update, dict):
+            observed_update = observed_update.copy()
+            protocol_state = observed_update.get("state")
+            if isinstance(protocol_state, dict):
+                observed_update["bridge_status"] = _status_from_protocol_state(
+                    protocol_state,
+                    session_dir=self.session_dir,
+                    now=now,
+                )
         after = self.status(now=now)
         return {
             "ok": True,
@@ -312,7 +322,7 @@ class BridgeMirror:
             "command": response.get("command") or command,
             "accepted_state_id": response.get("accepted_state_id"),
             "accepted_state_seq": response.get("accepted_state_seq"),
-            "observed_update": response.get("observed_update"),
+            "observed_update": observed_update,
             "owner_id": owner.get("owner_id"),
             "bridge_status": after,
         }
@@ -830,6 +840,66 @@ def _bridge_control(status: dict[str, Any]) -> dict[str, Any] | None:
     if port <= 0 or port > 65535:
         return None
     return {"host": host, "port": port, "protocol": "tcp-jsonl"}
+
+
+def _status_from_protocol_state(
+    protocol_state: dict[str, Any],
+    *,
+    session_dir: Path,
+    now: float | None = None,
+) -> dict[str, Any]:
+    now = time.time() if now is None else now
+    summary = protocol_state.get("summary") if isinstance(protocol_state.get("summary"), dict) else {}
+    state = protocol_state.get("state") if isinstance(protocol_state.get("state"), dict) else {}
+    status = protocol_state.get("status") if isinstance(protocol_state.get("status"), dict) else {}
+    connected = True
+    stale = False
+    exited = False
+    pending_command = bool(protocol_state.get("pending_command"))
+    state_id = str(protocol_state.get("state_id") or summary.get("state_id") or state.get("state_id") or "")
+    return {
+        "connected": connected,
+        "stale": stale,
+        "exited": exited,
+        "bridge_lifecycle": bridge_lifecycle_from_status(
+            status,
+            summary,
+            connected=connected,
+            stale=stale,
+            exited=exited,
+            pending_command=pending_command,
+        ),
+        "state_id": state_id,
+        "control": _bridge_control({"status": status}),
+        "controller": protocol_state.get("controller"),
+        "session_dir": str(session_dir),
+        "pending_command": pending_command,
+        "pending_command_meta": None,
+        "command_id": None,
+        "client_pid": protocol_state.get("client_pid"),
+        "trace_path": protocol_state.get("trace_path"),
+        "last_state_step": protocol_state.get("step"),
+        "last_command": status.get("command"),
+        "command_sent_at": status.get("sent_at"),
+        "ready_for_command": protocol_state.get("ready_for_command"),
+        "available_commands": protocol_state.get("available_commands", []),
+        "status": status,
+        "summary": summary,
+        "current_state": state,
+        "bridge_actions": bridge_actions_from_status(
+            summary,
+            source_state_id=state_id,
+            connected=connected,
+            stale=stale,
+            pending_command=pending_command,
+        ),
+        "ages": {
+            "status_age_seconds": 0.0,
+            "summary_age_seconds": 0.0,
+            "current_state_age_seconds": 0.0,
+        },
+        "last_error": _first(status, summary, key="error"),
+    }
 
 
 def _control_request(control: dict[str, Any], payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:

@@ -138,7 +138,18 @@ class GuidedCollector:
         if suggestion.get("status") in {"sent_combat", "sent_non_combat"}:
             send_result = suggestion.get("combat_send") or suggestion.get("non_combat_send")
             if isinstance(send_result, dict):
-                self._run.pending_prediction = _pending_prediction_from_simulator_send(send_result)
+                pending_prediction = _pending_prediction_from_simulator_send(send_result)
+                immediate_blocker = self._verify_observed_send_update(
+                    pending_prediction,
+                    send_result,
+                    verify_prediction=verify_prediction,
+                )
+                if immediate_blocker is None:
+                    self._run.pending_prediction = pending_prediction
+                elif immediate_blocker.get("status") == "matched":
+                    self._run.pending_prediction = None
+                else:
+                    return self._record_suggestion(suggestion | immediate_blocker)
         return self._record_suggestion(suggestion)
 
     def _verify_pending_prediction(
@@ -168,6 +179,46 @@ class GuidedCollector:
         return _blocked(
             "prediction_mismatch",
             str(verification.get("detail") or "live state did not match the pending simulator prediction"),
+        ) | {"verification": verification}
+
+    def _verify_observed_send_update(
+        self,
+        pending_prediction: dict[str, Any],
+        send_result: dict[str, Any],
+        *,
+        verify_prediction: Callable[..., dict[str, Any]] | None,
+    ) -> dict[str, Any] | None:
+        raw_send_result = send_result.get("send_result")
+        if not isinstance(raw_send_result, dict):
+            return None
+        observed_update = raw_send_result.get("observed_update")
+        if not isinstance(observed_update, dict):
+            return None
+        if observed_update.get("ok") is not True:
+            return _blocked(
+                "observed_update_timeout",
+                str(observed_update.get("error") or "timed out waiting for observed bridge state after command"),
+            ) | {"observed_update": observed_update}
+        observed_bridge_status = observed_update.get("bridge_status")
+        if not isinstance(observed_bridge_status, dict):
+            return None
+        if verify_prediction is None:
+            return _blocked(
+                "missing_prediction_verifier",
+                "collector received an observed update but has no verifier",
+            )
+        try:
+            verification = verify_prediction(
+                pending_prediction,
+                bridge_status=observed_bridge_status,
+            )
+        except Exception as error:
+            return _blocked("prediction_check_failed", str(error))
+        if verification.get("status") == "matched":
+            return {"status": "matched", "verification": verification}
+        return _blocked(
+            "prediction_mismatch",
+            str(verification.get("detail") or "observed TCP update did not match the simulator prediction"),
         ) | {"verification": verification}
 
     def _record_suggestion(self, suggestion: dict[str, Any]) -> dict[str, Any]:
