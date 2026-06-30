@@ -458,12 +458,15 @@ async function handleControlMessage(payload) {
     if (payload.wait_for_state_update) {
       const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 5000)));
       const observed = await waitForStateAfterSeq(acceptedStateSeq, timeoutMs);
+      const observedChanged = observed ? observed.state_id !== acceptedStateId : false;
       response.observed_update = observed
         ? {
           ok: true,
           state_id: observed.state_id,
           state_seq: observed.state_seq,
           step: observed.step,
+          observed_changed: observedChanged,
+          application_status: observedChanged ? "changed" : "unchanged",
           state: observed,
         }
         : {
@@ -471,6 +474,8 @@ async function handleControlMessage(payload) {
           error: "timed out waiting for observed state update",
           accepted_state_id: acceptedStateId,
           accepted_state_seq: acceptedStateSeq,
+          observed_changed: false,
+          application_status: "timeout",
           step,
         };
       if (!observed) {

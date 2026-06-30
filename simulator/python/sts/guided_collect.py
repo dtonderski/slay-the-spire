@@ -381,6 +381,8 @@ def _compact_send_result(send_result: Any) -> dict[str, Any] | None:
             "state_id": observed_update.get("state_id"),
             "state_seq": observed_update.get("state_seq"),
             "step": observed_update.get("step"),
+            "observed_changed": observed_update.get("observed_changed"),
+            "application_status": observed_update.get("application_status"),
             "error": observed_update.get("error"),
         }
         bridge_status = observed_update.get("bridge_status")
