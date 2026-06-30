@@ -49,10 +49,10 @@ pub const BRONZE_ORB_ID: ContentId = ContentId::new(135);
 pub const ORB_WALKER_ID: ContentId = ContentId::new(136);
 pub const DARKLING_ID: ContentId = ContentId::new(137);
 
-const RED_LOUSE_BITE_DAMAGE: i32 = 6;
+pub(crate) const RED_LOUSE_BITE_DAMAGE: i32 = 6;
 const LOUSE_CURL_STRENGTH: i32 = 3;
 
-const GREEN_LOUSE_BITE_DAMAGE: i32 = 6;
+pub(crate) const GREEN_LOUSE_BITE_DAMAGE: i32 = 6;
 const GREEN_LOUSE_SPIKES: i32 = 3;
 
 const SPIKE_SLIME_LICK_WEAK: i32 = 1;
@@ -61,8 +61,8 @@ const SPIKE_SLIME_M_SPIT_DAMAGE: i32 = 8;
 const SPIKE_SLIME_L_SPIT_DAMAGE: i32 = 16;
 
 const ACID_SLIME_S_TACKLE_DAMAGE: i32 = 3;
-const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
-const ACID_SLIME_M_NORMAL_TACKLE_DAMAGE: i32 = 10;
+pub(crate) const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
+pub(crate) const ACID_SLIME_M_NORMAL_TACKLE_DAMAGE: i32 = 10;
 const ACID_SLIME_WEAK: i32 = 1;
 
 const LAGAVULIN_SLEEP_TURNS: u32 = 3;
@@ -1189,12 +1189,32 @@ pub fn target_two_louse_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let kinds = target_two_louse_kinds(seed, floor_num);
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    target_louse_spawn_states(seed, floor_num, ascension, neow_lament, 2)
+}
 
-    let mut spawns = kinds
-        .into_iter()
-        .map(|kind| {
+#[must_use]
+pub fn target_three_louse_spawn_states(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
+    target_louse_spawn_states(seed, floor_num, ascension, neow_lament, 3)
+}
+
+fn target_louse_spawn_states(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+    count: usize,
+) -> Vec<TargetEncounterSpawn> {
+    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+
+    let mut spawns = (0..count)
+        .map(|_| {
+            let kind = target_louse_kind(&mut misc_rng);
             let hp_range = match kind {
                 LouseKind::Normal => target_louse_normal_hp_range(ascension),
                 LouseKind::Defensive => target_louse_defensive_hp_range(ascension),
@@ -2055,6 +2075,7 @@ pub fn target_encounter_spawn_for_key(
             vec![spawn]
         }
         "2 Louse" => target_two_louse_spawn_states(seed, floor_num, ascension, neow_lament),
+        "3 Louse" => target_three_louse_spawn_states(seed, floor_num, ascension, neow_lament),
         "Looter" => {
             let max_hp = target_looter_hp_roll(seed, floor_num, ascension);
             vec![target_combat_entry_spawn(
@@ -2611,6 +2632,24 @@ fn green_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) ->
         _ => MonsterIntent::Attack {
             damage: rolled_attack_damage.unwrap_or(GREEN_LOUSE_BITE_DAMAGE),
         },
+    }
+}
+
+#[must_use]
+pub fn target_louse_entry_intent_from_roll(
+    roll: i32,
+    rolled_attack_damage: Option<i32>,
+    fallback_damage: i32,
+) -> MonsterIntent {
+    if roll >= 75 {
+        MonsterIntent::Attack {
+            damage: rolled_attack_damage.unwrap_or(fallback_damage),
+        }
+    } else {
+        MonsterIntent::StrengthAndBlock {
+            strength: LOUSE_CURL_STRENGTH,
+            block: 0,
+        }
     }
 }
 
@@ -4322,7 +4361,11 @@ pub fn target_medium_acid_slime_next_intent_from_roll(
     rng: &mut StsRng,
     ascension: u8,
 ) -> MonsterIntent {
-    let wound_damage = if ascension >= 2 { 8 } else { ACID_SLIME_ATTACK_DAMAGE };
+    let wound_damage = if ascension >= 2 {
+        8
+    } else {
+        ACID_SLIME_ATTACK_DAMAGE
+    };
     let attack_damage = if ascension >= 2 {
         12
     } else {
@@ -5906,6 +5949,27 @@ mod tests {
                     amount: 7,
                 }],
             ]
+        );
+    }
+
+    #[test]
+    fn live01_floor_four_three_louse_spawn_matches_trace() {
+        let spawns = target_encounter_spawn_for_key(1_131_274_026, 4, "3 Louse", 0, false);
+
+        assert_eq!(
+            spawns.iter().map(|spawn| spawn.name).collect::<Vec<_>>(),
+            vec!["LouseDefensive", "LouseNormal", "LouseDefensive"]
+        );
+        assert_eq!(
+            spawns.iter().map(|spawn| spawn.max_hp).collect::<Vec<_>>(),
+            vec![11, 15, 11]
+        );
+        assert_eq!(
+            spawns
+                .iter()
+                .map(|spawn| spawn.powers[0].amount)
+                .collect::<Vec<_>>(),
+            vec![4, 4, 6]
         );
     }
 

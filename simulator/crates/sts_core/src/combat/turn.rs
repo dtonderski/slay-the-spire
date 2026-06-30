@@ -614,7 +614,7 @@ fn prepare_next_intents(state: &mut CombatState) {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
             } else if monster.content_id == ACID_SLIME_ID
-                && monster.hp > ACID_SLIME_S_A7_HP_RANGE.max
+                && acid_slime_uses_medium_move_table(monster)
             {
                 if let Some(roll) = roll {
                     if let Some(rng) = state.monster_rng.as_mut() {
@@ -739,6 +739,20 @@ fn is_half_dead_darkling(monster: &crate::MonsterState) -> bool {
     monster.content_id == DARKLING_ID && !monster.alive && monster.escaped
 }
 
+fn acid_slime_uses_medium_move_table(monster: &crate::MonsterState) -> bool {
+    monster.hp > ACID_SLIME_S_A7_HP_RANGE.max
+        || monster.move_history.contains(&2)
+        || matches!(
+            monster.intent,
+            crate::MonsterIntent::AttackAddSlimedToDiscard { .. }
+        )
+        || matches!(
+            monster.intent,
+            crate::MonsterIntent::Attack { damage }
+                if damage >= crate::content::monsters::ACID_SLIME_M_NORMAL_TACKLE_DAMAGE
+        )
+}
+
 fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize {
     monsters
         .iter()
@@ -759,7 +773,7 @@ mod tests {
             BASH_ID, DEFEND_R_ID, MAYHEM_ID, RETAIN_DEFEND_ID, STRIKE_R_ID, WOUND_ID,
         },
         content::monsters::{
-            monster_state, BOOK_OF_STABBING_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER,
+            monster_state, ACID_SLIME_A0, BOOK_OF_STABBING_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER,
             GREMLIN_LEADER_A0, GREMLIN_LEADER_ID, GREMLIN_WARRIOR_ID, HEXAGHOST_A0, MUGGER_A0,
             SHELLED_PARASITE_A0,
         },
@@ -791,6 +805,29 @@ mod tests {
         assert_eq!(
             state.monsters[0].intent,
             MonsterIntent::AttackMultiple { damage: 5, hits: 6 }
+        );
+    }
+
+    #[test]
+    fn damaged_medium_acid_slime_keeps_medium_move_table() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&ACID_SLIME_A0, MonsterId::new(1))];
+        state.monsters[0].hp = 12;
+        state.monsters[0].move_history = vec![1, 2, 4];
+        state.monsters[0].intent = MonsterIntent::ApplyPlayerWeak { amount: 1 };
+        state.monster_rng = (0..1000).find_map(|seed| {
+            let mut rng = crate::rng::StsRng::new(seed);
+            (rng.random_int(99) < 30).then_some(crate::rng::StsRng::new(seed))
+        });
+
+        prepare_next_intents(&mut state);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: crate::content::monsters::ACID_SLIME_ATTACK_DAMAGE,
+                count: 1
+            }
         );
     }
 
