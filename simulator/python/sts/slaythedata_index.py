@@ -86,6 +86,7 @@ def slaythedata_index_status(
     ascension: int = 0,
     min_floor_reached: int = 45,
     min_path_length: int | None = 45,
+    include_counts: bool = False,
 ) -> dict[str, Any]:
     """Return a compact readiness summary for guided SlayTheData collection."""
 
@@ -116,15 +117,17 @@ def slaythedata_index_status(
             status["problems"].append(f"missing required table(s): {', '.join(missing)}")
             return status
 
-        status["runs_count"] = _sqlite_count_with_step_limit(conn, "runs")
-        status["chunk_runs_count"] = _sqlite_count_with_step_limit(conn, "chunk_runs")
-        status["chunk_files_count"] = (
-            _sqlite_count_with_step_limit(conn, "chunk_files") if "chunk_files" in tables else None
-        )
-        if status["runs_count"] is None:
-            status["warnings"].append("SlayTheData run count timed out")
-        if status["chunk_runs_count"] is None:
-            status["warnings"].append("SlayTheData export-row count timed out")
+        status["counts_included"] = bool(include_counts)
+        if include_counts:
+            status["runs_count"] = _sqlite_count_with_step_limit(conn, "runs")
+            status["chunk_runs_count"] = _sqlite_count_with_step_limit(conn, "chunk_runs")
+            status["chunk_files_count"] = (
+                _sqlite_count_with_step_limit(conn, "chunk_files") if "chunk_files" in tables else None
+            )
+            if status["runs_count"] is None:
+                status["warnings"].append("SlayTheData run count timed out")
+            if status["chunk_runs_count"] is None:
+                status["warnings"].append("SlayTheData export-row count timed out")
         status["archive_status_counts"] = (
             _archive_status_counts(conn) if "archive_files" in tables else {}
         )

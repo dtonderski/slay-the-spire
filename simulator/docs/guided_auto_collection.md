@@ -41,7 +41,9 @@ that `runs` and `chunk_runs` are present, that exportable chunk rows exist, and
 that the current guided-collection filters have at least one supported
 candidate. It also reports `archive_files` status counts when available, so a
 partial build is shown as usable-with-warnings instead of silently looking like
-an empty corpus.
+an empty corpus. Exact giant table counts are opt-in with
+`?include_counts=1`; the UI uses the fast readiness check by default so page
+loads do not block behind active index writes.
 
 ## Implemented Slice
 

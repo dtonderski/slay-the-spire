@@ -1193,6 +1193,7 @@ def _slaythedata_status_from_query(query: dict[str, list[str]]) -> dict[str, Any
         ascension=_query_int(query, "ascension", 0),
         min_floor_reached=_query_int(query, "min_floor", 45),
         min_path_length=_query_optional_int(query, "min_path_length") or 45,
+        include_counts=_query_bool(query, "include_counts", False),
     )
 
 
@@ -1290,6 +1291,18 @@ def _query_string(query: dict[str, list[str]], name: str, default: str) -> str:
     if not values:
         return default
     return values[0] or default
+
+
+def _query_bool(query: dict[str, list[str]], name: str, default: bool) -> bool:
+    values = query.get(name)
+    if not values:
+        return default
+    value = str(values[0]).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def _optional_string(value: Any) -> str | None:
