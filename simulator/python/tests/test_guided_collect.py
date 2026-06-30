@@ -17,8 +17,9 @@ from sts.guided_collect import (
 
 
 class FakeBridge:
-    def __init__(self, *, preflight=None):
+    def __init__(self, *, preflight=None, clients=None):
         self.sent = []
+        self._clients = clients
         self._preflights = list(preflight) if isinstance(preflight, list) else None
         self._preflight = preflight or {
             "ok": True,
@@ -52,6 +53,12 @@ class FakeBridge:
                 return self._preflights.pop(0)
             return self._preflights[0]
         return self._preflight
+
+    def clients(self):
+        return self._clients or {
+            "current_pid": 111,
+            "clients": [{"pid": 111, "current": True, "alive": True, "trace_paths": ["trace.jsonl"]}],
+        }
 
     def send_command(self, command, **kwargs):
         self.sent.append((command, kwargs))
@@ -227,6 +234,34 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["preflight"]["pending_command"]["present"], False)
         self.assertTrue(report["trace_validation"]["verified"])
         self.assertEqual(report["trace_validation"]["steps"], 107)
+        self.assertEqual(report["actions_sent"], 0)
+
+    def test_collect_one_run_blocks_before_export_when_multiple_bridge_clients_are_alive(self):
+        bridge = FakeBridge(
+            clients={
+                "current_pid": 111,
+                "clients": [
+                    {"pid": 111, "current": True, "alive": True, "trace_paths": ["trace-current.jsonl"]},
+                    {"pid": 222, "current": False, "alive": True, "trace_paths": ["trace-other.jsonl"]},
+                ],
+            }
+        )
+
+        with patch("sts.guided_collect.export_guided_run_script") as export, patch(
+            "sts.guided_collect._validate_trace",
+            return_value={"verified": True, "stop_reason": "trace_exhausted", "steps": 107},
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        export.assert_not_called()
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "preflight_blocked")
+        self.assertIn("multiple alive bridge clients detected: 111, 222", report["blocker"]["problems"])
+        self.assertEqual(report["preflight"]["bridge_clients"]["alive_count"], 2)
         self.assertEqual(report["actions_sent"], 0)
 
     def test_collect_one_run_reports_tcp_required_as_hard_preflight_problem(self):
