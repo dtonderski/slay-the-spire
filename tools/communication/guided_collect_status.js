@@ -30,6 +30,8 @@ function validateTrace(filePath) {
     ok: result.ok,
     missing: result.missing,
     actions: result.summary.actions,
+    command_accepts: result.summary.command_accepts,
+    command_observed_timeouts: result.summary.command_observed_timeouts,
     max_floor: result.summary.max_floor,
     elite_rooms: result.summary.elite_rooms,
     boss_rooms: result.summary.boss_rooms,
