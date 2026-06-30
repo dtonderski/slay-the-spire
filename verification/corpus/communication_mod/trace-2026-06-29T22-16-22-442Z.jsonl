@@ -1,0 +1,4 @@
+{"type":"metadata","schema":1,"source":"communication_mod","client":"tools/communication/trace_client.js","client_pid":51400,"started_at":"2026-06-29T22:16:22.445Z"}
+{"type":"state","step":0,"received_at":"2026-06-29T22:16:33.624Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":1,"sent_at":"2026-06-29T22:17:36.681Z","command":"state"}
+{"type":"metadata","event":"exit","reason":"stdin_closed","ended_at":"2026-06-29T22:30:10.340Z"}

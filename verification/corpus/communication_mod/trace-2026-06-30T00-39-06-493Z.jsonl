@@ -1,0 +1,3 @@
+{"type":"metadata","schema":1,"source":"communication_mod","client":"tools/communication/trace_client.js","client_pid":39684,"started_at":"2026-06-30T00:39:06.495Z"}
+{"type":"state","step":0,"received_at":"2026-06-30T00:39:06.498Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":1,"sent_at":"2026-06-30T00:46:35.079Z","command":"START IRONCLAD 0 LIVE01"}

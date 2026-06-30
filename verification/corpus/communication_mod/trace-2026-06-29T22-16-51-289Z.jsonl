@@ -1,0 +1,14 @@
+{"type":"metadata","schema":1,"source":"communication_mod","client":"tools/communication/trace_client.js","client_pid":45624,"started_at":"2026-06-29T22:16:51.291Z"}
+{"type":"state","step":0,"received_at":"2026-06-29T22:16:51.294Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":1,"sent_at":"2026-06-29T22:17:36.681Z","command":"state"}
+{"type":"state","step":1,"received_at":"2026-06-29T22:17:36.694Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":2,"sent_at":"2026-06-29T22:20:43.082Z","command":"state"}
+{"type":"state","step":2,"received_at":"2026-06-29T22:20:43.094Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":3,"sent_at":"2026-06-29T22:20:45.284Z","command":"state"}
+{"type":"state","step":3,"received_at":"2026-06-29T22:20:45.293Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":4,"sent_at":"2026-06-29T22:20:46.066Z","command":"state"}
+{"type":"state","step":4,"received_at":"2026-06-29T22:20:46.078Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":5,"sent_at":"2026-06-29T22:21:04.935Z","command":"start"}
+{"type":"error","step":5,"received_at":"2026-06-29T22:21:04.944Z","message":{"ready_for_command":true,"error":"Argument missing in command \"start\"."}}
+{"type":"action","step":6,"sent_at":"2026-06-29T22:40:54.731Z","command":"START IRONCLAD 0 LIVE01"}
+{"type":"metadata","event":"exit","reason":"stdin_closed","ended_at":"2026-06-29T22:41:00.442Z"}

@@ -1,0 +1,2 @@
+{"type":"metadata","schema":1,"source":"communication_mod","client":"tools/communication/trace_client.js","client_pid":46932,"started_at":"2026-06-30T01:56:11.079Z"}
+{"type":"state","step":0,"received_at":"2026-06-30T01:56:11.082Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}

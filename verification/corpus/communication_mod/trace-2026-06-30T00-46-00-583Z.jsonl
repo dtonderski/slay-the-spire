@@ -1,0 +1,4 @@
+{"type":"metadata","schema":1,"source":"communication_mod","client":"tools/communication/trace_client.js","client_pid":27728,"started_at":"2026-06-30T00:46:00.584Z"}
+{"type":"state","step":0,"received_at":"2026-06-30T00:46:00.587Z","message":{"available_commands":["start","state"],"ready_for_command":true,"in_game":false}}
+{"type":"action","step":1,"sent_at":"2026-06-30T00:47:17.973Z","command":"PROCEED"}
+{"type":"error","step":1,"received_at":"2026-06-30T00:47:17.990Z","message":{"ready_for_command":true,"error":"Invalid command: proceed. Possible commands: [start, state]"}}
