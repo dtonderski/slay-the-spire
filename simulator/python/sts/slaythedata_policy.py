@@ -334,6 +334,9 @@ def _target_text_for_category(
         entry = _ordinal_entry(decision.get("shop_purchases"), ordinal)
         if entry:
             return entry.get("item")
+        purge_target = _shop_purge_target(decision, choice_labels)
+        if purge_target is not None:
+            return purge_target
         if _shop_leave_visible(choice_labels):
             return "__leave_shop__"
         return None
@@ -375,6 +378,19 @@ def _descriptor_for_target(category: str, target: str) -> dict[str, Any] | None:
 
 def _shop_leave_visible(choice_labels: list[str]) -> bool:
     return any(_normalized_token(label) in {"leave", "proceed", "return"} for label in choice_labels)
+
+
+def _shop_purge_target(decision: dict[str, Any], choice_labels: list[str]) -> str | None:
+    if not any(event.get("cards_removed") for event in _list(decision.get("events")) if isinstance(event, dict)):
+        return None
+    tokens = {_normalized_token(label) for label in choice_labels}
+    if "purge" in tokens:
+        return "purge"
+    if "remove" in tokens:
+        return "remove"
+    if "removecard" in tokens:
+        return "remove card"
+    return None
 
 
 def _reward_target(decision: dict[str, Any], choice_labels: list[str]) -> str | None:

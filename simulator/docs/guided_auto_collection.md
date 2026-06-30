@@ -83,6 +83,8 @@ The collector can now:
   potions, card rewards, and visible gold
 - match SlayTheData shop purchases by visible item label and leave the shop
   once scripted purchases are exhausted
+- open shop card removal when SlayTheData records a removed card on that shop
+  floor, then use the existing grid matcher to select the removed card
 - delegate one combat action to the live combat search policy
 - store the predicted simulator state after a sent combat or strict non-combat
   action
@@ -122,9 +124,9 @@ Tick algorithm:
 Steps 1, 3, 4, simple visible-choice sending, strict non-combat legal-action
 agreement, conservative map path matching, boss relic matching, campfire/grid
 matching, and post-send prediction checks are implemented, and the UI can
-repeatedly call tick until blocked. Remaining work is shop purge/grid coverage,
-map tie-breaking when room symbols are ambiguous, reward edge cases that need
-hidden identity checks, and end-to-end live bridge smoke coverage.
+repeatedly call tick until blocked. Remaining work is map tie-breaking when
+room symbols are ambiguous, reward edge cases that need hidden identity checks,
+and end-to-end live bridge smoke coverage.
 
 ## Important Boundaries
 
