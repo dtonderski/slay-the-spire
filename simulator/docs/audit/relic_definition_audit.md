@@ -24,13 +24,36 @@ The parsed table contained 179 relic rows. The local `RelicKey` enum contained
 145 keys. Name normalization matched 144 local keys against the online table;
 `RedCirclet` was local-only.
 
+## Resolution Status
+
+Implemented fixes in this branch:
+
+- Self-Forming Clay now queues 3 Block per HP-loss event and grants the queued
+  Block at the next player-turn start.
+- Red Skull now tracks the half-HP threshold dynamically and removes its
+  Strength bonus after healing above the threshold.
+- Bloody Idol now heals 5 HP from the centralized positive-gold-gain path.
+- Necronomicon and Enchiridion are promoted from key-only rewards to modeled
+  relics. Necronomicon replays the first 2+ cost Attack each turn; Enchiridion
+  adds a random combat-only Power at combat start that costs 0 for the turn.
+
+Remaining scope item:
+
+- Nilry's Codex now has a real `Relic` identity instead of key-only ownership,
+  but its end-of-turn "choose 1 of 3 cards to shuffle into draw pile" effect is
+  not implemented. Faithful behavior requires a new end-turn interrupt/choice
+  state so combat can pause before the monster turn and resume after the choice.
+  The current combat transition model does not yet have that state.
+
 ## Confirmed Differences
 
 ### Self-Forming Clay Timing
 
 Online definition: "Whenever you lose HP in combat, gain 3 Block next turn."
 
-Local behavior grants the block immediately when HP loss is observed:
+Status: fixed in this branch.
+
+Previous local behavior granted the block immediately when HP loss was observed:
 
 - `simulator/crates/sts_core/src/relic/mod.rs`: `SELF_FORMING_CLAY_BLOCK`
 - `simulator/crates/sts_core/src/relic/mod.rs`: `apply_player_hp_loss_relics`
@@ -45,15 +68,14 @@ block in the current turn instead of at the next turn boundary.
 Online definition: "While your HP is at or below 50%, you have 3 additional
 Strength."
 
-Local behavior only applies the strength during start-of-combat relic setup if
-the player begins combat at or below half HP:
+Status: fixed in this branch.
+
+Previous local behavior only applied the strength during start-of-combat relic
+setup if the player began combat at or below half HP:
 
 - `simulator/crates/sts_core/src/relic/mod.rs`: `RED_SKULL_STRENGTH`
 - `simulator/crates/sts_core/src/relic/mod.rs`: `apply_start_of_combat_relics`
   checks `combat.player.hp * 2 <= combat.player.max_hp` once.
-
-No HP-change hook was found that adds the strength when dropping below half HP
-mid-combat or removes it after healing above half HP.
 
 Impact: any combat where Ironclad crosses the 50% HP boundary after combat
 start can diverge.
@@ -62,8 +84,10 @@ start can diverge.
 
 Online definition: "Whenever you gain Gold, heal 5 HP."
 
-Local behavior tracks Bloody Idol ownership and the Forgotten Altar swap, but
-does not heal on gold gain:
+Status: fixed in this branch.
+
+Previous local behavior tracked Bloody Idol ownership and the Forgotten Altar
+swap, but did not heal on gold gain:
 
 - `simulator/docs/m32a_relic_potion_matrix.md`: Bloody Idol caveat says the
   on-gain-gold healing hook is not modeled.
@@ -86,14 +110,21 @@ Online definitions:
   the draw pile.
 
 Local behavior currently supports Cursed Tome rewards as key-only ownership:
+Status: partially fixed in this branch.
+
+Necronomicon and Enchiridion are now modeled combat relics. Nilry's Codex now
+round-trips as a `Relic`, but its choice effect remains unimplemented pending
+end-turn choice-state support.
+
+Previous local behavior supported Cursed Tome rewards as key-only ownership:
 
 - `simulator/docs/m32a_relic_potion_matrix.md`: rows for Necronomicon,
   Enchiridion, and Nilry's Codex are `inventory_only`.
 - `simulator/crates/sts_core/src/run/state.rs`: `RelicKey::Necronomicon |
   RelicKey::Enchiridion | RelicKey::NilrysCodex => None`.
 
-Impact: Cursed Tome can grant these relic keys, but their combat effects are not
-modeled.
+Impact: Necronomicon and Enchiridion no longer have this divergence. Nilry's
+Codex can be owned as a relic, but its combat effect is still not modeled.
 
 ### Off-Character Starter And Replacement Relics
 

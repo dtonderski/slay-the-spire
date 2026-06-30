@@ -475,12 +475,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     if let Some(combat) = next.combat.as_mut() {
                         let heal =
                             combat.player.max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;
-                        crate::relic::heal_player_in_combat_with_relics(
-                            &mut combat.player.hp,
-                            combat.player.max_hp,
-                            heal,
-                            &combat.relics,
-                        );
+                        crate::relic::heal_combat_player_with_relics(combat, heal);
                     } else {
                         let heal =
                             next.player_max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;

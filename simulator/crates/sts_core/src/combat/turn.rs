@@ -1145,7 +1145,7 @@ mod tests {
     }
 
     #[test]
-    fn self_forming_clay_block_can_absorb_later_monster_attack() {
+    fn self_forming_clay_block_is_granted_on_next_player_turn() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 20;
         state.player.block = 0;
@@ -1158,8 +1158,8 @@ mod tests {
 
         let next = end_player_turn(&state);
 
-        assert_eq!(next.player.hp, 18);
-        assert_eq!(next.player.block, 0);
+        assert_eq!(next.player.hp, 16);
+        assert_eq!(next.player.block, 6);
     }
 
     #[test]

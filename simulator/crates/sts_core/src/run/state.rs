@@ -8,22 +8,23 @@ use crate::{
         upgrade_content_id,
     },
     content::character::IRONCLAD_A0_BASE_HP,
-    content::shop_pool::colorless_discovery_card_choices,
+    content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
     ids::{CardId, ContentId, MonsterId},
     map::{generate_target_fixed_map, milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
-        RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BUSTED_CROWN_ENERGY,
-        CAULDRON_POTIONS, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
-        DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS,
-        FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MAW_BANK_GOLD,
-        OLD_COIN_GOLD, OMAMORI_CHARGES, ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP,
-        PHILOSOPHERS_STONE_ENERGY, PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS,
-        PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
-        SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SNECKO_EYE_ENERGY, SOZU_ENERGY,
-        STRAWBERRY_MAX_HP, TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP,
-        VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
+        RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL,
+        BUSTED_CROWN_ENERGY, CAULDRON_POTIONS, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
+        DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY,
+        ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP,
+        MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
+        ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
+        PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
+        PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
+        SLING_OF_COURAGE_STRENGTH, SNECKO_EYE_ENERGY, SOZU_ENERGY, STRAWBERRY_MAX_HP,
+        TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
+        WING_BOOTS_CHARGES,
     },
     rng::JavaRng,
     rng::StsRng,
@@ -32,9 +33,31 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub const STARTING_GOLD: i32 = 99;
+const ENCHIRIDION_HAND_LIMIT: usize = 10;
 
 fn default_energy_per_turn() -> i32 {
     BASE_PLAYER_ENERGY
+}
+
+fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
+    if combat.piles.hand.len() >= ENCHIRIDION_HAND_LIMIT {
+        return;
+    }
+
+    let mut rng = combat
+        .card_random_rng
+        .take()
+        .unwrap_or_else(|| StsRng::new(0));
+    let content_id = discovery_card_choices(&mut rng, CardType::Power, 1)[0];
+    let next_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+    let mut card = CardInstance {
+        combat_only: true,
+        ..CardInstance::new(next_id, content_id)
+    };
+    card.temp_cost = Some(0);
+    card.temp_cost_turn_only = true;
+    combat.piles.hand.push(card);
+    combat.card_random_rng = Some(rng);
 }
 
 #[cfg(test)]
@@ -662,6 +685,27 @@ mod tests {
         assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY + ECTOPLASM_ENERGY);
         run.gain_gold(25);
         assert_eq!(run.gold, gold_before);
+    }
+
+    #[test]
+    fn bloody_idol_heals_when_gold_is_gained() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BloodyIdol];
+        run.player_hp = 40;
+        let gold_before = run.gold;
+
+        run.gain_gold(25);
+
+        assert_eq!(run.gold, gold_before + 25);
+        assert_eq!(run.player_hp, 40 + BLOODY_IDOL_HEAL);
+
+        run.gain_gold(10);
+        assert_eq!(run.player_hp, 40 + BLOODY_IDOL_HEAL * 2);
+
+        run.relics.push(Relic::Ectoplasm);
+        run.gain_gold(25);
+        assert_eq!(run.gold, gold_before + 35);
+        assert_eq!(run.player_hp, 40 + BLOODY_IDOL_HEAL * 2);
     }
 
     #[test]
@@ -1473,6 +1517,32 @@ mod tests {
     }
 
     #[test]
+    fn enchiridion_adds_zero_cost_combat_only_power_at_combat_start() {
+        let mut run = RunState::map_fixture();
+        run.card_random_rng_counter = 7;
+        run.gain_relic_key(RelicKey::Enchiridion);
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+        let generated = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.combat_only)
+            .expect("Enchiridion generated a card");
+
+        assert_eq!(
+            card_type_and_rarity(generated.content_id).map(|(card_type, _)| card_type),
+            Some(CardType::Power)
+        );
+        assert_eq!(generated.temp_cost, Some(0));
+        assert!(generated.temp_cost_turn_only);
+        assert_eq!(
+            combat.card_random_rng.as_ref().expect("card rng").counter(),
+            8
+        );
+    }
+
+    #[test]
     fn toolbox_choice_adds_normal_cost_combat_only_card_to_hand() {
         let mut run = RunState::map_fixture();
         run.gain_relic_key(RelicKey::Toolbox);
@@ -1946,6 +2016,9 @@ impl RunState {
             combat.relic_counters.incense_burner_counter = self.incense_burner_counter;
         }
         apply_start_of_combat_relics(&mut combat, &self.relics);
+        if self.relics.contains(&Relic::Enchiridion) {
+            add_enchiridion_power_to_hand(&mut combat);
+        }
         if self.relics.contains(&Relic::GamblingChip) {
             crate::combat::open_gambling_chip_select(&mut combat)
                 .expect("Gambling Chip selection opens without validation side effects");
@@ -1982,7 +2055,7 @@ impl RunState {
         if self.relics.contains(&Relic::IncenseBurner) {
             self.incense_burner_counter = combat.relic_counters.incense_burner_counter;
         }
-        if self.relics.contains(&Relic::Toolbox) {
+        if self.relics.contains(&Relic::Toolbox) || self.relics.contains(&Relic::Enchiridion) {
             if let Some(rng) = combat.card_random_rng.as_ref() {
                 self.card_random_rng_counter = rng.counter();
             }
@@ -2417,6 +2490,9 @@ impl RunState {
     pub fn gain_gold(&mut self, amount: i32) {
         if amount > 0 && self.can_gain_gold() {
             self.gold += amount;
+            if self.relics.contains(&Relic::BloodyIdol) {
+                self.player_hp = (self.player_hp + BLOODY_IDOL_HEAL).min(self.player_max_hp);
+            }
         }
     }
 
@@ -2676,6 +2752,9 @@ impl RunState {
             | Relic::PrismaticShard
             | Relic::GoldenIdol
             | Relic::BloodyIdol
+            | Relic::Necronomicon
+            | Relic::Enchiridion
+            | Relic::NilrysCodex
             | Relic::MutagenicStrength => {}
         }
     }
@@ -3028,6 +3107,9 @@ impl Relic {
             Relic::MutagenicStrength => RelicKey::MutagenicStrength,
             Relic::GoldenIdol => RelicKey::GoldenIdol,
             Relic::BloodyIdol => RelicKey::BloodyIdol,
+            Relic::Necronomicon => RelicKey::Necronomicon,
+            Relic::Enchiridion => RelicKey::Enchiridion,
+            Relic::NilrysCodex => RelicKey::NilrysCodex,
         }
     }
 
@@ -3129,7 +3211,9 @@ impl Relic {
             RelicKey::LizardTail => Some(Relic::LizardTail),
             RelicKey::Pocketwatch => Some(Relic::Pocketwatch),
             RelicKey::HandDrill => Some(Relic::HandDrill),
-            RelicKey::Necronomicon | RelicKey::Enchiridion | RelicKey::NilrysCodex => None,
+            RelicKey::Necronomicon => Some(Relic::Necronomicon),
+            RelicKey::Enchiridion => Some(Relic::Enchiridion),
+            RelicKey::NilrysCodex => Some(Relic::NilrysCodex),
             RelicKey::GoldenIdol => Some(Relic::GoldenIdol),
             RelicKey::BloodyIdol => Some(Relic::BloodyIdol),
             RelicKey::Circlet => Some(Relic::Circlet),

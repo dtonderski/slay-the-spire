@@ -177,6 +177,10 @@ fn apply_internal_action(
             state.double_tap_pending = state.double_tap_pending.saturating_sub(1);
             Ok(Vec::new())
         }
+        InternalAction::ConsumeNecronomicon => {
+            state.relic_counters.necronomicon_used_this_turn = true;
+            Ok(Vec::new())
+        }
         InternalAction::PlayCard { card_id } => {
             let card = find_hand_card(state, card_id)?;
             let definition = get_card_definition(card.content_id)
@@ -332,12 +336,7 @@ fn apply_internal_action(
                     relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
                 )
             };
-            crate::relic::heal_player_in_combat_with_relics(
-                &mut state.player.hp,
-                state.player.max_hp,
-                hp_damage,
-                &state.relics,
-            );
+            crate::relic::heal_combat_player_with_relics(state, hp_damage);
             if still_alive && hand_drill_applies {
                 apply_player_vulnerable_debuff(
                     state,
@@ -405,21 +404,11 @@ fn apply_internal_action(
         }
         InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
             let hp_damage = deal_attack_damage_to_all_living(state, source, amount)?;
-            crate::relic::heal_player_in_combat_with_relics(
-                &mut state.player.hp,
-                state.player.max_hp,
-                hp_damage,
-                &state.relics,
-            );
+            crate::relic::heal_combat_player_with_relics(state, hp_damage);
             Ok(Vec::new())
         }
         InternalAction::HealPlayer { amount } => {
-            crate::relic::heal_player_in_combat_with_relics(
-                &mut state.player.hp,
-                state.player.max_hp,
-                amount,
-                &state.relics,
-            );
+            crate::relic::heal_combat_player_with_relics(state, amount);
             Ok(Vec::new())
         }
         InternalAction::GainBlock { amount } => Ok(apply_player_card_block_gain(state, amount)),
@@ -12237,6 +12226,48 @@ mod tests {
         assert_eq!(after_strike.player.energy, state.player.energy - 2);
         assert_eq!(after_strike.double_tap_pending, 0);
         assert_eq!(after_strike.piles.discard_pile.len(), 2);
+    }
+
+    #[test]
+    fn necronomicon_replays_first_two_cost_attack_without_extra_energy() {
+        let mut state = hand_only(BASH_ID);
+        state.relics = vec![Relic::Necronomicon];
+        state.monsters[0].hp = 40;
+
+        let next =
+            apply_combat_action(&state, bash_action(&state)).expect("Necronomicon Bash applies");
+
+        assert_eq!(next.monsters[0].hp, 40 - 20);
+        assert_eq!(next.player.energy, state.player.energy - 2);
+        assert!(next.relic_counters.necronomicon_used_this_turn);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+    }
+
+    #[test]
+    fn necronomicon_only_replays_first_qualifying_attack_each_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::Necronomicon];
+        state.player.energy = 5;
+        state.monsters[0].hp = 60;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(20), BASH_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+        ];
+
+        let after_first =
+            apply_combat_action(&state, bash_action(&state)).expect("first Bash is replayed");
+        let after_second = apply_combat_action(
+            &after_first,
+            CombatAction::PlayCard {
+                card_id: CardId::new(21),
+                target: Some(after_first.monsters[0].id),
+            },
+        )
+        .expect("second Bash applies once");
+
+        assert_eq!(after_second.monsters[0].hp, 60 - 32);
+        assert_eq!(after_second.player.energy, 1);
+        assert!(after_second.relic_counters.necronomicon_used_this_turn);
     }
 
     #[test]

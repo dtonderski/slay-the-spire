@@ -52,8 +52,10 @@ pub const THREAD_AND_NEEDLE_PLATED_ARMOR: i32 = 4;
 pub const CLOCKWORK_SOUVENIR_ARTIFACT: i32 = 1;
 /// Temporary Strength granted by [Relic::MutagenicStrength] at combat start.
 pub const MUTAGENIC_STRENGTH_AMOUNT: i32 = 3;
-/// Strength granted by [Relic::RedSkull] while starting combat at or below half HP.
+/// Strength granted by [Relic::RedSkull] while at or below half HP.
 pub const RED_SKULL_STRENGTH: i32 = 3;
+/// HP restored by [Relic::BloodyIdol] whenever gold is gained.
+pub const BLOODY_IDOL_HEAL: i32 = 5;
 /// Energy per turn granted by [Relic::CoffeeDripper] on pickup.
 pub const COFFEE_DRIPPER_ENERGY: i32 = 1;
 /// Energy per turn granted by [Relic::MarkOfPain] on pickup.
@@ -521,6 +523,12 @@ pub const MUTAGENIC_STRENGTH_ID: ContentId = ContentId::new(439);
 pub const GOLDEN_IDOL_ID: ContentId = ContentId::new(440);
 /// Content id for [Relic::BloodyIdol].
 pub const BLOODY_IDOL_ID: ContentId = ContentId::new(441);
+/// Content id for [Relic::Necronomicon].
+pub const NECRONOMICON_ID: ContentId = ContentId::new(442);
+/// Content id for [Relic::Enchiridion].
+pub const ENCHIRIDION_ID: ContentId = ContentId::new(443);
+/// Content id for [Relic::NilrysCodex].
+pub const NILRYS_CODEX_ID: ContentId = ContentId::new(444);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -564,9 +572,19 @@ pub struct RelicCounters {
     pub orange_pellets_power_played: bool,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub incense_burner_counter: u32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub self_forming_clay_next_turn_block: i32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub red_skull_active: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub necronomicon_used_this_turn: bool,
 }
 
 fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+fn is_zero_i32(value: &i32) -> bool {
     *value == 0
 }
 
@@ -1214,6 +1232,9 @@ pub enum Relic {
     MutagenicStrength,
     GoldenIdol,
     BloodyIdol,
+    Necronomicon,
+    Enchiridion,
+    NilrysCodex,
 }
 
 impl Relic {
@@ -1362,6 +1383,9 @@ impl Relic {
             Relic::MutagenicStrength => MUTAGENIC_STRENGTH_ID,
             Relic::GoldenIdol => GOLDEN_IDOL_ID,
             Relic::BloodyIdol => BLOODY_IDOL_ID,
+            Relic::Necronomicon => NECRONOMICON_ID,
+            Relic::Enchiridion => ENCHIRIDION_ID,
+            Relic::NilrysCodex => NILRYS_CODEX_ID,
         }
     }
 
@@ -1510,6 +1534,9 @@ impl Relic {
             id if id == MUTAGENIC_STRENGTH_ID => Some(Relic::MutagenicStrength),
             id if id == GOLDEN_IDOL_ID => Some(Relic::GoldenIdol),
             id if id == BLOODY_IDOL_ID => Some(Relic::BloodyIdol),
+            id if id == NECRONOMICON_ID => Some(Relic::Necronomicon),
+            id if id == ENCHIRIDION_ID => Some(Relic::Enchiridion),
+            id if id == NILRYS_CODEX_ID => Some(Relic::NilrysCodex),
             _ => None,
         }
     }
@@ -1562,6 +1589,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::PrismaticShard => {}
             Relic::GoldenIdol => {}
             Relic::BloodyIdol => {}
+            Relic::Necronomicon => {}
+            Relic::Enchiridion => {}
+            Relic::NilrysCodex => {}
             Relic::MutagenicStrength => {
                 combat.player.temp_strength += MUTAGENIC_STRENGTH_AMOUNT;
             }
@@ -1613,9 +1643,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 combat.player.powers.artifact += CLOCKWORK_SOUVENIR_ARTIFACT;
             }
             Relic::RedSkull => {
-                if combat.player.hp * 2 <= combat.player.max_hp {
-                    combat.player.powers.strength += RED_SKULL_STRENGTH;
-                }
+                sync_red_skull_strength_present(combat, true);
             }
             Relic::Nunchaku => {}
             Relic::ArtOfWar => {}
@@ -1747,14 +1775,19 @@ pub fn heal_player_in_combat_with_relics(
     *hp = (*hp + heal).min(max_hp);
 }
 
+pub fn heal_combat_player_with_relics(state: &mut CombatState, base_heal: i32) {
+    heal_player_in_combat_with_relics(
+        &mut state.player.hp,
+        state.player.max_hp,
+        base_heal,
+        &state.relics,
+    );
+    sync_red_skull_strength(state);
+}
+
 pub fn apply_potion_use_relics_to_combat(combat: &mut CombatState) {
     if combat.relics.contains(&Relic::ToyOrnithopter) {
-        heal_player_in_combat_with_relics(
-            &mut combat.player.hp,
-            combat.player.max_hp,
-            TOY_ORNITHOPTER_HEAL,
-            &combat.relics,
-        );
+        heal_combat_player_with_relics(combat, TOY_ORNITHOPTER_HEAL);
     }
 }
 
@@ -1769,10 +1802,34 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) {
         crate::combat::transition::player_draw_cards(state, CENTENNIAL_PUZZLE_DRAW);
     }
     if state.relics.contains(&Relic::SelfFormingClay) {
-        state.player.block += SELF_FORMING_CLAY_BLOCK;
+        state.relic_counters.self_forming_clay_next_turn_block += SELF_FORMING_CLAY_BLOCK;
     }
     if state.relics.contains(&Relic::RunicCube) {
         crate::combat::transition::player_draw_cards(state, RUNIC_CUBE_DRAW);
+    }
+    sync_red_skull_strength(state);
+}
+
+pub fn sync_red_skull_strength(state: &mut CombatState) {
+    sync_red_skull_strength_present(state, state.relics.contains(&Relic::RedSkull));
+}
+
+fn sync_red_skull_strength_present(state: &mut CombatState, has_red_skull: bool) {
+    if !has_red_skull {
+        return;
+    }
+
+    let should_be_active = state.player.hp * 2 <= state.player.max_hp;
+    match (should_be_active, state.relic_counters.red_skull_active) {
+        (true, false) => {
+            state.player.powers.strength += RED_SKULL_STRENGTH;
+            state.relic_counters.red_skull_active = true;
+        }
+        (false, true) => {
+            state.player.powers.strength -= RED_SKULL_STRENGTH;
+            state.relic_counters.red_skull_active = false;
+        }
+        _ => {}
     }
 }
 
@@ -1806,6 +1863,7 @@ pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.letter_opener_skills_this_turn = 0;
     state.relic_counters.cards_played_this_turn = 0;
     state.relic_counters.attacks_played_this_turn = 0;
+    state.relic_counters.necronomicon_used_this_turn = false;
 }
 
 pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
@@ -1814,6 +1872,11 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
     }
 
     state.relic_counters.player_turns_started += 1;
+
+    if state.relic_counters.self_forming_clay_next_turn_block > 0 {
+        state.player.block += state.relic_counters.self_forming_clay_next_turn_block;
+        state.relic_counters.self_forming_clay_next_turn_block = 0;
+    }
 
     if state.relics.contains(&Relic::HappyFlower) {
         state.relic_counters.happy_flower_turns += 1;
@@ -1882,6 +1945,7 @@ fn has_start_of_turn_relic(state: &CombatState) -> bool {
                 | Relic::StoneCalendar
                 | Relic::Brimstone
                 | Relic::IncenseBurner
+                | Relic::SelfFormingClay
         )
     })
 }
@@ -2059,12 +2123,7 @@ pub fn apply_on_card_play_relics(
     }
 
     if state.relics.contains(&Relic::BirdFacedUrn) && card_type == CardType::Power {
-        heal_player_in_combat_with_relics(
-            &mut state.player.hp,
-            state.player.max_hp,
-            BIRD_FACED_URN_HEAL,
-            &state.relics,
-        );
+        heal_combat_player_with_relics(state, BIRD_FACED_URN_HEAL);
     }
 
     apply_orange_pellets_on_card_play(state, card_type);
@@ -2544,6 +2603,17 @@ mod tests {
         low_hp.player.hp = low_hp.player.max_hp / 2;
         apply_start_of_combat_relics(&mut low_hp, &[Relic::RedSkull]);
         assert_eq!(low_hp.player.powers.strength, RED_SKULL_STRENGTH);
+
+        let mut dynamic = CombatState::initial_fixture();
+        dynamic.relics = vec![Relic::RedSkull];
+        dynamic.player.hp = dynamic.player.max_hp / 2 + 1;
+        apply_player_hp_loss_relics(&mut dynamic, 1);
+        dynamic.player.hp -= 1;
+        sync_red_skull_strength(&mut dynamic);
+        assert_eq!(dynamic.player.powers.strength, RED_SKULL_STRENGTH);
+
+        heal_combat_player_with_relics(&mut dynamic, 2);
+        assert_eq!(dynamic.player.powers.strength, 0);
     }
 
     #[test]
@@ -2560,6 +2630,9 @@ mod tests {
         assert_eq!(Relic::BloodVial.content_id(), BLOOD_VIAL_ID);
         assert_eq!(Relic::GoldenIdol.content_id(), GOLDEN_IDOL_ID);
         assert_eq!(Relic::BloodyIdol.content_id(), BLOODY_IDOL_ID);
+        assert_eq!(Relic::Necronomicon.content_id(), NECRONOMICON_ID);
+        assert_eq!(Relic::Enchiridion.content_id(), ENCHIRIDION_ID);
+        assert_eq!(Relic::NilrysCodex.content_id(), NILRYS_CODEX_ID);
         assert_eq!(Relic::Pear.content_id(), PEAR_ID);
         assert_eq!(Relic::Mango.content_id(), MANGO_ID);
         assert_eq!(Relic::OldCoin.content_id(), OLD_COIN_ID);
@@ -2614,6 +2687,18 @@ mod tests {
         assert_eq!(
             Relic::from_content_id(BLOODY_IDOL_ID),
             Some(Relic::BloodyIdol)
+        );
+        assert_eq!(
+            Relic::from_content_id(NECRONOMICON_ID),
+            Some(Relic::Necronomicon)
+        );
+        assert_eq!(
+            Relic::from_content_id(ENCHIRIDION_ID),
+            Some(Relic::Enchiridion)
+        );
+        assert_eq!(
+            Relic::from_content_id(NILRYS_CODEX_ID),
+            Some(Relic::NilrysCodex)
         );
         assert_eq!(
             Relic::from_content_id(INK_BOTTLE_ID),
@@ -3597,6 +3682,9 @@ mod tests {
             orange_pellets_skill_played: true,
             orange_pellets_power_played: false,
             incense_burner_counter: 5,
+            self_forming_clay_next_turn_block: 3,
+            red_skull_active: true,
+            necronomicon_used_this_turn: true,
         };
 
         let json = serde_json::to_string(&counters).expect("counters serialize");
@@ -3677,7 +3765,7 @@ mod tests {
     }
 
     #[test]
-    fn self_forming_clay_grants_block_after_hp_loss() {
+    fn self_forming_clay_queues_block_for_next_player_turn_after_hp_loss() {
         let mut combat = CombatState::initial_fixture();
         combat.relics = vec![Relic::SelfFormingClay];
         combat.player.block = 2;
@@ -3686,7 +3774,16 @@ mod tests {
         apply_player_hp_loss_relics(&mut combat, 2);
         apply_player_hp_loss_relics(&mut combat, 0);
 
+        assert_eq!(combat.player.block, 2);
+        assert_eq!(
+            combat.relic_counters.self_forming_clay_next_turn_block,
+            SELF_FORMING_CLAY_BLOCK * 2
+        );
+
+        apply_start_of_player_turn_relics(&mut combat);
+
         assert_eq!(combat.player.block, 2 + SELF_FORMING_CLAY_BLOCK * 2);
+        assert_eq!(combat.relic_counters.self_forming_clay_next_turn_block, 0);
     }
 
     #[test]

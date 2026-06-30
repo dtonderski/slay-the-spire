@@ -4,7 +4,7 @@ use crate::content::monsters::{
     check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage,
 };
 use crate::power::attack_damage_with_vulnerable;
-use crate::relic::{heal_player_in_combat_with_relics, Relic};
+use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
 use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId};
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
@@ -30,12 +30,7 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
         );
     }
     if state.player.powers.regen > 0 {
-        heal_player_in_combat_with_relics(
-            &mut state.player.hp,
-            state.player.max_hp,
-            state.player.powers.regen,
-            &state.relics,
-        );
+        heal_combat_player_with_relics(state, state.player.powers.regen);
         state.player.powers.regen -= 1;
     }
     if state.player.powers.weak > 0 {

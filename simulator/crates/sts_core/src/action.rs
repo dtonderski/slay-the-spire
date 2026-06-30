@@ -26,6 +26,7 @@ pub enum CombatAction {
 pub enum InternalAction {
     ConsumeDuplicationPotion,
     ConsumeDoubleTap,
+    ConsumeNecronomicon,
     PlayCard {
         card_id: CardId,
     },

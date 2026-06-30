@@ -357,6 +357,9 @@ pub(super) fn play_card_queue(
     if state.duplication_potion_pending {
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
+    if should_apply_necronomicon(state, card, definition) {
+        queue = apply_necronomicon_to_queue(queue, card_id);
+    }
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
         queue = apply_double_tap_to_queue(queue, card_id);
     }
@@ -397,6 +400,17 @@ fn effective_card_cost_for_queue(card: &CardInstance, definition: &CardDefinitio
         return (i32::from(definition.cost) - card.blood_for_blood_cost_reduction).max(0);
     }
     i32::from(definition.cost)
+}
+
+fn should_apply_necronomicon(
+    state: &CombatState,
+    card: &CardInstance,
+    definition: &CardDefinition,
+) -> bool {
+    definition.card_type == CardType::Attack
+        && state.relics.contains(&Relic::Necronomicon)
+        && !state.relic_counters.necronomicon_used_this_turn
+        && effective_card_cost_for_queue(card, definition) >= 2
 }
 
 fn apply_corruption_to_played_skill_queue(
@@ -638,6 +652,36 @@ fn apply_double_tap_to_queue(
     }
 
     queue.push_front(InternalAction::ConsumeDoubleTap);
+    if let Some(action) = final_move {
+        queue.push_back(action);
+    }
+    queue.push_back(InternalAction::PlayCardCopy { card_id });
+    queue.append(&mut duplicated_effects);
+
+    queue
+}
+
+fn apply_necronomicon_to_queue(
+    mut queue: VecDeque<InternalAction>,
+    card_id: CardId,
+) -> VecDeque<InternalAction> {
+    let mut duplicated_effects = VecDeque::new();
+    duplicated_effects.extend(
+        queue
+            .iter()
+            .copied()
+            .filter(|action| is_duplicated_card_effect(*action, card_id)),
+    );
+
+    let final_move = queue
+        .back()
+        .copied()
+        .filter(|action| is_card_move_for(*action, card_id));
+    if final_move.is_some() {
+        queue.pop_back();
+    }
+
+    queue.push_front(InternalAction::ConsumeNecronomicon);
     if let Some(action) = final_move {
         queue.push_back(action);
     }
