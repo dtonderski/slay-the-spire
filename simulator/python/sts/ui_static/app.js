@@ -42,6 +42,7 @@
     collectorAutoTimer: null,
     slaythedataCandidates: [],
     slaythedataSelectedRunId: "",
+    slaythedataStatus: null,
     slaythedataLastError: null,
     attachFidelity: null,
     strictReplayBlocker: null,
@@ -60,6 +61,7 @@
     refreshBridgeQuietly().finally(() => render());
     refreshBridgeClientsQuietly().finally(() => renderBridgeClients());
     refreshCollectorQuietly().finally(() => renderCollector());
+    refreshSlaythedataStatusQuietly().finally(() => renderCollector());
     startBridgePolling();
     render();
   });
@@ -624,6 +626,24 @@
     }
   }
 
+  async function refreshSlaythedataStatusQuietly() {
+    const character = (el.startCharacterSelect && el.startCharacterSelect.value || "IRONCLAD").trim().toUpperCase();
+    const ascension = boundedInteger(el.startAscensionInput && el.startAscensionInput.value, 0, 0, 20);
+    const params = new URLSearchParams({
+      character,
+      ascension: String(ascension),
+      min_floor: "45",
+      min_path_length: "45",
+    });
+    try {
+      app.slaythedataStatus = await requestJson(`/api/slaythedata/status?${params.toString()}`);
+      app.slaythedataLastError = null;
+    } catch (error) {
+      app.slaythedataStatus = null;
+      app.slaythedataLastError = readableError(error);
+    }
+  }
+
   async function startGuidedCollector() {
     const text = el.collectorPayloadInput.value.trim();
     if (!text) {
@@ -661,6 +681,7 @@
       limit: "25",
     });
     await singleFlight("Finding SlayTheData runs", async () => {
+      await refreshSlaythedataStatusQuietly();
       const result = await requestJson(`/api/slaythedata/candidates?${params.toString()}`);
       app.slaythedataCandidates = arrayOf(result.candidates);
       app.slaythedataSelectedRunId = app.slaythedataCandidates.length
@@ -1370,6 +1391,7 @@
       msg.textContent = app.slaythedataLastError;
       el.collectorStatusPanel.appendChild(msg);
     }
+    renderSlaythedataStatus();
     renderCollectorPreflight(preflight);
     if (!active) {
       if (!el.collectorStatusPanel.childNodes.length) {
@@ -1434,6 +1456,30 @@
       wrap.appendChild(msg);
     }
     el.collectorStatusPanel.appendChild(wrap);
+  }
+
+  function renderSlaythedataStatus() {
+    const status = app.slaythedataStatus;
+    if (!status) return;
+    const problems = arrayOf(status.problems);
+    const warnings = arrayOf(status.warnings);
+    const msg = document.createElement("div");
+    msg.className = problems.length ? "message error" : warnings.length ? "message info" : "message success";
+    const available = firstDefined(status.exportable_candidate_available, null);
+    const chunkRows = firstDefined(status.chunk_runs_count, "-");
+    const runs = firstDefined(status.runs_count, "-");
+    const prefix = problems.length ? "SlayTheData blocked" : warnings.length ? "SlayTheData usable with warnings" : "SlayTheData ready";
+    const detail = problems.length
+      ? problems.join("; ")
+      : warnings.length
+        ? warnings.join("; ")
+        : available === true
+          ? "supported guided candidates available"
+          : available === false
+            ? "no supported guided candidates for current filters"
+            : "candidate availability unknown";
+    msg.textContent = `${prefix}: ${detail} (${runs} runs, ${chunkRows} export rows)`;
+    el.collectorStatusPanel.appendChild(msg);
   }
 
   function renderCollectorPicker() {

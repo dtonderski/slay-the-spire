@@ -25,14 +25,23 @@ The local SlayTheData chunk store lives outside the repo:
 
 Observed on 2026-06-30:
 
-- `35,716,837` runs in `runs`
-- `35,703,387` runs in `chunk_runs`
-- `5,143,603` exportable supported Ironclad A0 runs
-- full build still partial: `17,727` archive files indexed,
-  `27,095` pending
+- `52,666,330` runs in `runs`
+- `52,639,808` runs in `chunk_runs`
+- supported exportable Ironclad A0 guided candidates are available for the UI
+  default filters
+- full build still partial: `31,680` archive files indexed,
+  `13,142` pending
 
 The chunk store is therefore usable for candidate selection, but status should
 still be checked before assuming full-corpus completeness.
+
+The UI now exposes this distinction directly through
+`GET /api/slaythedata/status`. The endpoint checks that the locator DB exists,
+that `runs` and `chunk_runs` are present, that exportable chunk rows exist, and
+that the current guided-collection filters have at least one supported
+candidate. It also reports `archive_files` status counts when available, so a
+partial build is shown as usable-with-warnings instead of silently looking like
+an empty corpus.
 
 ## Implemented Slice
 
@@ -67,6 +76,8 @@ missing or ambiguous.
 The collector can now:
 
 - list supported candidate runs from the local SlayTheData chunk index
+- show SlayTheData index readiness in the guided collector panel before a run
+  is loaded, including missing DB/table blockers and partial-build warnings
 - rank candidate runs by full path length and guided-decision richness, with UI
   defaults that require card/event/shop decision coverage
 - export a selected run from local chunks and start the collector from it

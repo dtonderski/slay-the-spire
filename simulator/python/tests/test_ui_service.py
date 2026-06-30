@@ -11,6 +11,7 @@ from sts.ui_service import (
     _guided_script_from_payload,
     _observed_state_from_bridge_status,
     _slaythedata_candidates_from_query,
+    _slaythedata_status_from_query,
     _tick_live_collector,
 )
 from sts.guided_collector import GuidedCollector
@@ -230,6 +231,28 @@ class UiServiceTests(unittest.TestCase):
             min_shop_purchases=1,
             min_potion_usage=0,
             limit=3,
+        )
+
+    def test_slaythedata_status_query_uses_filters(self):
+        with patch(
+            "sts.ui_service.slaythedata_index_status",
+            return_value={"ok": True},
+        ) as status:
+            result = _slaythedata_status_from_query(
+                {
+                    "character": ["ironclad"],
+                    "ascension": ["0"],
+                    "min_floor": ["40"],
+                    "min_path_length": ["40"],
+                }
+            )
+
+        self.assertEqual(result, {"ok": True})
+        status.assert_called_once_with(
+            character="IRONCLAD",
+            ascension=0,
+            min_floor_reached=40,
+            min_path_length=40,
         )
 
     def test_session_exposes_state_actions_and_snapshot(self):

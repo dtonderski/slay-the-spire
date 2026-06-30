@@ -17,7 +17,11 @@ from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
 from sts.self_play import _action_for_communication_command
-from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
+from sts.slaythedata_index import (
+    export_guided_run_script,
+    select_guided_collection_candidates,
+    slaythedata_index_status,
+)
 from sts.self_play import strict_replay_real_trace_to_env
 from sts.slaythedata_policy import build_guided_run_script, load_guided_run_script
 from sts.trace_replay import TraceReplayStore
@@ -593,6 +597,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "slaythedata", "candidates"]:
                 self._send_json(_slaythedata_candidates_from_query(query))
+                return
+            if parts == ["api", "slaythedata", "status"]:
+                self._send_json(_slaythedata_status_from_query(query))
                 return
             if parts == ["api", "collector", "status"]:
                 self._send_json(_collector_status_with_preflight(self.collector, self.bridge))
@@ -1178,6 +1185,15 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
             "limit": limit,
         },
     }
+
+
+def _slaythedata_status_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
+    return slaythedata_index_status(
+        character=_query_string(query, "character", "IRONCLAD").upper(),
+        ascension=_query_int(query, "ascension", 0),
+        min_floor_reached=_query_int(query, "min_floor", 45),
+        min_path_length=_query_optional_int(query, "min_path_length") or 45,
+    )
 
 
 def _slaythedata_export_from_payload(payload: dict[str, Any]) -> dict[str, Any]:

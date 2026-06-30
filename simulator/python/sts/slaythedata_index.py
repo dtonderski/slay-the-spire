@@ -79,6 +79,109 @@ def select_guided_collection_candidates(
     ]
 
 
+def slaythedata_index_status(
+    db_path: str | Path = DEFAULT_SLAYTHEDATA_DB,
+    *,
+    character: str = "IRONCLAD",
+    ascension: int = 0,
+    min_floor_reached: int = 45,
+    min_path_length: int | None = 45,
+) -> dict[str, Any]:
+    """Return a compact readiness summary for guided SlayTheData collection."""
+
+    path = Path(db_path)
+    status: dict[str, Any] = {
+        "ok": False,
+        "db_path": str(path),
+        "exists": path.exists(),
+        "problems": [],
+        "warnings": [],
+    }
+    if not path.exists():
+        status["problems"].append("SlayTheData locator database is missing")
+        return status
+
+    try:
+        conn = _connect_readonly(path)
+    except Exception as error:
+        status["problems"].append(f"cannot open SlayTheData locator database: {error}")
+        return status
+
+    try:
+        tables = set(_sqlite_table_names(conn))
+        status["tables"] = sorted(tables)
+        required = {"runs", "chunk_runs"}
+        missing = sorted(required - tables)
+        if missing:
+            status["problems"].append(f"missing required table(s): {', '.join(missing)}")
+            return status
+
+        status["runs_count"] = _sqlite_count_with_step_limit(conn, "runs")
+        status["chunk_runs_count"] = _sqlite_count_with_step_limit(conn, "chunk_runs")
+        status["chunk_files_count"] = (
+            _sqlite_count_with_step_limit(conn, "chunk_files") if "chunk_files" in tables else None
+        )
+        if status["runs_count"] is None:
+            status["warnings"].append("SlayTheData run count timed out")
+        if status["chunk_runs_count"] is None:
+            status["warnings"].append("SlayTheData export-row count timed out")
+        status["archive_status_counts"] = (
+            _archive_status_counts(conn) if "archive_files" in tables else {}
+        )
+        if "archive_files" in tables:
+            pending = int(status["archive_status_counts"].get("pending", 0))
+            if pending:
+                status["warnings"].append(f"SlayTheData index build is partial: {pending} archive files pending")
+
+        where, params = guided_collection_where(
+            character=character.upper(),
+            ascension=ascension,
+            min_floor_reached=min_floor_reached,
+            min_path_length=min_path_length,
+            require_supported=True,
+        )
+        status["candidate_filters"] = {
+            "character": character.upper(),
+            "ascension": ascension,
+            "min_floor_reached": min_floor_reached,
+            "min_path_length": min_path_length,
+            "require_supported": True,
+        }
+        candidate_row = _sqlite_fetchone_with_step_limit(
+            conn,
+            f"SELECT 1 FROM runs WHERE {where} LIMIT 1",
+            params,
+        )
+        if candidate_row is None:
+            status["exportable_candidate_available"] = None
+            status["warnings"].append("SlayTheData candidate availability check timed out")
+        else:
+            status["exportable_candidate_available"] = bool(candidate_row)
+
+        runs_available = _sqlite_table_has_row(conn, "runs")
+        chunk_runs_available = _sqlite_table_has_row(conn, "chunk_runs")
+        status["runs_available"] = runs_available
+        status["chunk_runs_available"] = chunk_runs_available
+
+        if runs_available is False:
+            status["problems"].append("SlayTheData locator database has no runs")
+        elif runs_available is None:
+            status["warnings"].append("SlayTheData run availability check timed out")
+        if chunk_runs_available is False:
+            status["problems"].append("SlayTheData locator database has no exportable chunk rows")
+        elif chunk_runs_available is None:
+            status["warnings"].append("SlayTheData export-row availability check timed out")
+        if status["exportable_candidate_available"] is False:
+            status["warnings"].append("no supported exportable runs match the guided collection filters")
+        status["ok"] = not status["problems"]
+        return status
+    except sqlite3.Error as error:
+        status["problems"].append(f"cannot read SlayTheData locator database: {error}")
+        return status
+    finally:
+        conn.close()
+
+
 def guided_collection_where(
     *,
     character: str = "IRONCLAD",
@@ -192,3 +295,60 @@ def _connect_readonly(db_path: str | Path) -> sqlite3.Connection:
         raise FileNotFoundError(path)
     uri = path.resolve().as_uri() + "?mode=ro"
     return sqlite3.connect(uri, uri=True, timeout=1.0)
+
+
+def _sqlite_table_names(conn: sqlite3.Connection) -> list[str]:
+    return [
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    ]
+
+
+def _sqlite_count(conn: sqlite3.Connection, table: str) -> int:
+    if not table.replace("_", "").isalnum():
+        raise ValueError(f"unsafe table name: {table}")
+    return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+
+def _sqlite_count_with_step_limit(conn: sqlite3.Connection, table: str) -> int | None:
+    row = _sqlite_fetchone_with_step_limit(conn, f"SELECT COUNT(*) FROM {table}", [])
+    return None if row is None else int(row[0])
+
+
+def _sqlite_table_has_row(conn: sqlite3.Connection, table: str) -> bool | None:
+    row = _sqlite_fetchone_with_step_limit(conn, f"SELECT 1 FROM {table} LIMIT 1", [])
+    return None if row is None else bool(row)
+
+
+def _archive_status_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    return {
+        str(row[0]): int(row[1])
+        for row in conn.execute("SELECT status, COUNT(*) FROM archive_files GROUP BY status").fetchall()
+    }
+
+
+def _sqlite_fetchone_with_step_limit(
+    conn: sqlite3.Connection,
+    query: str,
+    params: list[Any],
+    *,
+    max_steps: int = 2_000,
+) -> tuple[Any, ...] | None:
+    steps = 0
+
+    def progress() -> int:
+        nonlocal steps
+        steps += 1
+        return 1 if steps > max_steps else 0
+
+    conn.set_progress_handler(progress, 1000)
+    try:
+        return conn.execute(query, params).fetchone()
+    except sqlite3.OperationalError as error:
+        if "interrupted" in str(error).lower():
+            return None
+        raise
+    finally:
+        conn.set_progress_handler(None, 0)
