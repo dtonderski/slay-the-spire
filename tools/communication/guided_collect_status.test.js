@@ -40,6 +40,8 @@ function testInspectBlockedReport() {
     const reportPath = path.join(dir, "latest.json");
     writeJson(reportPath, {
       ok: false,
+      producer: "sts.guided_collect",
+      generated_at: "2026-06-30T12:00:00Z",
       run_id: 123,
       seed: null,
       stop_reason: "preflight_blocked",
@@ -77,6 +79,10 @@ function testInspectBlockedReport() {
 
     const result = inspectGuidedCollectReport(reportPath);
     assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.producer, "sts.guided_collect");
+    assert.strictEqual(result.generated_at, "2026-06-30T12:00:00Z");
+    assert.match(result.report_modified_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.strictEqual(typeof result.report_age_seconds, "number");
     assert.strictEqual(result.run_id, 123);
     assert.strictEqual(result.stop_reason, "preflight_blocked");
     assert.strictEqual(result.selection.mode, "auto");
@@ -117,6 +123,8 @@ function testInspectReportValidatesTrace() {
     const reportPath = path.join(dir, "latest.json");
     writeJson(reportPath, {
       ok: true,
+      producer: "sts.guided_collect",
+      generated_at: "2026-06-30T12:00:00Z",
       run_id: 123,
       seed: "GUIDED01",
       stop_reason: "max_actions",
@@ -134,6 +142,7 @@ function testInspectReportValidatesTrace() {
 
     const result = inspectGuidedCollectReport(reportPath);
     assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.producer, "sts.guided_collect");
     assert.strictEqual(result.trace.ok, true);
     assert.strictEqual(result.trace.actions, 1);
     assert.strictEqual(result.trace.max_floor, 1);

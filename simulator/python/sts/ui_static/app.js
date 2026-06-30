@@ -1578,6 +1578,8 @@
         ["Result", report.ok ? "OK" : "Blocked"],
         ["Stop", firstDefined(report.stop_reason, "-")],
         ["Trace replay", validationText(traceValidation)],
+        ["Producer", firstDefined(report.producer, "-")],
+        ["Generated", dateText(report.generated_at)],
         ["Run", firstDefined(report.run_id, "-")],
         ["Selection", selectionText(selection)],
         ["Actions", firstDefined(report.actions_sent, 0)],

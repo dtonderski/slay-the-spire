@@ -114,6 +114,8 @@ class GuidedCollectTests(unittest.TestCase):
             )
 
         self.assertFalse(report["ok"])
+        self.assertEqual(report["producer"], "sts.guided_collect")
+        self.assertIn("generated_at", report)
         self.assertEqual(report["run_id"], 123)
         self.assertEqual(report["seed"], "LIVE01")
         self.assertEqual(report["stop_reason"], "blocked")
@@ -176,6 +178,7 @@ class GuidedCollectTests(unittest.TestCase):
 
         export.assert_not_called()
         self.assertFalse(report["ok"])
+        self.assertEqual(report["producer"], "sts.guided_collect")
         self.assertEqual(report["stop_reason"], "preflight_blocked")
         self.assertEqual(report["blocker"]["reason"], "bridge_preflight")
         self.assertIn("session files are stale", report["blocker"]["problems"])
@@ -487,6 +490,7 @@ class GuidedCollectTests(unittest.TestCase):
 
             report = json.loads(report_path.read_text(encoding="utf-8"))
             self.assertFalse(report["ok"])
+            self.assertEqual(report["producer"], "sts.guided_collect")
             self.assertEqual(report["stop_reason"], "internal_error")
             self.assertEqual(report["blocker"]["type"], "RuntimeError")
             self.assertIn("boom", report["blocker"]["detail"])
