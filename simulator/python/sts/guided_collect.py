@@ -31,6 +31,7 @@ class GuidedCollectConfig:
     ascension: int = 0
     min_floor: int = 45
     max_floor: int | None = 55
+    min_potion_usage: int | None = None
     max_actions: int = 500
     max_seconds: float = 3600.0
     poll_seconds: float = 0.75
@@ -302,6 +303,7 @@ def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any]
         min_card_choices=8,
         min_event_choices=1,
         min_shop_purchases=1,
+        min_potion_usage=config.min_potion_usage,
         require_guided_safe_neow=True,
         limit=25,
         ranked=False,
@@ -416,6 +418,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--ascension", type=int, default=0)
     parser.add_argument("--min-floor", type=int, default=45)
     parser.add_argument("--max-floor", type=int, default=55)
+    parser.add_argument("--min-potion-usage", type=int, default=None)
     parser.add_argument("--max-actions", type=int, default=500)
     parser.add_argument("--max-seconds", type=float, default=3600.0)
     parser.add_argument("--poll-seconds", type=float, default=0.75)
@@ -438,6 +441,7 @@ def main(argv: list[str] | None = None) -> None:
                 ascension=args.ascension,
                 min_floor=args.min_floor,
                 max_floor=args.max_floor,
+                min_potion_usage=args.min_potion_usage,
                 max_actions=args.max_actions,
                 max_seconds=args.max_seconds,
                 poll_seconds=args.poll_seconds,

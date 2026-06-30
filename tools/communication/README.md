@@ -137,6 +137,13 @@ tools\communication\run_auto_collect.cmd
 tools\communication\run_guided_collect_status.cmd
 ```
 
+To bias the selected SlayTheData source run toward potion-budget coverage,
+forward the guided collector filter through the wrapper:
+
+```powershell
+tools\communication\run_auto_collect.cmd --min-potion-usage 1
+```
+
 Before a legacy heuristic overnight run:
 
 ```powershell
