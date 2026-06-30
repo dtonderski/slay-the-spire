@@ -252,11 +252,18 @@ def suggest_guided_action(
     act = _current_act(summary, bridge_status)
 
     if _looks_like_combat(summary):
+        potion_budget = potion_uses_allowed_on_floor(script, floor)
         return {
             "status": "combat",
             "mode": "combat_agent",
             "floor": floor,
-            "potion_uses_allowed": potion_uses_allowed_on_floor(script, floor),
+            "potion_uses_allowed": potion_budget,
+            "potion_guidance": {
+                "mode": "floor_budget",
+                "fidelity": "budget_only",
+                "uses_allowed": potion_budget,
+                "detail": "SlayTheData records potion use count by floor, not potion identity, target, or timing",
+            },
             "detail": "combat decisions are delegated to the combat search policy",
         }
 
@@ -420,6 +427,7 @@ def _guided_provenance(run: CollectorRun, suggestion: dict[str, Any]) -> dict[st
                 "target",
                 "ordinal",
                 "potion_uses_allowed",
+                "potion_guidance",
             )
             if key in suggestion
         },

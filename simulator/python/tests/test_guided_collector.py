@@ -510,6 +510,9 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "combat")
         self.assertEqual(result["mode"], "combat_agent")
         self.assertEqual(result["potion_uses_allowed"], 1)
+        self.assertEqual(result["potion_guidance"]["mode"], "floor_budget")
+        self.assertEqual(result["potion_guidance"]["fidelity"], "budget_only")
+        self.assertEqual(result["potion_guidance"]["uses_allowed"], 1)
 
     def test_collector_tick_send_combat_delegates_to_combat_callback(self):
         collector = GuidedCollector()
@@ -533,11 +536,13 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-1")
         self.assertEqual(calls[0]["payload"]["max_depth"], 4)
         self.assertEqual(calls[0]["suggestion"]["potion_uses_allowed"], 1)
+        self.assertEqual(calls[0]["suggestion"]["potion_guidance"]["fidelity"], "budget_only")
         provenance = calls[0]["payload"]["provenance"]
         self.assertEqual(provenance["source"], "guided_collector")
         self.assertEqual(provenance["script_source"]["run_id"], 42)
         self.assertEqual(provenance["suggestion"]["mode"], "combat_agent")
         self.assertEqual(provenance["suggestion"]["potion_uses_allowed"], 1)
+        self.assertEqual(provenance["suggestion"]["potion_guidance"]["mode"], "floor_budget")
 
     def test_collector_tick_send_non_combat_delegates_to_strict_callback(self):
         collector = GuidedCollector()
