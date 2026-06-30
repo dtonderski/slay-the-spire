@@ -40,6 +40,7 @@
     collectorLastError: null,
     collectorAutoRun: false,
     collectorAutoTimer: null,
+    collectorReport: null,
     slaythedataCandidates: [],
     slaythedataSelectedRunId: "",
     slaythedataStatus: null,
@@ -61,6 +62,7 @@
     refreshBridgeQuietly().finally(() => render());
     refreshBridgeClientsQuietly().finally(() => renderBridgeClients());
     refreshCollectorQuietly().finally(() => renderCollector());
+    refreshCollectorReportQuietly().finally(() => renderCollectorReport());
     refreshSlaythedataStatusQuietly().finally(() => renderCollector());
     startBridgePolling();
     render();
@@ -126,6 +128,7 @@
       "pauseCollectorButton",
       "stopCollectorButton",
       "collectorStatusPanel",
+      "collectorReportPanel",
       "requestBridgeStateButton",
       "clearOrphanCommandMetaButton",
       "refreshBridgeClientsButton",
@@ -178,6 +181,7 @@
     el.startCollectorButton.addEventListener("click", startGuidedCollector);
     el.startGuidedLiveRunButton.addEventListener("click", startGuidedLiveRun);
     el.startGuidedAutoRunButton.addEventListener("click", () => startGuidedLiveRun({ armAuto: true }));
+    el.collectorReportPanel.addEventListener("dblclick", () => refreshCollectorReport().catch(showError));
     el.findSlaythedataRunsButton.addEventListener("click", findSlaythedataRuns);
     el.loadSlaythedataRunButton.addEventListener("click", loadSelectedSlaythedataRun);
     el.slaythedataCandidateSelect.addEventListener("change", () => {
@@ -652,6 +656,14 @@
     }
   }
 
+  async function refreshCollectorReportQuietly() {
+    try {
+      app.collectorReport = await requestJson("/api/collector/report");
+    } catch (error) {
+      app.collectorReport = { ok: false, missing: true, error: readableError(error) };
+    }
+  }
+
   async function refreshSlaythedataStatusQuietly() {
     const character = (el.startCharacterSelect && el.startCharacterSelect.value || "IRONCLAD").trim().toUpperCase();
     const ascension = boundedInteger(el.startAscensionInput && el.startAscensionInput.value, 0, 0, 20);
@@ -750,6 +762,7 @@
       app.collector = result.collector || app.collector;
       app.collectorLastError = null;
       await refreshBridgeQuietly();
+      await refreshCollectorReportQuietly();
       if (options.armAuto) {
         app.collectorAutoRun = true;
         scheduleCollectorAutoStep(850);
@@ -805,6 +818,7 @@
       app.collectorLastError = null;
       await refreshBridgeQuietly();
       await refreshParityQuietly();
+      await refreshCollectorReportQuietly();
       const suggestion = app.collector && app.collector.suggestion;
       if (suggestion && suggestion.status === "blocked") {
         throw new Error(firstDefined(suggestion.detail, suggestion.reason, "Collector blocked."));
@@ -858,6 +872,7 @@
     try {
       await refreshBridgeQuietly();
       await refreshCollectorQuietly();
+      await refreshCollectorReportQuietly();
       if (!app.collector || !app.collector.active) {
         app.collectorAutoRun = false;
         renderCollector();
@@ -926,6 +941,13 @@
       pauseCollectorAutoRun();
       app.collector = await requestJson("/api/collector/stop", { method: "POST", body: {} });
       app.collectorLastError = null;
+      await refreshCollectorReportQuietly();
+    });
+  }
+
+  async function refreshCollectorReport() {
+    await singleFlight("Refreshing guided report", async () => {
+      await refreshCollectorReportQuietly();
     });
   }
 
@@ -1135,6 +1157,7 @@
     renderActions();
     renderAllowedPotions();
     renderCollector();
+    renderCollectorReport();
     renderSearch();
     renderBridge();
     renderBridgeClients();
@@ -1523,6 +1546,50 @@
       wrap.appendChild(msg);
     }
     el.collectorStatusPanel.appendChild(wrap);
+  }
+
+  function renderCollectorReport() {
+    if (!el.collectorReportPanel) return;
+    const report = app.collectorReport;
+    clear(el.collectorReportPanel);
+    el.collectorReportPanel.className = "collector-status";
+    if (!report || report.missing) {
+      el.collectorReportPanel.classList.add("empty");
+      empty(el.collectorReportPanel, report && report.error ? report.error : "No guided collection report.");
+      return;
+    }
+
+    const blocker = report.blocker || {};
+    const traceName = report.trace_path ? String(report.trace_path).split(/[\\/]/).pop() : "-";
+    el.collectorReportPanel.append(
+      statBlock("Last Guided Report", [
+        ["Result", report.ok ? "OK" : "Blocked"],
+        ["Stop", firstDefined(report.stop_reason, "-")],
+        ["Run", firstDefined(report.run_id, "-")],
+        ["Actions", firstDefined(report.actions_sent, 0)],
+        ["Bridge", firstDefined(report.bridge_step, "-")],
+        ["Trace", traceName],
+      ]),
+    );
+
+    const problems = arrayOf(blocker.problems);
+    const warnings = arrayOf(blocker.warnings);
+    if (!report.ok) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = firstDefined(
+        blocker.detail,
+        blocker.reason,
+        problems.length ? problems.join("; ") : null,
+        "Guided collection did not complete.",
+      );
+      el.collectorReportPanel.appendChild(msg);
+    } else if (warnings.length) {
+      const msg = document.createElement("div");
+      msg.className = "message info";
+      msg.textContent = `Warnings: ${warnings.join("; ")}`;
+      el.collectorReportPanel.appendChild(msg);
+    }
   }
 
   function renderSlaythedataStatus() {
