@@ -419,6 +419,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "bridge"]:
                 self._send_json(self.bridge.status())
                 return
+            if parts == ["api", "bridge", "clients"]:
+                self._send_json(self.bridge.clients())
+                return
             if parts == ["api", "traces"]:
                 self._send_json(self.traces.list_traces(_query_int(query, "limit", 50)))
                 return
@@ -479,6 +482,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                         source_state_id=_optional_string(payload.get("source_state_id")),
                     )
                 )
+                return
+            if parts == ["api", "bridge", "clients", "kill"]:
+                self._send_json(self.bridge.kill_client(payload.get("pid")))
                 return
             self.send_error(404, "not found")
         except Exception as error:

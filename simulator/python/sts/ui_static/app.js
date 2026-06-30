@@ -12,6 +12,9 @@
     lastError: null,
     search: null,
     bridge: null,
+    bridgeClients: [],
+    bridgeClientsError: null,
+    bridgeClientsLoading: false,
     bridgeIdentity: null,
     bridgeIdentityWarning: null,
     parity: null,
@@ -47,6 +50,7 @@
     bindElements();
     bindEvents();
     refreshBridgeQuietly().finally(() => render());
+    refreshBridgeClientsQuietly().finally(() => renderBridgeClients());
     startBridgePolling();
     render();
   });
@@ -98,6 +102,8 @@
       "searchResult",
       "refreshBridgeButton",
       "requestBridgeStateButton",
+      "refreshBridgeClientsButton",
+      "bridgeClientsPanel",
       "invariantModal",
       "invariantTitle",
       "invariantMessage",
@@ -143,6 +149,7 @@
     el.applyBestButton.addEventListener("click", applyBestAction);
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
+    el.refreshBridgeClientsButton.addEventListener("click", refreshBridgeClients);
     el.ackInvariantButton.addEventListener("click", acknowledgeInvariantViolation);
     el.refreshTracesButton.addEventListener("click", refreshTraces);
     el.loadTraceButton.addEventListener("click", loadSelectedTrace);
@@ -530,6 +537,7 @@
         app.search = null;
         app.liveSearchBridgeStateId = null;
         app.liveSendAction = null;
+        refreshBridgeClientsQuietly().finally(() => renderBridgeClients());
       }
       if (nextIdentity) {
         app.bridgeIdentity = nextIdentity;
@@ -537,6 +545,50 @@
     } catch (error) {
       app.bridge = { error: readableError(error), connected: false, stale: true };
     }
+  }
+
+  async function refreshBridgeClients() {
+    app.bridgeClientsLoading = true;
+    app.bridgeClientsError = null;
+    renderBridgeClients();
+    try {
+      const result = await requestJson("/api/bridge/clients");
+      app.bridgeClients = arrayOf(result.clients);
+    } catch (error) {
+      app.bridgeClients = [];
+      app.bridgeClientsError = readableError(error);
+    } finally {
+      app.bridgeClientsLoading = false;
+      renderBridgeClients();
+    }
+  }
+
+  async function refreshBridgeClientsQuietly() {
+    try {
+      const result = await requestJson("/api/bridge/clients");
+      app.bridgeClients = arrayOf(result.clients);
+      app.bridgeClientsError = null;
+    } catch (error) {
+      app.bridgeClients = [];
+      app.bridgeClientsError = readableError(error);
+    }
+  }
+
+  async function killBridgeClient(pid) {
+    if (!pid) return;
+    const client = app.bridgeClients.find((entry) => String(entry.pid) === String(pid));
+    const label = client ? bridgeClientLabel(client) : `pid ${pid}`;
+    const ok = window.confirm(`Kill bridge client ${label}?`);
+    if (!ok) return;
+    await singleFlight(`Killing bridge client ${pid}`, async () => {
+      await requestJson("/api/bridge/clients/kill", {
+        method: "POST",
+        body: { pid },
+      });
+      await refreshBridgeClientsQuietly();
+      await refreshBridgeQuietly();
+      await refreshParityQuietly();
+    });
   }
 
   async function refreshParityQuietly() {
@@ -688,6 +740,7 @@
     renderAllowedPotions();
     renderSearch();
     renderBridge();
+    renderBridgeClients();
     renderTrace();
     renderDebug();
     renderInvariantModal();
@@ -710,6 +763,7 @@
     el.applyBestButton.classList.toggle("hidden", app.viewMode === "live");
     el.refreshBridgeButton.disabled = app.inFlight;
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
+    el.refreshBridgeClientsButton.disabled = app.bridgeClientsLoading;
     const startReason = startLiveRunBlockedReason();
     const searchReason = liveSearchBlockedReason();
     const sendReason = liveSendBlockedReason();
@@ -825,7 +879,7 @@
   function renderActions() {
     const live = app.viewMode === "live";
     const actions = live
-      ? arrayOf(app.bridge && app.bridge.bridge_actions)
+      ? orderedLiveActions(arrayOf(app.bridge && app.bridge.bridge_actions))
       : app.actions.length ? app.actions : app.lastError ? app.lastActions : [];
     el.actionsTitle.textContent = live ? "Manual Live Actions" : "Simulator Actions";
     const enabledCount = live
@@ -1016,6 +1070,79 @@
     return node;
   }
 
+  function renderBridgeClients() {
+    if (!el.bridgeClientsPanel) return;
+    clear(el.bridgeClientsPanel);
+    el.refreshBridgeClientsButton.disabled = app.bridgeClientsLoading;
+    if (app.bridgeClientsLoading) {
+      empty(el.bridgeClientsPanel, "Loading bridge clients.");
+      return;
+    }
+    if (app.bridgeClientsError) {
+      el.bridgeClientsPanel.className = "bridge-clients-panel";
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = app.bridgeClientsError;
+      el.bridgeClientsPanel.appendChild(msg);
+      return;
+    }
+    if (!app.bridgeClients.length) {
+      empty(el.bridgeClientsPanel, "No bridge client PIDs found in current status or recent traces.");
+      return;
+    }
+
+    el.bridgeClientsPanel.className = "bridge-clients-panel";
+    app.bridgeClients.forEach((client) => {
+      const card = document.createElement("article");
+      card.className = `bridge-client-card${client.current ? " current" : ""}${client.alive ? "" : " dead"}`;
+
+      const main = document.createElement("div");
+      main.className = "bridge-client-main";
+      const title = document.createElement("strong");
+      title.textContent = bridgeClientLabel(client);
+      const meta = document.createElement("span");
+      meta.textContent = bridgeClientMeta(client);
+      main.append(title, meta);
+
+      const chips = document.createElement("div");
+      chips.className = "bridge-client-chips";
+      chips.appendChild(clientChip(client.current ? "Current" : "Extra", client.current ? "good" : "warn"));
+      chips.appendChild(clientChip(client.alive ? "Alive" : "Dead", client.alive ? "good" : "neutral"));
+      arrayOf(client.sources).forEach((source) => chips.appendChild(clientChip(humanize(source), "neutral")));
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "danger-button";
+      button.textContent = client.current ? "Kill current" : "Kill";
+      button.disabled = app.inFlight || !client.killable;
+      button.title = client.killable ? "Terminate this bridge client process." : "This client is not alive or cannot be killed safely.";
+      button.addEventListener("click", () => killBridgeClient(client.pid));
+
+      card.append(main, chips, button);
+      el.bridgeClientsPanel.appendChild(card);
+    });
+  }
+
+  function bridgeClientLabel(client) {
+    const name = firstDefined(client.name, "process");
+    return `${name} pid ${firstDefined(client.pid, "?")}`;
+  }
+
+  function bridgeClientMeta(client) {
+    const trace = arrayOf(client.trace_paths)[0];
+    const traceName = trace ? trace.split(/[\\/]/).pop() : "no trace";
+    const age = typeof client.trace_age_seconds === "number" ? `${Math.round(client.trace_age_seconds)}s old` : "unknown age";
+    const started = client.started_at ? `started ${client.started_at}` : "start unknown";
+    return `${traceName} / ${age} / ${started}`;
+  }
+
+  function clientChip(text, kind) {
+    const chip = document.createElement("span");
+    chip.className = `client-chip ${kind || "neutral"}`;
+    chip.textContent = text;
+    return chip;
+  }
+
   function renderBridge() {
     clear(el.bridgePanel);
     if (!app.bridge) {
@@ -1148,7 +1275,7 @@
     wrapper.className = "bridge-action-section";
     wrapper.appendChild(line("h3", "Bridge Actions"));
 
-    const actions = arrayOf(app.bridge && app.bridge.bridge_actions);
+    const actions = orderedLiveActions(arrayOf(app.bridge && app.bridge.bridge_actions));
     if (!actions.length) {
       const emptyText = document.createElement("span");
       emptyText.className = "bridge-action-empty";
@@ -1179,6 +1306,17 @@
     });
     wrapper.appendChild(grid);
     return wrapper;
+  }
+
+  function orderedLiveActions(actions) {
+    return actions.slice().sort((left, right) => liveActionSortRank(left) - liveActionSortRank(right));
+  }
+
+  function liveActionSortRank(action) {
+    const descriptor = action && action.descriptor || {};
+    const actionId = String(firstDefined(action && action.action_id, action && action.actionId, ""));
+    if (descriptor.kind === "DiscardPotionSlot" || actionId.startsWith("discard-potion")) return 90;
+    return 0;
   }
 
   function renderTrace() {
