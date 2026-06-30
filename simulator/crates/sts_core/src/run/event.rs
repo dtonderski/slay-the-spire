@@ -24,6 +24,12 @@ pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
+pub const WORLD_OF_GOOP_DAMAGE: i32 = 11;
+pub const WORLD_OF_GOOP_GOLD: i32 = 75;
+pub const WORLD_OF_GOOP_MIN_GOLD_LOSS: i32 = 20;
+pub const WORLD_OF_GOOP_MAX_GOLD_LOSS: i32 = 50;
+pub const WORLD_OF_GOOP_A15_MIN_GOLD_LOSS: i32 = 35;
+pub const WORLD_OF_GOOP_A15_MAX_GOLD_LOSS: i32 = 75;
 pub const GOLDEN_IDOL_HP_LOSS_PERCENT: f32 = 0.25;
 pub const GOLDEN_IDOL_MAX_HP_LOSS_PERCENT: f32 = 0.08;
 pub const GOLDEN_IDOL_A15_HP_LOSS_PERCENT: f32 = 0.35;
@@ -636,6 +642,23 @@ fn golden_idol_choices(stage: u32, max_hp: i32, ascension: u8) -> Vec<EventChoic
     }
 }
 
+fn world_of_goop_choices(stage: u32, gold_loss: i32) -> Vec<EventChoice> {
+    match stage {
+        0 => vec![
+            EventChoice {
+                label: format!(
+                    "Gather gold (gain {WORLD_OF_GOOP_GOLD} gold, lose {WORLD_OF_GOOP_DAMAGE} HP)"
+                ),
+            },
+            EventChoice {
+                label: format!("Leave it (lose {gold_loss} gold)"),
+            },
+        ],
+        1 => labeled_choices(&["Leave"]),
+        _ => Vec::new(),
+    }
+}
+
 fn labeled_choices(labels: &[&str]) -> Vec<EventChoice> {
     labels
         .iter()
@@ -762,6 +785,21 @@ fn current_floor_in_act(run: &RunState) -> i32 {
     }
 }
 
+fn roll_world_of_goop_gold_loss(run: &mut RunState) -> i32 {
+    let (min, max) = if run.ascension >= 15 {
+        (
+            WORLD_OF_GOOP_A15_MIN_GOLD_LOSS,
+            WORLD_OF_GOOP_A15_MAX_GOLD_LOSS,
+        )
+    } else {
+        (WORLD_OF_GOOP_MIN_GOLD_LOSS, WORLD_OF_GOOP_MAX_GOLD_LOSS)
+    };
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let loss = rng.random_int_range(min, max).min(run.gold);
+    run.misc_rng_counter = rng.counter();
+    loss
+}
+
 fn generate_event(run: &mut RunState, rng: &mut StsRng) -> Event {
     let shrine_list_is_empty = {
         let (_, shrine_list) = event_lists_mut(run);
@@ -821,8 +859,9 @@ pub fn enter_event_screen(run: &mut RunState) {
     ensure_event_lists(run);
     let mut rng = StsRng::with_counter(run.event_rng_seed as i64, run.event_rng_counter);
     let event = generate_event(run, &mut rng);
+    run.store_rng_counter(RunRngStream::Event, &rng);
     run.phase = RunPhase::Event;
-    run.event = Some(event_screen_for_run(run, event));
+    run.event = Some(entered_event_screen_for_run(run, event));
 }
 
 #[must_use]
@@ -871,6 +910,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::ScrapOoze => make_event_screen(event, scrap_ooze_choices(0), 0),
         Event::BigFish => make_event_screen(event, big_fish_choices(0), 0),
         Event::GoldenIdol => make_event_screen(event, golden_idol_choices(0, 0, 0), 0),
+        Event::WorldOfGoop => make_event_screen(event, world_of_goop_choices(0, 0), 0),
         Event::DeadAdventurer => make_event_screen(event, dead_adventurer_choices(0), 0),
         Event::TheSsssserpent => make_event_screen(event, sssssserpent_choices(0), 0),
         Event::BackToBasics => {
@@ -910,6 +950,21 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
             0,
         ),
         _ => event_screen(event),
+    }
+}
+
+fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> EventScreen {
+    match event {
+        Event::WorldOfGoop => {
+            let gold_loss = roll_world_of_goop_gold_loss(run);
+            EventScreen {
+                event,
+                choices: world_of_goop_choices(0, gold_loss),
+                stage: 0,
+                event_data: gold_loss as u32,
+            }
+        }
+        _ => event_screen_for_run(run, event),
     }
 }
 
@@ -1127,6 +1182,37 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             _ => {
                 return Err(SimError::IllegalAction(
                     "event choice is not implemented for Golden Idol",
+                ));
+            }
+        },
+        Event::WorldOfGoop => match screen.stage {
+            0 if choice_index == 0 => {
+                lose_event_hp(&mut next, WORLD_OF_GOOP_DAMAGE);
+                next.gain_gold(WORLD_OF_GOOP_GOLD);
+                next.event = Some(EventScreen {
+                    event: Event::WorldOfGoop,
+                    choices: world_of_goop_choices(1, screen.event_data as i32),
+                    stage: 1,
+                    event_data: screen.event_data,
+                });
+            }
+            0 if choice_index == 1 => {
+                let gold_loss = screen.event_data as i32;
+                next.gold = (next.gold - gold_loss).max(0);
+                next.event = Some(EventScreen {
+                    event: Event::WorldOfGoop,
+                    choices: world_of_goop_choices(1, gold_loss),
+                    stage: 1,
+                    event_data: screen.event_data,
+                });
+            }
+            1 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for World of Goop",
                 ));
             }
         },
@@ -3143,6 +3229,79 @@ mod tests {
         assert_eq!(after.phase, RunPhase::Idle);
         assert!(after.event.is_none());
         assert_eq!(after.gold, gold_before + GOLDEN_SHRINE_GOLD);
+    }
+
+    #[test]
+    fn world_of_goop_gather_gold_loses_hp_gains_gold_then_requires_leave() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 53;
+        run.player_max_hp = 85;
+        run.gold = 179;
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::WorldOfGoop,
+            choices: world_of_goop_choices(0, 34),
+            stage: 0,
+            event_data: 34,
+        });
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("gather");
+
+        assert_eq!(after.phase, RunPhase::Event);
+        assert_eq!(after.player_hp, 42);
+        assert_eq!(after.gold, 254);
+        let screen = after.event.as_ref().expect("leave screen");
+        assert_eq!(screen.event, Event::WorldOfGoop);
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices.len(), 1);
+
+        let leave =
+            apply_event_action(&after, EventAction::Choose { choice_index: 0 }).expect("leave");
+        assert_eq!(leave.phase, RunPhase::Idle);
+        assert!(leave.event.is_none());
+    }
+
+    #[test]
+    fn world_of_goop_leave_it_loses_rolled_gold_then_requires_leave() {
+        let mut run = RunState::map_fixture();
+        run.gold = 30;
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::WorldOfGoop,
+            choices: world_of_goop_choices(0, 34),
+            stage: 0,
+            event_data: 34,
+        });
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("leave it");
+
+        assert_eq!(after.phase, RunPhase::Event);
+        assert_eq!(after.gold, 0);
+        assert_eq!(after.event.as_ref().expect("leave").stage, 1);
+    }
+
+    #[test]
+    fn entering_world_of_goop_rolls_gold_loss_and_stores_event_rng_counter() {
+        let mut run = RunState::map_fixture();
+        run.gold = 42;
+        run.ascension = 0;
+        run.misc_rng_seed = 77;
+        run.misc_rng_counter = 0;
+        run.event_rng_seed = 13;
+        run.event_rng_counter = 0;
+        run.act1_event_list = vec![Event::WorldOfGoop];
+        run.act1_shrine_list = Vec::new();
+
+        enter_event_screen(&mut run);
+
+        let screen = run.event.as_ref().expect("goop");
+        assert_eq!(screen.event, Event::WorldOfGoop);
+        assert!(screen.event_data >= WORLD_OF_GOOP_MIN_GOLD_LOSS as u32);
+        assert!(screen.event_data <= WORLD_OF_GOOP_MAX_GOLD_LOSS as u32);
+        assert_eq!(run.misc_rng_counter, 1);
+        assert!(run.event_rng_counter > 0);
     }
 
     #[test]
