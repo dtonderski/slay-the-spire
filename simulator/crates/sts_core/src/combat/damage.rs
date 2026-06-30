@@ -44,7 +44,6 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
         monster.block += monster.powers.curl_up;
         monster.powers.curl_up = 0;
     }
-    reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
     large_acid_slime_on_hp_damage(monster, hp_damage);
 
     hp_damage
@@ -142,15 +141,18 @@ pub fn deal_damage_info_to_monster_with_result(
 }
 
 /// Reflects thorns-style spikes damage to the player after an attack hits the monster.
-pub fn reflect_spikes_to_player(player: &mut PlayerState, relics: &[Relic], spikes: i32) {
+pub fn reflect_spikes_to_player(player: &mut PlayerState, relics: &[Relic], spikes: i32) -> i32 {
     if spikes <= 0 {
-        return;
+        return 0;
     }
 
-    let blocked = player.block.min(spikes);
+    let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(player, spikes);
+    let blocked = player.block.min(incoming);
     player.block -= blocked;
-    let hp_loss = crate::relic::mitigate_hp_loss(relics, spikes - blocked);
-    player.hp -= crate::relic::apply_buffer_to_hp_loss(&mut player.powers, hp_loss);
+    let mitigated = crate::relic::mitigate_hp_loss(relics, incoming - blocked);
+    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut player.powers, mitigated);
+    player.hp -= hp_loss;
+    hp_loss
 }
 
 #[cfg(test)]
@@ -562,6 +564,42 @@ mod tests {
     }
 
     #[test]
+    fn unmodified_damage_does_not_reduce_monster_plated_armor() {
+        let mut monster = MonsterState {
+            id: MonsterId::new(1),
+            hp: 20,
+            block: 0,
+            alive: true,
+            escaped: false,
+            powers: crate::MonsterPowers {
+                plated_armor: 1,
+                ..Default::default()
+            },
+            temp_strength_down: 0,
+            content_id: FIXED_SIMPLE_MONSTER_ID,
+            moves_executed: 0,
+            sleep_turns_remaining: 0,
+            has_siphoned: false,
+            split_triggered: false,
+            defensive_turns_remaining: 0,
+            mode_shift: 0,
+            in_defensive_mode: false,
+            rolled_attack_damage: None,
+            stolen_gold: 0,
+            move_history: Vec::new(),
+            gremlin_leader_slot: None,
+            stasis_card: None,
+            intent: crate::MonsterIntent::Attack { damage: 6 },
+        };
+
+        deal_unmodified_damage_to_monster(&mut monster, 7);
+
+        assert_eq!(monster.hp, 13);
+        assert_eq!(monster.powers.plated_armor, 1);
+        assert_eq!(monster.intent, crate::MonsterIntent::Attack { damage: 6 });
+    }
+
+    #[test]
     fn monster_plated_armor_break_sets_stun_intent() {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
@@ -967,6 +1005,33 @@ mod tests {
 
         assert_eq!(player.block, 0);
         assert_eq!(player.hp, 18);
+    }
+
+    #[test]
+    fn intangible_caps_spikes_hp_loss() {
+        let mut player = PlayerState {
+            hp: 20,
+            max_hp: 80,
+            block: 0,
+            energy: 3,
+            max_energy: 3,
+            powers: PlayerPowers {
+                intangible: 1,
+                ..Default::default()
+            },
+            cannot_draw: false,
+            temp_strength: 0,
+            temp_dexterity: 0,
+            temp_thorns: 0,
+            temp_rage_block: 0,
+            no_block_turns: 0,
+            vulnerable_just_applied: false,
+        };
+
+        let hp_loss = reflect_spikes_to_player(&mut player, &[], 3);
+
+        assert_eq!(hp_loss, 1);
+        assert_eq!(player.hp, 19);
     }
 
     #[test]

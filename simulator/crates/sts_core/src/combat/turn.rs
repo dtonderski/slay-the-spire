@@ -136,9 +136,7 @@ fn start_player_turn_with_no_rng_discard_limit(
 
 fn apply_start_of_turn_brutality(state: &mut CombatState) {
     for _ in 0..state.player.powers.brutality.max(0) {
-        let mitigated = crate::relic::mitigate_hp_loss(&state.relics, 1);
-        let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
-        state.player.hp -= hp_loss;
+        let hp_loss = crate::combat::hp_loss::lose_player_hp(state, 1);
         crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
         if state.player.hp <= 0 {
             return;
@@ -423,11 +421,7 @@ fn apply_turn_transition_block_loss(state: &mut CombatState) {
 }
 
 fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> i32 {
-    let incoming = if state.player.powers.intangible > 0 && amount > 1 {
-        1
-    } else {
-        amount
-    };
+    let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
     let mitigated =

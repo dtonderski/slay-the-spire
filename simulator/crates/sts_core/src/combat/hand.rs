@@ -34,12 +34,8 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
 
     let burn_copies = burns.len() as i32;
 
-    let incoming = burn_copies * BURN_END_TURN_DAMAGE;
-    let blocked = state.player.block.min(incoming);
-    state.player.block -= blocked;
-    let mitigated = crate::relic::mitigate_hp_loss(&state.relics, incoming - blocked);
-    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
-    state.player.hp -= hp_loss;
+    let hp_loss =
+        crate::combat::hp_loss::lose_player_blockable_hp(state, burn_copies * BURN_END_TURN_DAMAGE);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
     state.piles.discard_pile.extend(burns);
 }
@@ -58,9 +54,7 @@ fn apply_regret_damage_in_hand(state: &mut CombatState, hand_size: i32) {
     state.piles.hand = remaining;
 
     for _ in &regrets {
-        let mitigated = crate::relic::mitigate_hp_loss(&state.relics, hand_size);
-        let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
-        state.player.hp -= hp_loss;
+        let hp_loss = crate::combat::hp_loss::lose_player_hp(state, hand_size);
         crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
     }
     state.piles.discard_pile.extend(regrets);
@@ -300,6 +294,24 @@ mod tests {
 
         assert_eq!(next.player.hp, 20);
         assert_eq!(next.player.powers.buffer, 0);
+    }
+
+    #[test]
+    fn intangible_caps_burn_damage_before_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.block = 1;
+        state.player.powers.intangible = 1;
+        state.monsters[0].alive = false;
+        state.piles.hand = vec![CardInstance::new(
+            CardId::new(20),
+            crate::content::cards::BURN_ID,
+        )];
+        state.piles.draw_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 20);
     }
 
     #[test]

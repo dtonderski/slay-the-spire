@@ -255,12 +255,8 @@ fn apply_internal_action(
                 apply_monster_death_hooks(state, info.target);
             }
             if spikes > 0 {
-                let hp_before = state.player.hp;
-                reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(
-                    state,
-                    hp_before - state.player.hp,
-                );
+                let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
             }
             Ok(Vec::new())
         }
@@ -303,12 +299,9 @@ fn apply_internal_action(
                     apply_monster_death_hooks(state, target);
                 }
                 if spikes > 0 {
-                    let hp_before = state.player.hp;
-                    reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                    crate::combat::hp_loss::apply_player_hp_loss_hooks(
-                        state,
-                        hp_before - state.player.hp,
-                    );
+                    let hp_loss =
+                        reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
                 }
             }
             Ok(Vec::new())
@@ -357,12 +350,8 @@ fn apply_internal_action(
                 apply_monster_death_hooks(state, info.target);
             }
             if spikes > 0 {
-                let hp_before = state.player.hp;
-                reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(
-                    state,
-                    hp_before - state.player.hp,
-                );
+                let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
             }
             Ok(Vec::new())
         }
@@ -405,9 +394,8 @@ fn apply_internal_action(
                 apply_monster_death_hooks(state, info.target);
             }
             if spikes > 0 {
-                let hp_before = state.player.hp;
-                reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                crate::relic::apply_player_hp_loss_relics(state, hp_before - state.player.hp);
+                let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+                crate::relic::apply_player_hp_loss_relics(state, hp_loss);
             }
             Ok(Vec::new())
         }
@@ -538,10 +526,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::LoseHp { amount, source } => {
-            let mitigated = crate::relic::mitigate_hp_loss(&state.relics, amount);
-            let hp_loss =
-                crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
-            state.player.hp -= hp_loss;
+            let hp_loss = crate::combat::hp_loss::lose_player_hp(state, amount);
             if matches!(source, HpLossSource::Card(_)) {
                 crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
             } else {
@@ -854,9 +839,8 @@ fn deal_attack_damage_to_all_living(
             apply_monster_death_hooks(state, target);
         }
         if spikes > 0 {
-            let hp_before = state.player.hp;
-            reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_before - state.player.hp);
+            let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
         }
     }
 
@@ -13734,6 +13718,17 @@ mod tests {
         let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
 
         assert_eq!(next.player.hp, state.player.hp - 5);
+        assert_eq!(next.player.energy, state.player.energy + 2);
+    }
+
+    #[test]
+    fn intangible_caps_offering_hp_loss() {
+        let mut state = hand_only(OFFERING_ID);
+        state.player.powers.intangible = 1;
+
+        let next = apply_combat_action(&state, offering_action(&state)).expect("Offering applies");
+
+        assert_eq!(next.player.hp, state.player.hp - 1);
         assert_eq!(next.player.energy, state.player.energy + 2);
     }
 

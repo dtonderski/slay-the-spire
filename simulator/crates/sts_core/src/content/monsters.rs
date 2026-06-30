@@ -7855,7 +7855,7 @@ mod tests {
     }
 
     #[test]
-    fn shelled_parasite_plated_armor_gains_block_and_decrements_on_hp_damage() {
+    fn shelled_parasite_plated_armor_gains_block_and_decrements_on_attack_hp_damage() {
         let mut monster = monster_state(&SHELLED_PARASITE_A0, MonsterId::new(1));
         monster.block = 0;
 
@@ -7863,9 +7863,16 @@ mod tests {
 
         assert_eq!(monster.block, SHELLED_PARASITE_PLATED_ARMOR);
 
-        let hp_damage = crate::combat::damage::deal_unmodified_damage_to_monster(
+        let hp_damage = crate::combat::damage::deal_damage_info_to_monster(
             &mut monster,
-            SHELLED_PARASITE_PLATED_ARMOR + 1,
+            crate::combat::damage::DamageInfo {
+                source: crate::combat::damage::DamageSource::Card(crate::CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: SHELLED_PARASITE_PLATED_ARMOR + 1,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
         );
 
         assert_eq!(hp_damage, 1);

@@ -99,10 +99,7 @@ fn apply_end_of_turn_combust(state: &mut CombatState) {
 }
 
 fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
-    let mitigated = crate::relic::mitigate_hp_loss(&state.relics, amount);
-    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
-    state.player.hp -= hp_loss;
-    hp_loss
+    crate::combat::hp_loss::lose_player_hp(state, amount)
 }
 
 fn deal_combust_damage_to_living_monsters(state: &mut CombatState) {
