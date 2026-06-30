@@ -38,6 +38,20 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_combat_bridge(self):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "combat-bridge-state",
+            "summary": {
+                "floor": 3,
+                "phase": "combat",
+                "combat": {"monsters": []},
+            },
+        }
+
     def test_suggest_guided_action_matches_visible_event_choice(self):
         result = suggest_guided_action(
             sample_script(),
@@ -121,6 +135,111 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "combat")
         self.assertEqual(result["mode"], "combat_agent")
         self.assertEqual(result["potion_uses_allowed"], 1)
+
+    def test_collector_tick_send_combat_delegates_to_combat_callback(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+        calls = []
+
+        result = collector.tick(
+            self.ready_combat_bridge(),
+            {"send": True, "max_depth": 4},
+            send_combat=lambda **kwargs: calls.append(kwargs)
+            or {
+                "predicted_state_id": "predicted-1",
+                "source_state_id": "sim-1",
+                "bridge_state_id": "combat-bridge-state",
+                "bridge_step": 9,
+                "send_result": {"command": "END"},
+            },
+        )
+
+        self.assertEqual(result["suggestion"]["status"], "sent_combat")
+        self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-1")
+        self.assertEqual(calls[0]["payload"]["max_depth"], 4)
+        self.assertEqual(calls[0]["suggestion"]["potion_uses_allowed"], 1)
+
+    def test_collector_tick_blocks_combat_send_without_callback(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+
+        result = collector.tick(self.ready_combat_bridge(), {"send": True})
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["blocker"]["reason"], "missing_combat_sender")
+
+    def test_collector_blocks_on_pending_prediction_mismatch(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+        collector.tick(
+            self.ready_combat_bridge(),
+            {"send": True},
+            send_combat=lambda **_kwargs: {
+                "predicted_state_id": "predicted-1",
+                "source_state_id": "sim-1",
+                "bridge_state_id": "combat-bridge-state",
+                "send_result": {"command": "END"},
+            },
+        )
+
+        result = collector.tick(
+            self.ready_combat_bridge(),
+            verify_prediction=lambda *_args, **_kwargs: {
+                "status": "mismatch",
+                "detail": "expected predicted-1, observed other",
+            },
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["blocker"]["reason"], "prediction_mismatch")
+        self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-1")
+
+    def test_collector_waits_for_bridge_ack_before_prediction_check(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+        collector.tick(
+            self.ready_combat_bridge(),
+            {"send": True},
+            send_combat=lambda **_kwargs: {
+                "predicted_state_id": "predicted-1",
+                "source_state_id": "sim-1",
+                "bridge_state_id": "combat-bridge-state",
+                "send_result": {"command": "END"},
+            },
+        )
+        bridge = self.ready_combat_bridge()
+        bridge["pending_command"] = True
+
+        result = collector.tick(
+            bridge,
+            verify_prediction=lambda *_args, **_kwargs: self.fail("prediction should wait for bridge ack"),
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["blocker"]["reason"], "pending_command")
+        self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-1")
+
+    def test_collector_clears_matching_pending_prediction_before_next_tick(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+        collector.tick(
+            self.ready_combat_bridge(),
+            {"send": True},
+            send_combat=lambda **_kwargs: {
+                "predicted_state_id": "predicted-1",
+                "source_state_id": "sim-1",
+                "bridge_state_id": "combat-bridge-state",
+                "send_result": {"command": "END"},
+            },
+        )
+
+        result = collector.tick(
+            self.ready_combat_bridge(),
+            verify_prediction=lambda *_args, **_kwargs: {"status": "matched"},
+        )
+
+        self.assertEqual(result["suggestion"]["status"], "combat")
+        self.assertIsNone(result["pending_prediction"])
 
     def test_collector_tracks_blockers_and_status(self):
         collector = GuidedCollector()

@@ -276,6 +276,101 @@ class SessionManager:
             },
         }
 
+    def send_live_combat_action(
+        self,
+        bridge_status: dict[str, Any],
+        suggestion: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        send_command: Any,
+    ) -> dict[str, Any]:
+        live_session = self.create_live_session(bridge_status)
+        if live_session.get("attach_fidelity") != "seed_replay":
+            raise ValueError("live combat send requires strict seed replay attachment")
+        if not _can_search_combat(self._require_session(live_session["session_id"])):
+            raise ValueError("live combat send requires a combat state")
+
+        search_payload = {
+            "candidate": payload.get("candidate"),
+            "max_depth": int(payload.get("max_depth", 40)),
+            "source_state_id": live_session["state_id"],
+        }
+        if "allowed_potions" in payload:
+            search_payload["allowed_potions"] = payload["allowed_potions"]
+        elif int(suggestion.get("potion_uses_allowed", 0) or 0) <= 0:
+            search_payload["allowed_potions"] = []
+
+        search_result = self.search(live_session["session_id"], search_payload)
+        recommendation = search_result["recommendation"]
+        best_action = recommendation.get("best_action")
+        if not isinstance(best_action, dict):
+            raise ValueError("combat search produced no sendable action")
+
+        prediction = self.predict(
+            live_session["session_id"],
+            {
+                "descriptor": best_action,
+                "source_state_id": live_session["state_id"],
+            },
+        )
+        bridge_action = _bridge_action_for_exact_action(best_action, bridge_status, live_session["state"])
+        if bridge_action is None:
+            raise ValueError("combat recommendation cannot be mapped to a current bridge command")
+
+        source_state_id = bridge_status.get("state_id")
+        result = send_command(
+            bridge_action["command"],
+            source_state_id=source_state_id,
+        )
+        return {
+            "session_id": live_session["session_id"],
+            "source_state_id": live_session["state_id"],
+            "bridge_state_id": source_state_id,
+            "bridge_step": bridge_status.get("last_state_step"),
+            "predicted_state_id": prediction["predicted_state_id"],
+            "recommendation": recommendation,
+            "bridge_action": bridge_action,
+            "send_result": {
+                "ok": result.get("ok"),
+                "command_id": result.get("command_id"),
+                "command": result.get("command"),
+            },
+        }
+
+    def verify_live_prediction(
+        self,
+        prediction: dict[str, Any],
+        *,
+        bridge_status: dict[str, Any],
+    ) -> dict[str, Any]:
+        expected = prediction.get("predicted_state_id")
+        if not expected:
+            return {"status": "blocked", "reason": "missing_expected_state", "detail": "pending prediction has no expected state"}
+        live_session = self.create_live_session(bridge_status)
+        if live_session.get("attach_fidelity") != "seed_replay":
+            return {
+                "status": "blocked",
+                "reason": "strict_replay_required",
+                "detail": "pending prediction check requires strict seed replay attachment",
+                "attach": live_session,
+            }
+        observed = live_session.get("state_id")
+        if observed != expected:
+            return {
+                "status": "mismatch",
+                "reason": "prediction_mismatch",
+                "detail": f"expected {expected}, observed {observed}",
+                "expected_state_id": expected,
+                "observed_state_id": observed,
+                "attach": live_session,
+            }
+        return {
+            "status": "matched",
+            "expected_state_id": expected,
+            "observed_state_id": observed,
+            "attach": live_session,
+        }
+
     def parity(self, session_id: str, bridge_status: dict[str, Any] | None = None) -> dict[str, Any]:
         session = self._require_session(session_id)
         bridge_status = bridge_status or BridgeMirror.default().status()
@@ -504,6 +599,8 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                         self.bridge.status(),
                         payload,
                         send_command=self.bridge.send_command,
+                        send_combat=self.manager.send_live_combat_action,
+                        verify_prediction=self.manager.verify_live_prediction,
                     )
                 )
                 return
@@ -702,6 +799,191 @@ def _transition_to_json(transition: Any) -> dict[str, Any]:
 
 def _terminal_reason(phase: str) -> str | None:
     return phase if phase in {"won", "lost"} else None
+
+
+def _bridge_action_for_exact_action(
+    action: dict[str, Any],
+    bridge_status: dict[str, Any],
+    sim_state: dict[str, Any],
+) -> dict[str, Any] | None:
+    bridge_actions = bridge_status.get("bridge_actions")
+    if not isinstance(bridge_actions, list):
+        return None
+
+    if _is_end_turn_descriptor(action):
+        return _find_bridge_action(bridge_actions, kind="EndTurn")
+
+    play = _play_card_payload(action)
+    if play is not None:
+        hand_slot = _observed_hand_slot_for_card_id(play.get("card_id"), bridge_status, sim_state)
+        if hand_slot is None:
+            return None
+        target = play.get("target")
+        target_slot = _observed_monster_slot_for_target(target, bridge_status, sim_state)
+        return _find_bridge_action(
+            bridge_actions,
+            kind="PlayHandSlot",
+            hand_slot=hand_slot,
+            target_slot=target_slot,
+            target_required=target is not None,
+        )
+
+    potion = _use_potion_payload(action)
+    if potion is not None:
+        target = potion.get("target")
+        target_slot = _observed_monster_slot_for_target(target, bridge_status, sim_state)
+        return _find_bridge_action(
+            bridge_actions,
+            kind="UsePotionSlot",
+            potion_slot=potion.get("slot"),
+            target_slot=target_slot,
+            target_required=target is not None,
+        )
+
+    return None
+
+
+def _find_bridge_action(
+    bridge_actions: list[Any],
+    *,
+    kind: str,
+    hand_slot: Any = None,
+    potion_slot: Any = None,
+    target_slot: Any = None,
+    target_required: bool = False,
+) -> dict[str, Any] | None:
+    for entry in bridge_actions:
+        if not isinstance(entry, dict):
+            continue
+        descriptor = entry.get("descriptor")
+        if not isinstance(descriptor, dict) or descriptor.get("kind") != kind:
+            continue
+        if hand_slot is not None and _parse_int_or_none(descriptor.get("hand_slot")) != _parse_int_or_none(hand_slot):
+            continue
+        if potion_slot is not None and _parse_int_or_none(descriptor.get("potion_slot")) != _parse_int_or_none(potion_slot):
+            continue
+        descriptor_target = descriptor.get("target_slot")
+        if target_required:
+            if _parse_int_or_none(descriptor_target) != _parse_int_or_none(target_slot):
+                continue
+        elif descriptor_target is not None:
+            continue
+        return entry
+    return None
+
+
+def _play_card_payload(action: dict[str, Any]) -> dict[str, Any] | None:
+    if action.get("kind") == "PlayCard":
+        return action
+    nested = action.get("action")
+    if isinstance(nested, dict) and isinstance(nested.get("PlayCard"), dict):
+        return nested["PlayCard"]
+    descriptor = action.get("descriptor")
+    if isinstance(descriptor, dict):
+        nested = descriptor.get("action")
+        if isinstance(nested, dict) and isinstance(nested.get("PlayCard"), dict):
+            return nested["PlayCard"]
+    return None
+
+
+def _use_potion_payload(action: dict[str, Any]) -> dict[str, Any] | None:
+    nested = action.get("action")
+    if isinstance(nested, dict) and isinstance(nested.get("UsePotion"), dict):
+        return nested["UsePotion"]
+    descriptor = action.get("descriptor")
+    if isinstance(descriptor, dict):
+        nested = descriptor.get("action")
+        if isinstance(nested, dict) and isinstance(nested.get("UsePotion"), dict):
+            return nested["UsePotion"]
+    return None
+
+
+def _is_end_turn_descriptor(action: dict[str, Any]) -> bool:
+    if action.get("kind") == "EndTurn" or action.get("action_kind") == "end_turn":
+        return True
+    descriptor = action.get("descriptor")
+    if isinstance(descriptor, dict) and (
+        descriptor.get("kind") == "EndTurn" or descriptor.get("action_kind") == "end_turn"
+    ):
+        return True
+    return action.get("action") == "EndTurn"
+
+
+def _observed_hand_slot_for_card_id(
+    card_id: Any,
+    bridge_status: dict[str, Any],
+    sim_state: dict[str, Any],
+) -> int | None:
+    hand = _bridge_combat_list(bridge_status, "hand")
+    direct = _find_by_any_id(hand, card_id, ("id", "card_id", "cardId"))
+    if direct is not None:
+        return _slot_from_entry(direct, ("index", "slot", "hand_slot", "handSlot"))
+
+    sim_hand = (((_run_state(sim_state).get("combat") or {}).get("piles") or {}).get("hand") or [])
+    sim_index = _index_by_any_id(sim_hand, card_id, ("id", "card_id", "cardId"))
+    if sim_index is None or sim_index >= len(hand):
+        return None
+    return _slot_from_entry(hand[sim_index], ("index", "slot", "hand_slot", "handSlot"))
+
+
+def _observed_monster_slot_for_target(
+    target: Any,
+    bridge_status: dict[str, Any],
+    sim_state: dict[str, Any],
+) -> int | None:
+    if target is None:
+        return None
+    monsters = _bridge_combat_list(bridge_status, "monsters")
+    direct = _find_by_any_id(monsters, target, ("id", "monster_id", "monsterId", "index"))
+    if direct is not None:
+        return _slot_from_entry(direct, ("index", "slot", "target_slot", "targetSlot"))
+
+    sim_monsters = ((_run_state(sim_state).get("combat") or {}).get("monsters") or [])
+    sim_index = _index_by_any_id(sim_monsters, target, ("id", "monster_id", "monsterId"))
+    if sim_index is None or sim_index >= len(monsters):
+        return None
+    return _slot_from_entry(monsters[sim_index], ("index", "slot", "target_slot", "targetSlot"))
+
+
+def _bridge_combat_list(bridge_status: dict[str, Any], name: str) -> list[Any]:
+    summary = bridge_status.get("summary")
+    combat = summary.get("combat") if isinstance(summary, dict) else None
+    values = combat.get(name) if isinstance(combat, dict) else None
+    return values if isinstance(values, list) else []
+
+
+def _find_by_any_id(entries: list[Any], wanted: Any, keys: tuple[str, ...]) -> dict[str, Any] | None:
+    for entry in entries:
+        if isinstance(entry, dict) and any(str(entry.get(key, "")) == str(wanted) for key in keys):
+            return entry
+    return None
+
+
+def _index_by_any_id(entries: list[Any], wanted: Any, keys: tuple[str, ...]) -> int | None:
+    for index, entry in enumerate(entries):
+        if isinstance(entry, dict) and any(str(entry.get(key, "")) == str(wanted) for key in keys):
+            return index
+    return None
+
+
+def _slot_from_entry(entry: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
+        value = _parse_int_or_none(entry.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _run_state(state: dict[str, Any]) -> dict[str, Any]:
+    nested = state.get("state")
+    return nested if isinstance(nested, dict) else state
+
+
+def _parse_int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _decision_substate(session: CombatSession, terminal_reason: str | None) -> str:

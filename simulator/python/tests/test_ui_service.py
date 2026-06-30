@@ -5,6 +5,7 @@ from unittest.mock import patch
 from sts.ui_service import (
     CombatSession,
     SessionManager,
+    _bridge_action_for_exact_action,
     _guided_script_from_payload,
     _observed_state_from_bridge_status,
 )
@@ -453,6 +454,110 @@ class UiServiceTests(unittest.TestCase):
         action_ids = {action["action_id"] for action in session["actions"]}
         self.assertIn(result["recommendation"]["best_action_id"], action_ids)
         self.assertEqual(result["recommendation"]["best_action"]["kind"], "ExactRunAction")
+
+    def test_bridge_action_for_exact_action_maps_run_play_card_to_visible_slots(self):
+        action = {
+            "kind": "ExactRunAction",
+            "action_kind": "play_card",
+            "action": {"PlayCard": {"card_id": 101, "target": 7}},
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "PLAY 1 0",
+                    "descriptor": {"kind": "PlayHandSlot", "hand_slot": 1, "target_slot": 0},
+                }
+            ],
+            "summary": {
+                "combat": {
+                    "hand": [{"index": 1, "id": 101}],
+                    "monsters": [{"index": 0, "id": 7}],
+                }
+            },
+        }
+
+        result = _bridge_action_for_exact_action(action, bridge_status, {"combat": {}})
+
+        self.assertEqual(result["command"], "PLAY 1 0")
+
+    def test_send_live_combat_action_attaches_searches_predicts_and_sends_bridge_command(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeLiveEnv(),
+        )
+        bridge_status = {
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "bridge_actions": [
+                {
+                    "command": "PLAY 1 0",
+                    "descriptor": {"kind": "PlayHandSlot", "hand_slot": 1, "target_slot": 0},
+                }
+            ],
+            "summary": {
+                "combat": {
+                    "hand": [{"index": 1, "id": 101}],
+                    "monsters": [{"index": 0, "id": 7}],
+                }
+            },
+        }
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-live-state",
+            "attach_fidelity": "seed_replay",
+            "state": {"combat": {}},
+        }
+        recommendation = {
+            "best_action": {
+                "kind": "ExactRunAction",
+                "action_kind": "play_card",
+                "action": {"PlayCard": {"card_id": 101, "target": 7}},
+            }
+        }
+        sent = []
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+            manager, "search", return_value={"recommendation": recommendation}
+        ) as search, patch.object(
+            manager,
+            "predict",
+            return_value={"predicted_state_id": "predicted-live-state"},
+        ) as predict:
+            result = manager.send_live_combat_action(
+                bridge_status,
+                {"status": "combat", "potion_uses_allowed": 0},
+                {"potion_uses_allowed": 0, "max_depth": 5},
+                send_command=lambda command, **kwargs: sent.append((command, kwargs))
+                or {"ok": True, "command_id": "cmd-1", "command": command},
+            )
+
+        self.assertEqual(result["bridge_action"]["command"], "PLAY 1 0")
+        self.assertEqual(result["predicted_state_id"], "predicted-live-state")
+        self.assertEqual(sent, [("PLAY 1 0", {"source_state_id": "bridge-state"})])
+        self.assertEqual(search.call_args.args[1]["source_state_id"], "fake-live-state")
+        self.assertEqual(search.call_args.args[1]["allowed_potions"], [])
+        self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-live-state")
+
+    def test_verify_live_prediction_reports_mismatch(self):
+        manager = SessionManager()
+        live_session = {
+            "session_id": "live",
+            "state_id": "observed-live-state",
+            "attach_fidelity": "seed_replay",
+        }
+
+        with patch.object(manager, "create_live_session", return_value=live_session):
+            result = manager.verify_live_prediction(
+                {"predicted_state_id": "predicted-live-state"},
+                bridge_status={"state_id": "bridge-state"},
+            )
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["expected_state_id"], "predicted-live-state")
+        self.assertEqual(result["observed_state_id"], "observed-live-state")
 
     def test_parity_reports_unknown_without_observed_combat(self):
         manager = SessionManager()

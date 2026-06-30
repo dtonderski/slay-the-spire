@@ -1,8 +1,8 @@
 """Guided trace collection coordinator.
 
 The collector coordinates SlayTheData run-level scripts with the live bridge.
-This first slice is deliberately conservative: it can load a script, report
-status, and suggest the next guided action, but it does not send commands.
+It remains conservative: ticks may preview, send a matched non-combat choice,
+or delegate a combat tick to the UI service's strict live-session machinery.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ class CollectorRun:
     status: str = "ready"
     blocker: dict[str, Any] | None = None
     last_suggestion: dict[str, Any] | None = None
+    pending_prediction: dict[str, Any] | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -61,6 +62,7 @@ class GuidedCollector:
             "config": self._run.script.get("config"),
             "blocker": self._run.blocker,
             "last_suggestion": self._run.last_suggestion,
+            "pending_prediction": self._run.pending_prediction,
             "history_count": len(self._run.history),
         }
 
@@ -70,10 +72,19 @@ class GuidedCollector:
         payload: dict[str, Any] | None = None,
         *,
         send_command: Callable[..., dict[str, Any]] | None = None,
+        send_combat: Callable[..., dict[str, Any]] | None = None,
+        verify_prediction: Callable[..., dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if self._run is None:
             raise ValueError("collector is not active")
         payload = payload or {}
+        pending_blocker = self._verify_pending_prediction(
+            bridge_status,
+            verify_prediction=verify_prediction,
+        )
+        if pending_blocker is not None:
+            return self._record_suggestion(pending_blocker)
+
         suggestion = suggest_guided_action(
             self._run.script,
             bridge_status,
@@ -81,11 +92,57 @@ class GuidedCollector:
             ordinal=int(payload.get("ordinal", 0)),
         )
         if payload.get("send"):
-            suggestion = send_guided_suggestion(
-                suggestion,
-                bridge_status,
-                send_command=send_command,
+            if suggestion.get("status") == "combat":
+                suggestion = send_guided_combat_suggestion(
+                    suggestion,
+                    bridge_status,
+                    payload=payload,
+                    send_combat=send_combat,
+                )
+            else:
+                suggestion = send_guided_suggestion(
+                    suggestion,
+                    bridge_status,
+                    send_command=send_command,
+                )
+        if suggestion.get("status") == "sent_combat":
+            combat_send = suggestion.get("combat_send")
+            if isinstance(combat_send, dict):
+                self._run.pending_prediction = _pending_prediction_from_combat_send(combat_send)
+        return self._record_suggestion(suggestion)
+
+    def _verify_pending_prediction(
+        self,
+        bridge_status: dict[str, Any],
+        *,
+        verify_prediction: Callable[..., dict[str, Any]] | None,
+    ) -> dict[str, Any] | None:
+        if self._run is None or self._run.pending_prediction is None:
+            return None
+        if bridge_status.get("pending_command"):
+            return _blocked("pending_command", "waiting for pending bridge command before verifying prediction")
+        if bridge_status.get("ready_for_command") is not True:
+            return _blocked("bridge_not_ready", "waiting for the next observed bridge state before verifying prediction")
+        if verify_prediction is None:
+            return _blocked("missing_prediction_verifier", "collector has a pending prediction but no verifier")
+        try:
+            verification = verify_prediction(
+                self._run.pending_prediction,
+                bridge_status=bridge_status,
             )
+        except Exception as error:
+            return _blocked("prediction_check_failed", str(error))
+        if verification.get("status") == "matched":
+            self._run.pending_prediction = None
+            return None
+        return _blocked(
+            "prediction_mismatch",
+            str(verification.get("detail") or "live state did not match the pending simulator prediction"),
+        ) | {"verification": verification}
+
+    def _record_suggestion(self, suggestion: dict[str, Any]) -> dict[str, Any]:
+        if self._run is None:
+            raise ValueError("collector is not active")
         self._run.last_suggestion = suggestion
         self._run.history.append(suggestion)
         if suggestion.get("status") == "blocked":
@@ -176,6 +233,44 @@ def send_guided_suggestion(
             "command_id": result.get("command_id"),
             "command": result.get("command"),
         },
+    }
+
+
+def send_guided_combat_suggestion(
+    suggestion: dict[str, Any],
+    bridge_status: dict[str, Any],
+    *,
+    payload: dict[str, Any],
+    send_combat: Callable[..., dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if suggestion.get("status") != "combat":
+        return suggestion | _blocked("not_combat", "only combat suggestions can use the combat sender")
+    if send_combat is None:
+        return suggestion | _blocked("missing_combat_sender", "collector tick has no combat sender")
+
+    blocker = _bridge_send_blocker(bridge_status)
+    if blocker is not None:
+        return suggestion | blocker
+
+    try:
+        result = send_combat(
+            bridge_status=bridge_status,
+            suggestion=suggestion,
+            payload=payload,
+        )
+    except Exception as error:
+        return suggestion | _blocked("combat_send_failed", str(error))
+
+    return suggestion | {"status": "sent_combat", "combat_send": result}
+
+
+def _pending_prediction_from_combat_send(combat_send: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "predicted_state_id": combat_send.get("predicted_state_id"),
+        "source_state_id": combat_send.get("source_state_id"),
+        "bridge_state_id": combat_send.get("bridge_state_id"),
+        "bridge_step": combat_send.get("bridge_step"),
+        "command": (combat_send.get("send_result") or {}).get("command"),
     }
 
 

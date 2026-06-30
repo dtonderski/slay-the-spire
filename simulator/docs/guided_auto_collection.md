@@ -57,16 +57,31 @@ The policy module also includes conservative visible-choice matching for simple
 text screens. It returns blockers instead of guessing when the target is
 missing or ambiguous.
 
-## Next Infrastructure Slice
-
-Add a backend collector coordinator beside `SessionManager`.
-
-Suggested endpoints:
+`sts.guided_collector` owns a loaded script and exposes:
 
 - `POST /api/collector/start`
 - `GET /api/collector/status`
 - `POST /api/collector/tick`
 - `POST /api/collector/stop`
+
+The collector can now:
+
+- preview the next SlayTheData-guided non-combat choice
+- send one matched non-combat bridge command when `tick` receives
+  `{ "send": true }`
+- delegate one combat action to the live combat search policy
+- store the predicted simulator state after a sent combat action
+- block the next tick if strict replay of the live trace does not reach that
+  predicted state
+
+Combat sending is deliberately routed through `SessionManager` so the same
+strict live-session attach, stale search guard, prediction, visible bridge slot
+mapping, and `BridgeMirror.send_command(..., source_state_id=...)` checks are
+used for manual UI play and guided collection.
+
+## Next Infrastructure Slice
+
+Add a continuous collector loop in the UI/service.
 
 Tick algorithm:
 
@@ -87,6 +102,13 @@ Tick algorithm:
 6. Stop with a blocker if any required choice is illegal, ambiguous,
    unsupported, or would require guessing.
 
+Steps 1, 3, 4, and simple visible-choice sending are implemented for one tick
+at a time. Remaining work is the continuous loop, exact simulator/legal-action
+agreement for every non-combat choice category, path/reward/shop/campfire
+coverage beyond simple visible text matching, and polished UI controls for
+selecting candidate runs from the local SlayTheData index instead of pasting a
+JSONL row by hand.
+
 ## Important Boundaries
 
 Strict replay remains the simulator parity proof. Guided collection is allowed
@@ -101,4 +123,3 @@ not visible.
 
 Combat actions must never be copied from SlayTheData because they are not
 present there.
-
