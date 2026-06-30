@@ -1217,6 +1217,7 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
     if not isinstance(report, dict):
         raise ValueError("guided collection report is not a JSON object")
     blocker = report.get("blocker") if isinstance(report.get("blocker"), dict) else None
+    selection = report.get("selection") if isinstance(report.get("selection"), dict) else None
     return {
         "ok": bool(report.get("ok")),
         "report_path": str(report_path),
@@ -1228,6 +1229,17 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
         "trace_path": report.get("trace_path"),
         "bridge_step": report.get("bridge_step"),
         "tcp_control_available": bool(report.get("tcp_control_available")),
+        "selection": {
+            "mode": selection.get("mode"),
+            "selected_run_id": selection.get("selected_run_id"),
+            "considered_count": selection.get("considered_count"),
+            "candidate_count": selection.get("candidate_count"),
+            "skipped_unsupported_count": len(selection.get("skipped_unsupported") or [])
+            if isinstance(selection.get("skipped_unsupported"), list)
+            else 0,
+        }
+        if selection
+        else None,
         "blocker": {
             "reason": blocker.get("reason"),
             "problems": blocker.get("problems") or [],

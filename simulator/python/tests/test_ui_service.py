@@ -283,6 +283,13 @@ class UiServiceTests(unittest.TestCase):
                         "trace_path": "trace.jsonl",
                         "bridge_step": 7,
                         "tcp_control_available": False,
+                        "selection": {
+                            "mode": "auto",
+                            "selected_run_id": 456,
+                            "considered_count": 2,
+                            "candidate_count": 25,
+                            "skipped_unsupported": [{"run_id": 123, "reason": "unsupported_neow_followup"}],
+                        },
                         "blocker": {
                             "reason": "bridge_preflight",
                             "problems": ["session files are stale"],
@@ -300,6 +307,9 @@ class UiServiceTests(unittest.TestCase):
         self.assertFalse(result["missing"])
         self.assertEqual(result["run_id"], 123)
         self.assertEqual(result["stop_reason"], "preflight_blocked")
+        self.assertEqual(result["selection"]["mode"], "auto")
+        self.assertEqual(result["selection"]["selected_run_id"], 456)
+        self.assertEqual(result["selection"]["skipped_unsupported_count"], 1)
         self.assertEqual(result["blocker"]["reason"], "bridge_preflight")
         self.assertEqual(result["history_tail_count"], 1)
 

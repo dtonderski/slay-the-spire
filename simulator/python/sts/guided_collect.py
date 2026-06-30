@@ -74,7 +74,7 @@ def collect_one_run(
             bridge_status=bridge.status(),
             preflight=preflight,
         )
-    run_id, script = _select_run_script(config)
+    run_id, script, selection = _select_run_script(config)
     collector_status = collector.start({"script": script})
     if collector_status.get("status") == "blocked":
         blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {
@@ -89,6 +89,7 @@ def collect_one_run(
             bridge_status=bridge.status(),
             run_id=run_id,
             seed=((collector_status.get("config") or {}).get("seed_played")),
+            selection=selection,
         )
     start_result = _start_guided_live_run(
         collector,
@@ -159,6 +160,7 @@ def collect_one_run(
         "bridge_step": final_bridge.get("last_state_step"),
         "bridge_state_id": final_bridge.get("state_id"),
         "tcp_control_available": bool(final_bridge.get("control")),
+        "selection": selection,
         "history_tail": history[-25:],
     }
 
@@ -199,6 +201,7 @@ def _blocked_report(
     preflight: dict[str, Any] | None = None,
     run_id: int | None = None,
     seed: str | None = None,
+    selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "ok": False,
@@ -213,6 +216,7 @@ def _blocked_report(
         "bridge_state_id": bridge_status.get("state_id"),
         "tcp_control_available": bool(bridge_status.get("control")),
         "preflight": preflight,
+        "selection": selection,
         "history_tail": [
             {
                 "event": "preflight",
@@ -222,10 +226,16 @@ def _blocked_report(
     }
 
 
-def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any]]:
+def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any], dict[str, Any]]:
     if config.run_id is not None:
         run_id = int(config.run_id)
-        return run_id, export_guided_run_script(run_id)
+        script = export_guided_run_script(run_id)
+        return run_id, script, {
+            "mode": "explicit",
+            "selected_run_id": run_id,
+            "considered_count": 1,
+            "skipped_unsupported": [],
+        }
 
     candidates = select_guided_collection_candidates(
         character=config.character,
@@ -243,12 +253,20 @@ def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any]
     if not candidates:
         raise RuntimeError("no SlayTheData guided candidate run matched the default filters")
     blocked: list[dict[str, Any]] = []
+    considered = 0
     for candidate in candidates:
         run_id = int(candidate["id"])
+        considered += 1
         script = export_guided_run_script(run_id)
         blocker = guided_script_support_blocker(script)
         if blocker is None:
-            return run_id, script
+            return run_id, script, {
+                "mode": "auto",
+                "selected_run_id": run_id,
+                "considered_count": considered,
+                "candidate_count": len(candidates),
+                "skipped_unsupported": blocked,
+            }
         blocked.append(
             {
                 "run_id": run_id,
