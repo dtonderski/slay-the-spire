@@ -130,14 +130,6 @@ Impact: Effects modeled as unmodified damage may incorrectly reduce monster Plat
 
 Recommended follow-up: remove the Plated Armor decrement from `deal_unmodified_damage_to_monster`, or split the reducer into attack-only and shared portions if a specific monster requires special handling.
 
-### Suspicious/Needs Verification: `strength_up` Is Parsed But Not Consumed
-
-`run/map.rs` maps `"Generic Strength Up Power"` into `MonsterPowers::strength_up`, but no later behavior was found that reads `strength_up`.
-
-Impact: If this power appears in imported encounter data and is expected to add strength at a later point, the simulator currently preserves the value but does not enact it. If it is display-only or unused in supported content, this is harmless.
-
-Recommended follow-up: verify which monsters/imported traces emit `"Generic Strength Up Power"` and whether the real game expects a future strength gain. If so, add the corresponding turn hook.
-
 ### Softened Finding: Core Scalar Status Math Appears Correct
 
 The following local behaviors matched the checked online definitions and expected game behavior:
@@ -146,13 +138,18 @@ The following local behaviors matched the checked online definitions and expecte
 - Vulnerable increases incoming attack damage by 50%, rounded down.
 - Frail reduces block gained from cards by 25%, rounded down.
 - Strength and Dexterity modify attack damage and block respectively.
-- Artifact blocks one debuff application.
+- Artifact blocks one debuff application when the status mutation is routed through the artifact-aware helper paths.
 - Barricade retains block across turns.
 - Evolve draws when Status cards are drawn.
 - Fire Breathing damages enemies when Status or Curse cards are drawn.
 - Malleable grants block after unblocked attack damage and increments until reset.
 - Flight halves attack damage and decrements after nonlethal unblocked attack damage.
 - Spore Cloud applies Vulnerable on Fungi Beast death while combat continues.
+- Generic Strength Up Power is parsed into `strength_up` and consumed by monster intent handling.
+
+## Sub-Agent Review
+
+A second review agent checked this report against the local code. It confirmed the Intangible and monster Plated Armor findings, corrected an earlier stale note about `strength_up`, and recommended softening the Artifact summary to clarify that only helper-routed debuffs are guaranteed to consume Artifact.
 
 ## Notes
 
