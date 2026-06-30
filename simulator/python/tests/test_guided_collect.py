@@ -108,6 +108,8 @@ class GuidedCollectTests(unittest.TestCase):
                 "problems": ["session files are stale"],
                 "warnings": ["TCP bridge control is not available; guided auto-collection will not send"],
                 "tcp_control_available": False,
+                "ages": {"status_age_seconds": 130.0, "summary_age_seconds": 131.0},
+                "pending_command": {"present": False, "transport": None},
             }
         )
 
@@ -124,6 +126,8 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["blocker"]["reason"], "bridge_preflight")
         self.assertEqual(report["blocker"]["problems"], ["session files are stale"])
         self.assertFalse(report["blocker"]["tcp_control_available"])
+        self.assertEqual(report["preflight"]["ages"]["status_age_seconds"], 130.0)
+        self.assertEqual(report["preflight"]["pending_command"]["present"], False)
         self.assertEqual(report["actions_sent"], 0)
 
     def test_collect_one_run_reports_script_blocker_before_start(self):
