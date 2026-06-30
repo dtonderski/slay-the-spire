@@ -256,6 +256,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-depth", type=int, default=40)
     parser.add_argument("--allow-file-bridge", action="store_true")
     parser.add_argument("--report-output", type=Path, default=None)
+    parser.add_argument("--archive-report-dir", type=Path, default=None)
     parser.add_argument("--fail-on-not-ok", action="store_true")
     parser.add_argument("--preflight-timeout-seconds", type=float, default=0.0)
     parser.add_argument("--preflight-poll-seconds", type=float, default=1.0)
@@ -282,9 +283,26 @@ def main(argv: list[str] | None = None) -> None:
     if args.report_output:
         args.report_output.parent.mkdir(parents=True, exist_ok=True)
         args.report_output.write_text(f"{encoded}\n", encoding="utf-8")
+    if args.archive_report_dir:
+        archive_path = _archive_report_path(args.archive_report_dir, report)
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        archive_path.write_text(f"{encoded}\n", encoding="utf-8")
     print(encoded)
     if args.fail_on_not_ok and not report.get("ok"):
         sys.exit(1)
+
+
+def _archive_report_path(directory: Path, report: dict[str, Any]) -> Path:
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    run_id = _safe_file_part(report.get("run_id") or "no-run")
+    reason = _safe_file_part(report.get("stop_reason") or "unknown")
+    return directory / f"{timestamp}-{run_id}-{reason}.json"
+
+
+def _safe_file_part(value: Any) -> str:
+    text = str(value)
+    cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in text)
+    return cleaned.strip("-") or "unknown"
 
 
 if __name__ == "__main__":

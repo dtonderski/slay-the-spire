@@ -42,13 +42,15 @@ does not rely on file polling for command submission.
 
 - `run_guided_collect.cmd` starts the SlayTheData-guided headless collector.
   It writes the latest JSON report to
-  `simulator\target\guided-collect\latest.json` and forwards any extra command
-  line arguments to `python -m sts.guided_collect`. Start Slay the Spire and a
-  fresh TCP-enabled bridge first; the launcher waits briefly for bridge
-  preflight to pass, then exits nonzero with a `preflight_blocked` report
-  instead of sending into a stale or file-only bridge.
+  `simulator\target\guided-collect\latest.json`, archives timestamped attempts
+  under `simulator\target\guided-collect\reports\`, and forwards any extra
+  command line arguments to `python -m sts.guided_collect`. Start Slay the
+  Spire and a fresh TCP-enabled bridge first; the launcher waits briefly for
+  bridge preflight to pass, then exits nonzero with a `preflight_blocked`
+  report instead of sending into a stale or file-only bridge.
 - `guided_collect_status.js` prints a compact summary of the latest guided
-  collection report and validates the referenced trace when one exists.
+  collection report, recent archived reports, and validates the referenced trace
+  when one exists.
 - `run_guided_collect_status.cmd` runs that status check from Windows shells.
 - `overnight_collector.js` watches `session/summary.json` and writes controller commands to `session/next_command.txt`.
 - Its map policy scores only currently visible choices, preferring elites, fights, chests, events, shops, then rests. It does not do route lookahead yet.

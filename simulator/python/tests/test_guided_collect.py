@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from sts.guided_collect import GuidedCollectConfig, collect_one_run
+from sts.guided_collect import GuidedCollectConfig, _archive_report_path, collect_one_run
 
 
 class FakeBridge:
@@ -168,6 +170,17 @@ class GuidedCollectTests(unittest.TestCase):
         export.assert_called_once()
         self.assertEqual(sleeps, [0.25])
         self.assertEqual(report["stop_reason"], "blocked")
+
+    def test_archive_report_path_is_safe_and_descriptive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = _archive_report_path(
+                Path(directory),
+                {"run_id": "abc/123", "stop_reason": "preflight blocked"},
+            )
+
+        self.assertEqual(path.name[-5:], ".json")
+        self.assertIn("abc-123", path.name)
+        self.assertIn("preflight-blocked", path.name)
 
 
 if __name__ == "__main__":

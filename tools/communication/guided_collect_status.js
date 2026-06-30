@@ -6,6 +6,7 @@ const { readTrace, validate } = require("./trace_tools");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const defaultReportPath = path.join(repoRoot, "simulator", "target", "guided-collect", "latest.json");
+const defaultArchiveDir = path.join(repoRoot, "simulator", "target", "guided-collect", "reports");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -30,7 +31,7 @@ function validateTrace(filePath) {
   };
 }
 
-function inspectGuidedCollectReport(reportPath = defaultReportPath) {
+function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir = defaultArchiveDir) {
   if (!fs.existsSync(reportPath)) {
     return {
       ok: false,
@@ -62,7 +63,25 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath) {
       : null,
     trace,
     history_tail_count: Array.isArray(report.history_tail) ? report.history_tail.length : 0,
+    recent_reports: recentReports(archiveDir),
   };
+}
+
+function recentReports(directory = defaultArchiveDir, limit = 5) {
+  if (!directory || !fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => {
+      const filePath = path.join(directory, name);
+      const stat = fs.statSync(filePath);
+      return {
+        path: filePath,
+        name,
+        modified_ms: stat.mtimeMs,
+      };
+    })
+    .sort((left, right) => right.modified_ms - left.modified_ms)
+    .slice(0, limit);
 }
 
 if (require.main === module) {
@@ -74,5 +93,6 @@ if (require.main === module) {
 
 module.exports = {
   inspectGuidedCollectReport,
+  recentReports,
   validateTrace,
 };
