@@ -16,6 +16,7 @@ from sts.guided_collector import GuidedCollector
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
+from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
 from sts.self_play import strict_replay_real_trace_to_env
 from sts.slaythedata_policy import build_guided_run_script, load_guided_run_script
 from sts.trace_replay import TraceReplayStore
@@ -523,6 +524,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "traces"]:
                 self._send_json(self.traces.list_traces(_query_int(query, "limit", 50)))
                 return
+            if parts == ["api", "slaythedata", "candidates"]:
+                self._send_json(_slaythedata_candidates_from_query(query))
+                return
             if parts == ["api", "collector", "status"]:
                 self._send_json(self.collector.status())
                 return
@@ -590,8 +594,11 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "slaythedata", "script"]:
                 self._send_json(_guided_script_from_payload(payload))
                 return
+            if parts == ["api", "slaythedata", "export"]:
+                self._send_json(_slaythedata_export_from_payload(payload))
+                return
             if parts == ["api", "collector", "start"]:
-                self._send_json(self.collector.start(payload))
+                self._send_json(self.collector.start(_collector_start_payload(payload)))
                 return
             if parts == ["api", "collector", "tick"]:
                 self._send_json(
@@ -1019,6 +1026,10 @@ def _observed_state_from_bridge_status(bridge_status: dict[str, Any]) -> dict[st
 
 
 def _guided_script_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    run_id = payload.get("run_id")
+    if run_id is not None:
+        return {"script": export_guided_run_script(int(run_id))}
+
     exported_run = payload.get("exported_run")
     if isinstance(exported_run, dict):
         return {"script": build_guided_run_script(exported_run)}
@@ -1033,6 +1044,47 @@ def _guided_script_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
     raise ValueError("expected exported_run or path")
+
+
+def _collector_start_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("run_id") is not None:
+        return {"script": export_guided_run_script(int(payload["run_id"]))}
+    return payload
+
+
+def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
+    character = _query_string(query, "character", "IRONCLAD").upper()
+    ascension = _query_int(query, "ascension", 0)
+    min_floor = _query_int(query, "min_floor", 45)
+    max_floor = _query_optional_int(query, "max_floor")
+    min_path_length = _query_optional_int(query, "min_path_length")
+    limit = _query_int(query, "limit", 25)
+    rows = select_guided_collection_candidates(
+        character=character,
+        ascension=ascension,
+        min_floor_reached=min_floor,
+        max_floor_reached=max_floor,
+        min_path_length=min_path_length,
+        limit=limit,
+    )
+    return {
+        "candidates": rows,
+        "filters": {
+            "character": character,
+            "ascension": ascension,
+            "min_floor": min_floor,
+            "max_floor": max_floor,
+            "min_path_length": min_path_length,
+            "limit": limit,
+        },
+    }
+
+
+def _slaythedata_export_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    run_id = payload.get("run_id")
+    if run_id is None:
+        raise ValueError("run_id is required")
+    return {"script": export_guided_run_script(int(run_id))}
 
 
 def _looks_like_communication_mod_state(value: dict[str, Any]) -> bool:
@@ -1105,6 +1157,23 @@ def _query_int(query: dict[str, list[str]], name: str, default: int) -> int:
         return int(values[0])
     except ValueError:
         return default
+
+
+def _query_optional_int(query: dict[str, list[str]], name: str) -> int | None:
+    values = query.get(name)
+    if not values or values[0] == "":
+        return None
+    try:
+        return int(values[0])
+    except ValueError:
+        return None
+
+
+def _query_string(query: dict[str, list[str]], name: str, default: str) -> str:
+    values = query.get(name)
+    if not values:
+        return default
+    return values[0] or default
 
 
 def _optional_string(value: Any) -> str | None:

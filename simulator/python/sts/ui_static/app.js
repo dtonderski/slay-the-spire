@@ -40,6 +40,9 @@
     collectorLastError: null,
     collectorAutoRun: false,
     collectorAutoTimer: null,
+    slaythedataCandidates: [],
+    slaythedataSelectedRunId: "",
+    slaythedataLastError: null,
     attachFidelity: null,
     strictReplayBlocker: null,
     mode: null,
@@ -109,6 +112,9 @@
       "refreshBridgeButton",
       "liveRequestStateButton",
       "collectorPayloadInput",
+      "slaythedataCandidateSelect",
+      "findSlaythedataRunsButton",
+      "loadSlaythedataRunButton",
       "startCollectorButton",
       "previewCollectorButton",
       "sendCollectorButton",
@@ -165,6 +171,12 @@
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
     el.liveRequestStateButton.addEventListener("click", requestBridgeState);
     el.startCollectorButton.addEventListener("click", startGuidedCollector);
+    el.findSlaythedataRunsButton.addEventListener("click", findSlaythedataRuns);
+    el.loadSlaythedataRunButton.addEventListener("click", loadSelectedSlaythedataRun);
+    el.slaythedataCandidateSelect.addEventListener("change", () => {
+      app.slaythedataSelectedRunId = el.slaythedataCandidateSelect.value;
+      renderCollector();
+    });
     el.previewCollectorButton.addEventListener("click", () => tickGuidedCollector({ send: false }));
     el.sendCollectorButton.addEventListener("click", () => tickGuidedCollector({ send: true }));
     el.autoCollectorButton.addEventListener("click", startCollectorAutoRun);
@@ -626,6 +638,45 @@
       pauseCollectorAutoRun();
       app.collector = await requestJson("/api/collector/start", { method: "POST", body });
       app.collectorLastError = null;
+    });
+  }
+
+  async function findSlaythedataRuns() {
+    const character = (el.startCharacterSelect.value || "IRONCLAD").trim().toUpperCase();
+    const ascension = boundedInteger(el.startAscensionInput.value, 0, 0, 20);
+    const params = new URLSearchParams({
+      character,
+      ascension: String(ascension),
+      min_floor: "45",
+      max_floor: "55",
+      min_path_length: "45",
+      limit: "25",
+    });
+    await singleFlight("Finding SlayTheData runs", async () => {
+      const result = await requestJson(`/api/slaythedata/candidates?${params.toString()}`);
+      app.slaythedataCandidates = arrayOf(result.candidates);
+      app.slaythedataSelectedRunId = app.slaythedataCandidates.length
+        ? String(app.slaythedataCandidates[0].id)
+        : "";
+      app.slaythedataLastError = null;
+      renderCollectorPicker();
+    });
+  }
+
+  async function loadSelectedSlaythedataRun() {
+    const runId = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value;
+    if (!runId) {
+      showError("Find and select a SlayTheData run first.");
+      return;
+    }
+    await singleFlight("Loading SlayTheData run", async () => {
+      pauseCollectorAutoRun();
+      app.collector = await requestJson("/api/collector/start", {
+        method: "POST",
+        body: { run_id: Number(runId) },
+      });
+      app.collectorLastError = null;
+      app.slaythedataLastError = null;
     });
   }
 
@@ -1226,7 +1277,10 @@
     const status = app.collector && app.collector.status || "idle";
     const suggestion = app.collector && app.collector.last_suggestion || app.collector && app.collector.suggestion;
     const canTick = active && !app.inFlight && !app.liveInvariantViolation && !bridgeIdentityWarningText();
+    renderCollectorPicker();
     el.startCollectorButton.disabled = app.inFlight;
+    el.findSlaythedataRunsButton.disabled = app.inFlight;
+    el.loadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
     el.previewCollectorButton.disabled = !canTick;
     el.sendCollectorButton.disabled = !canTick || !app.bridge || app.bridge.pending_command;
     el.autoCollectorButton.disabled = !canTick || app.collectorAutoRun;
@@ -1245,6 +1299,12 @@
       msg.textContent = app.collectorLastError;
       el.collectorStatusPanel.appendChild(msg);
       return;
+    }
+    if (app.slaythedataLastError) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = app.slaythedataLastError;
+      el.collectorStatusPanel.appendChild(msg);
     }
     if (!active) {
       empty(el.collectorStatusPanel, "No guided script loaded.");
@@ -1285,6 +1345,29 @@
       msg.textContent = firstDefined(app.collector.blocker.detail, app.collector.blocker.reason, "Collector blocked.");
       el.collectorStatusPanel.appendChild(msg);
     }
+  }
+
+  function renderCollectorPicker() {
+    if (!el.slaythedataCandidateSelect) return;
+    const selected = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value || "";
+    clear(el.slaythedataCandidateSelect);
+    if (!app.slaythedataCandidates.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No SlayTheData runs loaded";
+      el.slaythedataCandidateSelect.appendChild(option);
+      app.slaythedataSelectedRunId = "";
+      return;
+    }
+    for (const candidate of app.slaythedataCandidates) {
+      const option = document.createElement("option");
+      option.value = String(candidate.id);
+      option.textContent = slaythedataCandidateLabel(candidate);
+      el.slaythedataCandidateSelect.appendChild(option);
+    }
+    const hasSelected = app.slaythedataCandidates.some((candidate) => String(candidate.id) === String(selected));
+    app.slaythedataSelectedRunId = hasSelected ? String(selected) : String(app.slaythedataCandidates[0].id);
+    el.slaythedataCandidateSelect.value = app.slaythedataSelectedRunId;
   }
 
   function renderLive() {
@@ -2029,6 +2112,18 @@
     const depth = firstDefined(config.max_depth, config.maxDepth, "-");
     const width = firstDefined(config.beam_width, config.beamWidth, "-");
     return `${algorithm} / ${objective} / d${depth} / w${width}`;
+  }
+
+  function slaythedataCandidateLabel(candidate) {
+    const runId = firstDefined(candidate && candidate.id, "?");
+    const seed = firstDefined(candidate && candidate.seed_played, "no-seed");
+    const floor = firstDefined(candidate && candidate.floor_reached, "?");
+    const result = candidate && candidate.victory ? "win" : "loss";
+    const path = firstDefined(candidate && candidate.path_length, "?");
+    const cards = firstDefined(candidate && candidate.card_choice_count, 0);
+    const events = firstDefined(candidate && candidate.event_choice_count, 0);
+    const shops = firstDefined(candidate && candidate.shop_purchase_count, 0);
+    return `#${runId} ${seed} F${floor} path ${path} ${result} | cards ${cards} events ${events} shops ${shops}`;
   }
 
   function attachFidelityText() {

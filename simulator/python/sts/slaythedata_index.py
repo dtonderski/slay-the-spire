@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import sqlite3
 from typing import Any
+
+from sts.slaythedata_policy import load_guided_run_script
 
 
 DEFAULT_SLAYTHEDATA_ROOT = Path(r"D:\dev\SlayTheData-index")
 DEFAULT_SLAYTHEDATA_DB = DEFAULT_SLAYTHEDATA_ROOT / "slaythedata-chunks.sqlite3"
 DEFAULT_SLAYTHEDATA_CHUNKS = DEFAULT_SLAYTHEDATA_ROOT / "chunks"
+DEFAULT_INDEXER = Path(__file__).resolve().parents[3] / "tools" / "slaythedata" / "index_slaythedata.py"
 
 
 def select_guided_collection_candidates(
@@ -19,6 +25,7 @@ def select_guided_collection_candidates(
     ascension: int = 0,
     min_floor_reached: int = 1,
     max_floor_reached: int | None = None,
+    min_path_length: int | None = None,
     require_supported: bool = True,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
@@ -29,6 +36,7 @@ def select_guided_collection_candidates(
         ascension=ascension,
         min_floor_reached=min_floor_reached,
         max_floor_reached=max_floor_reached,
+        min_path_length=min_path_length,
         require_supported=require_supported,
     )
     query = f"""
@@ -37,7 +45,7 @@ def select_guided_collection_candidates(
                potion_usage_count
         FROM runs
         WHERE {where}
-        ORDER BY floor_reached DESC, id ASC
+        ORDER BY path_length DESC, floor_reached DESC, id ASC
         LIMIT ?
     """
     conn = _connect_readonly(db_path)
@@ -67,6 +75,7 @@ def guided_collection_where(
     ascension: int = 0,
     min_floor_reached: int = 1,
     max_floor_reached: int | None = None,
+    min_path_length: int | None = None,
     require_supported: bool = True,
 ) -> tuple[str, list[Any]]:
     clauses = [
@@ -82,6 +91,9 @@ def guided_collection_where(
     if max_floor_reached is not None:
         clauses.append("floor_reached <= ?")
         params.append(max_floor_reached)
+    if min_path_length is not None:
+        clauses.append("path_length >= ?")
+        params.append(min_path_length)
     if require_supported:
         clauses.append("unsupported_any = 0")
     return " AND ".join(clauses), params
@@ -110,6 +122,45 @@ def chunk_export_args(
         "--out",
         str(output_path),
     ]
+
+
+def export_guided_run_script(
+    run_id: int,
+    *,
+    db_path: str | Path = DEFAULT_SLAYTHEDATA_DB,
+    chunks_dir: str | Path = DEFAULT_SLAYTHEDATA_CHUNKS,
+    indexer_path: str | Path = DEFAULT_INDEXER,
+    timeout_seconds: float = 30.0,
+    runner: Any | None = None,
+) -> dict[str, Any]:
+    """Export one SlayTheData run from chunks and convert it to a guided script."""
+
+    run_id = int(run_id)
+    runner = runner or subprocess.run
+    with tempfile.TemporaryDirectory(prefix="sts-slaythedata-") as tmp:
+        output_path = Path(tmp) / f"run-{run_id}.jsonl"
+        args = chunk_export_args(
+            db_path=db_path,
+            chunks_dir=chunks_dir,
+            output_path=output_path,
+            run_ids=[run_id],
+            indexer_path=indexer_path,
+        )
+        command = [sys.executable, *args]
+        result = runner(
+            command,
+            cwd=Path(__file__).resolve().parents[3],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "chunk-export failed").strip()
+            raise RuntimeError(detail)
+        if not output_path.exists() or not output_path.read_text(encoding="utf-8").strip():
+            raise RuntimeError(f"chunk-export produced no rows for run {run_id}")
+        return load_guided_run_script(output_path)
 
 
 def _connect_readonly(db_path: str | Path) -> sqlite3.Connection:

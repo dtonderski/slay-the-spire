@@ -1,9 +1,14 @@
 import sqlite3
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
-from sts.slaythedata_index import chunk_export_args, select_guided_collection_candidates
+from sts.slaythedata_index import (
+    chunk_export_args,
+    export_guided_run_script,
+    select_guided_collection_candidates,
+)
 
 
 class SlayTheDataIndexTests(unittest.TestCase):
@@ -41,17 +46,64 @@ class SlayTheDataIndexTests(unittest.TestCase):
                     (3, "THE_SILENT", 0, 50, 0, 0, 0, 0, "C", 0, 50, 9, 4, 2, 1),
                     (4, "IRONCLAD", 0, 30, 0, 0, 0, 0, "D", 1, 30, 5, 1, 0, 0),
                     (5, "IRONCLAD", 0, 99, 1, 0, 0, 0, "E", 0, 99, 5, 1, 0, 0),
+                    (6, "IRONCLAD", 0, 55, 0, 0, 0, 0, "F", 0, 10, 5, 1, 0, 0),
                 ],
             )
-            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,), (3,), (4,)])
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,), (3,), (4,), (6,)])
             conn.commit()
             conn.close()
 
             rows = select_guided_collection_candidates(db, min_floor_reached=1, limit=10)
 
-        self.assertEqual([row["id"] for row in rows], [4, 1])
+        self.assertEqual([row["id"] for row in rows], [4, 1, 6])
         self.assertEqual(rows[0]["seed_played"], "D")
         self.assertTrue(rows[0]["victory"])
+
+    def test_candidate_selection_can_require_long_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 55, 0, 0, 0, 0, "SHORT", 0, 20, 3, 2, 1, 0),
+                    (2, "IRONCLAD", 0, 50, 0, 0, 0, 0, "LONG", 0, 50, 9, 4, 2, 1),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,)])
+            conn.commit()
+            conn.close()
+
+            rows = select_guided_collection_candidates(
+                db,
+                min_floor_reached=45,
+                min_path_length=45,
+                limit=10,
+            )
+
+        self.assertEqual([row["id"] for row in rows], [2])
 
     def test_chunk_export_args_builds_indexer_invocation_for_run_ids(self):
         args = chunk_export_args(
@@ -82,7 +134,49 @@ class SlayTheDataIndexTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             chunk_export_args(output_path="export.jsonl", run_ids=[])
 
+    def test_export_guided_run_script_invokes_chunk_export_and_loads_script(self):
+        calls = []
+
+        def runner(command, *, cwd, capture_output, text, check, timeout):
+            calls.append(
+                {
+                    "command": command,
+                    "cwd": cwd,
+                    "capture_output": capture_output,
+                    "text": text,
+                    "check": check,
+                    "timeout": timeout,
+                }
+            )
+            output = Path(command[command.index("--out") + 1])
+            output.write_text(
+                '{"run_id": 7, "event": {"character_chosen": "IRONCLAD", "ascension_level": 0, "seed_played": "ABC", "card_choices": [{"floor": 1, "picked": "Inflame"}]}}\n',
+                encoding="utf-8",
+            )
+            return SimpleNamespace(returncode=0, stdout="chunk-exported runs: 1", stderr="")
+
+        script = export_guided_run_script(
+            7,
+            db_path="runs.sqlite3",
+            chunks_dir="chunks",
+            indexer_path="tools/slaythedata/index_slaythedata.py",
+            timeout_seconds=3,
+            runner=runner,
+        )
+
+        self.assertEqual(script["source"]["run_id"], 7)
+        self.assertEqual(script["config"]["seed_played"], "ABC")
+        self.assertEqual(calls[0]["command"][1], "tools/slaythedata/index_slaythedata.py")
+        self.assertEqual(calls[0]["command"][2], "chunk-export")
+        self.assertEqual(calls[0]["timeout"], 3)
+
+    def test_export_guided_run_script_reports_failed_export(self):
+        def runner(*_args, **_kwargs):
+            return SimpleNamespace(returncode=2, stdout="", stderr="boom")
+
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            export_guided_run_script(7, runner=runner)
+
 
 if __name__ == "__main__":
     unittest.main()
-

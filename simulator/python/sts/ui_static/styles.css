@@ -1165,6 +1165,16 @@ h3 {
   margin-top: 0.35rem;
 }
 
+.collector-picker {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  gap: 0.35rem;
+}
+
+.collector-picker select {
+  width: 100%;
+}
+
 .collector-grid textarea {
   min-height: 4.3rem;
   max-height: 9rem;
