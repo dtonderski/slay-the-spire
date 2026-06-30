@@ -12,6 +12,8 @@
     lastError: null,
     search: null,
     bridge: null,
+    bridgeIdentity: null,
+    bridgeIdentityWarning: null,
     parity: null,
     traces: [],
     selectedTraceId: "",
@@ -513,7 +515,25 @@
 
   async function refreshBridgeQuietly() {
     try {
+      const previousIdentity = app.bridgeIdentity;
       app.bridge = await requestJson("/api/bridge");
+      const nextIdentity = bridgeIdentity(app.bridge);
+      if (
+        previousIdentity &&
+        nextIdentity &&
+        (previousIdentity.clientPid !== nextIdentity.clientPid || previousIdentity.tracePath !== nextIdentity.tracePath)
+      ) {
+        app.bridgeIdentityWarning = {
+          previous: previousIdentity,
+          current: nextIdentity,
+        };
+        app.search = null;
+        app.liveSearchBridgeStateId = null;
+        app.liveSendAction = null;
+      }
+      if (nextIdentity) {
+        app.bridgeIdentity = nextIdentity;
+      }
     } catch (error) {
       app.bridge = { error: readableError(error), connected: false, stale: true };
     }
@@ -711,8 +731,9 @@
     el.lifecycleBadge.textContent = lifecycleText();
     el.lifecycleBadge.className = `status-badge ${lifecycleClass()}`;
 
-    if (app.lastError) {
-      el.actionError.textContent = app.lastError;
+    const bridgeWarning = bridgeIdentityWarningText();
+    if (bridgeWarning || app.lastError) {
+      el.actionError.textContent = bridgeWarning || app.lastError;
       el.actionError.classList.remove("hidden");
     } else {
       el.actionError.textContent = "";
@@ -952,6 +973,7 @@
     el.liveStatusPanel.append(
       statBlock("Bridge", [
         ["Connection", lifecycle.label],
+        ["Client", firstDefined(app.bridge && app.bridge.client_pid, "-")],
         ["Step", firstDefined(app.bridge && app.bridge.last_state_step, "-")],
         ["Phase", phase],
         ["Ready", firstDefined(app.bridge && app.bridge.ready_for_command, "-")],
@@ -1357,12 +1379,13 @@
   }
 
   function canAttachLiveSession() {
-    if (!app.bridge || !app.bridge.connected || app.bridge.stale || app.bridge.pending_command) return false;
+    if (!app.bridge || !app.bridge.connected || app.bridge.pending_command) return false;
     const current = app.bridge.current_state || {};
     return !!observedBridgeGameState(current);
   }
 
   function startLiveRunBlockedReason() {
+    if (app.bridgeIdentityWarning) return "Bridge client changed; reload after closing extra bridge clients.";
     if (!app.bridge) return "Bridge status not loaded.";
     if (app.bridge.exited) return "Bridge exited.";
     if (!app.bridge.connected) return "Bridge disconnected.";
@@ -1378,11 +1401,11 @@
 
   function liveSearchBlockedReason() {
     if (app.liveInvariantViolation) return "Simulator/live mismatch needs acknowledgement.";
+    if (app.bridgeIdentityWarning) return "Bridge client changed; reload after closing extra bridge clients.";
     if (app.viewMode !== "live") return "Switch to Live Game mode.";
     if (!app.bridge) return "Bridge status not loaded.";
     if (app.bridge.exited) return "Bridge exited.";
     if (!app.bridge.connected) return "Bridge disconnected.";
-    if (app.bridge.stale) return "Bridge state is stale.";
     if (app.bridge.pending_command) return "Waiting for pending bridge command.";
     if (app.bridge.summary && app.bridge.summary.in_game === false) return "Start a run to enable combat search.";
     if (!canAttachLiveSession()) return "No observed game state yet.";
@@ -1402,11 +1425,15 @@
 
   function bridgeActionDisabledReason(action) {
     if (app.liveInvariantViolation) return "Simulator/live mismatch needs acknowledgement.";
+    if (app.bridgeIdentityWarning) return "Bridge client changed.";
     if (!app.bridge) return "Bridge status not loaded.";
     if (app.bridge.exited) return "Bridge exited.";
     if (!app.bridge.connected) return "Bridge disconnected.";
     if (app.bridge.pending_command) return "Waiting for pending bridge command.";
-    if (app.bridge.stale) return "Bridge state is stale.";
+    const sourceStateId = firstDefined(action && action.source_state_id, action && action.sourceStateId, null);
+    if (app.bridge.stale && (!sourceStateId || sourceStateId !== bridgeStateId())) {
+      return "Bridge state is stale.";
+    }
     if (action && (action.disabled_reason || action.disabledReason)) {
       return action.disabled_reason || action.disabledReason;
     }
@@ -1492,6 +1519,29 @@
       descriptor: firstDefined(action && action.descriptor, null),
       source: firstDefined(action && action.source_state_id, action && action.sourceStateId, null),
     });
+  }
+
+  function bridgeIdentity(bridge) {
+    if (!bridge || !bridge.connected) return null;
+    const clientPid = firstDefined(bridge.client_pid, bridge.clientPid, null);
+    const tracePath = firstDefined(bridge.trace_path, bridge.tracePath, null);
+    if (clientPid === null && tracePath === null) return null;
+    return {
+      clientPid: clientPid === null ? null : String(clientPid),
+      tracePath: tracePath === null ? null : String(tracePath),
+    };
+  }
+
+  function bridgeIdentityWarningText() {
+    const warning = app.bridgeIdentityWarning;
+    if (!warning) return "";
+    return `Bridge client changed from ${identityText(warning.previous)} to ${identityText(warning.current)}. Close extra bridge clients and reload before sending more live commands.`;
+  }
+
+  function identityText(identity) {
+    if (!identity) return "unknown";
+    const trace = identity.tracePath ? identity.tracePath.split(/[\\/]/).pop() : "no trace";
+    return `pid ${firstDefined(identity.clientPid, "?")} / ${trace}`;
   }
 
   function recommendationBestLabel() {

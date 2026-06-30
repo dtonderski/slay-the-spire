@@ -126,6 +126,22 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "state\n")
 
+    def test_send_command_allows_stale_gameplay_with_matching_source_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["choose", "state"], "step": 1}),
+                encoding="utf-8",
+            )
+            mirror = BridgeMirror(root, stale_after_seconds=-1)
+            source_state_id = mirror.status()["state_id"]
+
+            result = mirror.send_command("CHOOSE 0", source_state_id=source_state_id)
+
+            self.assertTrue(result["ok"])
+            self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "CHOOSE 0\n")
+
     def test_send_command_allows_stale_start_from_main_menu(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -221,6 +237,21 @@ class BridgeMirrorTests(unittest.TestCase):
         )
         self.assertTrue(all(not action["enabled"] for action in actions))
         self.assertTrue(all(action["disabled_reason"] == "bridge command already pending" for action in actions))
+
+    def test_bridge_actions_remain_enabled_when_only_age_stale(self):
+        actions = bridge_actions_from_status(
+            {
+                "ready_for_command": True,
+                "available_commands": ["choose", "state"],
+                "choices": ["talk"],
+            },
+            source_state_id="bridge-state",
+            stale=True,
+        )
+
+        self.assertEqual(actions[0]["command"], "CHOOSE 0")
+        self.assertTrue(actions[0]["enabled"])
+        self.assertIsNone(actions[0]["disabled_reason"])
 
     def test_bridge_lifecycle_names_core_states(self):
         cases = [

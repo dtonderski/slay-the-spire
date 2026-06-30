@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 
-DEFAULT_STALE_AFTER_SECONDS = 20.0
+DEFAULT_STALE_AFTER_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
@@ -111,7 +111,7 @@ class BridgeMirror:
             and isinstance(before.get("summary"), dict)
             and before["summary"].get("in_game") is False
         )
-        if before["stale"] and verb != "state" and not stale_start_from_menu:
+        if before["stale"] and verb != "state" and source_state_id is None and not stale_start_from_menu:
             raise ValueError("bridge state is stale")
         if verb != "state" and before["ready_for_command"] is not True:
             raise ValueError("bridge is not ready for a command")
@@ -399,8 +399,6 @@ def _bridge_disabled_reason(
 ) -> str | None:
     if not connected:
         return "bridge disconnected"
-    if stale:
-        return "bridge state is stale"
     if pending_command:
         return "bridge command already pending"
     if not summary.get("ready_for_command", False):
