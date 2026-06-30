@@ -31,7 +31,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -62,7 +63,8 @@ button.primary {
 }
 
 input,
-select {
+select,
+textarea {
   width: 5.5rem;
   min-height: 2.5rem;
   border: 1px solid var(--line);
@@ -70,6 +72,12 @@ select {
   padding: 0.45rem 0.6rem;
   background: white;
   color: var(--ink);
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 h1,
@@ -937,6 +945,7 @@ h3 {
 
 .command-card {
   grid-area: command;
+  overflow: auto;
 }
 
 .action-card {
@@ -1134,6 +1143,49 @@ h3 {
   font-size: 0.77rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.collector-tools {
+  display: grid;
+  gap: 0.4rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.35rem;
+}
+
+.collector-tools summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.collector-grid {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.collector-grid textarea {
+  min-height: 4.3rem;
+  max-height: 9rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.collector-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.collector-actions button {
+  width: 100%;
+}
+
+.collector-status {
+  display: grid;
+  gap: 0.35rem;
+  min-height: 2.8rem;
 }
 
 .combat-grid {

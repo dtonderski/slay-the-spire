@@ -57,6 +57,21 @@
               <button id="liveRequestStateButton" type="button">Request state</button>
             </div>
             <div id="liveReason" class="live-reason"></div>
+            <details class="collector-tools">
+              <summary>Guided collector</summary>
+              <div class="collector-grid">
+                <textarea id="collectorPayloadInput" rows="3" spellcheck="false" placeholder="Paste SlayTheData chunk-export JSON or GuidedRunScript"></textarea>
+                <div class="collector-actions">
+                  <button id="startCollectorButton" type="button">Start</button>
+                  <button id="previewCollectorButton" type="button">Preview</button>
+                  <button id="sendCollectorButton" class="primary" type="button">Send next</button>
+                  <button id="stopCollectorButton" type="button">Stop</button>
+                </div>
+                <div id="collectorStatusPanel" class="collector-status empty">
+                  <span class="empty-text">No guided script loaded.</span>
+                </div>
+              </div>
+            </details>
           </div>
 
           <section class="dashboard-card action-card" aria-labelledby="actionsTitle">
