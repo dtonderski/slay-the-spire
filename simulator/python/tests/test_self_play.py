@@ -839,6 +839,45 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(result.start["external_seed"], "TEST")
             self.assertEqual(result.final_state_id, result.env.snapshot_hash())
 
+    def test_strict_replay_ignores_tcp_protocol_trace_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {
+                        "type": "command_accept",
+                        "step": 0,
+                        "command": "START IRONCLAD 0 TEST",
+                        "accepted_state_id": "menu-state",
+                        "accepted_state_seq": 1,
+                    },
+                    {
+                        "type": "command_observed_timeout",
+                        "step": 0,
+                        "command": "START IRONCLAD 0 TEST",
+                        "accepted_state_id": "menu-state",
+                        "accepted_state_seq": 1,
+                    },
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 TEST"},
+                    {
+                        "type": "command_accept",
+                        "step": 1,
+                        "command": "state",
+                        "accepted_state_id": "run-state",
+                        "accepted_state_seq": 2,
+                    },
+                ],
+            )
+
+            result = strict_replay_real_trace_to_env(trace=trace_path)
+
+            self.assertTrue(result.verified)
+            self.assertEqual(result.stop_reason, "trace_exhausted")
+            self.assertEqual(result.steps, 0)
+            self.assertEqual(result.start["external_seed"], "TEST")
+
     def test_strict_replay_to_env_reports_missing_start(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"
