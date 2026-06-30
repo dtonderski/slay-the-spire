@@ -84,7 +84,9 @@ replaced owner and lease age.
   report instead of sending into a stale or file-only bridge.
 - `guided_collect_status.js` prints a compact summary of the latest guided
   collection report, its producer/freshness, strict replay validation status,
-  recent archived reports, and validates the referenced trace when one exists.
+  recent archived reports, validates the referenced trace when one exists, and
+  includes the current bridge preflight snapshot so an old blocked report can
+  be distinguished from the currently running bridge state.
 - `run_guided_collect_status.cmd` runs that status check from Windows shells.
 - `overnight_collector.js` is the legacy heuristic collector. It watches
   `session/summary.json` and writes controller commands to
