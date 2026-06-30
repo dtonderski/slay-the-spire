@@ -178,11 +178,38 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertEqual(report["stop_reason"], "preflight_blocked")
         self.assertEqual(report["blocker"]["reason"], "bridge_preflight")
-        self.assertEqual(report["blocker"]["problems"], ["session files are stale"])
+        self.assertIn("session files are stale", report["blocker"]["problems"])
+        self.assertIn(
+            "TCP bridge control is required for guided auto-collection",
+            report["blocker"]["problems"],
+        )
         self.assertFalse(report["blocker"]["tcp_control_available"])
         self.assertEqual(report["preflight"]["ages"]["status_age_seconds"], 130.0)
         self.assertEqual(report["preflight"]["pending_command"]["present"], False)
         self.assertEqual(report["actions_sent"], 0)
+
+    def test_collect_one_run_reports_tcp_required_as_hard_preflight_problem(self):
+        bridge = FakeBridge(
+            preflight={
+                "ok": True,
+                "problems": [],
+                "warnings": ["TCP bridge control is not available; guided auto-collection will not send"],
+                "tcp_control_available": False,
+            }
+        )
+
+        with patch("sts.guided_collect.export_guided_run_script") as export:
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        export.assert_not_called()
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "preflight_blocked")
+        self.assertIn("TCP bridge control is required", "; ".join(report["blocker"]["problems"]))
+        self.assertFalse(report["blocker"]["tcp_control_available"])
 
     def test_collect_one_run_reports_selection_failure(self):
         bridge = FakeBridge()
