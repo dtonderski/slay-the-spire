@@ -650,6 +650,9 @@
       min_floor: "45",
       max_floor: "55",
       min_path_length: "45",
+      min_card_choices: "8",
+      min_event_choices: "1",
+      min_shop_purchases: "1",
       limit: "25",
     });
     await singleFlight("Finding SlayTheData runs", async () => {
@@ -2123,7 +2126,9 @@
     const cards = firstDefined(candidate && candidate.card_choice_count, 0);
     const events = firstDefined(candidate && candidate.event_choice_count, 0);
     const shops = firstDefined(candidate && candidate.shop_purchase_count, 0);
-    return `#${runId} ${seed} F${floor} path ${path} ${result} | cards ${cards} events ${events} shops ${shops}`;
+    const potions = firstDefined(candidate && candidate.potion_usage_count, 0);
+    const score = firstDefined(candidate && candidate.guided_score, 0);
+    return `#${runId} ${seed} F${floor} path ${path} ${result} | score ${score} cards ${cards} events ${events} shops ${shops} pots ${potions}`;
   }
 
   function attachFidelityText() {

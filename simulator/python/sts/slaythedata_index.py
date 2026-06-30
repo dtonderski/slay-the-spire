@@ -26,6 +26,10 @@ def select_guided_collection_candidates(
     min_floor_reached: int = 1,
     max_floor_reached: int | None = None,
     min_path_length: int | None = None,
+    min_card_choices: int | None = None,
+    min_event_choices: int | None = None,
+    min_shop_purchases: int | None = None,
+    min_potion_usage: int | None = None,
     require_supported: bool = True,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
@@ -37,15 +41,20 @@ def select_guided_collection_candidates(
         min_floor_reached=min_floor_reached,
         max_floor_reached=max_floor_reached,
         min_path_length=min_path_length,
+        min_card_choices=min_card_choices,
+        min_event_choices=min_event_choices,
+        min_shop_purchases=min_shop_purchases,
+        min_potion_usage=min_potion_usage,
         require_supported=require_supported,
     )
     query = f"""
         SELECT id, seed_played, floor_reached, victory, path_length,
                card_choice_count, event_choice_count, shop_purchase_count,
-               potion_usage_count
+               potion_usage_count,
+               (card_choice_count + event_choice_count * 2 + shop_purchase_count * 3 + potion_usage_count) AS guided_score
         FROM runs
         WHERE {where}
-        ORDER BY path_length DESC, floor_reached DESC, id ASC
+        ORDER BY path_length DESC, guided_score DESC, floor_reached DESC, id ASC
         LIMIT ?
     """
     conn = _connect_readonly(db_path)
@@ -64,6 +73,7 @@ def select_guided_collection_candidates(
             "event_choice_count": row[6],
             "shop_purchase_count": row[7],
             "potion_usage_count": row[8],
+            "guided_score": row[9],
         }
         for row in rows
     ]
@@ -76,6 +86,10 @@ def guided_collection_where(
     min_floor_reached: int = 1,
     max_floor_reached: int | None = None,
     min_path_length: int | None = None,
+    min_card_choices: int | None = None,
+    min_event_choices: int | None = None,
+    min_shop_purchases: int | None = None,
+    min_potion_usage: int | None = None,
     require_supported: bool = True,
 ) -> tuple[str, list[Any]]:
     clauses = [
@@ -94,6 +108,15 @@ def guided_collection_where(
     if min_path_length is not None:
         clauses.append("path_length >= ?")
         params.append(min_path_length)
+    for column, value in (
+        ("card_choice_count", min_card_choices),
+        ("event_choice_count", min_event_choices),
+        ("shop_purchase_count", min_shop_purchases),
+        ("potion_usage_count", min_potion_usage),
+    ):
+        if value is not None:
+            clauses.append(f"{column} >= ?")
+            params.append(value)
     if require_supported:
         clauses.append("unsupported_any = 0")
     return " AND ".join(clauses), params
