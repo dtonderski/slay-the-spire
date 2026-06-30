@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import csv
 import hashlib
 import json
@@ -141,10 +142,19 @@ class BridgeMirror:
         if available_commands and "state" not in available_commands:
             warnings.append("available_commands does not include state")
         control = _bridge_control({"status": status})
+        controller = status.get("controller") if isinstance(status.get("controller"), dict) else None
         if control is None:
             warnings.append("TCP bridge control is not available; guided auto-collection will not send")
         elif any(command != "state" for command in available_commands) and summary.get("state_seq") is None:
             problems.append("TCP bridge summary is missing state_seq for guarded commands")
+        if controller is not None:
+            lease_age = _controller_lease_age_seconds(controller, now)
+            if lease_age is not None and lease_age > self.stale_after_seconds:
+                problems.append(
+                    f"TCP bridge controller lease is stale: {controller.get('owner_id') or 'unknown'}"
+                )
+            else:
+                warnings.append(f"TCP bridge is owned by controller: {controller.get('owner_id') or 'unknown'}")
 
         return {
             "ok": not problems,
@@ -162,6 +172,13 @@ class BridgeMirror:
                 "command_id": command_meta.get("command_id") if command_exists or tcp_pending else None,
                 "command": command_meta.get("command") if command_exists or tcp_pending else None,
             },
+            "controller": {
+                "owner_id": controller.get("owner_id"),
+                "acquired_at": controller.get("acquired_at"),
+                "lease_age_seconds": _controller_lease_age_seconds(controller, now),
+            }
+            if controller is not None
+            else None,
             "summary": {
                 "step": summary.get("step"),
                 "state_seq": summary.get("state_seq"),
@@ -674,6 +691,22 @@ def _age_seconds(path: Path, now: float) -> float | None:
     try:
         return max(0.0, now - path.stat().st_mtime)
     except FileNotFoundError:
+        return None
+
+
+def _controller_lease_age_seconds(controller: dict[str, Any], now: float) -> float | None:
+    try:
+        explicit = controller.get("lease_age_seconds")
+        if explicit is not None:
+            return max(0.0, float(explicit))
+    except (TypeError, ValueError):
+        pass
+    acquired_at = controller.get("acquired_at")
+    if not isinstance(acquired_at, str) or not acquired_at:
+        return None
+    try:
+        return max(0.0, now - datetime.fromisoformat(acquired_at.replace("Z", "+00:00")).timestamp())
+    except (TypeError, ValueError, OSError):
         return None
 
 

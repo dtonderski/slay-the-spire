@@ -262,6 +262,13 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(acquired.ok, true);
     assert.strictEqual(acquired.owner_id, "test-controller");
     assert.ok(acquired.owner_token);
+    const acquiredStatus = await waitFor(() => {
+      const parsed = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+      return parsed.controller?.owner_id === "test-controller" ? parsed : null;
+    });
+    assert.strictEqual(acquiredStatus.controller.owner_id, "test-controller");
+    assert.match(acquiredStatus.controller.acquired_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.strictEqual(typeof acquiredStatus.controller.lease_age_seconds, "number");
 
     const missingOwner = await controlRequest(port, {
       type: "command",
@@ -330,6 +337,17 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.ok(accepted.observed_update.state_seq > liveState.state_seq);
     assert.strictEqual(accepted.observed_update.observed_changed, true);
     assert.strictEqual(accepted.observed_update.application_status, "changed");
+    const released = await controlRequest(port, {
+      type: "release",
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(released.ok, true);
+    assert.strictEqual(released.released, true);
+    const releasedStatus = await waitFor(() => {
+      const parsed = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+      return parsed.controller === null ? parsed : null;
+    });
+    assert.strictEqual(releasedStatus.controller, null);
 
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
