@@ -20,6 +20,7 @@ from sts.bridge import BridgeMirror
 from sts.guided_collector import GuidedCollector
 from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
 from sts.slaythedata_policy import guided_script_support_blocker
+from sts.self_play import strict_replay_real_trace_to_env
 from sts.ui_service import SessionManager, _start_guided_live_run, _tick_live_collector
 
 
@@ -186,8 +187,9 @@ def collect_one_run(
         stop_reason = "max_actions" if actions_sent >= config.max_actions else "timeout"
 
     final_bridge = bridge.status()
+    trace_validation = _validate_trace(final_bridge.get("trace_path"))
     return {
-        "ok": stop_reason not in {"blocked", "timeout", "tick_failed"},
+        "ok": _is_clean_collection_stop(stop_reason) and bool(trace_validation.get("verified")),
         "run_id": run_id,
         "seed": ((collector.status().get("config") or {}).get("seed_played")),
         "stop_reason": stop_reason,
@@ -198,6 +200,7 @@ def collect_one_run(
         "bridge_step": final_bridge.get("last_state_step"),
         "bridge_state_id": final_bridge.get("state_id"),
         "tcp_control_available": bool(final_bridge.get("control")),
+        "trace_validation": trace_validation,
         "selection": selection,
         "history_tail": history[-25:],
     }
@@ -359,6 +362,36 @@ def _compact_send_result(send_result: Any) -> dict[str, Any] | None:
             compact["observed_update"]["bridge_state_id"] = bridge_status.get("state_id")
             compact["observed_update"]["bridge_step"] = bridge_status.get("last_state_step")
     return compact
+
+
+def _is_clean_collection_stop(stop_reason: str) -> bool:
+    return stop_reason in {"trace_exhausted", "game_complete"}
+
+
+def _validate_trace(trace_path: Any) -> dict[str, Any]:
+    if not trace_path:
+        return {"verified": False, "reason": "missing_trace_path"}
+    path = Path(str(trace_path))
+    if not path.exists():
+        return {"verified": False, "reason": "trace_path_not_found", "trace_path": str(path)}
+    try:
+        result = strict_replay_real_trace_to_env(trace=path)
+    except Exception as error:
+        return {
+            "verified": False,
+            "reason": "validation_error",
+            "detail": str(error),
+            "trace_path": str(path),
+        }
+    return {
+        "verified": result.verified,
+        "stop_reason": result.stop_reason,
+        "steps": result.steps,
+        "final_state_id": result.final_state_id,
+        "final_phase": result.final_phase,
+        "blocker": result.blocker,
+        "trace_path": str(path),
+    }
 
 
 def main(argv: list[str] | None = None) -> None:
