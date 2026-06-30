@@ -899,6 +899,8 @@
   function collectorAutoWaitReason() {
     if (app.liveInvariantViolation) return "simulator/live mismatch needs acknowledgement";
     if (bridgeIdentityWarningText()) return "bridge client identity changed";
+    const tcpReason = collectorTcpBlockerReason();
+    if (tcpReason) return tcpReason;
     if (!app.bridge || !app.bridge.connected) return "bridge disconnected";
     if (app.bridge.exited) return "bridge exited";
     if (app.bridge.pending_command) return "waiting for pending bridge command";
@@ -909,6 +911,14 @@
   function isTransientCollectorBlocker(blocker) {
     const reason = firstDefined(blocker && blocker.reason, "");
     return reason === "pending_command" || reason === "bridge_not_ready";
+  }
+
+  function collectorTcpBlockerReason() {
+    const preflight = app.collector && app.collector.preflight;
+    if (preflight && preflight.tcp_control_available === false) {
+      return "fresh TCP bridge control is required";
+    }
+    return "";
   }
 
   async function stopGuidedCollector() {
@@ -1408,20 +1418,26 @@
     const suggestion = app.collector && app.collector.last_suggestion || app.collector && app.collector.suggestion;
     const preflight = app.collector && app.collector.preflight;
     const preflightProblems = arrayOf(preflight && preflight.problems);
-    const canTick = active && !app.inFlight && !app.liveInvariantViolation && !bridgeIdentityWarningText() && preflightProblems.length === 0;
+    const tcpBlocker = collectorTcpBlockerReason();
+    const guidedStartBlocker = !active
+      ? "Load a guided script first."
+      : app.inFlight
+        ? "Another operation is running."
+        : bridgeIdentityWarningText() || tcpBlocker || "";
+    const canTick = active && !app.inFlight && !app.liveInvariantViolation && !bridgeIdentityWarningText() && !tcpBlocker && preflightProblems.length === 0;
     renderCollectorPicker();
     el.startCollectorButton.disabled = app.inFlight;
     el.findSlaythedataRunsButton.disabled = app.inFlight;
     el.loadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
-    el.startGuidedLiveRunButton.disabled = !active || app.inFlight || !!bridgeIdentityWarningText();
-    el.startGuidedAutoRunButton.disabled = !active || app.inFlight || app.collectorAutoRun || !!bridgeIdentityWarningText();
+    el.startGuidedLiveRunButton.disabled = !!guidedStartBlocker;
+    el.startGuidedAutoRunButton.disabled = !!guidedStartBlocker || app.collectorAutoRun;
     el.previewCollectorButton.disabled = !canTick;
     el.sendCollectorButton.disabled = !canTick || !app.bridge || app.bridge.pending_command;
     el.autoCollectorButton.disabled = !canTick || app.collectorAutoRun;
     el.pauseCollectorButton.disabled = !app.collectorAutoRun;
     el.stopCollectorButton.disabled = !active || app.inFlight;
-    el.startGuidedLiveRunButton.title = active ? "Send START from the loaded guided script seed." : "Load a guided script first.";
-    el.startGuidedAutoRunButton.title = active ? "Send START, then keep collecting until blocked." : "Load a guided script first.";
+    el.startGuidedLiveRunButton.title = guidedStartBlocker || "Send START from the loaded guided script seed.";
+    el.startGuidedAutoRunButton.title = guidedStartBlocker || "Send START, then keep collecting until blocked.";
     el.previewCollectorButton.title = canTick ? "Preview the next guided decision without sending." : "Start a collector and keep the bridge ready.";
     el.sendCollectorButton.title = canTick ? "Send one safe guided action." : "Collector cannot send right now.";
     el.autoCollectorButton.title = canTick ? "Keep sending safe guided actions until blocked." : "Collector cannot auto-run right now.";
