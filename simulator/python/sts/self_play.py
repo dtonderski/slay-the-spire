@@ -2480,6 +2480,7 @@ def _summary(env: Any) -> dict[str, Any]:
     player = combat.get("player") or {}
     visible_hand = _visible_combat_hand(combat)
     piles = combat.get("piles") or {}
+    combat_card_reward_choices = _combat_card_reward_choices(combat)
     reward = run.get("reward") or {}
     visible_reward_choices = (
         reward.get("choices") or [] if reward.get("card_reward_active") else []
@@ -2536,6 +2537,8 @@ def _summary(env: Any) -> dict[str, Any]:
             "exhaust_pile": [
                 card.get("content_id") for card in piles.get("exhaust_pile") or []
             ],
+            "card_reward_choices": combat_card_reward_choices,
+            "card_reward_choice_count": len(combat_card_reward_choices),
             "monster_count": len(combat.get("monsters", [])),
             "monsters": [
                 {
@@ -3012,6 +3015,17 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
                         }
                     )
             diffs.extend(_combat_monster_summary_diffs(sim_combat, obs_import_combat))
+        obs_choices = obs_combat.get("card_reward_choices")
+        if obs_choices is not None:
+            for key in ("card_reward_choices", "card_reward_choice_count"):
+                if sim_combat.get(key) != obs_combat.get(key):
+                    diffs.append(
+                        {
+                            "field": f"combat.{key}",
+                            "simulator": sim_combat.get(key),
+                            "observed": obs_combat.get(key),
+                        }
+                    )
     if simulator.get("phase") == "reward" and observed_summary.get("phase") == "reward":
         observed_sim_summary = _observed_import_summary(observed)
         if observed_sim_summary:
@@ -3172,6 +3186,7 @@ def _combat_intents_match(simulator_intent: Any, observed_intent: Any) -> bool:
 def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
     combat = observed.get("combat_state") if isinstance(observed.get("combat_state"), dict) else {}
     player = combat.get("player") if isinstance(combat.get("player"), dict) else {}
+    combat_card_reward_choices = _observed_combat_card_reward_choices(observed)
     observed_potions = _observed_real_potions(observed)
     potion_names = [
         str(potion.get("name") or potion.get("id") or "unknown") for potion in observed_potions
@@ -3194,11 +3209,84 @@ def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
         "combat": {
             "energy": player.get("energy") if player.get("energy") is not None else combat.get("energy"),
             "hand_count": len(combat.get("hand") or []),
+            "card_reward_choices": combat_card_reward_choices,
+            "card_reward_choice_count": len(combat_card_reward_choices)
+            if combat_card_reward_choices is not None
+            else None,
             "monster_count": len(combat.get("monsters") or []),
         }
         if combat
         else None,
     }
+
+
+def _combat_card_reward_choices(combat: dict[str, Any]) -> list[int]:
+    choices = combat.get("potion_card_reward") or combat.get("discovery_card_reward") or []
+    if not isinstance(choices, list):
+        return []
+    return [
+        card.get("content_id")
+        for card in choices
+        if isinstance(card, dict) and card.get("content_id") is not None
+    ]
+
+
+def _observed_combat_card_reward_choices(observed: dict[str, Any]) -> list[Any] | None:
+    if str(observed.get("screen_type") or "").upper() != "CARD_REWARD":
+        return None
+    if str(observed.get("room_phase") or "").upper() != "COMBAT":
+        return None
+    choices = observed.get("choice_list")
+    if not isinstance(choices, list):
+        screen_state = observed.get("screen_state")
+        if isinstance(screen_state, dict):
+            choices = screen_state.get("choice_list") or screen_state.get("options")
+    if not isinstance(choices, list):
+        return None
+    return [_card_choice_content_id(choice) for choice in choices]
+
+
+def _card_choice_content_id(choice: Any) -> Any:
+    normalized = _normalize_card_choice_name(choice)
+    return _CARD_CHOICE_CONTENT_IDS.get(normalized, normalized)
+
+
+def _normalize_card_choice_name(choice: Any) -> str:
+    return "".join(char for char in str(choice or "").lower() if char.isalnum())
+
+
+_CARD_CHOICE_CONTENT_IDS = {
+    "anger": 10,
+    "cleave": 11,
+    "twinstrike": 12,
+    "pommelstrike": 21,
+    "whirlwind": 33,
+    "searingblow": 42,
+    "ironwave": 100,
+    "bodyslam": 101,
+    "clash": 102,
+    "thunderclap": 103,
+    "clothesline": 104,
+    "headbutt": 106,
+    "wildstrike": 107,
+    "heavyblade": 108,
+    "perfectedstrike": 109,
+    "swordboomerang": 110,
+    "recklesscharge": 113,
+    "hemokinesis": 114,
+    "bloodforblood": 116,
+    "pummel": 118,
+    "rampage": 121,
+    "seversoul": 122,
+    "carnage": 131,
+    "dropkick": 132,
+    "uppercut": 135,
+    "bludgeon": 139,
+    "feed": 140,
+    "fiendfire": 144,
+    "reaper": 149,
+    "immolate": 152,
+}
 
 
 def _simulator_map_summary(run: dict[str, Any]) -> dict[str, Any] | None:

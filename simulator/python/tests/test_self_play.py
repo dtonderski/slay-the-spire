@@ -13,6 +13,7 @@ from sts.self_play import (
     _candidate_with_allowed_potions,
     _combat_intents_match,
     _combat_policy_from_name,
+    _observed_summary_diffs,
     _real_trace_combat_baselines,
     _parse_candidate_names,
     _reward_choose_action,
@@ -35,6 +36,49 @@ class _FakeAction:
 
     def kind(self) -> str:
         return self._kind
+
+
+class _FakeCombatRewardEnv:
+    def state_json(self) -> str:
+        return json.dumps(
+            {
+                "phase": "Combat",
+                "player_hp": 78,
+                "player_max_hp": 85,
+                "gold": 43,
+                "current_floor": 8,
+                "current_act": 1,
+                "potions": ["Ancient"],
+                "relics": ["BurningBlood"],
+                "combat": {
+                    "player": {"hp": 78, "max_hp": 85, "energy": 0},
+                    "piles": {
+                        "hand": [
+                            {"content_id": 11},
+                            {"content_id": 142},
+                        ],
+                        "draw_pile": [],
+                        "discard_pile": [],
+                        "exhaust_pile": [],
+                    },
+                    "potion_card_reward": [
+                        {"content_id": 110},
+                        {"content_id": 33},
+                        {"content_id": 21},
+                    ],
+                    "monsters": [{"id": 1, "hp": 78, "block": 0, "alive": True}],
+                },
+            }
+        )
+
+    def current_decision(self) -> str:
+        return "combat"
+
+    def phase(self) -> str:
+        return "combat"
+
+    def unsupported_reason(self):
+        return None
 
 
 class SelfPlayTests(unittest.TestCase):
@@ -967,6 +1011,42 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(records[0]["blocker"]["category"], "final_observed_state_diff")
             self.assertEqual(report["blocker"]["category"], "final_observed_state_diff")
             self.assertTrue(report["blocker"]["diffs"])
+
+    def test_observed_summary_diffs_include_combat_card_reward_choices(self):
+        observed = {
+            "screen_type": "CARD_REWARD",
+            "room_phase": "COMBAT",
+            "choice_list": ["carnage", "bludgeon", "perfected strike"],
+            "current_hp": 78,
+            "max_hp": 85,
+            "gold": 43,
+            "floor": 8,
+            "act": 1,
+            "potions": [{"name": "Ancient Potion"}],
+            "relics": [{"name": "Burning Blood"}],
+            "combat_state": {
+                "player": {"current_hp": 78, "max_hp": 85, "energy": 0},
+                "hand": [{"id": "Cleave"}, {"id": "Corruption"}],
+                "draw_pile": [],
+                "discard_pile": [],
+                "exhaust_pile": [],
+                "monsters": [{"id": 1, "current_hp": 78, "block": 0, "intent": "ATTACK"}],
+            },
+        }
+
+        diffs = _observed_summary_diffs(_FakeCombatRewardEnv(), observed)
+
+        choice_diffs = [diff for diff in diffs if diff["field"] == "combat.card_reward_choices"]
+        self.assertEqual(
+            choice_diffs,
+            [
+                {
+                    "field": "combat.card_reward_choices",
+                    "simulator": [110, 33, 21],
+                    "observed": [131, 139, 109],
+                }
+            ],
+        )
 
     def test_observed_defend_intent_wildcards_hidden_block_amount_only(self):
         self.assertTrue(

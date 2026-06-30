@@ -663,7 +663,8 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "bridge", "command"]:
                 self._send_json(
-                    self.bridge.send_command(
+                    _send_ui_bridge_command(
+                        self.bridge,
                         str(payload.get("command", "")),
                         source_state_id=_optional_string(payload.get("source_state_id")),
                     )
@@ -672,7 +673,8 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "bridge", "descriptor"]:
                 command = command_for_descriptor(payload.get("descriptor", {}))
                 self._send_json(
-                    self.bridge.send_command(
+                    _send_ui_bridge_command(
+                        self.bridge,
                         command,
                         source_state_id=_optional_string(payload.get("source_state_id")),
                     )
@@ -1123,6 +1125,27 @@ def _observed_state_from_bridge_status(bridge_status: dict[str, Any]) -> dict[st
         return current_state
 
     raise ValueError("latest bridge state is not a supported CommunicationMod game state")
+
+
+def _send_ui_bridge_command(
+    bridge: BridgeMirror,
+    command: str,
+    *,
+    source_state_id: str | None,
+) -> dict[str, Any]:
+    result = bridge.send_command(
+        command,
+        source_state_id=source_state_id,
+        require_tcp_control=True,
+        wait_for_state_update=True,
+        update_timeout_seconds=10.0,
+        metadata={"source": "ui_manual"},
+    )
+    observed_update = result.get("observed_update")
+    if isinstance(observed_update, dict) and isinstance(observed_update.get("bridge_status"), dict):
+        result = result.copy()
+        result["bridge_status"] = observed_update["bridge_status"]
+    return result
 
 
 def _guided_script_from_payload(payload: dict[str, Any]) -> dict[str, Any]:

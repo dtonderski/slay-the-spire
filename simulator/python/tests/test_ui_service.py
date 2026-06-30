@@ -15,6 +15,7 @@ from sts.ui_service import (
     _guided_collect_report,
     _guided_script_from_payload,
     _observed_state_from_bridge_status,
+    _send_ui_bridge_command,
     _slaythedata_candidates_from_query,
     _slaythedata_status_from_query,
     _start_guided_live_run,
@@ -217,6 +218,34 @@ class UiServiceTests(unittest.TestCase):
             _observed_state_from_bridge_status(
                 {"current_state": {"message": {"available_commands": ["start", "state"]}}}
             )
+
+    def test_ui_bridge_command_requires_tcp_and_returns_observed_status(self):
+        calls = []
+        observed_status = {"state_id": "after-state", "last_state_step": 12}
+
+        class Bridge:
+            def send_command(self, command, **kwargs):
+                calls.append((command, kwargs))
+                return {
+                    "ok": True,
+                    "transport": "tcp-jsonl",
+                    "command": command,
+                    "observed_update": {
+                        "ok": True,
+                        "bridge_status": observed_status,
+                    },
+                    "bridge_status": {"state_id": "polled-state"},
+                }
+
+        result = _send_ui_bridge_command(Bridge(), "END", source_state_id="before-state")
+
+        self.assertEqual(result["bridge_status"], observed_status)
+        self.assertEqual(calls[0][0], "END")
+        self.assertEqual(calls[0][1]["source_state_id"], "before-state")
+        self.assertTrue(calls[0][1]["require_tcp_control"])
+        self.assertTrue(calls[0][1]["wait_for_state_update"])
+        self.assertEqual(calls[0][1]["update_timeout_seconds"], 10.0)
+        self.assertEqual(calls[0][1]["metadata"], {"source": "ui_manual"})
 
     def test_guided_script_payload_accepts_exported_slaythedata_run(self):
         result = _guided_script_from_payload(
