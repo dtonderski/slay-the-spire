@@ -169,6 +169,15 @@
             <div class="bridge-maintenance-actions">
               <button id="requestBridgeStateButton" type="button">Manual State - writes trace</button>
             </div>
+            <div class="bridge-client-tools">
+              <div class="section-head compact">
+                <h3>Bridge Clients</h3>
+                <button id="refreshBridgeClientsButton" type="button">Refresh clients</button>
+              </div>
+              <div id="bridgeClientsPanel" class="bridge-clients-panel empty">
+                <span class="empty-text">Bridge clients not loaded.</span>
+              </div>
+            </div>
             <div id="bridgePanel" class="bridge-panel empty">
               <span class="empty-text">Bridge status not loaded.</span>
             </div>
@@ -242,6 +251,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=live-ui-12"></script>
+    <script src="./app.js?v=live-ui-13"></script>
   </body>
 </html>

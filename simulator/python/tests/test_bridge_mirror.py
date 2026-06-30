@@ -167,6 +167,49 @@ class BridgeMirrorTests(unittest.TestCase):
                 "START IRONCLAD 0 LIVE01\n",
             )
 
+    def test_clients_include_current_status_and_recent_trace_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = root / "session"
+            trace_dir = root / "traces"
+            session.mkdir()
+            trace_dir.mkdir()
+            trace_path = trace_dir / "trace-2026-06-30T00-00-00-000Z.jsonl"
+            trace_path.write_text(
+                json.dumps({"type": "metadata", "client_pid": 222, "started_at": "2026-06-30T00:00:00Z"})
+                + "\n",
+                encoding="utf-8",
+            )
+            (session / "status.json").write_text(
+                json.dumps({"status": "waiting", "client_pid": 111, "trace_path": str(trace_path)}),
+                encoding="utf-8",
+            )
+            (session / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["state"]}),
+                encoding="utf-8",
+            )
+
+            result = BridgeMirror(session, stale_after_seconds=9999).clients(
+                trace_dir=trace_dir,
+                now=2000.0,
+                process_info=lambda pid: {"alive": pid == 222, "name": "node.exe" if pid == 222 else f"proc-{pid}"},
+            )
+
+        clients = {client["pid"]: client for client in result["clients"]}
+        self.assertEqual(set(clients), {111, 222})
+        self.assertTrue(clients[111]["current"])
+        self.assertFalse(clients[111]["alive"])
+        self.assertFalse(clients[111]["killable"])
+        self.assertFalse(clients[222]["current"])
+        self.assertTrue(clients[222]["alive"])
+        self.assertTrue(clients[222]["killable"])
+        self.assertEqual(clients[222]["started_at"], "2026-06-30T00:00:00Z")
+
+    def test_kill_client_rejects_ui_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "UI service"):
+                BridgeMirror(Path(directory)).kill_client(__import__("os").getpid())
+
     def test_descriptor_translation_covers_known_command_families(self):
         cases = [
             ({"kind": "PlayHandSlot", "hand_slot": 1, "target_slot": 0}, "PLAY 1 0"),

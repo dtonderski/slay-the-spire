@@ -1308,6 +1308,100 @@ h3 {
   color: var(--warn);
 }
 
+.bridge-client-tools {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.bridge-client-tools .section-head {
+  margin-bottom: 0;
+}
+
+.bridge-client-tools button {
+  min-height: 1.95rem;
+  padding: 0.3rem 0.55rem;
+}
+
+.bridge-clients-panel {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.bridge-client-card {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  padding: 0.45rem;
+}
+
+.bridge-client-card.current {
+  border-color: #9cc9b0;
+  background: #f1faf4;
+}
+
+.bridge-client-card.dead {
+  opacity: 0.72;
+}
+
+.bridge-client-main {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.bridge-client-main strong,
+.bridge-client-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bridge-client-main span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.bridge-client-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.client-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  padding: 0.12rem 0.4rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.client-chip.good {
+  border-color: #9cc9b0;
+  color: var(--good);
+}
+
+.client-chip.warn {
+  border-color: #edcf91;
+  background: #fff8e8;
+  color: var(--warn);
+}
+
+.danger-button {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 .pv-list,
 .diff-list {
   margin-top: 0.45rem;
@@ -1454,8 +1548,13 @@ h3 {
   .live-primary-actions,
   .live-workflow,
   .live-secondary-actions,
+  .bridge-client-card,
   .combat-grid {
     grid-template-columns: 1fr;
+  }
+
+  .bridge-client-chips {
+    justify-content: flex-start;
   }
 
   .search-controls input,
