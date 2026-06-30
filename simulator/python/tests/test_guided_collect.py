@@ -579,6 +579,21 @@ class GuidedCollectTests(unittest.TestCase):
                                 "command": "START IRONCLAD 0 LIVE01",
                             }
                         ),
+                        json.dumps(
+                            {
+                                "type": "action",
+                                "step": 0,
+                                "command": "STATE",
+                                "command_meta": {"source": "passive_poll"},
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "action",
+                                "step": 1,
+                                "command": "START IRONCLAD 0 LIVE01",
+                            }
+                        ),
                     ]
                 )
                 + "\n",
@@ -598,6 +613,9 @@ class GuidedCollectTests(unittest.TestCase):
                 result = _validate_trace(trace_path)
 
         self.assertTrue(result["verified"])
+        self.assertEqual(result["actions"], 2)
+        self.assertEqual(result["control_actions"], 1)
+        self.assertEqual(result["passive_polls"], 1)
         self.assertEqual(result["command_accepts"], 1)
         self.assertEqual(result["command_observed_timeouts"], 1)
 

@@ -1583,7 +1583,8 @@
         ["Generated", dateText(report.generated_at)],
         ["Run", firstDefined(report.run_id, "-")],
         ["Selection", selectionText(selection)],
-        ["Actions", firstDefined(report.actions_sent, 0)],
+        ["Sent", firstDefined(report.actions_sent, 0)],
+        ["Trace actions", firstDefined(traceValidation.control_actions, traceValidation.actions, "-")],
         ["Bridge", firstDefined(report.bridge_step, "-")],
         ["Trace", traceName],
       ]),
@@ -1669,7 +1670,9 @@
     if (!validation) return "-";
     const accepts = firstDefined(validation.command_accepts, 0);
     const timeouts = firstDefined(validation.command_observed_timeouts, 0);
-    return `${accepts} accepted / ${timeouts} timed out`;
+    const passive = firstDefined(validation.passive_polls, 0);
+    const passiveText = passive ? ` / ${passive} passive poll${passive === 1 ? "" : "s"}` : "";
+    return `${accepts} accepted / ${timeouts} timed out${passiveText}`;
   }
 
   function validationText(validation) {

@@ -318,6 +318,9 @@ class UiServiceTests(unittest.TestCase):
                             "verified": False,
                             "stop_reason": "observed_state_diff",
                             "steps": 4,
+                            "actions": 7,
+                            "control_actions": 6,
+                            "passive_polls": 1,
                             "command_accepts": 2,
                             "command_observed_timeouts": 1,
                             "blocker": {
@@ -358,6 +361,9 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["blocker"]["reason"], "bridge_preflight")
         self.assertFalse(result["trace_validation"]["verified"])
         self.assertEqual(result["trace_validation"]["stop_reason"], "observed_state_diff")
+        self.assertEqual(result["trace_validation"]["actions"], 7)
+        self.assertEqual(result["trace_validation"]["control_actions"], 6)
+        self.assertEqual(result["trace_validation"]["passive_polls"], 1)
         self.assertEqual(result["trace_validation"]["command_accepts"], 2)
         self.assertEqual(result["trace_validation"]["command_observed_timeouts"], 1)
         self.assertEqual(result["trace_validation"]["blocker_reason"], "observed_state_diff")

@@ -1294,6 +1294,9 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
             "stop_reason": trace_validation.get("stop_reason"),
             "steps": trace_validation.get("steps"),
             "final_phase": trace_validation.get("final_phase"),
+            "actions": trace_validation.get("actions", 0),
+            "control_actions": trace_validation.get("control_actions", 0),
+            "passive_polls": trace_validation.get("passive_polls", 0),
             "command_accepts": trace_validation.get("command_accepts", 0),
             "command_observed_timeouts": trace_validation.get("command_observed_timeouts", 0),
             "blocker_reason": (trace_validation.get("blocker") or {}).get("reason")
