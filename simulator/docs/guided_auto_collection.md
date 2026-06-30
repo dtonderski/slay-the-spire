@@ -201,6 +201,13 @@ The collector can now:
 - require TCP control for guided collector `START` and tick sends. Manual bridge
   commands may still use the legacy file fallback, but guided auto-collection
   now refuses to send on an old/file-only bridge
+- let TCP command callers request `wait_for_state_update`, which keeps the
+  command response open until the next observed CommunicationMod state arrives
+  or a bounded timeout fires; the Python mirror normalizes that observed update
+  into the usual bridge-status shape
+- verify guided combat and non-combat simulator predictions immediately from
+  that observed TCP state when it is present, clearing the pending prediction
+  in the same tick on a match and blocking loudly on timeout or mismatch
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot
