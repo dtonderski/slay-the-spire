@@ -78,6 +78,8 @@ class SlayTheDataIndexTests(unittest.TestCase):
         self.assertFalse(status["counts_included"])
         self.assertNotIn("runs_count", status)
         self.assertNotIn("chunk_runs_count", status)
+        self.assertFalse(status["schema_features"]["has_neow_columns"])
+        self.assertTrue(status["schema_features"]["has_supported_profile"])
         self.assertTrue(status["exportable_candidate_available"])
         self.assertEqual(status["archive_status_counts"], {"indexed": 1, "pending": 1})
         self.assertIn("partial", status["warnings"][0])
@@ -380,10 +382,47 @@ class SlayTheDataIndexTests(unittest.TestCase):
                 ranked=False,
                 limit=10,
             )
+            status = slaythedata_index_status(db)
 
         self.assertEqual([row["id"] for row in rows], [1, 3, 4])
         self.assertEqual(rows[0]["neow_bonus"], "THREE_ENEMY_KILL")
         self.assertEqual(rows[0]["neow_cost"], "NONE")
+        self.assertTrue(status["schema_features"]["has_neow_columns"])
+
+    def test_candidate_selection_reports_missing_neow_columns_for_safe_filter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            with self.assertRaisesRegex(ValueError, "guided safe-Neow column"):
+                select_guided_collection_candidates(
+                    db,
+                    require_guided_safe_neow=True,
+                )
 
     def test_chunk_export_args_builds_indexer_invocation_for_run_ids(self):
         args = chunk_export_args(
