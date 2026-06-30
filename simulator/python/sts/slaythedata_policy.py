@@ -319,7 +319,20 @@ def _target_text_for_category(
         entry = _ordinal_entry(decision.get("campfires"), ordinal)
         if not entry:
             return None
-        return entry.get("data") or entry.get("key")
+        return entry.get("key") or entry.get("data")
+    if category == "grid":
+        if decision is None:
+            return None
+        campfire = _ordinal_entry(decision.get("campfires"), ordinal)
+        if campfire and campfire.get("data"):
+            return campfire.get("base_data") or campfire.get("data")
+        event = _ordinal_entry(decision.get("events"), ordinal)
+        if event:
+            for key in ("cards_removed", "cards_upgraded", "cards_obtained"):
+                values = _list(event.get(key))
+                if values:
+                    return str(values[0])
+        return None
     if category == "boss_relic":
         entry = _boss_relic_choice(script, floor=floor, act=act, ordinal=ordinal)
         return entry.get("picked") if entry else None

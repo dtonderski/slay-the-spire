@@ -14,6 +14,7 @@ def sample_script():
                 "seed_played": "ABC",
                 "path_per_floor": ["M", "?"],
                 "card_choices": [{"floor": 1, "picked": "Inflame"}],
+                "campfire_choices": [{"floor": 4, "key": "SMITH", "data": "Bash+"}],
                 "event_choices": [
                     {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
                 ],
@@ -102,6 +103,36 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_campfire_bridge(self):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "campfire-bridge-state",
+            "summary": {
+                "floor": 4,
+                "screen_type": "REST",
+                "choices": ["Rest", "Smith"],
+                "available_commands": ["choose"],
+            },
+        }
+
+    def ready_grid_bridge(self):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "grid-bridge-state",
+            "summary": {
+                "floor": 4,
+                "screen_type": "GRID",
+                "choices": ["Strike", "Bash"],
+                "available_commands": ["choose"],
+            },
+        }
+
     def test_suggest_guided_action_matches_visible_event_choice(self):
         result = suggest_guided_action(
             sample_script(),
@@ -131,6 +162,17 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["category"], "map")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
+    def test_suggest_guided_action_matches_campfire_then_grid_choice(self):
+        campfire = suggest_guided_action(sample_script(), self.ready_campfire_bridge())
+        grid = suggest_guided_action(sample_script(), self.ready_grid_bridge())
+
+        self.assertEqual(campfire["status"], "matched")
+        self.assertEqual(campfire["category"], "campfire")
+        self.assertEqual(campfire["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(grid["status"], "matched")
+        self.assertEqual(grid["category"], "grid")
+        self.assertEqual(grid["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
 
     def test_send_guided_suggestion_sends_matching_descriptor_with_source_state(self):
         calls = []

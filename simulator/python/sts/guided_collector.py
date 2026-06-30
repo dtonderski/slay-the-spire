@@ -394,6 +394,8 @@ def _infer_category(summary: dict[str, Any], bridge_status: dict[str, Any]) -> s
         return "boss_relic"
     if "map" in text:
         return "map"
+    if "grid" in text:
+        return "grid"
     if "card" in text and "reward" in text:
         return "card_reward"
     if "shop" in text:
