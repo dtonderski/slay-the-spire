@@ -234,9 +234,16 @@ class SessionManager:
         session = self._require_session(session_id)
         if not _can_search_combat(session):
             raise ValueError("combat search is only available for combat sessions")
+        state_id = session.env.snapshot_hash()
+        source_state_id = payload.get("source_state_id")
+        if source_state_id is not None and source_state_id != state_id:
+            raise ValueError(f"stale search: expected {state_id}, received {source_state_id}")
         config = _combat_search_config(payload)
         recommendation = search_combat(session.env, config)
-        actions = self._actions(session.env, session.env.snapshot_hash())
+        resulting_state_id = session.env.snapshot_hash()
+        if resulting_state_id != state_id:
+            raise ValueError(f"search state changed while running: expected {state_id}, observed {resulting_state_id}")
+        actions = self._actions(session.env, state_id)
         best_json = recommendation.best_action.json() if recommendation.best_action else None
         best_action_id = next(
             (action["action_id"] for action in actions if action["exact_action"].json() == best_json),
@@ -246,7 +253,7 @@ class SessionManager:
         predicted_hp_loss = _search_predicted_hp_loss(session.env, predicted_final_hp)
         return {
             "session_id": session.id,
-            "state_id": session.env.snapshot_hash(),
+            "state_id": state_id,
             "recommendation": {
                 "best_action_id": best_action_id,
                 "best_action": _action_to_descriptor(recommendation.best_action)

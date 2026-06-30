@@ -1053,7 +1053,7 @@ h3 {
 
 .live-secondary-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
 }
 
 .live-primary-actions button,
@@ -1145,6 +1145,13 @@ h3 {
   font-size: 0.82rem;
 }
 
+.action-button.recommended-action {
+  border-color: var(--accent);
+  background: #edf8f6;
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
 .button-reason {
   font-size: 0.7rem;
 }
@@ -1198,10 +1205,10 @@ h3 {
   gap: 0.25rem;
   min-height: 1.55rem;
   padding: 0.15rem 0.45rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.035);
-  color: var(--text);
+  color: var(--ink);
   white-space: nowrap;
 }
 
@@ -1212,6 +1219,22 @@ h3 {
 
 .search-result {
   overflow: auto;
+}
+
+.recommendation-actions {
+  display: grid;
+  margin-top: 0.35rem;
+}
+
+.bridge-maintenance-actions {
+  margin-bottom: 0.5rem;
+}
+
+.bridge-maintenance-actions button {
+  min-height: 2.1rem;
+  border-color: var(--warn);
+  background: #fff8e8;
+  color: var(--warn);
 }
 
 .pv-list,

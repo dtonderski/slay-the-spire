@@ -53,7 +53,6 @@
             </div>
             <div class="live-secondary-actions">
               <button id="refreshBridgeButton" type="button">Refresh mirror</button>
-              <button id="requestBridgeStateButton" type="button">Request State (writes trace)</button>
             </div>
             <div id="liveReason" class="live-reason"></div>
           </div>
@@ -98,6 +97,9 @@
             </div>
             <div id="searchResult" class="search-result empty">
               <span class="empty-text">No recommendation yet.</span>
+            </div>
+            <div class="recommendation-actions">
+              <button id="sendBestReviewButton" class="primary" type="button" disabled>Send recommended</button>
             </div>
           </section>
 
@@ -162,6 +164,9 @@
             <div class="section-head compact">
               <h2 id="syncTitle">Bridge Mirror</h2>
               <span class="subtle">Read-only mirror; Manual State is the only state command.</span>
+            </div>
+            <div class="bridge-maintenance-actions">
+              <button id="requestBridgeStateButton" type="button">Manual State - writes trace</button>
             </div>
             <div id="bridgePanel" class="bridge-panel empty">
               <span class="empty-text">Bridge status not loaded.</span>
@@ -236,6 +241,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=live-ui-9"></script>
+    <script src="./app.js?v=live-ui-10"></script>
   </body>
 </html>
