@@ -138,6 +138,11 @@ The collector can now:
 - route `/api/collector/tick` live combat and non-combat sends through
   `BridgeMirror.send_command`, preserving the same source-state guard and
   provenance path used by manual UI sends
+- run the same collector stack headlessly with `python -m sts.guided_collect`.
+  The runner selects or accepts one SlayTheData run id, sends guided `START`,
+  repeatedly ticks the collector, and writes a compact JSON report with run id,
+  seed, trace path, bridge step/state, stop reason, blocker, and recent tick
+  history
 - expose bridge preflight status in the guided collector panel and disable
   collector sends while hard preflight problems are present
 - refresh and show that preflight status even before a guided script is loaded,
@@ -179,7 +184,23 @@ used for manual UI play and guided collection.
 
 ## Next Infrastructure Slice
 
-Broaden exact non-combat coverage and polish candidate selection.
+Run live end-to-end smoke against a freshly restarted TCP-enabled bridge, then
+broaden exact non-combat coverage and polish candidate selection.
+
+Headless smoke command shape:
+
+```powershell
+cd D:\dev\slay-the-spire\simulator
+uv run python -m sts.guided_collect `
+  --run-id <slaythedata-run-id> `
+  --max-actions 200 `
+  --report-output target\guided-collect\latest.json
+```
+
+Without `--run-id`, the runner selects one exportable safe-Neow Ironclad A0
+candidate from the local SlayTheData chunk index. Guided collection requires a
+fresh TCP-enabled bridge by default; `--allow-file-bridge` exists only for
+diagnostics and compatibility tests.
 
 Tick algorithm:
 
