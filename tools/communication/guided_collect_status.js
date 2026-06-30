@@ -7,6 +7,8 @@ const { readTrace, validate } = require("./trace_tools");
 const repoRoot = path.resolve(__dirname, "..", "..");
 const defaultReportPath = path.join(repoRoot, "simulator", "target", "guided-collect", "latest.json");
 const defaultArchiveDir = path.join(repoRoot, "simulator", "target", "guided-collect", "reports");
+const defaultSessionDir = path.join(repoRoot, "tools", "communication", "session");
+const staleAfterSeconds = 120;
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -17,6 +19,85 @@ function fileTimestamp(filePath, nowMs = Date.now()) {
   return {
     modified_at: new Date(stat.mtimeMs).toISOString(),
     age_seconds: Math.max(0, (nowMs - stat.mtimeMs) / 1000),
+  };
+}
+
+function readJsonIfExists(filePath) {
+  if (!fs.existsSync(filePath)) return { missing: true };
+  try {
+    return readJson(filePath);
+  } catch (error) {
+    return { missing: false, error: error.message };
+  }
+}
+
+function fileAgeSeconds(filePath, nowMs = Date.now()) {
+  if (!fs.existsSync(filePath)) return null;
+  return Math.max(0, (nowMs - fs.statSync(filePath).mtimeMs) / 1000);
+}
+
+function inspectCurrentBridgePreflight(sessionDir = defaultSessionDir, nowMs = Date.now()) {
+  const statusPath = path.join(sessionDir, "status.json");
+  const summaryPath = path.join(sessionDir, "summary.json");
+  const commandPath = path.join(sessionDir, "next_command.txt");
+  const commandMetaPath = path.join(sessionDir, "next_command.json");
+  const status = readJsonIfExists(statusPath);
+  const summary = readJsonIfExists(summaryPath);
+  const statusAge = fileAgeSeconds(statusPath, nowMs);
+  const summaryAge = fileAgeSeconds(summaryPath, nowMs);
+  const commandExists = fs.existsSync(commandPath);
+  const tcpPending = Boolean(status && status.pending_command);
+  const commandMetaExists = fs.existsSync(commandMetaPath);
+  const control = status && status.control && status.control.protocol === "tcp-jsonl"
+    ? status.control
+    : null;
+  const problems = [];
+  const warnings = [];
+
+  if (status.missing) problems.push("missing session status.json");
+  if (summary.missing) problems.push("missing session summary.json");
+  if (summaryAge === null || summaryAge > staleAfterSeconds) problems.push("observed state summary is stale");
+  if (status.status === "exited") problems.push(`bridge exited: ${status.reason || "unknown"}`);
+  if (commandExists || tcpPending) problems.push("bridge command already pending");
+  if (commandMetaExists && !commandExists) problems.push("next_command.json exists without next_command.txt");
+  if (summary.ready_for_command !== true) warnings.push("latest summary is not ready_for_command");
+  if (!control) warnings.push("TCP bridge control is not available; guided auto-collection will not send");
+  const availableCommands = Array.isArray(summary.available_commands) ? summary.available_commands : [];
+  if (control && availableCommands.some((command) => String(command).toLowerCase() !== "state") && summary.state_seq == null) {
+    problems.push("TCP bridge summary is missing state_seq for guarded commands");
+  }
+
+  return {
+    ok: problems.length === 0,
+    problems,
+    warnings,
+    tcp_control_available: Boolean(control),
+    control,
+    ages: {
+      status_age_seconds: statusAge,
+      summary_age_seconds: summaryAge,
+    },
+    pending_command: {
+      present: commandExists || tcpPending,
+      transport: commandExists ? "file" : tcpPending ? "tcp-jsonl" : null,
+    },
+    summary: summary.missing ? null : {
+      step: summary.step ?? null,
+      state_seq: summary.state_seq ?? null,
+      client_pid: summary.client_pid ?? null,
+      screen_type: summary.screen_type ?? null,
+      floor: summary.floor ?? null,
+      seed: summary.seed ?? null,
+      ready_for_command: summary.ready_for_command ?? null,
+      available_commands: availableCommands,
+    },
+    status: status.missing ? null : {
+      step: status.step ?? null,
+      client_pid: status.client_pid ?? null,
+      status: status.status ?? null,
+      trace_path: status.trace_path ?? null,
+      command: status.command ?? null,
+    },
   };
 }
 
@@ -57,12 +138,16 @@ function summarizeStrictTraceValidation(value) {
   };
 }
 
-function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir = defaultArchiveDir) {
+function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir = defaultArchiveDir, options = {}) {
+  const current_bridge_preflight = options.current_bridge_preflight === false
+    ? null
+    : inspectCurrentBridgePreflight(options.session_dir || defaultSessionDir);
   if (!fs.existsSync(reportPath)) {
     return {
       ok: false,
       report_path: reportPath,
       error: "guided collection report not found",
+      current_bridge_preflight,
     };
   }
   const report = readJson(reportPath);
@@ -87,6 +172,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
     bridge_step: report.bridge_step ?? null,
     bridge_state_id: report.bridge_state_id ?? null,
     tcp_control_available: Boolean(report.tcp_control_available),
+    current_bridge_preflight,
     selection: selection
       ? {
         mode: selection.mode ?? null,
@@ -149,6 +235,7 @@ if (require.main === module) {
 
 module.exports = {
   inspectGuidedCollectReport,
+  inspectCurrentBridgePreflight,
   fileTimestamp,
   recentReports,
   summarizeStrictTraceValidation,
