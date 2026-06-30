@@ -208,6 +208,38 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["actions_sent"], 0)
         self.assertEqual(bridge.sent, [])
 
+    def test_collect_one_run_reports_tick_failure_after_start(self):
+        bridge = FakeBridge()
+        script = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "LIVE01",
+                "neow_bonus": "THREE_ENEMY_KILL",
+                "neow_cost": "NONE",
+            }
+        }
+
+        with patch("sts.guided_collect.export_guided_run_script", return_value=script), patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=RuntimeError("prediction mismatch"),
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "tick_failed")
+        self.assertEqual(report["blocker"]["reason"], "tick_failed")
+        self.assertIn("prediction mismatch", report["blocker"]["detail"])
+        self.assertEqual(report["run_id"], 123)
+        self.assertEqual(report["seed"], "LIVE01")
+        self.assertEqual(report["history_tail"][0]["event"], "start")
+        self.assertEqual(report["history_tail"][1]["reason"], "tick_failed")
+        self.assertEqual(report["actions_sent"], 0)
+
     def test_collect_one_run_auto_selection_skips_unsupported_script(self):
         bridge = FakeBridge()
         unsupported = {
