@@ -36,6 +36,8 @@
     livePendingPlanIndex: null,
     liveAutoPlayPlan: false,
     liveInvariantViolation: null,
+    collector: null,
+    collectorLastError: null,
     attachFidelity: null,
     strictReplayBlocker: null,
     mode: null,
@@ -52,6 +54,7 @@
     bindEvents();
     refreshBridgeQuietly().finally(() => render());
     refreshBridgeClientsQuietly().finally(() => renderBridgeClients());
+    refreshCollectorQuietly().finally(() => renderCollector());
     startBridgePolling();
     render();
   });
@@ -103,6 +106,12 @@
       "searchResult",
       "refreshBridgeButton",
       "liveRequestStateButton",
+      "collectorPayloadInput",
+      "startCollectorButton",
+      "previewCollectorButton",
+      "sendCollectorButton",
+      "stopCollectorButton",
+      "collectorStatusPanel",
       "requestBridgeStateButton",
       "refreshBridgeClientsButton",
       "bridgeClientsPanel",
@@ -151,6 +160,10 @@
     el.applyBestButton.addEventListener("click", applyBestAction);
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
     el.liveRequestStateButton.addEventListener("click", requestBridgeState);
+    el.startCollectorButton.addEventListener("click", startGuidedCollector);
+    el.previewCollectorButton.addEventListener("click", () => tickGuidedCollector({ send: false }));
+    el.sendCollectorButton.addEventListener("click", () => tickGuidedCollector({ send: true }));
+    el.stopCollectorButton.addEventListener("click", stopGuidedCollector);
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
     el.refreshBridgeClientsButton.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -197,6 +210,7 @@
         renderHand();
         renderActions();
         renderAllowedPotions();
+        renderCollector();
         renderSearch();
         renderBridge();
         renderDebug();
@@ -578,6 +592,63 @@
     }
   }
 
+  async function refreshCollectorQuietly() {
+    try {
+      app.collector = await requestJson("/api/collector/status");
+      app.collectorLastError = null;
+    } catch (error) {
+      app.collector = { active: false, status: "error" };
+      app.collectorLastError = readableError(error);
+    }
+  }
+
+  async function startGuidedCollector() {
+    const text = el.collectorPayloadInput.value.trim();
+    if (!text) {
+      showError("Paste a SlayTheData export row or GuidedRunScript first.");
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      showError(`Collector JSON is invalid: ${error.message}`);
+      return;
+    }
+    const body = parsed && parsed.schema ? { script: parsed } : { exported_run: parsed };
+    await singleFlight("Starting guided collector", async () => {
+      app.collector = await requestJson("/api/collector/start", { method: "POST", body });
+      app.collectorLastError = null;
+    });
+  }
+
+  async function tickGuidedCollector(options = {}) {
+    if (!app.collector || !app.collector.active) {
+      showError("Start the guided collector before ticking it.");
+      return;
+    }
+    await singleFlight(options.send ? "Sending guided choice" : "Previewing guided choice", async () => {
+      app.collector = await requestJson("/api/collector/tick", {
+        method: "POST",
+        body: { send: !!options.send },
+      });
+      app.collectorLastError = null;
+      await refreshBridgeQuietly();
+      await refreshParityQuietly();
+      const suggestion = app.collector && app.collector.suggestion;
+      if (suggestion && suggestion.status === "blocked") {
+        throw new Error(firstDefined(suggestion.detail, suggestion.reason, "Collector blocked."));
+      }
+    });
+  }
+
+  async function stopGuidedCollector() {
+    await singleFlight("Stopping guided collector", async () => {
+      app.collector = await requestJson("/api/collector/stop", { method: "POST", body: {} });
+      app.collectorLastError = null;
+    });
+  }
+
   async function refreshBridgeClients() {
     app.bridgeClientsLoading = true;
     app.bridgeClientsError = null;
@@ -769,6 +840,7 @@
     renderHand();
     renderActions();
     renderAllowedPotions();
+    renderCollector();
     renderSearch();
     renderBridge();
     renderBridgeClients();
@@ -813,6 +885,7 @@
     el.liveRequestStateButton.title = "Trace-mutating: asks CommunicationMod to publish a fresh state.";
     el.refreshBridgeButton.title = "Read-only: refreshes local bridge files without sending a game command.";
     el.restoreSnapshotButton.disabled = !app.sessionId || app.inFlight || !hasLoadedSnapshotJson();
+    renderCollector();
 
     el.stateSummary.textContent = summarizeState();
     el.lifecycleBadge.textContent = lifecycleText();
@@ -1038,6 +1111,60 @@
       label.append(input, text);
       el.allowedPotionsPanel.appendChild(label);
     });
+  }
+
+  function renderCollector() {
+    if (!el.collectorStatusPanel) return;
+    const active = app.collector && app.collector.active;
+    const status = app.collector && app.collector.status || "idle";
+    const suggestion = app.collector && app.collector.last_suggestion || app.collector && app.collector.suggestion;
+    const canTick = active && !app.inFlight && !app.liveInvariantViolation && !bridgeIdentityWarningText();
+    el.startCollectorButton.disabled = app.inFlight;
+    el.previewCollectorButton.disabled = !canTick;
+    el.sendCollectorButton.disabled = !canTick || !app.bridge || app.bridge.pending_command;
+    el.stopCollectorButton.disabled = !active || app.inFlight;
+    el.previewCollectorButton.title = canTick ? "Preview the next guided decision without sending." : "Start a collector and keep the bridge ready.";
+    el.sendCollectorButton.title = canTick ? "Send one matched guided non-combat choice." : "Collector cannot send right now.";
+
+    clear(el.collectorStatusPanel);
+    if (app.collectorLastError) {
+      el.collectorStatusPanel.className = "collector-status";
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = app.collectorLastError;
+      el.collectorStatusPanel.appendChild(msg);
+      return;
+    }
+    if (!active) {
+      empty(el.collectorStatusPanel, "No guided script loaded.");
+      return;
+    }
+    el.collectorStatusPanel.className = "collector-status";
+    el.collectorStatusPanel.append(
+      statBlock("Collector", [
+        ["Status", status],
+        ["Run", firstDefined(app.collector.source && app.collector.source.run_id, "-")],
+        ["Seed", firstDefined(app.collector.config && app.collector.config.seed_played, "-")],
+        ["History", firstDefined(app.collector.history_count, 0)],
+      ]),
+    );
+    if (suggestion) {
+      el.collectorStatusPanel.append(
+        statBlock("Next", [
+          ["Result", firstDefined(suggestion.status, "-")],
+          ["Floor", firstDefined(suggestion.floor, "-")],
+          ["Kind", firstDefined(suggestion.category, suggestion.mode, "-")],
+          ["Target", firstDefined(suggestion.target, suggestion.detail, suggestion.reason, "-")],
+          ["Command", firstDefined(suggestion.command, suggestion.descriptor && stringify(suggestion.descriptor), "-")],
+        ]),
+      );
+    }
+    if (app.collector.blocker) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = firstDefined(app.collector.blocker.detail, app.collector.blocker.reason, "Collector blocked.");
+      el.collectorStatusPanel.appendChild(msg);
+    }
   }
 
   function renderLive() {
