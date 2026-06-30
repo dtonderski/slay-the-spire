@@ -1359,7 +1359,7 @@
   function canAttachLiveSession() {
     if (!app.bridge || !app.bridge.connected || app.bridge.stale || app.bridge.pending_command) return false;
     const current = app.bridge.current_state || {};
-    return !!(current.message || current.game_state);
+    return !!observedBridgeGameState(current);
   }
 
   function startLiveRunBlockedReason() {
@@ -1384,6 +1384,7 @@
     if (!app.bridge.connected) return "Bridge disconnected.";
     if (app.bridge.stale) return "Bridge state is stale.";
     if (app.bridge.pending_command) return "Waiting for pending bridge command.";
+    if (app.bridge.summary && app.bridge.summary.in_game === false) return "Start a run to enable combat search.";
     if (!canAttachLiveSession()) return "No observed game state yet.";
     if (!bridgeLooksLikeCombat()) return "Search is available once the live game is in combat.";
     return null;
@@ -1417,9 +1418,34 @@
     if (summary.combat) return true;
     if (String(firstDefined(summary.room_phase, "")).toUpperCase() === "COMBAT") return true;
     const current = app.bridge && app.bridge.current_state;
-    const message = current && current.message;
-    const observed = firstDefined(message && message.game_state, message, current && current.game_state, null);
+    const observed = observedBridgeGameState(current);
     return !!(observed && observed.combat_state);
+  }
+
+  function observedBridgeGameState(current) {
+    if (!current) return null;
+    const message = current.message;
+    if (message && typeof message === "object") {
+      if (message.game_state && typeof message.game_state === "object") return message.game_state;
+      if (looksLikeCommunicationModState(message)) return message;
+    }
+    if (current.game_state && typeof current.game_state === "object") return current.game_state;
+    if (looksLikeCommunicationModState(current)) return current;
+    return null;
+  }
+
+  function looksLikeCommunicationModState(value) {
+    if (!value || typeof value !== "object") return false;
+    return [
+      "combat_state",
+      "screen_type",
+      "choice_list",
+      "current_hp",
+      "player_hp",
+      "floor",
+      "deck",
+      "relics",
+    ].some((key) => Object.prototype.hasOwnProperty.call(value, key));
   }
 
   function emptyLiveActionReason() {
