@@ -5,8 +5,12 @@ const path = require("path");
 const readline = require("readline");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
-const outDir = path.join(repoRoot, "verification", "corpus", "communication_mod");
-const sessionDir = path.join(__dirname, "session");
+const outDir = process.env.TRACE_OUT_DIR
+  ? path.resolve(process.env.TRACE_OUT_DIR)
+  : path.join(repoRoot, "verification", "corpus", "communication_mod");
+const sessionDir = process.env.TRACE_SESSION_DIR
+  ? path.resolve(process.env.TRACE_SESSION_DIR)
+  : path.join(__dirname, "session");
 const commandPath = path.join(sessionDir, "next_command.txt");
 const commandMetaPath = path.join(sessionDir, "next_command.json");
 const statePath = path.join(sessionDir, "current_state.json");
