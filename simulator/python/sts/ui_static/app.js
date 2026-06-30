@@ -1578,6 +1578,8 @@
 
     const blocker = report.blocker || {};
     const selection = report.selection || {};
+    const preflight = report.preflight || {};
+    const bridgeClients = preflight.bridge_clients || {};
     const traceValidation = report.trace_validation || {};
     const traceName = report.trace_path ? String(report.trace_path).split(/[\\/]/).pop() : "-";
     el.collectorReportPanel.append(
@@ -1593,6 +1595,7 @@
         ["Sent", firstDefined(report.actions_sent, 0)],
         ["Trace actions", firstDefined(traceValidation.control_actions, traceValidation.actions, "-")],
         ["Bridge", firstDefined(report.bridge_step, "-")],
+        ["Bridge clients", bridgeClientAuditText(bridgeClients)],
         ["Trace", traceName],
       ]),
     );
@@ -1622,6 +1625,13 @@
       msg.textContent = `Skipped: ${skippedUnsupported.map(skippedCandidateText).join("; ")}`;
       el.collectorReportPanel.appendChild(msg);
     }
+    const bridgeClientProblems = bridgeClientAuditProblems(bridgeClients);
+    if (bridgeClientProblems) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = bridgeClientProblems;
+      el.collectorReportPanel.appendChild(msg);
+    }
     if (traceValidation && traceValidation.verified === false) {
       const msg = document.createElement("div");
       msg.className = "message error";
@@ -1644,6 +1654,25 @@
         ])),
       );
     }
+  }
+
+  function bridgeClientAuditText(bridgeClients) {
+    if (!bridgeClients || typeof bridgeClients !== "object") return "-";
+    const alive = firstDefined(bridgeClients.alive_count, null);
+    if (alive === null || alive === undefined) return "-";
+    const clients = arrayOf(bridgeClients.clients);
+    const current = firstDefined(bridgeClients.current_pid, null);
+    const total = clients.length ? ` / ${clients.length} seen` : "";
+    const currentText = current === null || current === undefined ? "" : `, current ${current}`;
+    return `${alive} alive${total}${currentText}`;
+  }
+
+  function bridgeClientAuditProblems(bridgeClients) {
+    if (!bridgeClients || typeof bridgeClients !== "object") return "";
+    const alive = arrayOf(bridgeClients.clients).filter((client) => client && client.alive);
+    if (alive.length <= 1) return "";
+    const pids = alive.map((client) => firstDefined(client.pid, "?")).join(", ");
+    return `Multiple live bridge clients were seen: ${pids}. Close extras before auto-collection.`;
   }
 
   function compactHistoryText(entry) {
