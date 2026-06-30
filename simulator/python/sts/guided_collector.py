@@ -216,6 +216,7 @@ def suggest_guided_action(
             floor=floor,
             choice_labels=choices,
             next_nodes=_next_map_nodes(bridge_status),
+            map_nodes=_map_nodes(bridge_status),
         )
     else:
         match = match_visible_choice(
@@ -441,6 +442,13 @@ def _visible_choices(summary: dict[str, Any], bridge_status: dict[str, Any]) -> 
 def _next_map_nodes(bridge_status: dict[str, Any]) -> list[dict[str, Any]]:
     screen_state = _game_state(bridge_status).get("screen_state")
     nodes = screen_state.get("next_nodes") if isinstance(screen_state, dict) else None
+    if isinstance(nodes, list):
+        return [node for node in nodes if isinstance(node, dict)]
+    return []
+
+
+def _map_nodes(bridge_status: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes = _game_state(bridge_status).get("map")
     if isinstance(nodes, list):
         return [node for node in nodes if isinstance(node, dict)]
     return []

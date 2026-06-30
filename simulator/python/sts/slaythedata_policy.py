@@ -303,6 +303,7 @@ def match_map_choice(
     floor: int,
     choice_labels: list[str],
     next_nodes: list[dict[str, Any]] | None = None,
+    map_nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Match the next SlayTheData path entry against visible map choices."""
 
@@ -329,6 +330,21 @@ def match_map_choice(
             }
         return _blocked("target_not_visible", f"matched route {target!r} has no visible map choice slot")
     if len(node_matches) > 1:
+        disambiguated = _disambiguate_map_nodes_by_route(script, floor, node_matches, map_nodes)
+        if len(disambiguated) == 1:
+            slot = _node_choice_slot(disambiguated[0], choice_labels)
+            if slot is not None:
+                return {
+                    "status": "matched",
+                    "descriptor": {"kind": "ChooseVisibleOption", "option_slot": slot},
+                    "target": target,
+                    "matched_label": choice_labels[slot] if 0 <= slot < len(choice_labels) else str(disambiguated[0]),
+                    "floor": floor,
+                    "category": "map",
+                    "ordinal": 0,
+                    "match_evidence": "map_topology_lookahead",
+                }
+            return _blocked("target_not_visible", f"matched route {target!r} has no visible map choice slot")
         return _blocked("ambiguous_target", f"route {target!r} matched {len(node_matches)} map nodes")
 
     label_matches = [
@@ -589,6 +605,85 @@ def _route_target_for_next_choice(script: dict[str, Any], floor: int) -> str | N
             if 0 <= index < len(path) and path[index]:
                 return str(path[index])
     return None
+
+
+def _route_symbols_from_next_choice(script: dict[str, Any], floor: int, *, limit: int = 6) -> list[str]:
+    path = ((script.get("route") or {}).get("path_per_floor") if isinstance(script.get("route"), dict) else None)
+    if not isinstance(path, list):
+        return []
+    start_index = max(floor, 0)
+    symbols: list[str] = []
+    for value in path[start_index : start_index + limit]:
+        symbol = _canonical_room_symbol(value)
+        if symbol:
+            symbols.append(symbol)
+    return symbols
+
+
+def _disambiguate_map_nodes_by_route(
+    script: dict[str, Any],
+    floor: int,
+    node_matches: list[dict[str, Any]],
+    map_nodes: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    symbols = _route_symbols_from_next_choice(script, floor)
+    if len(symbols) < 2 or not map_nodes:
+        return []
+    graph = _map_graph_by_position(map_nodes)
+    if not graph:
+        return []
+    disambiguated = []
+    for node in node_matches:
+        full_node = _map_node_for_visible_node(node, graph)
+        if full_node is not None and _map_node_can_follow_symbols(full_node, symbols, graph):
+            disambiguated.append(node)
+    return disambiguated
+
+
+def _map_graph_by_position(map_nodes: list[dict[str, Any]]) -> dict[tuple[int, int], dict[str, Any]]:
+    graph: dict[tuple[int, int], dict[str, Any]] = {}
+    for node in _list(map_nodes):
+        if not isinstance(node, dict):
+            continue
+        x = _parse_int(node.get("x"))
+        y = _parse_int(node.get("y"))
+        if x is not None and y is not None:
+            graph[(x, y)] = node
+    return graph
+
+
+def _map_node_for_visible_node(
+    node: dict[str, Any],
+    graph: dict[tuple[int, int], dict[str, Any]],
+) -> dict[str, Any] | None:
+    x = _parse_int(node.get("x"))
+    y = _parse_int(node.get("y"))
+    if x is None or y is None:
+        return None
+    return graph.get((x, y))
+
+
+def _map_node_can_follow_symbols(
+    node: dict[str, Any],
+    symbols: list[str],
+    graph: dict[tuple[int, int], dict[str, Any]],
+) -> bool:
+    if not symbols or not _room_symbol_matches(symbols[0], _node_room_symbol(node)):
+        return False
+    if len(symbols) == 1:
+        return True
+    children = _list(node.get("children"))
+    for child in children:
+        if not isinstance(child, dict):
+            continue
+        child_x = _parse_int(child.get("x"))
+        child_y = _parse_int(child.get("y"))
+        if child_x is None or child_y is None:
+            continue
+        child_node = graph.get((child_x, child_y))
+        if child_node is not None and _map_node_can_follow_symbols(child_node, symbols[1:], graph):
+            return True
+    return False
 
 
 def _node_room_symbol(node: dict[str, Any]) -> str | None:
