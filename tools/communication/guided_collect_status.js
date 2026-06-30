@@ -12,6 +12,14 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+function fileTimestamp(filePath, nowMs = Date.now()) {
+  const stat = fs.statSync(filePath);
+  return {
+    modified_at: new Date(stat.mtimeMs).toISOString(),
+    age_seconds: Math.max(0, (nowMs - stat.mtimeMs) / 1000),
+  };
+}
+
 function validateTrace(filePath) {
   if (!filePath) return { path: null, exists: false, ok: false };
   if (!fs.existsSync(filePath)) return { path: filePath, exists: false, ok: false };
@@ -54,6 +62,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
     };
   }
   const report = readJson(reportPath);
+  const timestamp = fileTimestamp(reportPath);
   const trace = validateTrace(report.trace_path);
   const blocker = report.blocker && typeof report.blocker === "object" ? report.blocker : null;
   const selection = report.selection && typeof report.selection === "object" ? report.selection : null;
@@ -62,6 +71,10 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
   return {
     ok: Boolean(report.ok),
     report_path: reportPath,
+    producer: report.producer ?? null,
+    generated_at: report.generated_at ?? null,
+    report_modified_at: timestamp.modified_at,
+    report_age_seconds: timestamp.age_seconds,
     run_id: report.run_id ?? null,
     seed: report.seed ?? null,
     stop_reason: report.stop_reason ?? null,
@@ -131,6 +144,7 @@ if (require.main === module) {
 
 module.exports = {
   inspectGuidedCollectReport,
+  fileTimestamp,
   recentReports,
   summarizeStrictTraceValidation,
   validateTrace,

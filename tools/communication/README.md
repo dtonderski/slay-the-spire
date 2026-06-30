@@ -47,6 +47,10 @@ submission.
 
 ## Overnight Collection
 
+- `run_auto_collect.cmd` is the recommended one-shot launcher for the current
+  SlayTheData-guided auto-collection path. It runs `run_guided_collect.cmd`,
+  then prints `run_guided_collect_status.cmd`, while preserving the guided
+  collector exit code.
 - `run_guided_collect.cmd` starts the SlayTheData-guided headless collector.
   It writes the latest JSON report to
   `simulator\target\guided-collect\latest.json`, archives timestamped attempts
@@ -56,10 +60,13 @@ submission.
   bridge preflight to pass, then exits nonzero with a `preflight_blocked`
   report instead of sending into a stale or file-only bridge.
 - `guided_collect_status.js` prints a compact summary of the latest guided
-  collection report, recent archived reports, and validates the referenced trace
-  when one exists.
+  collection report, its producer/freshness, strict replay validation status,
+  recent archived reports, and validates the referenced trace when one exists.
 - `run_guided_collect_status.cmd` runs that status check from Windows shells.
-- `overnight_collector.js` watches `session/summary.json` and writes controller commands to `session/next_command.txt`.
+- `overnight_collector.js` is the legacy heuristic collector. It watches
+  `session/summary.json` and writes controller commands to
+  `session/next_command.txt`; use it only for diagnostics or fallback trace
+  harvesting, not for the SlayTheData-guided automation milestone.
 - Its map policy scores only currently visible choices, preferring elites, fights, chests, events, shops, then rests. It does not do route lookahead yet.
 - Its combat policy is intentionally simple, but now prefers blocking over a basic attack when low HP faces heavy incoming damage.
 - It persists pending `START` state so it waits for in-game confirmation before sending another seed, proceeds out of `SHOP_ROOM` after leaving the shop screen, and handles `HAND_SELECT` choose/confirm flows.
@@ -118,7 +125,14 @@ node tools\communication\guided_collect_status.test.js
 node tools\communication\trace_tools.test.js
 ```
 
-Before an overnight run:
+Before a guided auto-collection run:
+
+```powershell
+tools\communication\run_auto_collect.cmd
+tools\communication\run_guided_collect_status.cmd
+```
+
+Before a legacy heuristic overnight run:
 
 ```powershell
 tools\communication\run_overnight_guarded.cmd

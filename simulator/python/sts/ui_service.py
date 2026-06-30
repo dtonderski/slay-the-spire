@@ -1255,6 +1255,8 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
         "ok": bool(report.get("ok")),
         "report_path": str(report_path),
         "missing": False,
+        "producer": report.get("producer"),
+        "generated_at": report.get("generated_at"),
         "run_id": report.get("run_id"),
         "seed": report.get("seed"),
         "stop_reason": report.get("stop_reason"),

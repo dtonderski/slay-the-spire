@@ -276,6 +276,8 @@ class UiServiceTests(unittest.TestCase):
                 json.dumps(
                     {
                         "ok": False,
+                        "producer": "sts.guided_collect",
+                        "generated_at": "2026-06-30T12:00:00Z",
                         "run_id": 123,
                         "seed": None,
                         "stop_reason": "preflight_blocked",
@@ -314,6 +316,8 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertFalse(result["missing"])
+        self.assertEqual(result["producer"], "sts.guided_collect")
+        self.assertEqual(result["generated_at"], "2026-06-30T12:00:00Z")
         self.assertEqual(result["run_id"], 123)
         self.assertEqual(result["stop_reason"], "preflight_blocked")
         self.assertEqual(result["selection"]["mode"], "auto")

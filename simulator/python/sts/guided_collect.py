@@ -185,6 +185,8 @@ def collect_one_run(
     final_bridge = bridge.status()
     trace_validation = _validate_trace(final_bridge.get("trace_path"))
     return {
+        "producer": "sts.guided_collect",
+        "generated_at": _utc_now(),
         "ok": _is_clean_collection_stop(stop_reason) and bool(trace_validation.get("verified")),
         "run_id": run_id,
         "seed": ((collector.status().get("config") or {}).get("seed_played")),
@@ -256,6 +258,8 @@ def _blocked_report(
     selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
+        "producer": "sts.guided_collect",
+        "generated_at": _utc_now(),
         "ok": False,
         "run_id": config.run_id if run_id is None else run_id,
         "seed": seed,
@@ -463,6 +467,8 @@ def _internal_error_report(error: Exception, *, elapsed_seconds: float) -> dict[
     detail = str(error)
     error_type = type(error).__name__
     return {
+        "producer": "sts.guided_collect",
+        "generated_at": _utc_now(),
         "ok": False,
         "run_id": None,
         "seed": None,
@@ -499,6 +505,10 @@ def _safe_file_part(value: Any) -> str:
     text = str(value)
     cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in text)
     return cleaned.strip("-") or "unknown"
+
+
+def _utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 if __name__ == "__main__":
