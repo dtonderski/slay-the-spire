@@ -1114,9 +1114,8 @@ fn wild_strike_queue(
                 amount: definition.values.damage.unwrap_or(0),
             },
         },
-        InternalAction::AddCardToPile {
+        InternalAction::AddGeneratedCardToDrawPileRandomSpot {
             content_id: WOUND_ID,
-            to: CardPile::DrawPile,
         },
         InternalAction::MoveCard {
             card_id,

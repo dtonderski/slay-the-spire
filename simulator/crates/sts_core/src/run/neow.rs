@@ -7,11 +7,6 @@
 use crate::{
     card::CardRarity,
     content::{
-        cards::{
-            BARRICADE_ID, BERSERK_ID, BLUDGEON_ID, BRUTALITY_ID, CORRUPTION_ID, DEMON_FORM_ID,
-            DOUBLE_TAP_ID, EXHUME_ID, FEED_ID, FIEND_FIRE_ID, IMMOLATE_ID, IMPERVIOUS_ID,
-            JUGGERNAUT_ID, LIMIT_BREAK_ID, OFFERING_ID, REAPER_ID,
-        },
         reward_pool::{
             ironclad_transform_card_content_id, random_normal_curse, IRONCLAD_REWARD_ENTRIES,
         },
@@ -514,11 +509,6 @@ fn neow_unique_ironclad_cards(
 }
 
 fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
-    if rarity == CardRarity::Rare {
-        let pick = rng.random_int((NEOW_IRONCLAD_RARE_POOL.len() - 1) as i32) as usize;
-        return NEOW_IRONCLAD_RARE_POOL[pick];
-    }
-
     let pool: Vec<_> = IRONCLAD_REWARD_ENTRIES
         .iter()
         .filter(|entry| entry.rarity == rarity)
@@ -527,25 +517,6 @@ fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId 
     let pick = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[pick].content_id
 }
-
-const NEOW_IRONCLAD_RARE_POOL: &[ContentId] = &[
-    IMMOLATE_ID,
-    DOUBLE_TAP_ID,
-    DEMON_FORM_ID,
-    BLUDGEON_ID,
-    FEED_ID,
-    LIMIT_BREAK_ID,
-    CORRUPTION_ID,
-    BERSERK_ID,
-    FIEND_FIRE_ID,
-    BARRICADE_ID,
-    IMPERVIOUS_ID,
-    JUGGERNAUT_ID,
-    BRUTALITY_ID,
-    REAPER_ID,
-    EXHUME_ID,
-    OFFERING_ID,
-];
 
 fn neow_unique_ironclad_cards_with_rolled_rarity(rng: &mut StsRng, count: usize) -> Vec<ContentId> {
     let mut cards = Vec::new();
@@ -703,8 +674,8 @@ pub fn known_neow_colorless_reward_for_seed(seed: &str) -> Option<KnownNeowColor
 mod tests {
     use super::*;
     use crate::content::cards::{
-        is_curse_content_id, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        is_curse_content_id, CORRUPTION_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID,
+        JACK_OF_ALL_TRADES_ID, SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
@@ -810,6 +781,14 @@ mod tests {
             generate_neow_card_reward(1_957_307_888_551, NeowRewardType::OneRandomRareCard);
 
         assert_eq!(reward.cards.len(), 1);
+        assert_eq!(reward.neow_rng_counter, 6);
+    }
+
+    #[test]
+    fn live01_random_rare_card_matches_captured_corruption_reward() {
+        let reward = generate_neow_card_reward(1_131_274_026, NeowRewardType::OneRandomRareCard);
+
+        assert_eq!(reward.cards, vec![CORRUPTION_ID]);
         assert_eq!(reward.neow_rng_counter, 6);
     }
 

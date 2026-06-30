@@ -7809,6 +7809,13 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 }
         }
         "STRONG_DEBUFF" if content_id == SNECKO_ID => MonsterIntent::ApplyPlayerConfusion,
+        "DEBUFF"
+            if content_id == SPIKE_SLIME_ID
+                && int(monster, "max_hp")
+                    > sts_core::content::monsters::SPIKE_SLIME_S_A7_HP_RANGE.max =>
+        {
+            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 }
+        }
         "DEBUFF" => MonsterIntent::ApplyPlayerWeak { amount: 1 },
         "ATTACK_DEBUFF" if matches!(content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) => {
             MonsterIntent::AttackAddSlimedToDiscard {
@@ -9252,6 +9259,23 @@ mod tests {
                 damage: 11,
                 count: 2
             }
+        );
+    }
+
+    #[test]
+    fn medium_spike_slime_debuff_observed_intent_imports_frail() {
+        use sts_core::content::monsters::SPIKE_SLIME_ID;
+
+        let monster = json!({
+            "id": "SpikeSlime_M",
+            "max_hp": 31,
+            "intent": "DEBUFF",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SPIKE_SLIME_ID, 0),
+            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 }
         );
     }
 

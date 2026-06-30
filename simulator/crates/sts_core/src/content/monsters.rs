@@ -57,7 +57,10 @@ const GREEN_LOUSE_SPIKES: i32 = 3;
 
 const SPIKE_SLIME_LICK_WEAK: i32 = 1;
 const SPIKE_SLIME_S_SPIT_DAMAGE: i32 = 5;
+const SPIKE_SLIME_M_SPIT_DAMAGE: i32 = 8;
+const SPIKE_SLIME_L_SPIT_DAMAGE: i32 = 16;
 
+const ACID_SLIME_S_TACKLE_DAMAGE: i32 = 3;
 const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
 const ACID_SLIME_WEAK: i32 = 1;
 
@@ -2425,8 +2428,13 @@ pub fn prepare_monster_intent_for_ascension(
         && monster.hp > SPIKE_SLIME_S_A7_HP_RANGE.max
         && matches!(intent, MonsterIntent::Attack { .. })
     {
-        let MonsterIntent::Attack { damage } = intent else {
+        let MonsterIntent::Attack { .. } = intent else {
             unreachable!("matches! above guarantees Attack intent")
+        };
+        let damage = if monster.hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
+            SPIKE_SLIME_L_SPIT_DAMAGE
+        } else {
+            SPIKE_SLIME_M_SPIT_DAMAGE
         };
         let count = if monster.hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
             2
@@ -2434,6 +2442,12 @@ pub fn prepare_monster_intent_for_ascension(
             1
         };
         intent = MonsterIntent::AttackAddSlimedToDiscard { damage, count };
+    }
+    if monster.content_id == SPIKE_SLIME_ID
+        && monster.hp > SPIKE_SLIME_S_A7_HP_RANGE.max
+        && matches!(intent, MonsterIntent::ApplyPlayerWeak { .. })
+    {
+        intent = MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 };
     }
     intent
 }
@@ -4262,6 +4276,63 @@ fn acid_slime_intent(moves_executed: u32) -> MonsterIntent {
         _ => MonsterIntent::Attack {
             damage: ACID_SLIME_ATTACK_DAMAGE,
         },
+    }
+}
+
+#[must_use]
+pub fn target_acid_slime_entry_intent_from_roll(hp: i32, roll: i32) -> MonsterIntent {
+    if roll < 30 {
+        return MonsterIntent::ApplyPlayerWeak {
+            amount: ACID_SLIME_WEAK,
+        };
+    }
+
+    if hp <= ACID_SLIME_S_A7_HP_RANGE.max {
+        MonsterIntent::Attack {
+            damage: ACID_SLIME_S_TACKLE_DAMAGE,
+        }
+    } else {
+        MonsterIntent::AttackAddSlimedToDiscard {
+            damage: ACID_SLIME_ATTACK_DAMAGE,
+            count: if hp > ACID_SLIME_M_A7_HP_RANGE.max {
+                2
+            } else {
+                1
+            },
+        }
+    }
+}
+
+#[must_use]
+pub fn target_spike_slime_entry_intent_from_roll(hp: i32, roll: i32) -> MonsterIntent {
+    if roll < 30 {
+        return if hp <= SPIKE_SLIME_S_A7_HP_RANGE.max {
+            MonsterIntent::ApplyPlayerWeak {
+                amount: SPIKE_SLIME_LICK_WEAK,
+            }
+        } else {
+            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 }
+        };
+    }
+
+    if hp <= SPIKE_SLIME_S_A7_HP_RANGE.max {
+        MonsterIntent::Attack {
+            damage: SPIKE_SLIME_S_SPIT_DAMAGE,
+        }
+    } else {
+        let damage = if hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
+            SPIKE_SLIME_L_SPIT_DAMAGE
+        } else {
+            SPIKE_SLIME_M_SPIT_DAMAGE
+        };
+        MonsterIntent::AttackAddSlimedToDiscard {
+            damage,
+            count: if hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
+                2
+            } else {
+                1
+            },
+        }
     }
 }
 
@@ -6275,7 +6346,7 @@ mod tests {
         assert_eq!(
             monster.intent,
             MonsterIntent::AttackAddSlimedToDiscard {
-                damage: SPIKE_SLIME_S_SPIT_DAMAGE,
+                damage: SPIKE_SLIME_L_SPIT_DAMAGE,
                 count: 2
             }
         );
@@ -6295,6 +6366,48 @@ mod tests {
                 .filter(|card| card.content_id == SLIMED_ID)
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn medium_spike_slime_lick_applies_frail_not_weak() {
+        let mut monster = monster_state(&SPIKE_SLIME_A0, MonsterId::new(1));
+        monster.hp = SPIKE_SLIME_M_A7_HP_RANGE.min;
+        monster.moves_executed = 1;
+        monster.intent = prepare_monster_intent(&monster);
+        let mut player = dummy_player();
+        let player_before = player.clone();
+        let mut piles = dummy_piles();
+
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 }
+        );
+        apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut piles,
+            0,
+            &player_before,
+            &[],
+        );
+
+        assert_eq!(player.powers.frail, 1);
+        assert_eq!(player.powers.weak, 0);
+    }
+
+    #[test]
+    fn medium_spike_slime_spit_adds_one_slimed_with_medium_damage() {
+        let mut monster = monster_state(&SPIKE_SLIME_A0, MonsterId::new(1));
+        monster.hp = SPIKE_SLIME_M_A7_HP_RANGE.min;
+        monster.intent = prepare_monster_intent(&monster);
+
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: SPIKE_SLIME_M_SPIT_DAMAGE,
+                count: 1
+            }
         );
     }
 

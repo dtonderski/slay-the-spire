@@ -5,16 +5,18 @@ use crate::{
     content::monsters::{
         content_id_from_game_monster_id, get_monster_definition, living_monster_missing_hp,
         monster_state_for_ascension, prepare_monster_intent_for_ascension, record_target_move,
-        target_beyond_encounter_spawn_for_key, target_centurion_next_intent_from_roll,
-        target_chosen_next_intent_from_roll, target_city_normal_encounter_spawn_at_combat_index,
+        target_acid_slime_entry_intent_from_roll, target_beyond_encounter_spawn_for_key,
+        target_centurion_next_intent_from_roll, target_chosen_next_intent_from_roll,
+        target_city_normal_encounter_spawn_at_combat_index,
         target_elite_encounter_spawn_at_combat_index, target_fungi_beast_next_intent_from_roll,
         target_gremlin_leader_next_intent_from_roll, target_healer_next_intent_from_roll,
         target_jaw_worm_next_intent_from_roll, target_large_acid_slime_next_intent_from_roll,
         target_normal_encounter_spawn_at_combat_index,
         target_shelled_parasite_next_intent_from_roll, target_snake_plant_next_intent_from_roll,
-        TargetEncounterSpawn, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, BRONZE_AUTOMATON_A0,
-        CENTURION_ID, CHOSEN_ID, DARKLING_ID, FUNGI_BEAST_ID, GREMLIN_LEADER_ID, HEALER_ID,
-        JAW_WORM_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID,
+        target_spike_slime_entry_intent_from_roll, TargetEncounterSpawn, ACID_SLIME_ID,
+        ACID_SLIME_M_A7_HP_RANGE, BRONZE_AUTOMATON_A0, CENTURION_ID, CHOSEN_ID, DARKLING_ID,
+        FUNGI_BEAST_ID, GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, SHELLED_PARASITE_ID,
+        SNAKE_PLANT_ID, SPIKE_SLIME_ID, SPIKE_SLIME_M_A7_HP_RANGE,
     },
     ids::CardId,
     map::{
@@ -160,10 +162,7 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
         run.event_rng_seed as i64 + i64::from(run.current_floor),
         base.monsters.len() as u32,
     );
-    let mut card_random_rng = run
-        .relics
-        .contains(&Relic::SneckoEye)
-        .then(|| run.card_random_rng());
+    let mut card_random_rng = Some(run.card_random_rng());
     let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
     base.piles = initialize_combat_piles_with_relics(
         &run.deck,
@@ -223,7 +222,16 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
             continue;
         }
         let roll = rng.random_int(99);
-        if monster.content_id == ACID_SLIME_ID && monster.hp > ACID_SLIME_M_A7_HP_RANGE.max {
+        if monster.content_id == ACID_SLIME_ID && monster.hp <= ACID_SLIME_M_A7_HP_RANGE.max {
+            monster.intent = target_acid_slime_entry_intent_from_roll(monster.hp, roll);
+            if matches!(monster.intent, crate::MonsterIntent::Attack { .. }) {
+                monster.moves_executed = 1;
+            }
+        } else if monster.content_id == SPIKE_SLIME_ID
+            && monster.hp <= SPIKE_SLIME_M_A7_HP_RANGE.max
+        {
+            monster.intent = target_spike_slime_entry_intent_from_roll(monster.hp, roll);
+        } else if monster.content_id == ACID_SLIME_ID && monster.hp > ACID_SLIME_M_A7_HP_RANGE.max {
             monster.intent = target_large_acid_slime_next_intent_from_roll(
                 crate::MonsterIntent::Stun,
                 roll,

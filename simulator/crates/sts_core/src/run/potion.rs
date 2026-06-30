@@ -585,6 +585,9 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::DistilledChaos => {
                     let mut combat = next.combat.take().expect("validated combat state");
+                    if combat.card_random_rng.is_none() {
+                        combat.card_random_rng = Some(next.card_random_rng());
+                    }
                     for _ in 0..3 * multiplier {
                         if combat.phase != CombatPhase::WaitingForPlayer
                             || combat.piles.draw_pile.is_empty()

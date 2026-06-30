@@ -2330,6 +2330,7 @@ mod tests {
         GREMLIN_WARRIOR_A0,
     };
     use crate::legal_combat_actions;
+    use crate::rng::StsRng;
     use crate::MonsterIntent;
 
     #[test]
@@ -2939,16 +2940,28 @@ mod tests {
     }
 
     #[test]
-    fn wild_strike_appends_wound_to_draw_pile_locally() {
+    fn wild_strike_inserts_wound_into_draw_pile_random_spot() {
         let mut state = hand_only(WILD_STRIKE_ID);
-        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        state.card_random_rng = Some(StsRng::new(1_131_274_030));
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(30), DEFEND_R_ID),
+            CardInstance::new(CardId::new(31), STRIKE_R_ID),
+            CardInstance::new(CardId::new(32), STRIKE_R_ID),
+            CardInstance::new(CardId::new(33), STRIKE_R_ID),
+            CardInstance::new(CardId::new(34), DEFEND_R_ID),
+            CardInstance::new(CardId::new(35), STRIKE_R_ID),
+            CardInstance::new(CardId::new(36), DEFEND_R_ID),
+            CardInstance::new(CardId::new(37), SHRUG_IT_OFF_ID),
+        ];
 
         let next =
             apply_combat_action(&state, wild_strike_action(&state)).expect("Wild Strike applies");
 
-        assert_eq!(next.piles.draw_pile.len(), 2);
-        assert_eq!(next.piles.draw_pile[0].content_id, STRIKE_R_ID);
-        assert_eq!(next.piles.draw_pile[1].content_id, WOUND_ID);
+        assert_eq!(next.piles.draw_pile.len(), 9);
+        assert_eq!(next.piles.draw_pile[0].content_id, DEFEND_R_ID);
+        assert_eq!(next.piles.draw_pile[1].content_id, STRIKE_R_ID);
+        assert_eq!(next.piles.draw_pile[2].content_id, WOUND_ID);
+        assert_eq!(next.piles.draw_pile[8].content_id, SHRUG_IT_OFF_ID);
     }
 
     #[test]
@@ -2995,9 +3008,8 @@ mod tests {
                         amount: 12,
                     },
                 },
-                InternalAction::AddCardToPile {
+                InternalAction::AddGeneratedCardToDrawPileRandomSpot {
                     content_id: WOUND_ID,
-                    to: CardPile::DrawPile,
                 },
                 InternalAction::MoveCard {
                     card_id: wild_strike_id,
