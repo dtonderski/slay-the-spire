@@ -47,6 +47,9 @@ does not rely on file polling for command submission.
   fresh TCP-enabled bridge first; the launcher waits briefly for bridge
   preflight to pass, then exits nonzero with a `preflight_blocked` report
   instead of sending into a stale or file-only bridge.
+- `guided_collect_status.js` prints a compact summary of the latest guided
+  collection report and validates the referenced trace when one exists.
+- `run_guided_collect_status.cmd` runs that status check from Windows shells.
 - `overnight_collector.js` watches `session/summary.json` and writes controller commands to `session/next_command.txt`.
 - Its map policy scores only currently visible choices, preferring elites, fights, chests, events, shops, then rests. It does not do route lookahead yet.
 - Its combat policy is intentionally simple, but now prefers blocking over a basic attack when low HP faces heavy incoming damage.
@@ -102,6 +105,7 @@ node tools\communication\overnight_collector.test.js
 node tools\communication\overnight_preflight.test.js
 node tools\communication\overnight_supervisor.test.js
 node tools\communication\harvest_status.test.js
+node tools\communication\guided_collect_status.test.js
 node tools\communication\trace_tools.test.js
 ```
 
