@@ -273,6 +273,10 @@ selected run id/seed, and includes any script support blockers. On 2026-06-30
 the local index selected run `3512726` / seed `-5923198701240311727` with no
 known support blockers after skipping two unsupported candidates.
 
+The browser Guided collector panel exposes the same dry audit with `Audit auto`;
+it never sends live bridge commands and can be used before starting Slay the
+Spire.
+
 The runner preflights the bridge before exporting a SlayTheData run. If the
 bridge is stale, file-only, or has a pending command, it writes a
 `preflight_blocked` report instead of sending anything.

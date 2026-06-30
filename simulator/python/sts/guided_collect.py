@@ -19,8 +19,11 @@ from typing import Any
 from sts.bridge import BridgeMirror
 from sts.bridge_audit import preflight_with_client_audit
 from sts.guided_collector import GuidedCollector
-from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
-from sts.slaythedata_policy import guided_script_support_audit
+from sts.guided_selection import (
+    GuidedSelectionConfig,
+    select_run_audit_report as _select_run_audit_report,
+    select_run_script,
+)
 from sts.self_play import strict_replay_real_trace_to_env
 from sts.ui_service import SessionManager, _start_guided_live_run, _tick_live_collector
 
@@ -41,6 +44,17 @@ class GuidedCollectConfig:
     require_tcp_control: bool = True
     preflight_timeout_seconds: float = 0.0
     preflight_poll_seconds: float = 1.0
+
+
+def _selection_config(config: GuidedCollectConfig) -> GuidedSelectionConfig:
+    return GuidedSelectionConfig(
+        run_id=config.run_id,
+        character=config.character,
+        ascension=config.ascension,
+        min_floor=config.min_floor,
+        max_floor=config.max_floor,
+        min_potion_usage=config.min_potion_usage,
+    )
 
 
 def collect_one_run(
@@ -296,103 +310,11 @@ def _blocked_report(
 
 
 def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any], dict[str, Any]]:
-    if config.run_id is not None:
-        run_id = int(config.run_id)
-        script = export_guided_run_script(run_id)
-        return run_id, script, {
-            "mode": "explicit",
-            "selected_run_id": run_id,
-            "considered_count": 1,
-            "skipped_unsupported": [],
-        }
-
-    candidates = select_guided_collection_candidates(
-        character=config.character,
-        ascension=config.ascension,
-        min_floor_reached=config.min_floor,
-        max_floor_reached=config.max_floor,
-        min_path_length=config.min_floor,
-        min_card_choices=8,
-        min_event_choices=1,
-        min_shop_purchases=1,
-        min_potion_usage=config.min_potion_usage,
-        require_guided_safe_neow=True,
-        limit=25,
-        ranked=False,
-    )
-    if not candidates:
-        raise RuntimeError("no SlayTheData guided candidate run matched the default filters")
-    blocked: list[dict[str, Any]] = []
-    considered = 0
-    for candidate in candidates:
-        run_id = int(candidate["id"])
-        considered += 1
-        script = export_guided_run_script(run_id)
-        blockers = guided_script_support_audit(script)
-        blocker = blockers[0] if blockers else None
-        if blocker is None:
-            return run_id, script, {
-                "mode": "auto",
-                "selected_run_id": run_id,
-                "considered_count": considered,
-                "candidate_count": len(candidates),
-                "skipped_unsupported": blocked,
-            }
-        blocked.append(
-            {
-                "run_id": run_id,
-                "seed": (script.get("config") or {}).get("seed_played")
-                if isinstance(script.get("config"), dict)
-                else None,
-                "reason": blocker.get("reason"),
-                "detail": blocker.get("detail"),
-                "blockers": blockers,
-            }
-        )
-    detail = "; ".join(f"{entry['run_id']}: {entry['reason']}" for entry in blocked[:5])
-    raise RuntimeError(f"no auto-selected SlayTheData candidates had supported guided scripts ({detail})")
+    return select_run_script(_selection_config(config))
 
 
 def select_run_audit_report(config: GuidedCollectConfig, *, started_at: float | None = None) -> dict[str, Any]:
-    started_at = time.time() if started_at is None else started_at
-    try:
-        run_id, script, selection = _select_run_script(config)
-    except Exception as error:
-        return {
-            "producer": "sts.guided_collect",
-            "generated_at": _utc_now(),
-            "ok": False,
-            "run_id": None,
-            "seed": None,
-            "stop_reason": "selection_failed",
-            "blocker": {"reason": "selection_failed", "detail": str(error)},
-            "elapsed_seconds": time.time() - started_at,
-            "selection": None,
-            "support_blockers": [],
-        }
-
-    blockers = guided_script_support_audit(script)
-    config_data = script.get("config") if isinstance(script.get("config"), dict) else {}
-    return {
-        "producer": "sts.guided_collect",
-        "generated_at": _utc_now(),
-        "ok": not blockers,
-        "run_id": run_id,
-        "seed": config_data.get("seed_played"),
-        "stop_reason": "select_only",
-        "blocker": blockers[0] if blockers else None,
-        "elapsed_seconds": time.time() - started_at,
-        "selection": selection,
-        "support_blockers": blockers,
-        "script_summary": {
-            "character": config_data.get("character"),
-            "ascension": config_data.get("ascension"),
-            "neow_bonus": config_data.get("neow_bonus"),
-            "neow_cost": config_data.get("neow_cost"),
-            "floor_decision_count": len(script.get("floor_decisions") or []),
-            "boss_relic_count": len(script.get("boss_relic_choices") or []),
-        },
-    }
+    return _select_run_audit_report(_selection_config(config), started_at=started_at)
 
 
 def _compact_tick(tick: dict[str, Any]) -> dict[str, Any]:

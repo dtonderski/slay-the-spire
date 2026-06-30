@@ -17,6 +17,7 @@ from sts.ui_service import (
     _observed_state_from_bridge_status,
     _send_ui_bridge_command,
     _slaythedata_candidates_from_query,
+    _slaythedata_select_audit_from_payload,
     _slaythedata_status_from_query,
     _start_guided_live_run,
     _tick_live_collector,
@@ -884,6 +885,30 @@ class UiServiceTests(unittest.TestCase):
             min_path_length=40,
             include_counts=True,
         )
+
+    def test_slaythedata_select_audit_payload_uses_guided_config(self):
+        with patch(
+            "sts.ui_service.select_run_audit_report",
+            return_value={"ok": True, "run_id": 22},
+        ) as audit:
+            result = _slaythedata_select_audit_from_payload(
+                {
+                    "character": "ironclad",
+                    "ascension": "1",
+                    "min_floor": "40",
+                    "max_floor": "55",
+                    "min_potion_usage": "2",
+                }
+            )
+
+        self.assertEqual(result, {"ok": True, "run_id": 22})
+        config = audit.call_args.args[0]
+        self.assertIsNone(config.run_id)
+        self.assertEqual(config.character, "IRONCLAD")
+        self.assertEqual(config.ascension, 1)
+        self.assertEqual(config.min_floor, 40)
+        self.assertEqual(config.max_floor, 55)
+        self.assertEqual(config.min_potion_usage, 2)
 
     def test_session_exposes_state_actions_and_snapshot(self):
         manager = SessionManager()
