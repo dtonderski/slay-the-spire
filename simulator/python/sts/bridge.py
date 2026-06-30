@@ -107,6 +107,11 @@ class BridgeMirror:
         command_exists = command_path.exists()
         tcp_pending = bool(status.get("pending_command")) if isinstance(status, dict) else False
         command_meta_exists = command_meta_path.exists()
+        command_meta = (
+            _read_json(command_meta_path)
+            if command_exists
+            else status.get("queued_command_meta", {}) if isinstance(status, dict) and tcp_pending else {}
+        )
         problems = []
         warnings = []
 
@@ -143,6 +148,16 @@ class BridgeMirror:
             "warnings": warnings,
             "tcp_control_available": control is not None,
             "control": control,
+            "ages": {
+                "status_age_seconds": status_age,
+                "summary_age_seconds": summary_age,
+            },
+            "pending_command": {
+                "present": command_exists or tcp_pending,
+                "transport": "file" if command_exists else "tcp-jsonl" if tcp_pending else None,
+                "command_id": command_meta.get("command_id") if command_exists or tcp_pending else None,
+                "command": command_meta.get("command") if command_exists or tcp_pending else None,
+            },
             "summary": {
                 "step": summary.get("step"),
                 "state_seq": summary.get("state_seq"),

@@ -43,6 +43,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
   const trace = validateTrace(report.trace_path);
   const blocker = report.blocker && typeof report.blocker === "object" ? report.blocker : null;
   const selection = report.selection && typeof report.selection === "object" ? report.selection : null;
+  const preflight = report.preflight && typeof report.preflight === "object" ? report.preflight : null;
   return {
     ok: Boolean(report.ok),
     report_path: reportPath,
@@ -63,6 +64,15 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
         skipped_unsupported_count: Array.isArray(selection.skipped_unsupported)
           ? selection.skipped_unsupported.length
           : 0,
+      }
+      : null,
+    preflight: preflight
+      ? {
+        ok: Boolean(preflight.ok),
+        ages: preflight.ages || null,
+        pending_command: preflight.pending_command || null,
+        summary: preflight.summary || null,
+        status: preflight.status || null,
       }
       : null,
     blocker: blocker
