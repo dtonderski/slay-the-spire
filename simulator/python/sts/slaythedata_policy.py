@@ -432,6 +432,8 @@ def _target_text_for_category(
 
 
 def _descriptor_for_target(category: str, target: str) -> dict[str, Any] | None:
+    if category == "card_reward" and _normalized_token(target) == "skip":
+        return {"kind": "SkipVisibleReward"}
     if category == "shop" and target == "__leave_shop__":
         return {"kind": "LeaveScreen"}
     return None

@@ -113,6 +113,9 @@ The collector can now:
 - match boss relic reward choices by act from SlayTheData boss relic history
 - match generic reward screens against SlayTheData floor evidence for relics,
   potions, card rewards, and visible gold
+- skip card reward screens when SlayTheData records `picked: "SKIP"`, using the
+  bridge `SKIP` command and the same strict simulator legality check as other
+  guided non-combat sends
 - match SlayTheData shop purchases by visible item label and leave the shop
   once scripted purchases are exhausted
 - open shop card removal when SlayTheData records a removed card on that shop

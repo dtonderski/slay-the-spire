@@ -94,6 +94,28 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(result["target"], "Inflame")
 
+    def test_match_visible_choice_skips_card_reward_when_script_skipped(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "card_choices": [
+                        {"floor": 1, "picked": "SKIP", "not_picked": ["Clash", "Flex", "Anger"]}
+                    ]
+                }
+            }
+        )
+
+        result = match_visible_choice(
+            script,
+            floor=1,
+            choice_labels=["Clash", "Flex", "Anger"],
+            category="card_reward",
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "SkipVisibleReward"})
+        self.assertEqual(result["target"], "SKIP")
+
     def test_match_visible_choice_handles_neow_talk_bonus_and_leave(self):
         script = build_guided_run_script(
             {
