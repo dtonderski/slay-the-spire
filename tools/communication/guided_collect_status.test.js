@@ -64,6 +64,15 @@ function testInspectBlockedReport() {
         problems: ["session files are stale"],
         warnings: ["TCP bridge control is not available"],
       },
+      trace_validation: {
+        verified: false,
+        stop_reason: "observed_state_diff",
+        steps: 4,
+        blocker: {
+          reason: "observed_state_diff",
+          detail: "hp differs",
+        },
+      },
     });
 
     const result = inspectGuidedCollectReport(reportPath);
@@ -81,6 +90,10 @@ function testInspectBlockedReport() {
     assert.strictEqual(result.preflight.summary.step, 7);
     assert.strictEqual(result.blocker.reason, "bridge_preflight");
     assert.deepStrictEqual(result.blocker.problems, ["session files are stale"]);
+    assert.strictEqual(result.strict_trace_validation.verified, false);
+    assert.strictEqual(result.strict_trace_validation.stop_reason, "observed_state_diff");
+    assert.strictEqual(result.strict_trace_validation.blocker_reason, "observed_state_diff");
+    assert.strictEqual(result.strict_trace_validation.blocker_detail, "hp differs");
   });
 }
 
@@ -110,6 +123,12 @@ function testInspectReportValidatesTrace() {
       actions_sent: 1,
       tcp_control_available: true,
       trace_path: tracePath,
+      trace_validation: {
+        verified: true,
+        stop_reason: "trace_exhausted",
+        steps: 1,
+        final_phase: "map",
+      },
       history_tail: [{ event: "start" }],
     });
 
@@ -118,6 +137,8 @@ function testInspectReportValidatesTrace() {
     assert.strictEqual(result.trace.ok, true);
     assert.strictEqual(result.trace.actions, 1);
     assert.strictEqual(result.trace.max_floor, 1);
+    assert.strictEqual(result.strict_trace_validation.verified, true);
+    assert.strictEqual(result.strict_trace_validation.steps, 1);
     assert.strictEqual(result.history_tail_count, 1);
   });
 }

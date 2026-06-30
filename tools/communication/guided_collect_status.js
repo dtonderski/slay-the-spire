@@ -31,6 +31,20 @@ function validateTrace(filePath) {
   };
 }
 
+function summarizeStrictTraceValidation(value) {
+  if (!value || typeof value !== "object") return null;
+  const blocker = value.blocker && typeof value.blocker === "object" ? value.blocker : null;
+  return {
+    verified: Boolean(value.verified),
+    reason: value.reason ?? null,
+    stop_reason: value.stop_reason ?? null,
+    steps: value.steps ?? null,
+    final_phase: value.final_phase ?? null,
+    blocker_reason: blocker ? blocker.reason ?? null : null,
+    blocker_detail: blocker ? blocker.detail ?? null : null,
+  };
+}
+
 function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir = defaultArchiveDir) {
   if (!fs.existsSync(reportPath)) {
     return {
@@ -44,6 +58,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
   const blocker = report.blocker && typeof report.blocker === "object" ? report.blocker : null;
   const selection = report.selection && typeof report.selection === "object" ? report.selection : null;
   const preflight = report.preflight && typeof report.preflight === "object" ? report.preflight : null;
+  const strictTraceValidation = summarizeStrictTraceValidation(report.trace_validation);
   return {
     ok: Boolean(report.ok),
     report_path: reportPath,
@@ -83,6 +98,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
         detail: blocker.detail ?? null,
       }
       : null,
+    strict_trace_validation: strictTraceValidation,
     trace,
     history_tail_count: Array.isArray(report.history_tail) ? report.history_tail.length : 0,
     recent_reports: recentReports(archiveDir),
@@ -116,5 +132,6 @@ if (require.main === module) {
 module.exports = {
   inspectGuidedCollectReport,
   recentReports,
+  summarizeStrictTraceValidation,
   validateTrace,
 };
