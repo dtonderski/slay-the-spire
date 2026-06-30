@@ -1,0 +1,127 @@
+import unittest
+
+from sts.slaythedata_policy import (
+    build_guided_run_script,
+    floor_decision,
+    match_visible_choice,
+    potion_uses_allowed_on_floor,
+)
+
+
+class SlayTheDataPolicyTests(unittest.TestCase):
+    def test_build_guided_script_groups_floor_decisions(self):
+        script = build_guided_run_script(
+            {
+                "run_id": 123,
+                "event": {
+                    "play_id": "play-1",
+                    "character_chosen": "IRONCLAD",
+                    "ascension_level": 0,
+                    "seed_played": "ABC",
+                    "path_per_floor": ["M", "?", "$"],
+                    "path_taken": ["M", "?", "$"],
+                    "card_choices": [
+                        {"floor": 1, "picked": "Inflame+", "not_picked": ["Strike", "Clash+"]}
+                    ],
+                    "relics_obtained": [{"floor": 1, "key": "Oddly Smooth Stone"}],
+                    "event_choices": [
+                        {
+                            "floor": 2,
+                            "event_name": "World of Goop",
+                            "player_choice": "Gather Gold",
+                            "damage_taken": 11,
+                            "gold_gain": 75,
+                        }
+                    ],
+                    "items_purchased": ["Shrug It Off", "Membership Card"],
+                    "item_purchase_floors": [3, 3],
+                    "campfire_choices": [{"floor": 4, "key": "SMITH", "data": "Bash+"}],
+                    "potions_floor_usage": [1, 3, 3],
+                    "potions_obtained": [{"floor": 2, "key": "Fire Potion"}],
+                    "boss_relics": [{"picked": "Black Blood", "not_picked": ["Snecko Eye"]}],
+                    "master_deck": ["Bash+", "Inflame+"],
+                    "relics": ["Burning Blood"],
+                    "gold": 99,
+                    "floor_reached": 4,
+                    "victory": False,
+                },
+            }
+        )
+
+        self.assertEqual(script["schema"], 1)
+        self.assertEqual(script["source"]["run_id"], 123)
+        self.assertEqual(script["config"]["character"], "IRONCLAD")
+        self.assertFalse(script["replay_policy"]["exact_combat_actions"])
+        self.assertEqual(potion_uses_allowed_on_floor(script, 3), 2)
+
+        floor_1 = floor_decision(script, 1)
+        self.assertEqual(floor_1["route"], "M")
+        self.assertEqual(floor_1["card_rewards"][0]["picked"], "Inflame")
+        self.assertEqual(floor_1["card_rewards"][0]["not_picked"], ["Strike", "Clash"])
+        self.assertEqual(floor_1["relics_obtained"][0]["key"], "Oddly Smooth Stone")
+
+        floor_2 = floor_decision(script, 2)
+        self.assertEqual(floor_2["events"][0]["event_name"], "World of Goop")
+        self.assertEqual(floor_2["events"][0]["player_choice"], "Gather Gold")
+        self.assertEqual(floor_2["potions"]["obtained"][0]["key"], "Fire Potion")
+
+        floor_3 = floor_decision(script, 3)
+        self.assertEqual([item["item"] for item in floor_3["shop_purchases"]], ["Shrug It Off", "Membership Card"])
+        self.assertEqual(script["boss_relic_choices"][0]["act"], 1)
+        self.assertEqual(script["final_observed"]["master_deck"], ["Bash", "Inflame"])
+
+    def test_match_visible_choice_finds_single_textual_card_reward(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "card_choices": [
+                        {"floor": 1, "picked": "Inflame", "not_picked": ["Clash", "Flex"]}
+                    ]
+                }
+            }
+        )
+
+        result = match_visible_choice(
+            script,
+            floor=1,
+            choice_labels=["Clash", "Inflame+", "Skip"],
+            category="card_reward",
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(result["target"], "Inflame")
+
+    def test_match_visible_choice_blocks_missing_and_ambiguous_targets(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "event_choices": [
+                        {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
+                    ]
+                }
+            }
+        )
+
+        missing = match_visible_choice(
+            script,
+            floor=2,
+            choice_labels=["Leave"],
+            category="event",
+        )
+        self.assertEqual(missing["status"], "blocked")
+        self.assertEqual(missing["reason"], "target_not_visible")
+
+        ambiguous = match_visible_choice(
+            script,
+            floor=2,
+            choice_labels=["Pray", "Pray again"],
+            category="event",
+        )
+        self.assertEqual(ambiguous["status"], "blocked")
+        self.assertEqual(ambiguous["reason"], "ambiguous_target")
+
+
+if __name__ == "__main__":
+    unittest.main()
+

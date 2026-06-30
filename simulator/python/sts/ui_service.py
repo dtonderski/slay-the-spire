@@ -16,6 +16,7 @@ from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
 from sts.self_play import strict_replay_real_trace_to_env
+from sts.slaythedata_policy import build_guided_run_script, load_guided_run_script
 from sts.trace_replay import TraceReplayStore
 
 
@@ -486,6 +487,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "bridge", "clients", "kill"]:
                 self._send_json(self.bridge.kill_client(payload.get("pid")))
                 return
+            if parts == ["api", "slaythedata", "script"]:
+                self._send_json(_guided_script_from_payload(payload))
+                return
             self.send_error(404, "not found")
         except Exception as error:
             self._send_error(error)
@@ -710,6 +714,23 @@ def _observed_state_from_bridge_status(bridge_status: dict[str, Any]) -> dict[st
         return current_state
 
     raise ValueError("latest bridge state is not a supported CommunicationMod game state")
+
+
+def _guided_script_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    exported_run = payload.get("exported_run")
+    if isinstance(exported_run, dict):
+        return {"script": build_guided_run_script(exported_run)}
+
+    path = payload.get("path")
+    if isinstance(path, str) and path.strip():
+        return {
+            "script": load_guided_run_script(
+                path,
+                line_index=int(payload.get("line_index", 0)),
+            )
+        }
+
+    raise ValueError("expected exported_run or path")
 
 
 def _looks_like_communication_mod_state(value: dict[str, Any]) -> bool:
