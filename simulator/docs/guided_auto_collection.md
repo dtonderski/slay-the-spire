@@ -73,6 +73,8 @@ The collector can now:
 - store the predicted simulator state after a sent combat action
 - block the next tick if strict replay of the live trace does not reach that
   predicted state
+- run a cooperative UI auto-loop that repeatedly ticks the collector, waits
+  while the bridge command is pending or not ready, and pauses on real blockers
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot
@@ -81,7 +83,7 @@ used for manual UI play and guided collection.
 
 ## Next Infrastructure Slice
 
-Add a continuous collector loop in the UI/service.
+Broaden exact non-combat coverage and candidate selection.
 
 Tick algorithm:
 
@@ -102,12 +104,12 @@ Tick algorithm:
 6. Stop with a blocker if any required choice is illegal, ambiguous,
    unsupported, or would require guessing.
 
-Steps 1, 3, 4, and simple visible-choice sending are implemented for one tick
-at a time. Remaining work is the continuous loop, exact simulator/legal-action
-agreement for every non-combat choice category, path/reward/shop/campfire
-coverage beyond simple visible text matching, and polished UI controls for
-selecting candidate runs from the local SlayTheData index instead of pasting a
-JSONL row by hand.
+Steps 1, 3, 4, and simple visible-choice sending are implemented, and the UI
+can repeatedly call tick until blocked. Remaining work is exact
+simulator/legal-action agreement for every non-combat choice category,
+path/reward/shop/campfire coverage beyond simple visible text matching, and
+polished UI controls for selecting candidate runs from the local SlayTheData
+index instead of pasting a JSONL row by hand.
 
 ## Important Boundaries
 
