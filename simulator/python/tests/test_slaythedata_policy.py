@@ -154,6 +154,36 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
+    def test_match_visible_choice_handles_guided_safe_neow_bonus_aliases(self):
+        cases = [
+            ("ONE_RANDOM_RARE_CARD", "NONE", "obtain a random rare card"),
+            ("ONE_RARE_RELIC", "CURSE", "obtain a curse obtain a random rare relic"),
+            ("TWO_FIFTY_GOLD", "NONE", "obtain 250 gold"),
+            ("TWENTY_PERCENT_HP_BONUS", "PERCENT_DAMAGE", "take 18 damage gain 16 max hp"),
+            ("THREE_SMALL_POTIONS", "NONE", "obtain 3 random potions"),
+            ("BOSS_RELIC", "NO_GOLD", "lose all gold obtain a random boss relic"),
+        ]
+        for bonus, cost, label in cases:
+            with self.subTest(bonus=bonus, cost=cost):
+                script = build_guided_run_script(
+                    {
+                        "event": {
+                            "neow_bonus": bonus,
+                            "neow_cost": cost,
+                        }
+                    }
+                )
+
+                result = match_visible_choice(
+                    script,
+                    floor=0,
+                    choice_labels=["skip this option", label],
+                    category="neow",
+                )
+
+                self.assertEqual(result["status"], "matched")
+                self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+
     def test_identity_blocker_rejects_visible_character_or_ascension_mismatch(self):
         script = build_guided_run_script(
             {
