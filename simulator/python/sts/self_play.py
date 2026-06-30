@@ -850,6 +850,8 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
         command = str(record.get("command") or "")
         if not command:
             continue
+        if _is_readonly_sync_command(command):
+            continue
 
         if env is None:
             start_info = _parse_start_command(command)
@@ -972,6 +974,11 @@ def _is_ignored_invalid_combat_command(
     if hand_index <= len(hand):
         return False
     return _next_trace_record_before_state_is_action(records, record_index)
+
+
+def _is_readonly_sync_command(command: str) -> bool:
+    parts = command.strip().split()
+    return bool(parts and parts[0].upper() in {"STATE", "WAIT"})
 
 
 def _next_trace_record_before_state_is_action(
@@ -2718,7 +2725,7 @@ def _choose_action_for_index(
         if index > 0 and index - 1 < len(grid_actions):
             return grid_actions[index - 1]
     if phase == "map":
-        mapped = _map_choose_action_for_x(actions, observed, index)
+        mapped = _map_choose_action_for_visible_index(actions, observed, index)
         if mapped is not None:
             return mapped
         if 0 <= index < len(actions):
@@ -2922,6 +2929,20 @@ def _reward_choose_action(actions: list[Any], observed: dict[str, Any], index: i
     if 0 <= index < len(actions):
         return actions[index]
     return None
+
+
+def _map_choose_action_for_visible_index(
+    actions: list[Any], observed: dict[str, Any], index: int
+) -> Any | None:
+    choices = observed.get("choice_list") if isinstance(observed, dict) else None
+    if isinstance(choices, list) and 0 <= index < len(choices):
+        label = str(choices[index])
+        if label.startswith("x="):
+            try:
+                return _map_choose_action_for_x(actions, observed, int(label[2:]))
+            except ValueError:
+                return None
+    return _map_choose_action_for_x(actions, observed, index)
 
 
 def _confirm_action(actions: list[Any]) -> Any | None:

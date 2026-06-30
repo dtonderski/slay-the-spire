@@ -1357,7 +1357,17 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         next.store_rng_counter(RunRngStream::CardRandom, rng);
     }
     apply_mummified_hand_for_power_play(&mut next, &mut next_combat, combat, &transition.event_log);
-    apply_dead_branch_for_exhaust_log(&mut next, &mut next_combat, &transition.event_log);
+    let dead_branch_placement = if matches!(action, CombatAction::EndTurn) {
+        DeadBranchPlacement::FrontOfHand
+    } else {
+        DeadBranchPlacement::BackOfHand
+    };
+    apply_dead_branch_for_exhaust_log(
+        &mut next,
+        &mut next_combat,
+        &transition.event_log,
+        dead_branch_placement,
+    );
     if next_combat.card_random_rng.is_some() {
         next_combat.card_random_rng = Some(next.card_random_rng());
     }
@@ -1464,18 +1474,39 @@ fn apply_dead_branch_for_exhaust_log(
     run: &mut RunState,
     combat: &mut crate::combat::CombatState,
     event_log: &[crate::InternalAction],
+    placement: DeadBranchPlacement,
 ) {
     let exhaust_count = event_log
         .iter()
         .filter(|action| matches!(action, crate::InternalAction::CardExhausted { .. }))
         .count();
-    apply_dead_branch_for_exhaust_count(run, combat, exhaust_count);
+    apply_dead_branch_for_exhaust_count_with_placement(run, combat, exhaust_count, placement);
 }
 
 pub(crate) fn apply_dead_branch_for_exhaust_count(
     run: &mut RunState,
     combat: &mut crate::combat::CombatState,
     exhaust_count: usize,
+) {
+    apply_dead_branch_for_exhaust_count_with_placement(
+        run,
+        combat,
+        exhaust_count,
+        DeadBranchPlacement::BackOfHand,
+    );
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeadBranchPlacement {
+    BackOfHand,
+    FrontOfHand,
+}
+
+fn apply_dead_branch_for_exhaust_count_with_placement(
+    run: &mut RunState,
+    combat: &mut crate::combat::CombatState,
+    exhaust_count: usize,
+    placement: DeadBranchPlacement,
 ) {
     if exhaust_count == 0
         || !run.relics.contains(&Relic::DeadBranch)
@@ -1486,15 +1517,25 @@ pub(crate) fn apply_dead_branch_for_exhaust_count(
 
     let pool = dead_branch_card_pool();
     let mut rng = run.card_random_rng();
+    let available_hand_slots = MAX_HAND_SIZE.saturating_sub(combat.piles.hand.len());
+    let mut generated = Vec::with_capacity(exhaust_count);
     for _ in 0..exhaust_count {
         let index = rng.random_int((pool.len() - 1) as i32) as usize;
         let next_id = CardId::new(combat.piles.max_card_instance_id() + 1);
         let mut card = CardInstance::new(next_id, pool[index]);
         card.combat_only = true;
-        if combat.piles.hand.len() < MAX_HAND_SIZE {
-            combat.piles.hand.push(card);
+        if generated.len() < available_hand_slots {
+            generated.push(card);
         } else {
             combat.piles.discard_pile.push(card);
+        }
+    }
+    match placement {
+        DeadBranchPlacement::BackOfHand => combat.piles.hand.extend(generated),
+        DeadBranchPlacement::FrontOfHand => {
+            for card in generated.into_iter().rev() {
+                combat.piles.hand.insert(0, card);
+            }
         }
     }
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
@@ -1507,6 +1548,7 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
             IRONCLAD_REWARD_ENTRIES
                 .iter()
                 .filter(move |entry| entry.rarity == rarity)
+                .rev()
                 .map(|entry| entry.content_id)
         })
         .filter(|content_id| *content_id != FEED_ID && *content_id != REAPER_ID)
@@ -1534,7 +1576,8 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
         return;
     };
 
-    run.potions.remove(slot);
+    run.take_potion_slot(slot)
+        .expect("fairy potion slot was found before consuming");
     let multiplier = if run.relics.contains(&Relic::SacredBark) {
         2
     } else {
@@ -1688,7 +1731,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .potion_offer
                 .take()
                 .expect("validated potion offer");
-            next.potions.push(potion);
+            next.gain_potion(potion)?;
         }
         RunAction::TakeRelicReward => {
             let (relic_offer, relic_key_offer) = {
@@ -1805,9 +1848,9 @@ mod tests {
     use crate::card::CardType;
     use crate::content::cards::{
         ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID,
-        CURSE_OF_THE_BELL_ID, DEFEND_R_ID, EXHUME_ID, FEED_ID, HAVOC_ID, INFLAME_ID, REAPER_ID,
-        SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID,
+        CURSE_OF_THE_BELL_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, EXHUME_ID, FEED_ID, HAVOC_ID,
+        INFLAME_ID, POWER_THROUGH_ID, REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::Relic;
@@ -2180,6 +2223,14 @@ mod tests {
     }
 
     #[test]
+    fn dead_branch_pool_matches_target_source_pool_order() {
+        let pool = dead_branch_card_pool();
+
+        assert_eq!(pool[37], DARK_EMBRACE_ID);
+        assert_eq!(pool[53], POWER_THROUGH_ID);
+    }
+
+    #[test]
     fn dead_branch_adds_random_card_to_hand_on_exhaust() {
         let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
         run.reward_rng_seed = 1234;
@@ -2259,6 +2310,43 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.id == CardId::new(25) && card.content_id == EXHUME_ID));
+    }
+
+    #[test]
+    fn dead_branch_triggers_for_unplayed_ethereal_end_turn_exhaust() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        run.current_floor = 2;
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(25), DAZED_ID),
+            CardInstance::new(CardId::new(26), DAZED_ID),
+            CardInstance::new(CardId::new(27), DAZED_ID),
+        ];
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), DEFEND_R_ID),
+        ];
+        combat.piles.discard_pile.clear();
+        combat.piles.exhaust_pile.clear();
+
+        let after =
+            apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("end turn applies");
+        let combat = after.combat.expect("combat remains active");
+
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID));
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .take(3)
+            .all(|card| card.combat_only));
     }
 
     #[test]
@@ -2957,6 +3045,19 @@ mod tests {
         assert_eq!(next.reward.as_ref().expect("reward").potion_offer, None);
         assert_eq!(next.potions.len(), potions_before + 1);
         assert_eq!(next.potions.last(), Some(&Potion::Fire));
+    }
+
+    #[test]
+    fn take_potion_reward_fills_first_empty_visible_slot() {
+        let mut run = winning_combat_run();
+        run.potions = vec![Potion::Ancient];
+        run.empty_potion_slots = vec![0, 2];
+        run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Block);
+
+        let next = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
+
+        assert_eq!(next.potions, vec![Potion::Block, Potion::Ancient]);
+        assert_eq!(next.empty_potion_slots, vec![2]);
     }
 
     #[test]

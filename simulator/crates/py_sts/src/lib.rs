@@ -1237,10 +1237,9 @@ fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
 
 fn legal_potion_actions_on_run(state: &RunState) -> Vec<RunAction> {
     state
-        .potions
-        .iter()
-        .enumerate()
-        .flat_map(|(slot, potion)| potion_use_candidates(slot, *potion, state.combat.as_ref()))
+        .occupied_potion_slots()
+        .into_iter()
+        .flat_map(|(slot, potion)| potion_use_candidates(slot, potion, state.combat.as_ref()))
         .filter(|action| validate_potion_action(state, *action).is_ok())
         .collect()
 }

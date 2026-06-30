@@ -270,7 +270,6 @@ impl Potion {
                 | Potion::Attack
                 | Potion::Block
                 | Potion::Weak
-                | Potion::Blood
                 | Potion::HeartOfIron
                 | Potion::Cultist
                 | Potion::Dexterity
@@ -354,6 +353,7 @@ mod tests {
     #[test]
     fn ancient_potion_requires_combat_but_fruit_juice_does_not() {
         assert!(Potion::Ancient.requires_combat());
+        assert!(!Potion::Blood.requires_combat());
         assert!(!Potion::FruitJuice.requires_combat());
     }
 

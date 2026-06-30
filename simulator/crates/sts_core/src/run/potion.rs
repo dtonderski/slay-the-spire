@@ -38,11 +38,10 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
     match action {
         RunAction::UsePotion { slot, target } => {
             let potion = run
-                .potions
-                .get(slot)
+                .potion_at_slot(slot)
                 .ok_or(SimError::IllegalAction("potion slot is not available"))?;
 
-            if *potion == Potion::Fairy {
+            if potion == Potion::Fairy {
                 return Err(SimError::IllegalAction("Fairy is passive"));
             }
 
@@ -69,7 +68,7 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
                 } else if target.is_some() {
                     return Err(SimError::IllegalAction("potion does not take a target"));
                 }
-                if *potion == Potion::SmokeBomb && current_room_kind(run) == Some(RoomKind::Boss) {
+                if potion == Potion::SmokeBomb && current_room_kind(run) == Some(RoomKind::Boss) {
                     return Err(SimError::IllegalAction(
                         "Smoke Bomb cannot be used in boss combat",
                     ));
@@ -81,8 +80,7 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
             Ok(())
         }
         RunAction::DiscardPotion { slot } => {
-            run.potions
-                .get(slot)
+            run.potion_at_slot(slot)
                 .ok_or(SimError::IllegalAction("potion slot is not available"))?;
             Ok(())
         }
@@ -437,7 +435,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
     let mut next = run.clone();
     match action {
         RunAction::UsePotion { slot, target } => {
-            let potion = next.potions.remove(slot);
+            let potion = next.take_potion_slot(slot)?;
             let multiplier = potion_multiplier(&next);
             match potion {
                 Potion::Fire => {
@@ -474,14 +472,25 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     apply_monster_weak(&mut monster.powers, FEAR_POTION_WEAK * multiplier);
                 }
                 Potion::Blood => {
-                    let combat = next.combat.as_mut().expect("validated combat state");
-                    let heal = combat.player.max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;
-                    crate::relic::heal_player_in_combat_with_relics(
-                        &mut combat.player.hp,
-                        combat.player.max_hp,
-                        heal,
-                        &combat.relics,
-                    );
+                    if let Some(combat) = next.combat.as_mut() {
+                        let heal =
+                            combat.player.max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;
+                        crate::relic::heal_player_in_combat_with_relics(
+                            &mut combat.player.hp,
+                            combat.player.max_hp,
+                            heal,
+                            &combat.relics,
+                        );
+                    } else {
+                        let heal =
+                            next.player_max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;
+                        crate::relic::heal_player_in_combat_with_relics(
+                            &mut next.player_hp,
+                            next.player_max_hp,
+                            heal,
+                            &next.relics,
+                        );
+                    }
                 }
                 Potion::Ancient => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -651,8 +660,9 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.potion_rng_counter,
                     );
                     if next.can_gain_potions() {
-                        while next.potions.len() < next.potion_capacity() {
-                            next.potions.push(target_random_potion(&mut rng));
+                        while next.open_potion_slots() > 0 {
+                            next.gain_potion(target_random_potion(&mut rng))
+                                .expect("open potion slot validated");
                         }
                     }
                     next.potion_rng_counter = rng.counter();
@@ -738,7 +748,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
             }
         }
         RunAction::DiscardPotion { slot } => {
-            next.potions.remove(slot);
+            next.take_potion_slot(slot)?;
         }
         _ => unreachable!("validated potion action"),
     }
@@ -984,8 +994,8 @@ mod tests {
 
         assert_eq!(after.potions.len(), crate::potion::MAX_POTIONS);
         assert_eq!(after.potions[0], Potion::Fire);
-        assert_eq!(after.potions[1], Potion::Block);
-        assert_eq!(after.potions[2], expected_refill);
+        assert_eq!(after.potions[1], expected_refill);
+        assert_eq!(after.potions[2], Potion::Block);
         assert_eq!(after.potion_rng_counter, expected_rng.counter());
     }
 
@@ -1168,6 +1178,26 @@ mod tests {
 
         let combat = after.combat.expect("combat continues");
         assert_eq!(combat.player.hp, 66);
+        assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn blood_potion_heals_outside_combat_and_is_consumed() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 57;
+        run.player_max_hp = 85;
+        run.potions.push(Potion::Blood);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use blood potion");
+
+        assert_eq!(after.player_hp, 74);
         assert!(after.potions.is_empty());
     }
 
@@ -1582,7 +1612,10 @@ mod tests {
         let combat = after_choose.combat.expect("combat continues");
         assert!(combat.discard_select.is_none());
         assert_eq!(combat.piles.hand.len(), 0);
-        assert_eq!(combat.piles.draw_pile.last().unwrap().content_id, STRIKE_R_ID);
+        assert_eq!(
+            combat.piles.draw_pile.last().unwrap().content_id,
+            STRIKE_R_ID
+        );
         assert_eq!(
             combat
                 .piles

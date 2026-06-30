@@ -53,7 +53,7 @@ pub(crate) const RED_LOUSE_BITE_DAMAGE: i32 = 6;
 pub(crate) const LOUSE_CURL_STRENGTH: i32 = 3;
 
 pub(crate) const GREEN_LOUSE_BITE_DAMAGE: i32 = 6;
-pub(crate) const GREEN_LOUSE_WEAK: i32 = 1;
+pub const GREEN_LOUSE_WEAK: i32 = 2;
 const GREEN_LOUSE_SPIKES: i32 = 3;
 
 const SPIKE_SLIME_LICK_WEAK: i32 = 1;
@@ -74,6 +74,7 @@ const LAGAVULIN_ATTACK_DAMAGE: i32 = 18;
 const SENTRY_BEAM_DAZED: i32 = 2;
 const SENTRY_ATTACK_DAMAGE: i32 = 9;
 const SENTRY_A3_ATTACK_DAMAGE: i32 = 10;
+const SENTRY_ARTIFACT: i32 = 1;
 
 const SPHERIC_GUARDIAN_DAMAGE: i32 = 10;
 const SPHERIC_GUARDIAN_A2_DAMAGE: i32 = 11;
@@ -1625,6 +1626,10 @@ fn target_city_member_spawn(
             id: "Thievery",
             amount: looter_theft(ascension),
         }),
+        "Sentry" => spawn.powers.push(TargetSpawnPower {
+            id: "Artifact",
+            amount: SENTRY_ARTIFACT,
+        }),
         "SphericGuardian" => {
             spawn.block = SPHERIC_GUARDIAN_STARTING_BLOCK;
             spawn.powers.push(TargetSpawnPower {
@@ -2155,9 +2160,13 @@ fn target_exordium_thugs_spawn_states(
         Vec::new(),
     )];
     let mut slaver_hp_rng = StsRng::with_counter(seed + i64::from(floor_num), 5);
-    if let Some(slaver) =
-        target_city_member_spawn("SlaverBlue", &mut slaver_hp_rng, None, ascension, neow_lament)
-    {
+    if let Some(slaver) = target_city_member_spawn(
+        "SlaverBlue",
+        &mut slaver_hp_rng,
+        None,
+        ascension,
+        neow_lament,
+    ) {
         spawns.push(slaver);
     }
     spawns
@@ -2173,7 +2182,15 @@ fn target_three_sentries_spawn_states(
     (0..3)
         .map(|index| {
             let max_hp = target_sentry_hp_range(ascension).roll(&mut hp_rng);
-            let mut spawn = target_combat_entry_spawn("Sentry", max_hp, neow_lament, Vec::new());
+            let mut spawn = target_combat_entry_spawn(
+                "Sentry",
+                max_hp,
+                neow_lament,
+                vec![TargetSpawnPower {
+                    id: "Artifact",
+                    amount: SENTRY_ARTIFACT,
+                }],
+            );
             if index % 2 == 1 {
                 spawn.intent = "Attack";
                 spawn.rolled_attack_damage = Some(target_sentry_attack_damage(ascension));
@@ -2358,6 +2375,7 @@ pub fn monster_state_for_ascension(
         powers: MonsterPowers {
             spikes: definition.starting_spikes,
             artifact: match definition.content_id {
+                SENTRY_ID => SENTRY_ARTIFACT,
                 SPHERIC_GUARDIAN_ID => SPHERIC_GUARDIAN_ARTIFACT,
                 BRONZE_AUTOMATON_ID => BRONZE_AUTOMATON_ARTIFACT,
                 _ => 0,
@@ -2666,6 +2684,9 @@ fn ascension_from_damage_roll(_rolled_attack_damage: Option<i32>) -> u8 {
     0
 }
 
+const LOUSE_ATTACK_MOVE: u8 = 3;
+const LOUSE_NON_ATTACK_MOVE: u8 = 4;
+
 /// Deterministic Red Louse move cycle: Curl → Bite, keyed on `moves_executed`.
 #[must_use]
 fn red_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) -> MonsterIntent {
@@ -2692,6 +2713,29 @@ fn green_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) ->
     }
 }
 
+pub fn target_louse_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    rolled_attack_damage: Option<i32>,
+    fallback_damage: i32,
+    non_attack_intent: MonsterIntent,
+) -> MonsterIntent {
+    if last_move(move_history, LOUSE_NON_ATTACK_MOVE) {
+        return MonsterIntent::Attack {
+            damage: rolled_attack_damage.unwrap_or(fallback_damage),
+        };
+    }
+    if last_two_moves(move_history, LOUSE_ATTACK_MOVE) {
+        return non_attack_intent;
+    }
+    target_louse_entry_intent_from_roll(
+        roll,
+        rolled_attack_damage,
+        fallback_damage,
+        non_attack_intent,
+    )
+}
+
 #[must_use]
 pub fn target_louse_entry_intent_from_roll(
     roll: i32,
@@ -2699,7 +2743,7 @@ pub fn target_louse_entry_intent_from_roll(
     fallback_damage: i32,
     non_attack_intent: MonsterIntent,
 ) -> MonsterIntent {
-    if roll >= 75 {
+    if roll >= 25 {
         MonsterIntent::Attack {
             damage: rolled_attack_damage.unwrap_or(fallback_damage),
         }
@@ -2839,7 +2883,8 @@ fn looter_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
             damage: looter_swipe_damage(ascension),
             amount: looter_theft(ascension),
         },
-        _ => MonsterIntent::Block { block: 6 },
+        2 => MonsterIntent::Block { block: 6 },
+        _ => MonsterIntent::Escape,
     }
 }
 
@@ -3581,6 +3626,15 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
             MonsterIntent::AttackMultiple { .. } => Some(1),
             MonsterIntent::Block { .. } | MonsterIntent::StrengthAndBlock { .. } => Some(2),
             MonsterIntent::Attack { .. } => Some(3),
+            _ => None,
+        };
+    }
+    if content_id == RED_LOUSE_ID || content_id == GREEN_LOUSE_ID {
+        return match intent {
+            MonsterIntent::Attack { .. } => Some(LOUSE_ATTACK_MOVE),
+            MonsterIntent::StrengthAndBlock { .. } | MonsterIntent::ApplyPlayerWeak { .. } => {
+                Some(LOUSE_NON_ATTACK_MOVE)
+            }
             _ => None,
         };
     }
@@ -8828,6 +8882,7 @@ mod tests {
         let monster = monster_state(&SENTRY_A0, MonsterId::new(1));
 
         assert_eq!(SENTRY_A0.hp, 40);
+        assert_eq!(monster.powers.artifact, SENTRY_ARTIFACT);
         assert_eq!(
             monster.intent,
             MonsterIntent::AddDazedToDiscard {

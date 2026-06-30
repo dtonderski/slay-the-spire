@@ -561,6 +561,7 @@ fn spawn_monster_powers(spawn: &TargetEncounterSpawn) -> MonsterPowers {
             "Strength" => powers.strength = power.amount,
             "Ritual" => powers.ritual = power.amount,
             "Metallicize" => powers.metallicize = power.amount,
+            "Artifact" => powers.artifact = power.amount,
             "Plated Armor" => powers.plated_armor = power.amount,
             "Painful Stabs" => powers.painful_stabs = power.amount,
             "Malleable" => {
