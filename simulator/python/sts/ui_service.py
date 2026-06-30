@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from sts import omni
 from sts.bridge import BridgeMirror, command_for_descriptor
+from sts.bridge_audit import preflight_with_client_audit
 from sts.guided_collector import GuidedCollector
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
@@ -1255,7 +1256,7 @@ def _start_guided_live_run(
 
 
 def _collector_status_with_preflight(collector: GuidedCollector, bridge: BridgeMirror) -> dict[str, Any]:
-    return collector.status() | {"preflight": bridge.preflight()}
+    return collector.status() | {"preflight": preflight_with_client_audit(bridge)}
 
 
 def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> dict[str, Any]:

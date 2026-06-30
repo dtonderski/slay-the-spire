@@ -375,6 +375,92 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
   }
 }
 
+async function testTcpControlAllowsExplicitStaleControllerTakeover() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      game_state: {
+        screen_type: "EVENT",
+        floor: 2,
+        choice_list: ["Pray"],
+      },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const port = status.control.port;
+    const first = await controlRequest(port, {
+      type: "acquire",
+      owner_id: "first-controller",
+    });
+    assert.strictEqual(first.ok, true);
+
+    const blocked = await controlRequest(port, {
+      type: "acquire",
+      owner_id: "second-controller",
+      takeover_if_stale_after_ms: 60_000,
+    });
+    assert.strictEqual(blocked.ok, false);
+    assert.match(blocked.error, /already owned/);
+    assert.strictEqual(blocked.owner_id, "first-controller");
+    assert.strictEqual(typeof blocked.lease_age_ms, "number");
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const takeover = await controlRequest(port, {
+      type: "acquire",
+      owner_id: "second-controller",
+      takeover_if_stale_after_ms: 0,
+    });
+    assert.strictEqual(takeover.ok, true);
+    assert.strictEqual(takeover.owner_id, "second-controller");
+    assert.strictEqual(takeover.replaced_owner_id, "first-controller");
+    assert.strictEqual(takeover.takeover, true);
+    assert.ok(takeover.owner_token);
+    assert.notStrictEqual(takeover.owner_token, first.owner_token);
+
+    const acquiredStatus = await waitFor(() => {
+      const parsed = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+      return parsed.controller?.owner_id === "second-controller" ? parsed : null;
+    });
+    assert.strictEqual(acquiredStatus.controller.owner_id, "second-controller", stderr);
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlDisablesLegacyFileCommandsByDefault() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-file-"));
   const sessionDir = path.join(root, "session");
@@ -551,6 +637,7 @@ Promise.resolve()
   .then(testCommandMetadataIsPreservedInTraceActions)
   .then(testAutoStatePollsAreMarkedAsPassive)
   .then(testTcpControlRejectsStaleAndAcceptsGuardedCommand)
+  .then(testTcpControlAllowsExplicitStaleControllerTakeover)
   .then(testTcpControlDisablesLegacyFileCommandsByDefault)
   .then(testTcpControlRecordsObservedUpdateTimeout)
   .then(() => {

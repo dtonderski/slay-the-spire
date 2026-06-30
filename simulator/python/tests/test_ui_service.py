@@ -290,6 +290,22 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["preflight"]["problems"], ["not ready"])
 
+    def test_collector_status_uses_bridge_client_audit(self):
+        class MultiClientBridge(FakeBridge):
+            def clients(self):
+                return {
+                    "current_pid": 111,
+                    "clients": [
+                        {"pid": 111, "current": True, "alive": True, "trace_paths": ["current.jsonl"]},
+                        {"pid": 222, "current": False, "alive": True, "trace_paths": ["old.jsonl"]},
+                    ],
+                }
+
+        result = _collector_status_with_preflight(GuidedCollector(), MultiClientBridge({"connected": True}))
+
+        self.assertEqual(result["preflight"]["bridge_clients"]["alive_count"], 2)
+        self.assertIn("multiple alive bridge clients detected: 111, 222", result["preflight"]["problems"])
+
     def test_guided_collect_report_reports_missing_file(self):
         with tempfile.TemporaryDirectory() as directory:
             result = _guided_collect_report(Path(directory) / "missing.json")
