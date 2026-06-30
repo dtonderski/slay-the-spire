@@ -2,6 +2,13 @@
 
 Date: 2026-07-01
 
+Review note: a sub-agent review was requested after the initial audit. The
+reviewer returned partial findings that supported the conservative report shape:
+keep the confirmed differences, caveat off-character relics as scope-bound, and
+avoid false positives for relics implemented elsewhere. The report also includes
+an additional local correction for the `Neow's Lament` identity-vs-behavior
+distinction below.
+
 ## Scope
 
 This audit compares local relic identity/effect definitions against the public
