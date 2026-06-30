@@ -680,6 +680,7 @@
       min_card_choices: "8",
       min_event_choices: "1",
       min_shop_purchases: "1",
+      safe_neow: "1",
       limit: "25",
       ranked: "0",
     });

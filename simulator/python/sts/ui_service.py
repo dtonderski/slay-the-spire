@@ -1196,6 +1196,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
     min_event_choices = _query_optional_int(query, "min_event_choices")
     min_shop_purchases = _query_optional_int(query, "min_shop_purchases")
     min_potion_usage = _query_optional_int(query, "min_potion_usage")
+    safe_neow = _query_bool(query, "safe_neow", False)
     limit = _query_int(query, "limit", 25)
     ranked = _query_bool(query, "ranked", True)
     rows = select_guided_collection_candidates(
@@ -1208,6 +1209,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
         min_event_choices=min_event_choices,
         min_shop_purchases=min_shop_purchases,
         min_potion_usage=min_potion_usage,
+        require_guided_safe_neow=safe_neow,
         limit=limit,
         ranked=ranked,
     )
@@ -1223,6 +1225,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
             "min_event_choices": min_event_choices,
             "min_shop_purchases": min_shop_purchases,
             "min_potion_usage": min_potion_usage,
+            "safe_neow": safe_neow,
             "limit": limit,
             "ranked": ranked,
         },
