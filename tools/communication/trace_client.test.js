@@ -275,9 +275,94 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
   }
 }
 
+async function testTcpControlDisablesLegacyFileCommandsByDefault() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-file-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      game_state: {
+        screen_type: "EVENT",
+        floor: 2,
+        choice_list: ["Pray"],
+      },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "test-controller",
+    });
+    assert.strictEqual(acquired.ok, true);
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(liveState.ok, true);
+
+    fs.writeFileSync(path.join(sessionDir, "next_command.txt"), "CHOOSE 0\n");
+    const rejected = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.rejected_command === "CHOOSE 0" ? parsed : null;
+    });
+    assert.match(rejected.error, /legacy next_command\.txt command rejected/);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.strictEqual(stdout.includes("CHOOSE 0\n"), false, stderr);
+
+    const accepted = await controlRequest(status.control.port, {
+      type: "command",
+      command: "CHOOSE 0",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(accepted.ok, true);
+    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
   .then(testCommandMetadataIsPreservedInTraceActions)
   .then(testTcpControlRejectsStaleAndAcceptsGuardedCommand)
+  .then(testTcpControlDisablesLegacyFileCommandsByDefault)
   .then(() => {
     console.log("trace_client tests passed");
   })

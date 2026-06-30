@@ -22,6 +22,7 @@ const autoStateMs = Number.parseInt(process.env.TRACE_AUTO_STATE_MS ?? "0", 10);
 const controlPort = process.env.TRACE_CONTROL_PORT === undefined
   ? null
   : Number.parseInt(process.env.TRACE_CONTROL_PORT, 10);
+const allowFileCommands = controlPort === null || process.env.TRACE_ALLOW_FILE_COMMANDS === "1";
 let exiting = false;
 
 fs.mkdirSync(outDir, { recursive: true });
@@ -276,6 +277,38 @@ function waitForQueuedCommand(timeoutMs) {
   });
 }
 
+function readAndClearFileCommand() {
+  const command = fs.readFileSync(commandPath, "utf8").trim();
+  const commandMeta = readCommandMeta();
+  try {
+    fs.unlinkSync(commandPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  try {
+    if (fs.existsSync(commandMetaPath)) fs.unlinkSync(commandMetaPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  return { command, command_meta: commandMeta };
+}
+
+function rejectLegacyFileCommand(commandResult) {
+  const detail = "legacy next_command.txt command rejected because TCP control is enabled";
+  writeStatus({
+    ...latestStatus,
+    status: "waiting",
+    error: detail,
+    rejected_command: commandResult.command,
+    rejected_command_meta: commandResult.command_meta,
+  });
+  process.stderr.write(`${detail}: ${commandResult.command || "<empty>"}\n`);
+}
+
 function currentProtocolState() {
   return {
     ok: true,
@@ -479,6 +512,7 @@ async function waitForCommand(message) {
     trace_path: tracePath,
     command_path: commandPath,
     auto_state_ms: autoStateMs,
+    allow_file_commands: allowFileCommands,
     summary,
   });
 
@@ -489,24 +523,13 @@ async function waitForCommand(message) {
     if (queued) return queued;
     if (fs.existsSync(commandPath)) {
       try {
-        const command = fs.readFileSync(commandPath, "utf8").trim();
-        const commandMeta = readCommandMeta();
-        try {
-          fs.unlinkSync(commandPath);
-        } catch (error) {
-          if (error.code !== "ENOENT") {
-            throw error;
+        const commandResult = readAndClearFileCommand();
+        if (commandResult.command) {
+          if (!allowFileCommands) {
+            rejectLegacyFileCommand(commandResult);
+          } else {
+            return commandResult;
           }
-        }
-        try {
-          if (fs.existsSync(commandMetaPath)) fs.unlinkSync(commandMetaPath);
-        } catch (error) {
-          if (error.code !== "ENOENT") {
-            throw error;
-          }
-        }
-        if (command) {
-          return { command, command_meta: commandMeta };
         }
       } catch (error) {
         if (error.code !== "EBUSY" && error.code !== "EPERM") {

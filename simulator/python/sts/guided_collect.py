@@ -138,6 +138,11 @@ def collect_one_run(
 
     while actions_sent < config.max_actions and time.time() - started_at < config.max_seconds:
         status = bridge.status()
+        terminal_stop = _terminal_stop_reason(status)
+        if terminal_stop is not None:
+            stop_reason = terminal_stop
+            history.append({"event": "terminal", "stop_reason": terminal_stop})
+            break
         if status.get("pending_command") or status.get("ready_for_command") is not True:
             sleep(config.poll_seconds)
             continue
@@ -385,6 +390,48 @@ def _compact_send_result(send_result: Any) -> dict[str, Any] | None:
 
 def _is_clean_collection_stop(stop_reason: str) -> bool:
     return stop_reason in {"trace_exhausted", "game_complete"}
+
+
+def _terminal_stop_reason(bridge_status: dict[str, Any]) -> str | None:
+    screen_type = _bridge_screen_type(bridge_status)
+    if screen_type in {"GAME_OVER", "VICTORY", "CREDITS"}:
+        return "game_complete"
+    game_state = _bridge_game_state(bridge_status)
+    if _is_dead_game_state(game_state):
+        return "game_complete"
+    return None
+
+
+def _bridge_screen_type(bridge_status: dict[str, Any]) -> str:
+    summary = bridge_status.get("summary") if isinstance(bridge_status.get("summary"), dict) else {}
+    game_state = _bridge_game_state(bridge_status)
+    for value in (summary.get("screen_type"), game_state.get("screen_type")):
+        if value is not None:
+            return str(value).upper()
+    return ""
+
+
+def _bridge_game_state(bridge_status: dict[str, Any]) -> dict[str, Any]:
+    current_state = bridge_status.get("current_state")
+    if not isinstance(current_state, dict):
+        return {}
+    message = current_state.get("message")
+    if isinstance(message, dict) and isinstance(message.get("game_state"), dict):
+        return message["game_state"]
+    if isinstance(current_state.get("game_state"), dict):
+        return current_state["game_state"]
+    if isinstance(message, dict):
+        return message
+    return current_state
+
+
+def _is_dead_game_state(game_state: dict[str, Any]) -> bool:
+    if str(game_state.get("screen_type") or "").upper() == "GAME_OVER":
+        return True
+    try:
+        return int(game_state.get("current_hp")) <= 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _validate_trace(trace_path: Any) -> dict[str, Any]:

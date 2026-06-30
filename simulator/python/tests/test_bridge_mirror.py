@@ -654,7 +654,7 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertTrue(all(not action["enabled"] for action in actions))
         self.assertTrue(all(action["disabled_reason"] == "bridge command already pending" for action in actions))
 
-    def test_bridge_actions_remain_enabled_when_only_age_stale(self):
+    def test_bridge_actions_disable_when_age_stale(self):
         actions = bridge_actions_from_status(
             {
                 "ready_for_command": True,
@@ -666,8 +666,8 @@ class BridgeMirrorTests(unittest.TestCase):
         )
 
         self.assertEqual(actions[0]["command"], "CHOOSE 0")
-        self.assertTrue(actions[0]["enabled"])
-        self.assertIsNone(actions[0]["disabled_reason"])
+        self.assertFalse(actions[0]["enabled"])
+        self.assertEqual(actions[0]["disabled_reason"], "bridge state is stale")
 
     def test_bridge_lifecycle_names_core_states(self):
         cases = [
