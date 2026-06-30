@@ -224,6 +224,7 @@
       if (app.viewMode === "live" && currentBridgeStateId && currentBridgeStateId !== previousStateId) {
         await autoAttachLiveStateQuietly();
       }
+      await refreshCollectorQuietly();
       if (currentBridgeStateId !== previousStateId || app.viewMode === "live") {
         renderChrome();
         renderLive();
@@ -1369,8 +1370,11 @@
       msg.textContent = app.slaythedataLastError;
       el.collectorStatusPanel.appendChild(msg);
     }
+    renderCollectorPreflight(preflight);
     if (!active) {
-      empty(el.collectorStatusPanel, "No guided script loaded.");
+      if (!el.collectorStatusPanel.childNodes.length) {
+        empty(el.collectorStatusPanel, "No guided script loaded.");
+      }
       return;
     }
     el.collectorStatusPanel.className = "collector-status";
@@ -1383,7 +1387,6 @@
         ["History", firstDefined(app.collector.history_count, 0)],
       ]),
     );
-    renderCollectorPreflight(preflight);
     if (suggestion) {
       el.collectorStatusPanel.append(
         statBlock("Next", [
