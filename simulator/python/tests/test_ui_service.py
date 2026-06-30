@@ -10,7 +10,10 @@ from sts.ui_service import (
     _guided_script_from_payload,
     _observed_state_from_bridge_status,
     _slaythedata_candidates_from_query,
+    _tick_live_collector,
 )
+from sts.guided_collector import GuidedCollector
+from sts.slaythedata_policy import build_guided_run_script
 
 
 class EmptyActionEnv:
@@ -116,6 +119,19 @@ class FakeEventRunEnv:
 
     def exact_legal_actions(self):
         return [self.action]
+
+
+class FakeBridge:
+    def __init__(self, status):
+        self._status = status
+        self.sent = []
+
+    def status(self):
+        return self._status
+
+    def send_command(self, command, **kwargs):
+        self.sent.append((command, kwargs))
+        return {"ok": True, "command_id": "cmd-guided", "command": command}
 
 
 class UiServiceTests(unittest.TestCase):
@@ -683,6 +699,80 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(sent, [("CHOOSE 0", {"source_state_id": "bridge-state"})])
         self.assertEqual(predict.call_args.args[1]["action_id"], "a0")
         self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-event-state")
+
+    def test_tick_live_collector_wires_bridge_sender_and_prediction_verifier(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeEventRunEnv(),
+        )
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "run_id": 42,
+                        "event": {
+                            "event_choices": [
+                                {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
+                            ],
+                        },
+                    }
+                )
+            }
+        )
+        bridge_status = {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 2,
+                        "screen_type": "EVENT",
+                        "choice_list": ["Pray", "Leave"],
+                    }
+                }
+            },
+            "summary": {
+                "floor": 2,
+                "screen_type": "EVENT",
+                "choices": ["Pray", "Leave"],
+                "available_commands": ["choose"],
+            },
+        }
+        bridge = FakeBridge(bridge_status)
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-event-state",
+            "attach_fidelity": "seed_replay",
+            "state_kind": "run",
+            "state": {"phase": "event"},
+        }
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+            manager,
+            "predict",
+            return_value={"predicted_state_id": "predicted-event-state"},
+        ):
+            sent = _tick_live_collector(collector, manager, bridge, {"send": True})
+
+        self.assertEqual(sent["suggestion"]["status"], "sent_non_combat")
+        self.assertEqual(sent["pending_prediction"]["predicted_state_id"], "predicted-event-state")
+        self.assertEqual(bridge.sent[0][0], "CHOOSE 0")
+        self.assertEqual(bridge.sent[0][1]["source_state_id"], "bridge-state")
+        self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector")
+
+        observed_session = live_session | {"state_id": "predicted-event-state"}
+        with patch.object(manager, "create_live_session", return_value=observed_session):
+            verified = _tick_live_collector(collector, manager, bridge, {"send": False})
+
+        self.assertIsNone(verified["pending_prediction"])
 
     def test_verify_live_prediction_reports_mismatch(self):
         manager = SessionManager()
