@@ -65,6 +65,24 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertEqual(result["bridge_status"]["command_id"], result["command_id"])
             self.assertEqual(result["bridge_status"]["bridge_lifecycle"]["status"], "waiting_for_command_ack")
 
+    def test_send_command_writes_optional_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+
+            source_state_id = BridgeMirror(root).status()["state_id"]
+            BridgeMirror(root).send_command(
+                "state",
+                source_state_id=source_state_id,
+                metadata={"source": "guided_collector", "collector_id": "collector-1"},
+            )
+
+            command_meta = json.loads((root / "next_command.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                command_meta["metadata"],
+                {"source": "guided_collector", "collector_id": "collector-1"},
+            )
+
     def test_send_command_rejects_stale_bridge_source_without_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

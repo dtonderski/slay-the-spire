@@ -94,18 +94,19 @@ class GuidedCollector:
             ordinal=int(payload.get("ordinal", 0)),
         )
         if payload.get("send"):
+            send_payload = payload | {"provenance": _guided_provenance(self._run, suggestion)}
             if suggestion.get("status") == "combat":
                 suggestion = send_guided_combat_suggestion(
                     suggestion,
                     bridge_status,
-                    payload=payload,
+                    payload=send_payload,
                     send_combat=send_combat,
                 )
             elif send_non_combat is not None:
                 suggestion = send_guided_non_combat_suggestion(
                     suggestion,
                     bridge_status,
-                    payload=payload,
+                    payload=send_payload,
                     send_non_combat=send_non_combat,
                 )
             else:
@@ -113,6 +114,7 @@ class GuidedCollector:
                     suggestion,
                     bridge_status,
                     send_command=send_command,
+                    metadata=send_payload.get("provenance"),
                 )
         if suggestion.get("status") in {"sent_combat", "sent_non_combat"}:
             send_result = suggestion.get("combat_send") or suggestion.get("non_combat_send")
@@ -223,6 +225,7 @@ def send_guided_suggestion(
     bridge_status: dict[str, Any],
     *,
     send_command: Callable[..., dict[str, Any]] | None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if suggestion.get("status") != "matched":
         return suggestion | _blocked("not_sendable", "only matched non-combat suggestions can be sent")
@@ -240,7 +243,10 @@ def send_guided_suggestion(
     source_state_id = bridge_status.get("state_id")
     command = command_for_descriptor(descriptor)
     try:
-        result = send_command(command, source_state_id=source_state_id)
+        send_kwargs = {"source_state_id": source_state_id}
+        if metadata is not None:
+            send_kwargs["metadata"] = metadata
+        result = send_command(command, **send_kwargs)
     except Exception as error:
         return suggestion | _blocked("send_failed", str(error))
 
@@ -319,6 +325,30 @@ def _pending_prediction_from_simulator_send(send_result: dict[str, Any]) -> dict
         "bridge_state_id": send_result.get("bridge_state_id"),
         "bridge_step": send_result.get("bridge_step"),
         "command": (send_result.get("send_result") or {}).get("command"),
+    }
+
+
+def _guided_provenance(run: CollectorRun, suggestion: dict[str, Any]) -> dict[str, Any]:
+    script = run.script if isinstance(run.script, dict) else {}
+    return {
+        "source": "guided_collector",
+        "collector_id": run.id,
+        "script_source": script.get("source"),
+        "replay_policy": script.get("replay_policy"),
+        "suggestion": {
+            key: suggestion.get(key)
+            for key in (
+                "status",
+                "mode",
+                "category",
+                "floor",
+                "act",
+                "target",
+                "ordinal",
+                "potion_uses_allowed",
+            )
+            if key in suggestion
+        },
     }
 
 

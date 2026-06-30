@@ -307,7 +307,10 @@ class GuidedCollectorTests(unittest.TestCase):
 
         self.assertEqual(dry_run["suggestion"]["status"], "matched")
         self.assertEqual(sent["suggestion"]["status"], "sent")
-        self.assertEqual(calls, [("CHOOSE 0", {"source_state_id": "bridge-state"})])
+        self.assertEqual(calls[0][0], "CHOOSE 0")
+        self.assertEqual(calls[0][1]["source_state_id"], "bridge-state")
+        self.assertEqual(calls[0][1]["metadata"]["source"], "guided_collector")
+        self.assertEqual(calls[0][1]["metadata"]["script_source"]["run_id"], 42)
 
     def test_suggest_guided_action_reports_combat_potion_budget(self):
         result = suggest_guided_action(
@@ -347,6 +350,11 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-1")
         self.assertEqual(calls[0]["payload"]["max_depth"], 4)
         self.assertEqual(calls[0]["suggestion"]["potion_uses_allowed"], 1)
+        provenance = calls[0]["payload"]["provenance"]
+        self.assertEqual(provenance["source"], "guided_collector")
+        self.assertEqual(provenance["script_source"]["run_id"], 42)
+        self.assertEqual(provenance["suggestion"]["mode"], "combat_agent")
+        self.assertEqual(provenance["suggestion"]["potion_uses_allowed"], 1)
 
     def test_collector_tick_send_non_combat_delegates_to_strict_callback(self):
         collector = GuidedCollector()
@@ -369,6 +377,11 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["suggestion"]["status"], "sent_non_combat")
         self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-event")
         self.assertEqual(calls[0]["suggestion"]["category"], "event")
+        provenance = calls[0]["payload"]["provenance"]
+        self.assertEqual(provenance["source"], "guided_collector")
+        self.assertEqual(provenance["script_source"]["run_id"], 42)
+        self.assertEqual(provenance["suggestion"]["category"], "event")
+        self.assertEqual(provenance["suggestion"]["target"], "Pray")
 
     def test_collector_tick_blocks_combat_send_without_callback(self):
         collector = GuidedCollector()

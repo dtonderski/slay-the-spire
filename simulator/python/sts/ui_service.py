@@ -320,10 +320,10 @@ class SessionManager:
             raise ValueError("combat recommendation cannot be mapped to a current bridge command")
 
         source_state_id = bridge_status.get("state_id")
-        result = send_command(
-            bridge_action["command"],
-            source_state_id=source_state_id,
-        )
+        send_kwargs = {"source_state_id": source_state_id}
+        if payload.get("provenance") is not None:
+            send_kwargs["metadata"] = payload["provenance"]
+        result = send_command(bridge_action["command"], **send_kwargs)
         return {
             "session_id": live_session["session_id"],
             "source_state_id": live_session["state_id"],
@@ -383,7 +383,10 @@ class SessionManager:
             },
         )
         source_state_id = bridge_status.get("state_id")
-        result = send_command(command, source_state_id=source_state_id)
+        send_kwargs = {"source_state_id": source_state_id}
+        if payload.get("provenance") is not None:
+            send_kwargs["metadata"] = payload["provenance"]
+        result = send_command(command, **send_kwargs)
         return {
             "session_id": live_session["session_id"],
             "source_state_id": live_session["state_id"],
