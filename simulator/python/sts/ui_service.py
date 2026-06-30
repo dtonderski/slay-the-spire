@@ -1200,7 +1200,12 @@ def _start_guided_live_run(
         metadata=metadata,
         require_tcp_control=require_tcp_control,
         wait_for_state_update=True,
+        update_timeout_seconds=30.0,
     )
+    observed_update = send_result.get("observed_update")
+    if isinstance(observed_update, dict) and observed_update.get("ok") is not True:
+        detail = observed_update.get("error") or "timed out waiting for observed state after guided START"
+        raise ValueError(f"guided START did not observe post-command state: {detail}")
     return {
         "ok": True,
         "command": command,
@@ -1210,7 +1215,7 @@ def _start_guided_live_run(
             "command_id": send_result.get("command_id"),
             "command": send_result.get("command"),
             "transport": send_result.get("transport"),
-            "observed_update": send_result.get("observed_update"),
+            "observed_update": observed_update,
         },
     }
 
