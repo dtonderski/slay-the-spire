@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from sts import omni
 from sts.bridge import BridgeMirror, command_for_descriptor
+from sts.guided_collector import GuidedCollector
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
@@ -388,6 +389,7 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
     manager = SessionManager()
     bridge = BridgeMirror.default()
     traces = TraceReplayStore.default()
+    collector = GuidedCollector()
 
     def __init__(self, *args: Any, static_dir: Path | None = None, **kwargs: Any) -> None:
         self._static_dir = static_dir or UI_STATIC_DIR
@@ -425,6 +427,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "traces"]:
                 self._send_json(self.traces.list_traces(_query_int(query, "limit", 50)))
+                return
+            if parts == ["api", "collector", "status"]:
+                self._send_json(self.collector.status())
                 return
             if parts[:2] == ["api", "traces"] and len(parts) == 3:
                 self._send_json(
@@ -489,6 +494,15 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "slaythedata", "script"]:
                 self._send_json(_guided_script_from_payload(payload))
+                return
+            if parts == ["api", "collector", "start"]:
+                self._send_json(self.collector.start(payload))
+                return
+            if parts == ["api", "collector", "tick"]:
+                self._send_json(self.collector.tick(self.bridge.status(), payload))
+                return
+            if parts == ["api", "collector", "stop"]:
+                self._send_json(self.collector.stop())
                 return
             self.send_error(404, "not found")
         except Exception as error:
