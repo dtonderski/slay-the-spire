@@ -45,6 +45,7 @@ let processing = false;
 const pendingLines = [];
 const queuedCommands = [];
 const commandWaiters = [];
+const stateWaiters = [];
 let latestState = null;
 let latestSummary = null;
 let latestStatus = null;
@@ -201,7 +202,40 @@ function publishState(message) {
     ...latestState,
   });
   writeJson(summaryPath, latestSummary);
+  notifyStateWaiters();
   return latestSummary;
+}
+
+function notifyStateWaiters() {
+  for (let index = stateWaiters.length - 1; index >= 0; index -= 1) {
+    const waiter = stateWaiters[index];
+    if (stateSeq <= waiter.afterSeq) continue;
+    stateWaiters.splice(index, 1);
+    waiter.resolve(currentProtocolState());
+  }
+}
+
+function waitForStateAfterSeq(afterSeq, timeoutMs) {
+  if (stateSeq > afterSeq) {
+    return Promise.resolve(currentProtocolState());
+  }
+  return new Promise((resolve) => {
+    const waiter = {
+      afterSeq,
+      resolve(value) {
+        if (timer) clearTimeout(timer);
+        resolve(value);
+      },
+    };
+    const timer = timeoutMs > 0
+      ? setTimeout(() => {
+        const index = stateWaiters.indexOf(waiter);
+        if (index >= 0) stateWaiters.splice(index, 1);
+        resolve(null);
+      }, timeoutMs)
+      : null;
+    stateWaiters.push(waiter);
+  });
 }
 
 function enqueueCommand(command, commandMeta) {
@@ -292,7 +326,7 @@ function validateProtocolCommand(payload) {
   return null;
 }
 
-function handleControlMessage(payload) {
+async function handleControlMessage(payload) {
   const type = String(payload.type ?? "");
   if (type === "hello") {
     return { ok: true, protocol: "sts-bridge-jsonl-v1", client_pid: clientPid, trace_path: tracePath };
@@ -361,16 +395,38 @@ function handleControlMessage(payload) {
     if (payload.metadata !== undefined) {
       commandMeta.metadata = payload.metadata;
     }
+    const acceptedStateSeq = stateSeq;
+    const acceptedStateId = latestSummary?.state_id ?? null;
     enqueueCommand(commandMeta.command, commandMeta);
-    return {
+    const response = {
       ok: true,
       command_id: commandId,
       command: commandMeta.command,
-      accepted_state_id: latestSummary?.state_id ?? null,
-      accepted_state_seq: stateSeq,
+      accepted_state_id: acceptedStateId,
+      accepted_state_seq: acceptedStateSeq,
       step,
       state: currentProtocolState(),
     };
+    if (payload.wait_for_state_update) {
+      const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 5000)));
+      const observed = await waitForStateAfterSeq(acceptedStateSeq, timeoutMs);
+      response.observed_update = observed
+        ? {
+          ok: true,
+          state_id: observed.state_id,
+          state_seq: observed.state_seq,
+          step: observed.step,
+          state: observed,
+        }
+        : {
+          ok: false,
+          error: "timed out waiting for observed state update",
+          accepted_state_id: acceptedStateId,
+          accepted_state_seq: acceptedStateSeq,
+          step,
+        };
+    }
+    return response;
   }
   return { ok: false, error: `unknown control message type "${type}"` };
 }
@@ -393,7 +449,9 @@ function startControlServer() {
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
-          send(handleControlMessage(JSON.parse(line)));
+          Promise.resolve(handleControlMessage(JSON.parse(line))).then(send, (error) => {
+            send({ ok: false, error: error.message });
+          });
         } catch (error) {
           send({ ok: false, error: error.message });
         }

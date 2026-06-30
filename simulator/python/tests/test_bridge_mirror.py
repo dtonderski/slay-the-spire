@@ -256,6 +256,87 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertFalse((root / "next_command.txt").exists())
             self.assertFalse((root / "next_command.json").exists())
 
+    def test_send_command_can_wait_for_tcp_state_update(self):
+        received = []
+
+        def run_server(server):
+            owner_token = "owner-token-1"
+            for _ in range(2):
+                conn, _addr = server.accept()
+                with conn:
+                    data = b""
+                    while b"\n" not in data:
+                        data += conn.recv(4096)
+                    payload = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
+                    received.append(payload)
+                    if payload["type"] == "acquire":
+                        response = {
+                            "ok": True,
+                            "owner_id": payload["owner_id"],
+                            "owner_token": owner_token,
+                            "state_id": "bridge-protocol-state",
+                            "state_seq": 7,
+                        }
+                    else:
+                        response = {
+                            "ok": True,
+                            "command_id": payload["command_id"],
+                            "command": payload["command"],
+                            "accepted_state_id": payload["expected_state_id"],
+                            "accepted_state_seq": payload.get("expected_state_seq"),
+                            "observed_update": {
+                                "ok": True,
+                                "state_id": "bridge-protocol-state-2",
+                                "state_seq": 8,
+                                "step": 3,
+                            },
+                        }
+                    conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            thread = threading.Thread(target=run_server, args=(server,), daemon=True)
+            thread.start()
+
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "status.json").write_text(
+                    json.dumps(
+                        {
+                            "status": "waiting",
+                            "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": port},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (root / "summary.json").write_text(
+                    json.dumps(
+                        {
+                            "state_id": "bridge-protocol-state",
+                            "state_seq": 7,
+                            "ready_for_command": True,
+                            "available_commands": ["choose", "state"],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = BridgeMirror(root, stale_after_seconds=9999).send_command(
+                    "CHOOSE 0",
+                    source_state_id="bridge-protocol-state",
+                    wait_for_state_update=True,
+                    update_timeout_seconds=3,
+                )
+
+                thread.join(timeout=2)
+
+        self.assertEqual(received[1]["wait_for_state_update"], True)
+        self.assertEqual(received[1]["update_timeout_ms"], 3000)
+        self.assertEqual(result["observed_update"]["state_id"], "bridge-protocol-state-2")
+        self.assertEqual(result["observed_update"]["state_seq"], 8)
+
     def test_preflight_reports_orphan_command_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

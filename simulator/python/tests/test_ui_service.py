@@ -1156,7 +1156,10 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["bridge_action"]["command"], "PLAY 1 0")
         self.assertEqual(result["predicted_state_id"], "predicted-live-state")
-        self.assertEqual(sent, [("PLAY 1 0", {"source_state_id": "bridge-state"})])
+        self.assertEqual(
+            sent,
+            [("PLAY 1 0", {"source_state_id": "bridge-state", "wait_for_state_update": True})],
+        )
         self.assertEqual(search.call_args.args[1]["source_state_id"], "fake-live-state")
         self.assertEqual(search.call_args.args[1]["allowed_potions"], [])
         self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-live-state")
@@ -1209,7 +1212,10 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["command"], "CHOOSE 0")
         self.assertEqual(result["predicted_state_id"], "predicted-event-state")
-        self.assertEqual(sent, [("CHOOSE 0", {"source_state_id": "bridge-state"})])
+        self.assertEqual(
+            sent,
+            [("CHOOSE 0", {"source_state_id": "bridge-state", "wait_for_state_update": True})],
+        )
         self.assertEqual(predict.call_args.args[1]["action_id"], "a0")
         self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-event-state")
 
@@ -1280,6 +1286,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(bridge.sent[0][0], "CHOOSE 0")
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "bridge-state")
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
+        self.assertTrue(bridge.sent[0][1]["wait_for_state_update"])
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector")
 
         observed_session = live_session | {"state_id": "predicted-event-state"}

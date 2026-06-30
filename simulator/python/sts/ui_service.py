@@ -325,7 +325,10 @@ class SessionManager:
             raise ValueError("combat recommendation cannot be mapped to a current bridge command")
 
         source_state_id = bridge_status.get("state_id")
-        send_kwargs = {"source_state_id": source_state_id}
+        send_kwargs = {
+            "source_state_id": source_state_id,
+            "wait_for_state_update": True,
+        }
         if payload.get("provenance") is not None:
             send_kwargs["metadata"] = payload["provenance"]
         result = send_command(bridge_action["command"], **send_kwargs)
@@ -341,6 +344,8 @@ class SessionManager:
                 "ok": result.get("ok"),
                 "command_id": result.get("command_id"),
                 "command": result.get("command"),
+                "transport": result.get("transport"),
+                "observed_update": result.get("observed_update"),
             },
         }
 
@@ -388,7 +393,10 @@ class SessionManager:
             },
         )
         source_state_id = bridge_status.get("state_id")
-        send_kwargs = {"source_state_id": source_state_id}
+        send_kwargs = {
+            "source_state_id": source_state_id,
+            "wait_for_state_update": True,
+        }
         if payload.get("provenance") is not None:
             send_kwargs["metadata"] = payload["provenance"]
         result = send_command(command, **send_kwargs)
@@ -404,6 +412,8 @@ class SessionManager:
                 "ok": result.get("ok"),
                 "command_id": result.get("command_id"),
                 "command": result.get("command"),
+                "transport": result.get("transport"),
+                "observed_update": result.get("observed_update"),
             },
         }
 
@@ -1137,7 +1147,8 @@ def _tick_live_collector(
     require_tcp_control: bool = True,
 ) -> dict[str, Any]:
     def send_guided_command(command: str, **kwargs: Any) -> dict[str, Any]:
-        return bridge.send_command(command, require_tcp_control=require_tcp_control, **kwargs)
+        kwargs.setdefault("require_tcp_control", require_tcp_control)
+        return bridge.send_command(command, **kwargs)
 
     return collector.tick(
         bridge.status(),
