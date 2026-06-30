@@ -289,6 +289,37 @@ class BridgeMirrorTests(unittest.TestCase):
                                 "state_id": "bridge-protocol-state-2",
                                 "state_seq": 8,
                                 "step": 3,
+                                "state": {
+                                    "ok": True,
+                                    "protocol": "sts-bridge-jsonl-v1",
+                                    "client_pid": 4321,
+                                    "trace_path": "trace.jsonl",
+                                    "step": 3,
+                                    "state_seq": 8,
+                                    "state_id": "bridge-protocol-state-2",
+                                    "ready_for_command": True,
+                                    "available_commands": ["choose", "state"],
+                                    "pending_command": False,
+                                    "summary": {
+                                        "state_id": "bridge-protocol-state-2",
+                                        "state_seq": 8,
+                                        "ready_for_command": True,
+                                        "available_commands": ["choose", "state"],
+                                        "choices": ["Pray"],
+                                        "floor": 2,
+                                    },
+                                    "state": {
+                                        "state_id": "bridge-protocol-state-2",
+                                        "state_seq": 8,
+                                        "message": {
+                                            "game_state": {
+                                                "floor": 2,
+                                                "choice_list": ["Pray"],
+                                            }
+                                        },
+                                    },
+                                    "status": {"status": "waiting", "step": 3},
+                                },
                             },
                         }
                     conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
@@ -336,6 +367,12 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(received[1]["update_timeout_ms"], 3000)
         self.assertEqual(result["observed_update"]["state_id"], "bridge-protocol-state-2")
         self.assertEqual(result["observed_update"]["state_seq"], 8)
+        observed_status = result["observed_update"]["bridge_status"]
+        self.assertEqual(observed_status["state_id"], "bridge-protocol-state-2")
+        self.assertEqual(observed_status["last_state_step"], 3)
+        self.assertEqual(observed_status["current_state"]["message"]["game_state"]["floor"], 2)
+        self.assertEqual(observed_status["bridge_actions"][0]["command"], "CHOOSE 0")
+        self.assertEqual(observed_status["bridge_actions"][0]["source_state_id"], "bridge-protocol-state-2")
 
     def test_preflight_reports_orphan_command_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
