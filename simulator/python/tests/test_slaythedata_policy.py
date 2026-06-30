@@ -3,6 +3,7 @@ import unittest
 from sts.slaythedata_policy import (
     build_guided_run_script,
     floor_decision,
+    identity_blocker,
     match_map_choice,
     match_visible_choice,
     potion_uses_allowed_on_floor,
@@ -92,6 +93,24 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(result["target"], "Inflame")
+
+    def test_identity_blocker_rejects_visible_character_or_ascension_mismatch(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "character_chosen": "IRONCLAD",
+                    "ascension_level": 0,
+                }
+            }
+        )
+
+        character = identity_blocker(script, {"class": "THE_SILENT", "ascension_level": 0})
+        ascension = identity_blocker(script, {"class": "IRONCLAD", "ascension_level": 1})
+        matching = identity_blocker(script, {"class": "IRONCLAD", "ascension_level": 0})
+
+        self.assertEqual(character["reason"], "run_identity_mismatch")
+        self.assertEqual(ascension["reason"], "run_identity_mismatch")
+        self.assertIsNone(matching)
 
     def test_match_visible_choice_blocks_missing_and_ambiguous_targets(self):
         script = build_guided_run_script(

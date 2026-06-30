@@ -254,6 +254,40 @@ def match_visible_choice(
     return _blocked("ambiguous_target", f"{target!r} matched {len(matches)} visible choices")
 
 
+def identity_blocker(script: dict[str, Any], bridge_summary: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a blocker when visible live-run identity disagrees with the script."""
+
+    config = script.get("config") if isinstance(script.get("config"), dict) else {}
+    expected_character = _optional_string(config.get("character") or config.get("character_chosen"))
+    observed_character = _optional_string(
+        bridge_summary.get("class") or bridge_summary.get("character") or bridge_summary.get("character_chosen")
+    )
+    if expected_character and observed_character and expected_character.upper() != observed_character.upper():
+        return _blocked(
+            "run_identity_mismatch",
+            f"script character {expected_character!r} does not match live character {observed_character!r}",
+        )
+
+    expected_ascension = _parse_int(
+        config.get("ascension") if config.get("ascension") is not None else config.get("ascension_level")
+    )
+    observed_ascension = _parse_int(
+        bridge_summary.get("ascension_level")
+        if bridge_summary.get("ascension_level") is not None
+        else bridge_summary.get("ascension")
+    )
+    if (
+        expected_ascension is not None
+        and observed_ascension is not None
+        and expected_ascension != observed_ascension
+    ):
+        return _blocked(
+            "run_identity_mismatch",
+            f"script ascension {expected_ascension} does not match live ascension {observed_ascension}",
+        )
+    return None
+
+
 def match_map_choice(
     script: dict[str, Any],
     *,
