@@ -174,7 +174,7 @@ class BridgeMirrorTests(unittest.TestCase):
 
         def run_server(server):
             owner_token = "owner-token-1"
-            for _ in range(2):
+            for _ in range(3):
                 conn, _addr = server.accept()
                 with conn:
                     data = b""
@@ -189,6 +189,12 @@ class BridgeMirrorTests(unittest.TestCase):
                             "owner_token": owner_token,
                             "state_id": "bridge-protocol-state",
                             "state_seq": 7,
+                        }
+                    elif payload["type"] == "release":
+                        response = {
+                            "ok": True,
+                            "released": payload.get("owner_token") == owner_token,
+                            "owner_id": f"sts-python-ui-{os.getpid()}",
                         }
                     else:
                         response = {
@@ -243,10 +249,11 @@ class BridgeMirrorTests(unittest.TestCase):
                 self.assertEqual(result["accepted_state_id"], "bridge-protocol-state")
                 self.assertEqual(result["accepted_state_seq"], 7)
                 self.assertEqual(result["owner_id"], f"sts-python-ui-{os.getpid()}")
+                self.assertIsNone(result["release_error"])
                 self.assertFalse((root / "next_command.txt").exists())
                 self.assertFalse((root / "next_command.json").exists())
 
-        self.assertEqual(len(received), 2)
+        self.assertEqual(len(received), 3)
         self.assertEqual(received[0]["type"], "acquire")
         self.assertEqual(received[0]["owner_id"], f"sts-python-ui-{os.getpid()}")
         self.assertEqual(received[1]["type"], "command")
@@ -255,6 +262,8 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(received[1]["expected_state_seq"], 7)
         self.assertEqual(received[1]["owner_token"], "owner-token-1")
         self.assertEqual(received[1]["metadata"], {"source": "test"})
+        self.assertEqual(received[2]["type"], "release")
+        self.assertEqual(received[2]["owner_token"], "owner-token-1")
 
     def test_send_command_can_require_tcp_control(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -286,7 +295,7 @@ class BridgeMirrorTests(unittest.TestCase):
 
         def run_server(server):
             owner_token = "owner-token-1"
-            for _ in range(2):
+            for _ in range(3):
                 conn, _addr = server.accept()
                 with conn:
                     data = b""
@@ -301,6 +310,12 @@ class BridgeMirrorTests(unittest.TestCase):
                             "owner_token": owner_token,
                             "state_id": "bridge-protocol-state",
                             "state_seq": 7,
+                        }
+                    elif payload["type"] == "release":
+                        response = {
+                            "ok": True,
+                            "released": payload.get("owner_token") == owner_token,
+                            "owner_id": f"sts-python-ui-{os.getpid()}",
                         }
                     else:
                         response = {
@@ -390,6 +405,9 @@ class BridgeMirrorTests(unittest.TestCase):
 
         self.assertEqual(received[1]["wait_for_state_update"], True)
         self.assertEqual(received[1]["update_timeout_ms"], 3000)
+        self.assertEqual(received[2]["type"], "release")
+        self.assertEqual(received[2]["owner_token"], "owner-token-1")
+        self.assertIsNone(result["release_error"])
         self.assertEqual(result["observed_update"]["state_id"], "bridge-protocol-state-2")
         self.assertEqual(result["observed_update"]["state_seq"], 8)
         observed_status = result["observed_update"]["bridge_status"]

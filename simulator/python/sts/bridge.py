@@ -303,9 +303,17 @@ class BridgeMirror:
         if wait_for_state_update:
             payload["wait_for_state_update"] = True
             payload["update_timeout_ms"] = int(max(0.001, update_timeout_seconds) * 1000)
-        response = _control_request(control, payload, timeout=max(2.0, update_timeout_seconds + 1.0))
-        if not response.get("ok"):
-            raise ValueError(str(response.get("error") or "bridge control command rejected"))
+        owner_token = owner.get("owner_token")
+        release_error = None
+        try:
+            response = _control_request(control, payload, timeout=max(2.0, update_timeout_seconds + 1.0))
+            if not response.get("ok"):
+                raise ValueError(str(response.get("error") or "bridge control command rejected"))
+        finally:
+            try:
+                _release_control_owner(control, owner_token)
+            except Exception as error:
+                release_error = str(error)
         observed_update = response.get("observed_update")
         if isinstance(observed_update, dict):
             observed_update = observed_update.copy()
@@ -326,6 +334,7 @@ class BridgeMirror:
             "accepted_state_seq": response.get("accepted_state_seq"),
             "observed_update": observed_update,
             "owner_id": owner.get("owner_id"),
+            "release_error": release_error,
             "bridge_status": after,
         }
 
@@ -943,6 +952,18 @@ def _acquire_control_owner(control: dict[str, Any]) -> dict[str, Any]:
     if not response.get("owner_token"):
         raise ValueError("bridge control did not return an owner_token")
     return response
+
+
+def _release_control_owner(control: dict[str, Any], owner_token: Any) -> dict[str, Any]:
+    if not owner_token:
+        return {"ok": False, "released": False, "error": "missing owner_token"}
+    return _control_request(
+        control,
+        {
+            "type": "release",
+            "owner_token": owner_token,
+        },
+    )
 
 
 def _first(*values: dict[str, Any], key: str) -> Any:
