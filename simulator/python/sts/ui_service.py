@@ -1274,6 +1274,7 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
     trace_validation = (
         report.get("trace_validation") if isinstance(report.get("trace_validation"), dict) else None
     )
+    history_tail = report.get("history_tail") if isinstance(report.get("history_tail"), list) else []
     return {
         "ok": bool(report.get("ok")),
         "report_path": str(report_path),
@@ -1293,6 +1294,8 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
             "stop_reason": trace_validation.get("stop_reason"),
             "steps": trace_validation.get("steps"),
             "final_phase": trace_validation.get("final_phase"),
+            "command_accepts": trace_validation.get("command_accepts", 0),
+            "command_observed_timeouts": trace_validation.get("command_observed_timeouts", 0),
             "blocker_reason": (trace_validation.get("blocker") or {}).get("reason")
             if isinstance(trace_validation.get("blocker"), dict)
             else None,
@@ -1324,6 +1327,7 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
         "history_tail_count": len(report.get("history_tail") or [])
         if isinstance(report.get("history_tail"), list)
         else 0,
+        "history_tail": history_tail[-5:],
     }
 
 

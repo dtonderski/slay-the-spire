@@ -318,6 +318,8 @@ class UiServiceTests(unittest.TestCase):
                             "verified": False,
                             "stop_reason": "observed_state_diff",
                             "steps": 4,
+                            "command_accepts": 2,
+                            "command_observed_timeouts": 1,
                             "blocker": {
                                 "reason": "observed_state_diff",
                                 "detail": "hp differs",
@@ -355,9 +357,12 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["blocker"]["reason"], "bridge_preflight")
         self.assertFalse(result["trace_validation"]["verified"])
         self.assertEqual(result["trace_validation"]["stop_reason"], "observed_state_diff")
+        self.assertEqual(result["trace_validation"]["command_accepts"], 2)
+        self.assertEqual(result["trace_validation"]["command_observed_timeouts"], 1)
         self.assertEqual(result["trace_validation"]["blocker_reason"], "observed_state_diff")
         self.assertEqual(result["trace_validation"]["blocker_detail"], "hp differs")
         self.assertEqual(result["history_tail_count"], 1)
+        self.assertEqual(result["history_tail"], [{"event": "preflight"}])
 
     def test_start_guided_live_run_sends_script_start_with_provenance(self):
         collector = GuidedCollector()

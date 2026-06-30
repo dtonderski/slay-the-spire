@@ -1578,6 +1578,7 @@
         ["Result", report.ok ? "OK" : "Blocked"],
         ["Stop", firstDefined(report.stop_reason, "-")],
         ["Trace replay", validationText(traceValidation)],
+        ["Protocol", protocolTraceText(traceValidation)],
         ["Producer", firstDefined(report.producer, "-")],
         ["Generated", dateText(report.generated_at)],
         ["Run", firstDefined(report.run_id, "-")],
@@ -1618,6 +1619,28 @@
       )}`;
       el.collectorReportPanel.appendChild(msg);
     }
+
+    const history = arrayOf(report.history_tail);
+    if (history.length) {
+      el.collectorReportPanel.append(
+        statBlock("Recent Collector Events", history.map((entry) => [
+          firstDefined(entry.event, entry.status, entry.suggestion_status, "event"),
+          compactHistoryText(entry),
+        ])),
+      );
+    }
+  }
+
+  function compactHistoryText(entry) {
+    if (!entry || typeof entry !== "object") return entry;
+    const blocker = entry.blocker && typeof entry.blocker === "object" ? entry.blocker : null;
+    const parts = [
+      firstDefined(entry.reason, blocker && blocker.reason, null),
+      firstDefined(entry.detail, blocker && blocker.detail, null),
+      firstDefined(entry.category, entry.floor === undefined ? null : `floor ${entry.floor}`, null),
+      firstDefined(entry.command, null),
+    ].filter((part) => part !== null && part !== undefined && part !== "");
+    return parts.length ? parts.join(" / ") : entry;
   }
 
   function selectionText(selection) {
@@ -1628,6 +1651,13 @@
       : "";
     const skipped = selection.skipped_unsupported_count ? `, skipped ${selection.skipped_unsupported_count}` : "";
     return `${mode}${considered}${skipped}`;
+  }
+
+  function protocolTraceText(validation) {
+    if (!validation) return "-";
+    const accepts = firstDefined(validation.command_accepts, 0);
+    const timeouts = firstDefined(validation.command_observed_timeouts, 0);
+    return `${accepts} accepted / ${timeouts} timed out`;
   }
 
   function validationText(validation) {
