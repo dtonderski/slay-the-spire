@@ -373,7 +373,7 @@ fn lagavulin_fixture_has_expected_hp_and_sleep_intent() {
 }
 
 #[test]
-fn lagavulin_sleeps_three_turns_then_siphons_and_attacks() {
+fn lagavulin_sleeps_three_turns_then_attacks_twice_and_siphons() {
     let mut state = CombatState::lagavulin_fixture();
     state.player.hp = 100;
     state.player.powers.strength = 3;
@@ -393,23 +393,30 @@ fn lagavulin_sleeps_three_turns_then_siphons_and_attacks() {
     assert_eq!(after_sleep_three.monsters[0].sleep_turns_remaining, 0);
     assert_eq!(
         after_sleep_three.monsters[0].intent,
-        MonsterIntent::SiphonPlayer {
-            strength: 2,
-            dexterity: 2,
-        }
-    );
-
-    let after_siphon = end_player_turn(&after_sleep_three);
-    assert_eq!(after_siphon.player.hp, 100);
-    assert_eq!(after_siphon.player.powers.strength, 1);
-    assert_eq!(after_siphon.player.powers.dexterity, 0);
-    assert_eq!(
-        after_siphon.monsters[0].intent,
         MonsterIntent::Attack { damage: 18 }
     );
 
-    let after_attack = end_player_turn(&after_siphon);
-    assert_eq!(after_attack.player.hp, 82);
+    let after_attack_one = end_player_turn(&after_sleep_three);
+    assert_eq!(after_attack_one.player.hp, 82);
+    assert_eq!(
+        after_attack_one.monsters[0].intent,
+        MonsterIntent::Attack { damage: 18 }
+    );
+
+    let after_attack_two = end_player_turn(&after_attack_one);
+    assert_eq!(after_attack_two.player.hp, 64);
+    assert_eq!(
+        after_attack_two.monsters[0].intent,
+        MonsterIntent::SiphonPlayer {
+            strength: 1,
+            dexterity: 1,
+        }
+    );
+
+    let after_siphon = end_player_turn(&after_attack_two);
+    assert_eq!(after_siphon.player.hp, 64);
+    assert_eq!(after_siphon.player.powers.strength, 2);
+    assert_eq!(after_siphon.player.powers.dexterity, 1);
 }
 
 #[test]

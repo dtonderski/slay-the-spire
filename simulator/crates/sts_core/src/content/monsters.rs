@@ -4722,7 +4722,7 @@ fn hexaghost_intent(moves_executed: u32) -> MonsterIntent {
 fn lagavulin_intent(sleep_turns_remaining: u32, moves_executed: u32) -> MonsterIntent {
     if sleep_turns_remaining > 0 {
         MonsterIntent::Sleep
-    } else if moves_executed % 3 == 1 {
+    } else if moves_executed % 3 == 2 {
         MonsterIntent::SiphonPlayer {
             strength: LAGAVULIN_SIPHON_STRENGTH,
             dexterity: LAGAVULIN_SIPHON_DEXTERITY,
@@ -5306,8 +5306,14 @@ pub fn apply_monster_intent_with_card_rng(
     if monster.content_id == GUARDIAN_ID && monster.in_defensive_mode {
         finish_guardian_defensive_turn(monster);
     }
-    monster.moves_executed += 1;
+    if !lagavulin_sleep_or_stun(monster.content_id, monster.intent) {
+        monster.moves_executed += 1;
+    }
     damage
+}
+
+fn lagavulin_sleep_or_stun(content_id: ContentId, intent: MonsterIntent) -> bool {
+    content_id == LAGAVULIN_ID && matches!(intent, MonsterIntent::Sleep | MonsterIntent::Stun)
 }
 
 pub fn release_stasis_card_on_death(monster: &mut MonsterState, piles: &mut CardPiles) {
@@ -8665,28 +8671,28 @@ mod tests {
     }
 
     #[test]
-    fn lagavulin_intent_progresses_sleep_siphon_attack() {
+    fn lagavulin_intent_progresses_sleep_attack_attack_siphon() {
         let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
         assert_eq!(monster.intent, MonsterIntent::Sleep);
 
         monster.sleep_turns_remaining = 0;
+        monster.moves_executed = 0;
+        assert_eq!(
+            prepare_monster_intent(&monster),
+            MonsterIntent::Attack {
+                damage: LAGAVULIN_ATTACK_DAMAGE
+            }
+        );
+
+        monster.moves_executed = 1;
+        assert_eq!(
+            prepare_monster_intent(&monster),
+            MonsterIntent::Attack {
+                damage: LAGAVULIN_ATTACK_DAMAGE
+            }
+        );
+
         monster.moves_executed = 2;
-        assert_eq!(
-            prepare_monster_intent(&monster),
-            MonsterIntent::Attack {
-                damage: LAGAVULIN_ATTACK_DAMAGE
-            }
-        );
-
-        monster.moves_executed = 3;
-        assert_eq!(
-            prepare_monster_intent(&monster),
-            MonsterIntent::Attack {
-                damage: LAGAVULIN_ATTACK_DAMAGE
-            }
-        );
-
-        monster.moves_executed = 4;
         assert_eq!(
             prepare_monster_intent(&monster),
             MonsterIntent::SiphonPlayer {
@@ -8703,6 +8709,20 @@ mod tests {
 
         assert_eq!(apply_intent(&mut monster), 0);
         assert_eq!(monster.sleep_turns_remaining, 2);
+    }
+
+    #[test]
+    fn lagavulin_sleep_and_stun_do_not_advance_attack_debuff_cycle() {
+        let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
+        assert_eq!(monster.moves_executed, 0);
+
+        monster.intent = MonsterIntent::Sleep;
+        assert_eq!(apply_intent(&mut monster), 0);
+        assert_eq!(monster.moves_executed, 0);
+
+        monster.intent = MonsterIntent::Stun;
+        assert_eq!(apply_intent(&mut monster), 0);
+        assert_eq!(monster.moves_executed, 0);
     }
 
     #[test]
@@ -8736,7 +8756,7 @@ mod tests {
     }
 
     #[test]
-    fn lagavulin_wake_on_damage_clears_sleep_and_sets_siphon_intent() {
+    fn lagavulin_wake_on_damage_clears_sleep_and_sets_stun_intent() {
         let mut monster = monster_state(&LAGAVULIN_A0, MonsterId::new(1));
         monster.block = 8;
         monster.powers.metallicize = 8;
@@ -8748,7 +8768,6 @@ mod tests {
         assert_eq!(monster.powers.metallicize, 0);
         assert_eq!(monster.intent, MonsterIntent::Stun);
         assert!(!monster.has_siphoned);
-        monster.moves_executed = 2;
         assert_eq!(
             prepare_monster_intent(&monster),
             MonsterIntent::Attack {
