@@ -44,6 +44,7 @@
     slaythedataCandidates: [],
     slaythedataSelectedRunId: "",
     slaythedataStatus: null,
+    slaythedataSelectionAudit: null,
     slaythedataLastError: null,
     attachFidelity: null,
     strictReplayBlocker: null,
@@ -118,6 +119,7 @@
       "collectorPayloadInput",
       "slaythedataCandidateSelect",
       "findSlaythedataRunsButton",
+      "auditSlaythedataRunButton",
       "loadSlaythedataRunButton",
       "startCollectorButton",
       "startGuidedLiveRunButton",
@@ -183,6 +185,7 @@
     el.startGuidedAutoRunButton.addEventListener("click", () => startGuidedLiveRun({ armAuto: true }));
     el.collectorReportPanel.addEventListener("dblclick", () => refreshCollectorReport().catch(showError));
     el.findSlaythedataRunsButton.addEventListener("click", findSlaythedataRuns);
+    el.auditSlaythedataRunButton.addEventListener("click", auditSlaythedataSelection);
     el.loadSlaythedataRunButton.addEventListener("click", loadSelectedSlaythedataRun);
     el.slaythedataCandidateSelect.addEventListener("change", () => {
       app.slaythedataSelectedRunId = el.slaythedataCandidateSelect.value;
@@ -727,6 +730,7 @@
       app.slaythedataSelectedRunId = app.slaythedataCandidates.length
         ? String(app.slaythedataCandidates[0].id)
         : "";
+      app.slaythedataSelectionAudit = null;
       applySelectedSlaythedataRunToStartControls();
       app.slaythedataLastError = null;
       renderCollectorPicker();
@@ -748,6 +752,31 @@
       applyGuidedRunStartControls(app.collector && app.collector.config);
       app.collectorLastError = null;
       app.slaythedataLastError = null;
+    });
+  }
+
+  async function auditSlaythedataSelection() {
+    const selectedRunId = app.slaythedataSelectedRunId || (el.slaythedataCandidateSelect && el.slaythedataCandidateSelect.value);
+    const body = {
+      character: (el.startCharacterSelect && el.startCharacterSelect.value || "IRONCLAD").trim().toUpperCase(),
+      ascension: boundedInteger(el.startAscensionInput && el.startAscensionInput.value, 0, 0, 20),
+      min_floor: 45,
+      max_floor: 55,
+    };
+    if (selectedRunId) body.run_id = Number(selectedRunId);
+    await singleFlight("Auditing SlayTheData selection", async () => {
+      app.slaythedataSelectionAudit = await requestJson("/api/slaythedata/select-audit", {
+        method: "POST",
+        body,
+      });
+      const selected = app.slaythedataSelectionAudit && app.slaythedataSelectionAudit.run_id;
+      if (selected !== null && selected !== undefined) {
+        app.slaythedataSelectedRunId = String(selected);
+        renderCollectorPicker();
+        applySelectedSlaythedataRunToStartControls();
+      }
+      app.slaythedataLastError = null;
+      renderCollector();
     });
   }
 
@@ -1463,6 +1492,7 @@
     renderCollectorPicker();
     el.startCollectorButton.disabled = app.inFlight;
     el.findSlaythedataRunsButton.disabled = app.inFlight;
+    el.auditSlaythedataRunButton.disabled = app.inFlight;
     el.loadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
     el.startGuidedLiveRunButton.disabled = !!guidedStartBlocker;
     el.startGuidedAutoRunButton.disabled = !!guidedStartBlocker || app.collectorAutoRun;
@@ -1477,6 +1507,7 @@
     el.sendCollectorButton.title = canTick ? "Send one safe guided action." : "Collector cannot send right now.";
     el.autoCollectorButton.title = canTick ? "Keep sending safe guided actions until blocked." : "Collector cannot auto-run right now.";
     el.pauseCollectorButton.title = app.collectorAutoRun ? "Pause guided auto-collection." : "Auto-collection is not running.";
+    el.auditSlaythedataRunButton.title = "Export and audit the selected run, or auto-select the first support-clean run without touching the live bridge.";
 
     clear(el.collectorStatusPanel);
     if (app.collectorLastError) {
@@ -1493,6 +1524,7 @@
       el.collectorStatusPanel.appendChild(msg);
     }
     renderSlaythedataStatus();
+    renderSlaythedataSelectionAudit();
     renderCollectorPreflight(preflight);
     if (!active) {
       if (!el.collectorStatusPanel.childNodes.length) {
@@ -1754,16 +1786,45 @@
     el.collectorStatusPanel.appendChild(msg);
   }
 
+  function renderSlaythedataSelectionAudit() {
+    const audit = app.slaythedataSelectionAudit;
+    if (!audit) return;
+    const blockers = arrayOf(audit.support_blockers);
+    const selection = audit.selection || {};
+    el.collectorStatusPanel.append(
+      statBlock("Selection Audit", [
+        ["Result", audit.ok ? "Support-clean" : "Blocked"],
+        ["Run", firstDefined(audit.run_id, "-")],
+        ["Seed", firstDefined(audit.seed, "-")],
+        ["Selection", selectionText(selection)],
+        ["Skipped", firstDefined(selection.skipped_unsupported_count, arrayOf(selection.skipped_unsupported).length, 0)],
+      ]),
+    );
+    if (blockers.length) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = `Script blockers: ${blockers.map(blockerText).join("; ")}`;
+      el.collectorStatusPanel.appendChild(msg);
+    }
+    const skipped = arrayOf(selection.skipped_unsupported);
+    if (skipped.length) {
+      const msg = document.createElement("div");
+      msg.className = "message info";
+      msg.textContent = `Skipped unsupported: ${skipped.slice(0, 3).map(skippedCandidateText).join("; ")}`;
+      el.collectorStatusPanel.appendChild(msg);
+    }
+  }
+
   function renderCollectorPicker() {
     if (!el.slaythedataCandidateSelect) return;
     const selected = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value || "";
     clear(el.slaythedataCandidateSelect);
     if (!app.slaythedataCandidates.length) {
       const option = document.createElement("option");
-      option.value = "";
-      option.textContent = "No SlayTheData runs loaded";
+      option.value = selected || "";
+      option.textContent = selected ? `#${selected} audited selection` : "No SlayTheData runs loaded";
       el.slaythedataCandidateSelect.appendChild(option);
-      app.slaythedataSelectedRunId = "";
+      app.slaythedataSelectedRunId = selected || "";
       return;
     }
     for (const candidate of app.slaythedataCandidates) {
@@ -1773,7 +1834,17 @@
       el.slaythedataCandidateSelect.appendChild(option);
     }
     const hasSelected = app.slaythedataCandidates.some((candidate) => String(candidate.id) === String(selected));
-    app.slaythedataSelectedRunId = hasSelected ? String(selected) : String(app.slaythedataCandidates[0].id);
+    if (!hasSelected && selected) {
+      const option = document.createElement("option");
+      option.value = String(selected);
+      option.textContent = `#${selected} audited selection`;
+      el.slaythedataCandidateSelect.appendChild(option);
+    }
+    app.slaythedataSelectedRunId = hasSelected
+      ? String(selected)
+      : selected
+        ? String(selected)
+        : String(app.slaythedataCandidates[0].id);
     el.slaythedataCandidateSelect.value = app.slaythedataSelectedRunId;
   }
 

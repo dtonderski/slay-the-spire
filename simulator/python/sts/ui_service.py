@@ -14,6 +14,7 @@ from sts import omni
 from sts.bridge import BridgeMirror, command_for_descriptor
 from sts.bridge_audit import preflight_with_client_audit
 from sts.guided_collector import GuidedCollector
+from sts.guided_selection import GuidedSelectionConfig, select_run_audit_report
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
@@ -692,6 +693,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "slaythedata", "export"]:
                 self._send_json(_slaythedata_export_from_payload(payload))
+                return
+            if parts == ["api", "slaythedata", "select-audit"]:
+                self._send_json(_slaythedata_select_audit_from_payload(payload))
                 return
             if parts == ["api", "collector", "start"]:
                 self._send_json(self.collector.start(_collector_start_payload(payload)))
@@ -1409,6 +1413,21 @@ def _slaythedata_export_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if run_id is None:
         raise ValueError("run_id is required")
     return {"script": export_guided_run_script(int(run_id))}
+
+
+def _slaythedata_select_audit_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return select_run_audit_report(
+        GuidedSelectionConfig(
+            run_id=int(payload["run_id"]) if payload.get("run_id") is not None else None,
+            character=str(payload.get("character") or "IRONCLAD").upper(),
+            ascension=int(payload.get("ascension", 0)),
+            min_floor=int(payload.get("min_floor", 45)),
+            max_floor=int(payload["max_floor"]) if payload.get("max_floor") is not None else 55,
+            min_potion_usage=int(payload["min_potion_usage"])
+            if payload.get("min_potion_usage") is not None
+            else None,
+        )
+    )
 
 
 def _looks_like_communication_mod_state(value: dict[str, Any]) -> bool:

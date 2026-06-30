@@ -139,7 +139,7 @@ class GuidedCollectTests(unittest.TestCase):
             return ticks.pop(0)
 
         with patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
         ), patch(
             "sts.guided_collect._tick_live_collector",
@@ -176,7 +176,7 @@ class GuidedCollectTests(unittest.TestCase):
         ]
 
         with patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
         ), patch(
             "sts.guided_collect._tick_live_collector",
@@ -209,7 +209,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
         )
 
-        with patch("sts.guided_collect.export_guided_run_script") as export, patch(
+        with patch("sts.guided_selection.export_guided_run_script") as export, patch(
             "sts.guided_collect._validate_trace",
             return_value={"verified": True, "stop_reason": "trace_exhausted", "steps": 107},
         ) as validate_trace:
@@ -248,7 +248,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
         )
 
-        with patch("sts.guided_collect.export_guided_run_script") as export, patch(
+        with patch("sts.guided_selection.export_guided_run_script") as export, patch(
             "sts.guided_collect._validate_trace",
             return_value={"verified": True, "stop_reason": "trace_exhausted", "steps": 107},
         ):
@@ -275,7 +275,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
         )
 
-        with patch("sts.guided_collect.export_guided_run_script") as export:
+        with patch("sts.guided_selection.export_guided_run_script") as export:
             report = collect_one_run(
                 GuidedCollectConfig(run_id=123),
                 bridge=bridge,
@@ -291,7 +291,7 @@ class GuidedCollectTests(unittest.TestCase):
     def test_collect_one_run_reports_selection_failure(self):
         bridge = FakeBridge()
 
-        with patch("sts.guided_collect.select_guided_collection_candidates", side_effect=RuntimeError("db locked")):
+        with patch("sts.guided_selection.select_guided_collection_candidates", side_effect=RuntimeError("db locked")):
             report = collect_one_run(
                 GuidedCollectConfig(run_id=None),
                 bridge=bridge,
@@ -317,7 +317,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
         }
 
-        with patch("sts.guided_collect.export_guided_run_script", return_value=script):
+        with patch("sts.guided_selection.export_guided_run_script", return_value=script):
             report = collect_one_run(
                 GuidedCollectConfig(run_id=321),
                 bridge=bridge,
@@ -346,7 +346,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
         }
 
-        with patch("sts.guided_collect.export_guided_run_script", return_value=script), patch(
+        with patch("sts.guided_selection.export_guided_run_script", return_value=script), patch(
             "sts.guided_collect._start_guided_live_run",
             side_effect=RuntimeError("START rejected"),
         ):
@@ -378,7 +378,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
         }
 
-        with patch("sts.guided_collect.export_guided_run_script", return_value=script), patch(
+        with patch("sts.guided_selection.export_guided_run_script", return_value=script), patch(
             "sts.guided_collect._tick_live_collector",
             side_effect=RuntimeError("prediction mismatch"),
         ):
@@ -427,10 +427,10 @@ class GuidedCollectTests(unittest.TestCase):
         ]
 
         with patch(
-            "sts.guided_collect.select_guided_collection_candidates",
+            "sts.guided_selection.select_guided_collection_candidates",
             return_value=[{"id": 11}, {"id": 22}],
         ), patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             side_effect=[unsupported, supported],
         ) as export, patch(
             "sts.guided_collect._tick_live_collector",
@@ -480,10 +480,10 @@ class GuidedCollectTests(unittest.TestCase):
         }
 
         with patch(
-            "sts.guided_collect.select_guided_collection_candidates",
+            "sts.guided_selection.select_guided_collection_candidates",
             return_value=[{"id": 11}, {"id": 22}],
         ), patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             side_effect=[unsupported, supported],
         ):
             report = select_run_audit_report(GuidedCollectConfig(run_id=None), started_at=0)
@@ -507,7 +507,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
         }
 
-        with patch("sts.guided_collect.export_guided_run_script", return_value=script):
+        with patch("sts.guided_selection.export_guided_run_script", return_value=script):
             report = select_run_audit_report(GuidedCollectConfig(run_id=321), started_at=0)
 
         self.assertFalse(report["ok"])
@@ -521,10 +521,10 @@ class GuidedCollectTests(unittest.TestCase):
         bridge = FakeBridge()
 
         with patch(
-            "sts.guided_collect.select_guided_collection_candidates",
+            "sts.guided_selection.select_guided_collection_candidates",
             return_value=[{"id": 22}],
         ) as select, patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             return_value={
                 "config": {
                     "character": "IRONCLAD",
@@ -580,7 +580,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
 
         with patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
         ) as export, patch(
             "sts.guided_collect._tick_live_collector",
@@ -616,7 +616,7 @@ class GuidedCollectTests(unittest.TestCase):
             }
 
         with patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
         ), patch(
             "sts.guided_collect._tick_live_collector",
@@ -637,7 +637,7 @@ class GuidedCollectTests(unittest.TestCase):
         bridge = TerminalBridge()
 
         with patch(
-            "sts.guided_collect.export_guided_run_script",
+            "sts.guided_selection.export_guided_run_script",
             return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
         ), patch(
             "sts.guided_collect._tick_live_collector",
