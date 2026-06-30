@@ -83,6 +83,21 @@ class BridgeMirrorTests(unittest.TestCase):
                 {"source": "guided_collector", "collector_id": "collector-1"},
             )
 
+    def test_preflight_reports_orphan_command_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting", "step": 1}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["state"], "step": 1}),
+                encoding="utf-8",
+            )
+            (root / "next_command.json").write_text(json.dumps({"command_id": "orphan"}), encoding="utf-8")
+
+            result = BridgeMirror(root, stale_after_seconds=9999).preflight()
+
+            self.assertFalse(result["ok"])
+            self.assertIn("next_command.json exists without next_command.txt", result["problems"])
+
     def test_send_command_rejects_stale_bridge_source_without_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1317,7 +1317,9 @@
     const active = app.collector && app.collector.active;
     const status = app.collector && app.collector.status || "idle";
     const suggestion = app.collector && app.collector.last_suggestion || app.collector && app.collector.suggestion;
-    const canTick = active && !app.inFlight && !app.liveInvariantViolation && !bridgeIdentityWarningText();
+    const preflight = app.collector && app.collector.preflight;
+    const preflightProblems = arrayOf(preflight && preflight.problems);
+    const canTick = active && !app.inFlight && !app.liveInvariantViolation && !bridgeIdentityWarningText() && preflightProblems.length === 0;
     renderCollectorPicker();
     el.startCollectorButton.disabled = app.inFlight;
     el.findSlaythedataRunsButton.disabled = app.inFlight;
@@ -1361,6 +1363,7 @@
         ["History", firstDefined(app.collector.history_count, 0)],
       ]),
     );
+    renderCollectorPreflight(preflight);
     if (suggestion) {
       el.collectorStatusPanel.append(
         statBlock("Next", [
@@ -1386,6 +1389,28 @@
       msg.textContent = firstDefined(app.collector.blocker.detail, app.collector.blocker.reason, "Collector blocked.");
       el.collectorStatusPanel.appendChild(msg);
     }
+  }
+
+  function renderCollectorPreflight(preflight) {
+    if (!preflight) return;
+    const problems = arrayOf(preflight.problems);
+    const warnings = arrayOf(preflight.warnings);
+    if (!problems.length && !warnings.length) return;
+    const wrap = document.createElement("div");
+    wrap.className = "collector-preflight";
+    if (problems.length) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = `Preflight: ${problems.join("; ")}`;
+      wrap.appendChild(msg);
+    }
+    if (warnings.length) {
+      const msg = document.createElement("div");
+      msg.className = "message info";
+      msg.textContent = `Preflight warning: ${warnings.join("; ")}`;
+      wrap.appendChild(msg);
+    }
+    el.collectorStatusPanel.appendChild(wrap);
   }
 
   function renderCollectorPicker() {

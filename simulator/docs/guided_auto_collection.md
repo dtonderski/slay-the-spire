@@ -100,6 +100,8 @@ The collector can now:
 - route `/api/collector/tick` live combat and non-combat sends through
   `BridgeMirror.send_command`, preserving the same source-state guard and
   provenance path used by manual UI sends
+- expose bridge preflight status in the guided collector panel and disable
+  collector sends while hard preflight problems are present
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot

@@ -7,6 +7,7 @@ from sts.ui_service import (
     SessionManager,
     _bridge_action_for_exact_action,
     _collector_start_payload,
+    _collector_status_with_preflight,
     _guided_script_from_payload,
     _observed_state_from_bridge_status,
     _slaythedata_candidates_from_query,
@@ -129,6 +130,9 @@ class FakeBridge:
     def status(self):
         return self._status
 
+    def preflight(self):
+        return {"ok": False, "problems": ["not ready"], "warnings": []}
+
     def send_command(self, command, **kwargs):
         self.sent.append((command, kwargs))
         return {"ok": True, "command_id": "cmd-guided", "command": command}
@@ -186,6 +190,12 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result, {"script": {"schema": 1}})
         export.assert_called_once_with(123)
+
+    def test_collector_status_includes_bridge_preflight(self):
+        bridge = FakeBridge({"connected": True})
+        result = _collector_status_with_preflight(GuidedCollector(), bridge)
+
+        self.assertEqual(result["preflight"]["problems"], ["not ready"])
 
     def test_slaythedata_candidates_query_uses_filters(self):
         with patch(
