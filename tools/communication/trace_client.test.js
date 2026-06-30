@@ -42,10 +42,14 @@ function readJsonLines(filePath) {
     .map((line) => JSON.parse(line));
 }
 
-function controlRequest(port, payload) {
+function controlRequest(port, payload, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: "127.0.0.1", port });
     let buffer = "";
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("timed out waiting for control response"));
+    }, timeoutMs);
     socket.setEncoding("utf8");
     socket.on("connect", () => {
       socket.write(`${JSON.stringify(payload)}\n`);
@@ -55,6 +59,7 @@ function controlRequest(port, payload) {
       const lineEnd = buffer.indexOf("\n");
       if (lineEnd >= 0) {
         const line = buffer.slice(0, lineEnd);
+        clearTimeout(timer);
         socket.end();
         try {
           resolve(JSON.parse(line));
@@ -63,7 +68,10 @@ function controlRequest(port, payload) {
         }
       }
     });
-    socket.on("error", reject);
+    socket.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
   });
 }
 
@@ -153,6 +161,7 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       TRACE_SESSION_DIR: sessionDir,
       TRACE_OUT_DIR: outDir,
       TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "50",
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -217,19 +226,35 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(stale.ok, false);
     assert.match(stale.error, /expected_state_id/);
 
-    const accepted = await controlRequest(port, {
+    const acceptedPromise = controlRequest(port, {
       type: "command",
       command: "CHOOSE 0",
       expected_state_id: liveState.state_id,
       expected_state_seq: liveState.state_seq,
       owner_token: acquired.owner_token,
       metadata: { source: "tcp-test" },
+      wait_for_state_update: true,
+      update_timeout_ms: 3000,
     });
+    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["state"],
+      game_state: {
+        screen_type: "EVENT",
+        floor: 2,
+        choice_list: [],
+      },
+    })}\n`);
+    const accepted = await acceptedPromise;
     assert.strictEqual(accepted.ok, true);
     assert.strictEqual(accepted.accepted_state_id, liveState.state_id);
     assert.strictEqual(accepted.accepted_state_seq, liveState.state_seq);
+    assert.strictEqual(accepted.observed_update.ok, true);
+    assert.notStrictEqual(accepted.observed_update.state_id, liveState.state_id);
+    assert.ok(accepted.observed_update.state_seq > liveState.state_seq);
 
-    await waitFor(() => stdout.includes("CHOOSE 0\n"));
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
 

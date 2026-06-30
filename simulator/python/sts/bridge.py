@@ -199,6 +199,8 @@ class BridgeMirror:
         source_state_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         require_tcp_control: bool = False,
+        wait_for_state_update: bool = False,
+        update_timeout_seconds: float = 5.0,
     ) -> dict[str, Any]:
         command = command.strip()
         if not command:
@@ -241,6 +243,8 @@ class BridgeMirror:
                 else None,
                 metadata=metadata,
                 now=now,
+                wait_for_state_update=wait_for_state_update,
+                update_timeout_seconds=update_timeout_seconds,
             )
         if require_tcp_control:
             raise ValueError("TCP bridge control is required for this command")
@@ -278,6 +282,8 @@ class BridgeMirror:
         source_state_seq: Any,
         metadata: dict[str, Any] | None,
         now: float | None,
+        wait_for_state_update: bool,
+        update_timeout_seconds: float,
     ) -> dict[str, Any]:
         command_id = uuid4().hex
         owner = _acquire_control_owner(control)
@@ -292,7 +298,10 @@ class BridgeMirror:
             payload["expected_state_seq"] = source_state_seq
         if metadata is not None:
             payload["metadata"] = metadata
-        response = _control_request(control, payload)
+        if wait_for_state_update:
+            payload["wait_for_state_update"] = True
+            payload["update_timeout_ms"] = int(max(0.001, update_timeout_seconds) * 1000)
+        response = _control_request(control, payload, timeout=max(2.0, update_timeout_seconds + 1.0))
         if not response.get("ok"):
             raise ValueError(str(response.get("error") or "bridge control command rejected"))
         after = self.status(now=now)
@@ -303,6 +312,7 @@ class BridgeMirror:
             "command": response.get("command") or command,
             "accepted_state_id": response.get("accepted_state_id"),
             "accepted_state_seq": response.get("accepted_state_seq"),
+            "observed_update": response.get("observed_update"),
             "owner_id": owner.get("owner_id"),
             "bridge_status": after,
         }

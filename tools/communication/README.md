@@ -23,14 +23,21 @@ Messages are newline-delimited JSON objects:
 - `{ "type": "state" }` returns the latest state, summary, trace path, step,
   and bridge-advertised `state_id`.
 - `{ "type": "command", "command": "CHOOSE 0", "expected_state_id": "...",
-  "metadata": { ... } }` enqueues one command only if the latest state id still
-  matches, the bridge is ready, and the command verb is currently available.
+  "expected_state_seq": 7, "owner_token": "...", "metadata": { ... } }`
+  enqueues one command only if the latest state id/seq still matches, the
+  bridge is ready, the active controller owns the socket, and the command verb
+  is currently available.
+- Add `"wait_for_state_update": true` to a command to keep the TCP response open
+  until the next observed game state arrives, or until `"update_timeout_ms"`
+  elapses. The response still records the accepted state, plus an
+  `observed_update` object when the bridge saw the post-command state.
 
 `BridgeMirror.send_command(...)` prefers this socket when advertised and falls
 back to `next_command.txt` for older bridge clients. The legacy session files
 remain the read model and compatibility fallback; the socket is the preferred
-write path because it gives immediate accepted/rejected acknowledgements and
-does not rely on file polling for command submission.
+write path because it gives accepted/rejected acknowledgements, can wait for
+post-command state updates, and does not rely on file polling for command
+submission.
 
 ## Manual Control
 
