@@ -113,6 +113,8 @@ pub struct DiscardSelectState {
     #[serde(default)]
     pub purpose: DiscardSelectPurpose,
     pub source_card_id: Option<CardId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_card: Option<CardInstance>,
     pub selected_discard_index: Option<usize>,
 }
 

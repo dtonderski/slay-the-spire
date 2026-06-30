@@ -9,7 +9,7 @@ use crate::{
         hand_select_ui_to_hand_index, open_discard_select, open_exhaust_select, player_draw_cards,
         top_draw_card_definition,
     },
-    combat::{CombatPhase, CombatState, ExhaustSelectPurpose},
+    combat::{CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose},
     content::cards::{get_card_definition, upgrade_content_id},
     content::shop_pool::{
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_generations,
@@ -278,7 +278,15 @@ pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<Ru
     validate_discard_select_choice(run, index)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
+    let purpose = combat
+        .discard_select
+        .as_ref()
+        .map(|select| select.purpose)
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
     choose_discard_select(combat, index)?;
+    if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
+        confirm_discard_select(combat)?;
+    }
     Ok(next)
 }
 
@@ -744,8 +752,8 @@ mod tests {
     use crate::{
         action::CombatAction,
         content::cards::{
-            DAZED_ID, DEFEND_R_ID, DISCOVERY_ID, REAPER_ID, SECRET_TECHNIQUE_ID, SHRUG_IT_OFF_ID,
-            STRIKE_R_ID, WOUND_ID,
+            DAZED_ID, DEFEND_R_ID, DISCOVERY_ID, HEADBUTT_ID, REAPER_ID, SECRET_TECHNIQUE_ID,
+            SHRUG_IT_OFF_ID, STRIKE_R_ID, WOUND_ID,
         },
         map::RoomKind,
         MapNodeId, MonsterId, Relic,
@@ -1546,6 +1554,44 @@ mod tests {
             .expect("returned card");
         assert_eq!(returned.content_id, DEFEND_R_ID);
         assert_eq!(returned.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn headbutt_discard_select_run_choice_confirms_immediately() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand = vec![CardInstance::new(CardId::new(20), HEADBUTT_ID)];
+        combat.piles.draw_pile = vec![CardInstance::new(CardId::new(30), WOUND_ID)];
+        combat.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), DEFEND_R_ID),
+        ];
+
+        let after_play = crate::run::apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("play Headbutt");
+        let after_choose =
+            crate::run::apply_run_action(&after_play, RunAction::ChooseDiscardSelect { index: 0 })
+                .expect("choose discard card");
+
+        let combat = after_choose.combat.expect("combat continues");
+        assert!(combat.discard_select.is_none());
+        assert_eq!(combat.piles.hand.len(), 0);
+        assert_eq!(combat.piles.draw_pile.last().unwrap().content_id, STRIKE_R_ID);
+        assert_eq!(
+            combat
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, HEADBUTT_ID]
+        );
     }
 
     #[test]

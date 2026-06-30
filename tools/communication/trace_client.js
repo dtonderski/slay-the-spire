@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const crypto = require("crypto");
+const net = require("net");
 const path = require("path");
 const readline = require("readline");
 
@@ -17,6 +19,9 @@ const statePath = path.join(sessionDir, "current_state.json");
 const summaryPath = path.join(sessionDir, "summary.json");
 const statusPath = path.join(sessionDir, "status.json");
 const autoStateMs = Number.parseInt(process.env.TRACE_AUTO_STATE_MS ?? "0", 10);
+const controlPort = process.env.TRACE_CONTROL_PORT === undefined
+  ? null
+  : Number.parseInt(process.env.TRACE_CONTROL_PORT, 10);
 let exiting = false;
 
 fs.mkdirSync(outDir, { recursive: true });
@@ -38,6 +43,13 @@ const logStream = fs.createWriteStream(tracePath, { flags: "a" });
 let step = 0;
 let processing = false;
 const pendingLines = [];
+const queuedCommands = [];
+const commandWaiters = [];
+let latestState = null;
+let latestSummary = null;
+let latestStatus = null;
+let controlServer = null;
+let controlAddress = null;
 
 function writeRecord(record) {
   logStream.write(`${JSON.stringify(record)}\n`);
@@ -45,6 +57,23 @@ function writeRecord(record) {
 
 function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function stateIdFor(message, summary) {
+  const encoded = JSON.stringify({
+    step,
+    message,
+    summary,
+  });
+  return crypto.createHash("sha256").update(encoded).digest("hex").slice(0, 32);
+}
+
+function writeStatus(value) {
+  latestStatus = {
+    ...value,
+    control: controlAddress,
+  };
+  writeJson(statusPath, latestStatus);
 }
 
 function readCommandMeta() {
@@ -59,10 +88,14 @@ function readCommandMeta() {
 function markExit(reason, details = {}) {
   if (exiting) return;
   exiting = true;
+  if (controlServer) {
+    controlServer.close();
+    controlServer = null;
+  }
   const endedAt = new Date().toISOString();
   const record = { type: "metadata", event: "exit", reason, ended_at: endedAt, ...details };
   writeRecord(record);
-  writeJson(statusPath, {
+  writeStatus({
     step,
     status: "exited",
     reason,
@@ -140,19 +173,174 @@ function summarize(message) {
 
 function publishState(message) {
   const summary = summarize(message);
-  writeJson(statePath, {
+  const stateId = stateIdFor(message, summary);
+  latestState = {
     step,
+    state_id: stateId,
     client_pid: clientPid,
+    trace_path: tracePath,
     received_at: new Date().toISOString(),
     message,
+  };
+  latestSummary = {
+    ...summary,
+    state_id: stateId,
+  };
+  writeJson(statePath, {
+    ...latestState,
   });
-  writeJson(summaryPath, summary);
-  return summary;
+  writeJson(summaryPath, latestSummary);
+  return latestSummary;
+}
+
+function enqueueCommand(command, commandMeta) {
+  const item = { command, command_meta: commandMeta ?? null };
+  const waiter = commandWaiters.shift();
+  if (waiter) {
+    waiter(item);
+  } else {
+    queuedCommands.push(item);
+  }
+}
+
+function waitForQueuedCommand(timeoutMs) {
+  if (queuedCommands.length > 0) {
+    return Promise.resolve(queuedCommands.shift());
+  }
+  return new Promise((resolve) => {
+    const timer = timeoutMs > 0
+      ? setTimeout(() => {
+        const index = commandWaiters.indexOf(waiter);
+        if (index >= 0) commandWaiters.splice(index, 1);
+        resolve(null);
+      }, timeoutMs)
+      : null;
+    function waiter(value) {
+      if (timer) clearTimeout(timer);
+      resolve(value);
+    }
+    commandWaiters.push(waiter);
+  });
+}
+
+function currentProtocolState() {
+  return {
+    ok: true,
+    protocol: "sts-bridge-jsonl-v1",
+    client_pid: clientPid,
+    trace_path: tracePath,
+    step,
+    state_id: latestSummary?.state_id ?? null,
+    ready_for_command: latestSummary?.ready_for_command ?? false,
+    available_commands: latestSummary?.available_commands ?? [],
+    pending_command: queuedCommands.length > 0,
+    summary: latestSummary,
+    state: latestState,
+    status: latestStatus,
+  };
+}
+
+function validateProtocolCommand(payload) {
+  const command = String(payload.command ?? "").trim();
+  if (!command) return "command is required";
+  if (command.length > 200) return "command is too long";
+  if (!latestSummary) return "no observed state is available";
+  if (queuedCommands.length > 0) return "a command is already queued";
+  if (payload.expected_state_id && payload.expected_state_id !== latestSummary.state_id) {
+    return "expected_state_id does not match current state";
+  }
+  const verb = command.split(/\s+/)[0].toLowerCase();
+  const available = new Set((latestSummary.available_commands ?? []).map((item) => String(item).toLowerCase()));
+  if (verb !== "state" && latestSummary.ready_for_command !== true) {
+    return "bridge is not ready for a command";
+  }
+  if (verb !== "state" && !available.has(verb)) {
+    return `command "${verb}" is not available`;
+  }
+  return null;
+}
+
+function handleControlMessage(payload) {
+  const type = String(payload.type ?? "");
+  if (type === "hello") {
+    return { ok: true, protocol: "sts-bridge-jsonl-v1", client_pid: clientPid, trace_path: tracePath };
+  }
+  if (type === "state") {
+    return currentProtocolState();
+  }
+  if (type === "command") {
+    const error = validateProtocolCommand(payload);
+    if (error) {
+      return {
+        ok: false,
+        error,
+        state_id: latestSummary?.state_id ?? null,
+        step,
+      };
+    }
+    const commandId = payload.command_id || crypto.randomUUID();
+    const commandMeta = {
+      command_id: commandId,
+      command: String(payload.command).trim(),
+      source_state_id: payload.expected_state_id ?? latestSummary?.state_id ?? null,
+      submitted_at: Date.now() / 1000,
+      protocol: "tcp-jsonl",
+    };
+    if (payload.metadata !== undefined) {
+      commandMeta.metadata = payload.metadata;
+    }
+    enqueueCommand(commandMeta.command, commandMeta);
+    return {
+      ok: true,
+      command_id: commandId,
+      command: commandMeta.command,
+      accepted_state_id: latestSummary?.state_id ?? null,
+      step,
+    };
+  }
+  return { ok: false, error: `unknown control message type "${type}"` };
+}
+
+function startControlServer() {
+  if (controlPort === null) return;
+  if (!Number.isInteger(controlPort) || controlPort < 0 || controlPort > 65535) {
+    throw new Error("TRACE_CONTROL_PORT must be an integer TCP port");
+  }
+  controlServer = net.createServer((socket) => {
+    socket.setEncoding("utf8");
+    let buffer = "";
+    function send(value) {
+      socket.write(`${JSON.stringify(value)}\n`);
+    }
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          send(handleControlMessage(JSON.parse(line)));
+        } catch (error) {
+          send({ ok: false, error: error.message });
+        }
+      }
+    });
+  });
+  controlServer.listen(controlPort, "127.0.0.1", () => {
+    const address = controlServer.address();
+    controlAddress = {
+      host: address.address,
+      port: address.port,
+      protocol: "tcp-jsonl",
+    };
+    if (latestStatus) writeStatus(latestStatus);
+    process.stderr.write(`Control socket: ${controlAddress.host}:${controlAddress.port}\n`);
+  });
 }
 
 async function waitForCommand(message) {
   const summary = publishState(message);
-  writeJson(statusPath, {
+  writeStatus({
     step,
     client_pid: clientPid,
     status: "waiting",
@@ -164,6 +352,9 @@ async function waitForCommand(message) {
 
   const started = Date.now();
   while (true) {
+    const timeoutMs = Math.max(0, Math.min(100, autoStateMs > 0 ? autoStateMs - (Date.now() - started) : 100));
+    const queued = await waitForQueuedCommand(timeoutMs);
+    if (queued) return queued;
     if (fs.existsSync(commandPath)) {
       try {
         const command = fs.readFileSync(commandPath, "utf8").trim();
@@ -228,7 +419,7 @@ async function handleLine(line) {
     actionRecord.command_meta = commandMeta;
   }
   writeRecord(actionRecord);
-  writeJson(statusPath, {
+  writeStatus({
     step,
     client_pid: clientPid,
     status: "sent",
@@ -259,7 +450,7 @@ writeRecord({
   started_at: new Date().toISOString(),
 });
 
-writeJson(statusPath, {
+writeStatus({
   step: 0,
   client_pid: clientPid,
   status: "ready",
@@ -268,6 +459,7 @@ writeJson(statusPath, {
 
 process.stderr.write(`Bridge ready. Trace: ${tracePath}\n`);
 process.stderr.write(`Auto-state polling: ${autoStateMs > 0 ? `${autoStateMs}ms` : "disabled"}\n`);
+startControlServer();
 process.stdout.write("ready\n");
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -281,6 +473,7 @@ rl.on("close", () => {
 
 process.on("exit", () => {
   markExit("process_exit");
+  if (controlServer) controlServer.close();
   logStream.end();
 });
 process.on("uncaughtException", (error) => {

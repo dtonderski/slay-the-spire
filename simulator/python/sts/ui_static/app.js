@@ -359,7 +359,11 @@
   function scheduleAutoPlayPlanStep() {
     window.setTimeout(async () => {
       if (!app.liveAutoPlayPlan || app.livePendingPrediction || app.inFlight) return;
-      const blocker = liveSendBlockedReason();
+      let blocker = liveSendBlockedReason();
+      if (blocker && shouldRefreshAutoPlayRecommendation(blocker)) {
+        const recovered = await refreshLiveSearchForCurrentState();
+        blocker = recovered ? liveSendBlockedReason() : blocker;
+      }
       if (blocker) {
         app.liveAutoPlayPlan = false;
         app.lastError = `Auto-play stopped: ${blocker}`;
@@ -369,6 +373,13 @@
       await sendBestToGame({ autoPlay: true });
       render();
     }, 150);
+  }
+
+  function shouldRefreshAutoPlayRecommendation(blocker) {
+    if (!app.liveAutoPlayPlan || app.livePendingPrediction || app.inFlight) return false;
+    return blocker === "Run search first."
+      || blocker === "Recommendation is for an older bridge state."
+      || blocker === "Recommendation cannot be mapped to a current bridge command.";
   }
 
   async function startSession() {
@@ -398,7 +409,7 @@
     });
   }
 
-  async function runSearch() {
+  async function runSearch(options = {}) {
     if (!app.sessionId || !isCombatSession()) return;
     const maxDepth = Number.parseInt(el.maxDepthInput.value, 10);
     const candidate = el.searchPolicySelect.value;
@@ -420,8 +431,19 @@
       );
       app.search = normalizeSearch(recommendation);
       app.livePendingPlanIndex = null;
-      app.liveAutoPlayPlan = false;
+      if (!options.preserveAutoPlay) {
+        app.liveAutoPlayPlan = false;
+      }
     });
+  }
+
+  async function refreshLiveSearchForCurrentState() {
+    if (liveSearchBlockedReason()) return false;
+    await runSearch({ preserveAutoPlay: true });
+    app.liveSearchBridgeStateId = bridgeStateId();
+    app.liveSendAction = liveBridgeActionForBest();
+    app.livePendingPlanIndex = null;
+    return Boolean(app.search && app.search.bestAction && app.liveSendAction);
   }
 
   async function predictLiveBestAction() {

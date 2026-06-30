@@ -1,5 +1,7 @@
 import json
+import socket
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -47,6 +49,26 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(status["bridge_actions"][0]["source_state_id"], status["state_id"])
         self.assertEqual(status["bridge_lifecycle"]["status"], "ready")
 
+    def test_status_prefers_bridge_advertised_state_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-protocol-state",
+                        "ready_for_command": True,
+                        "available_commands": ["state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "current_state.json").write_text(json.dumps({"step": 4}), encoding="utf-8")
+
+            status = BridgeMirror(root, stale_after_seconds=9999).status()
+
+        self.assertEqual(status["state_id"], "bridge-protocol-state")
+
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -82,6 +104,80 @@ class BridgeMirrorTests(unittest.TestCase):
                 command_meta["metadata"],
                 {"source": "guided_collector", "collector_id": "collector-1"},
             )
+
+    def test_send_command_prefers_tcp_control_when_available(self):
+        received = []
+
+        def run_server(server):
+            conn, _addr = server.accept()
+            with conn:
+                data = b""
+                while b"\n" not in data:
+                    data += conn.recv(4096)
+                payload = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
+                received.append(payload)
+                conn.sendall(
+                    (
+                        json.dumps(
+                            {
+                                "ok": True,
+                                "command_id": payload["command_id"],
+                                "command": payload["command"],
+                                "accepted_state_id": payload["expected_state_id"],
+                            }
+                        )
+                        + "\n"
+                    ).encode("utf-8")
+                )
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            thread = threading.Thread(target=run_server, args=(server,), daemon=True)
+            thread.start()
+
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "status.json").write_text(
+                    json.dumps(
+                        {
+                            "status": "waiting",
+                            "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": port},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (root / "summary.json").write_text(
+                    json.dumps(
+                        {
+                            "state_id": "bridge-protocol-state",
+                            "ready_for_command": True,
+                            "available_commands": ["choose", "state"],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = BridgeMirror(root, stale_after_seconds=9999).send_command(
+                    "CHOOSE 0",
+                    source_state_id="bridge-protocol-state",
+                    metadata={"source": "test"},
+                )
+
+                thread.join(timeout=2)
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["transport"], "tcp-jsonl")
+                self.assertEqual(result["accepted_state_id"], "bridge-protocol-state")
+                self.assertFalse((root / "next_command.txt").exists())
+                self.assertFalse((root / "next_command.json").exists())
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0]["type"], "command")
+        self.assertEqual(received[0]["command"], "CHOOSE 0")
+        self.assertEqual(received[0]["expected_state_id"], "bridge-protocol-state")
+        self.assertEqual(received[0]["metadata"], {"source": "test"})
 
     def test_preflight_reports_orphan_command_metadata(self):
         with tempfile.TemporaryDirectory() as directory:

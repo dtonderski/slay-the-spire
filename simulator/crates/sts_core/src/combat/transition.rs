@@ -696,9 +696,19 @@ fn apply_internal_action(
                 move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
                 return Ok(Vec::new());
             }
+            let source_card = if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
+                Some(remove_card_from_pile(
+                    state,
+                    source_card_id,
+                    CardPile::Hand,
+                )?)
+            } else {
+                None
+            };
             state.discard_select = Some(crate::combat::DiscardSelectState {
                 purpose,
                 source_card_id: Some(source_card_id),
+                source_card,
                 selected_discard_index: None,
             });
             Ok(Vec::new())
@@ -1739,6 +1749,7 @@ pub fn open_discard_select(state: &mut CombatState) -> SimResult<()> {
     state.discard_select = Some(crate::combat::DiscardSelectState {
         purpose: DiscardSelectPurpose::LiquidMemoriesReturnToHand,
         source_card_id: None,
+        source_card: None,
         selected_discard_index: None,
     });
     Ok(())
@@ -1825,7 +1836,12 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
         .ok_or(SimError::IllegalAction("discard select index out of range"))?;
     state.piles.discard_pile.remove(index);
     state.piles.draw_pile.push(card);
-    move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)
+    if let Some(source_card) = discard_select.source_card {
+        state.piles.discard_pile.push(source_card);
+        Ok(())
+    } else {
+        move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)
+    }
 }
 
 pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
@@ -14800,8 +14816,16 @@ mod tests {
                 .map(|select| select.purpose),
             Some(DiscardSelectPurpose::HeadbuttPutOnDraw)
         );
+        assert_eq!(
+            after_play
+                .discard_select
+                .as_ref()
+                .and_then(|select| select.source_card)
+                .map(|card| card.content_id),
+            Some(HEADBUTT_ID)
+        );
         assert_eq!(discard_select_ui_to_discard_index(&after_play, 1), Ok(1));
-        assert_eq!(after_play.piles.hand[0].content_id, HEADBUTT_ID);
+        assert!(after_play.piles.hand.is_empty());
     }
 
     #[test]
