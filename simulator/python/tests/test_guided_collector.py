@@ -16,6 +16,7 @@ def sample_script():
                 "event_choices": [
                     {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
                 ],
+                "boss_relics": [{"picked": "Black Blood", "not_picked": ["Snecko Eye"]}],
                 "potions_floor_usage": [3],
             },
         }
@@ -52,6 +53,22 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_boss_relic_bridge(self):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "boss-relic-bridge-state",
+            "summary": {
+                "floor": 17,
+                "act": 1,
+                "screen_type": "BOSS_RELIC_REWARD",
+                "choices": ["Snecko Eye", "Black Blood", "Tiny House"],
+                "available_commands": ["choose"],
+            },
+        }
+
     def test_suggest_guided_action_matches_visible_event_choice(self):
         result = suggest_guided_action(
             sample_script(),
@@ -61,6 +78,16 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
         self.assertEqual(result["category"], "event")
+
+    def test_suggest_guided_action_matches_boss_relic_choice(self):
+        result = suggest_guided_action(
+            sample_script(),
+            self.ready_boss_relic_bridge(),
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "boss_relic")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
 
     def test_send_guided_suggestion_sends_matching_descriptor_with_source_state(self):
         calls = []

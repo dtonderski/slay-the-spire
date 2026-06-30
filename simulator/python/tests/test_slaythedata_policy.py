@@ -121,7 +121,30 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(ambiguous["status"], "blocked")
         self.assertEqual(ambiguous["reason"], "ambiguous_target")
 
+    def test_match_visible_choice_finds_boss_relic_by_act(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "boss_relics": [
+                        {"picked": "Black Blood", "not_picked": ["Snecko Eye"]},
+                        {"picked": "Runic Pyramid", "not_picked": ["Tiny House"]},
+                    ]
+                }
+            }
+        )
+
+        result = match_visible_choice(
+            script,
+            floor=34,
+            act=2,
+            choice_labels=["Tiny House", "Runic Pyramid", "Velvet Choker"],
+            category="boss_relic",
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(result["target"], "Runic Pyramid")
+
 
 if __name__ == "__main__":
     unittest.main()
-

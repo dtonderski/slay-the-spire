@@ -198,6 +198,7 @@ def match_visible_choice(
     choice_labels: list[str],
     category: str,
     ordinal: int = 0,
+    act: int | None = None,
 ) -> dict[str, Any]:
     """Match a guided run-level decision against visible CommunicationMod choices.
 
@@ -206,11 +207,11 @@ def match_visible_choice(
     ambiguous or unsupported.
     """
 
-    decision = floor_decision(script, floor)
-    if not decision:
+    decision = None if category == "boss_relic" else floor_decision(script, floor)
+    if category != "boss_relic" and not decision:
         return _blocked("missing_floor_decision", f"no SlayTheData decision for floor {floor}")
 
-    target = _target_text_for_category(decision, category, ordinal)
+    target = _target_text_for_category(script, decision, category, ordinal, floor=floor, act=act)
     if not target:
         return _blocked("missing_target", f"no {category} target at ordinal {ordinal} on floor {floor}")
 
@@ -234,21 +235,40 @@ def match_visible_choice(
     return _blocked("ambiguous_target", f"{target!r} matched {len(matches)} visible choices")
 
 
-def _target_text_for_category(decision: dict[str, Any], category: str, ordinal: int) -> str | None:
+def _target_text_for_category(
+    script: dict[str, Any],
+    decision: dict[str, Any] | None,
+    category: str,
+    ordinal: int,
+    *,
+    floor: int,
+    act: int | None,
+) -> str | None:
     if category == "card_reward":
+        if decision is None:
+            return None
         entry = _ordinal_entry(decision.get("card_rewards"), ordinal)
         return entry.get("picked") if entry else None
     if category == "event":
+        if decision is None:
+            return None
         entry = _ordinal_entry(decision.get("events"), ordinal)
         return entry.get("player_choice") if entry else None
     if category == "shop":
+        if decision is None:
+            return None
         entry = _ordinal_entry(decision.get("shop_purchases"), ordinal)
         return entry.get("item") if entry else None
     if category == "campfire":
+        if decision is None:
+            return None
         entry = _ordinal_entry(decision.get("campfires"), ordinal)
         if not entry:
             return None
         return entry.get("data") or entry.get("key")
+    if category == "boss_relic":
+        entry = _boss_relic_choice(script, floor=floor, act=act, ordinal=ordinal)
+        return entry.get("picked") if entry else None
     return None
 
 
@@ -280,6 +300,34 @@ def _boss_relic_choices(event: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _boss_relic_choice(
+    script: dict[str, Any],
+    *,
+    floor: int,
+    act: int | None,
+    ordinal: int,
+) -> dict[str, Any] | None:
+    choices = [choice for choice in _list(script.get("boss_relic_choices")) if isinstance(choice, dict)]
+    if not choices:
+        return None
+    target_act = act or _act_for_boss_relic_floor(floor)
+    if target_act is not None:
+        for choice in choices:
+            if choice.get("act") == target_act:
+                return choice
+    return _ordinal_entry(choices, ordinal)
+
+
+def _act_for_boss_relic_floor(floor: int) -> int | None:
+    if floor <= 0:
+        return None
+    if floor <= 17:
+        return 1
+    if floor <= 34:
+        return 2
+    return 3
 
 
 def _ordinal_entry(entries: Any, ordinal: int) -> dict[str, Any] | None:
