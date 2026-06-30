@@ -17,6 +17,7 @@ const nodeExe = process.execPath;
 const maxRestarts = Number.parseInt(process.env.STS_SUPERVISOR_MAX_RESTARTS || "20", 10);
 const staleMs = Number.parseInt(process.env.STS_SUPERVISOR_STALE_MS || "120000", 10);
 const restartDelayMs = Number.parseInt(process.env.STS_SUPERVISOR_RESTART_DELAY_MS || "3000", 10);
+const legacyOptInEnv = "STS_LEGACY_HEURISTIC_COLLECTOR";
 
 fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -73,6 +74,18 @@ function bridgeLooksStaleFrom({ summary, status, summaryAgeMs, statusAgeMs, stal
     return { stale: true, reason: `bridge exited: ${status.reason || "unknown"}` };
   }
   return { stale: false, reason: "session active" };
+}
+
+function legacyCollectorAllowed(env = process.env) {
+  return env[legacyOptInEnv] === "1";
+}
+
+function legacyCollectorOptInMessage() {
+  return [
+    "Legacy heuristic overnight collector is disabled by default.",
+    "Use tools\\communication\\run_auto_collect.cmd for SlayTheData-guided collection.",
+    `Set ${legacyOptInEnv}=1 only when intentionally running the old heuristic collector.`,
+  ].join(" ");
 }
 
 function bridgeLooksStale() {
@@ -344,10 +357,15 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((error) => {
-    log(`supervisor failed: ${error.stack || error.message}`);
-    process.exitCode = 1;
-  });
+  if (!legacyCollectorAllowed()) {
+    log(legacyCollectorOptInMessage());
+    process.exitCode = 2;
+  } else {
+    main().catch((error) => {
+      log(`supervisor failed: ${error.stack || error.message}`);
+      process.exitCode = 1;
+    });
+  }
 }
 
 module.exports = {
@@ -360,6 +378,8 @@ module.exports = {
   extractBestRunTrace,
   formatBestRunSummary,
   formatValidationSummary,
+  legacyCollectorAllowed,
+  legacyCollectorOptInMessage,
   parseValidationOutput,
   validPrefixPath,
 };
