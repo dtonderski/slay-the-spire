@@ -338,8 +338,39 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "menu-state")
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
         self.assertTrue(bridge.sent[0][1]["wait_for_state_update"])
+        self.assertEqual(bridge.sent[0][1]["update_timeout_seconds"], 30.0)
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector_start")
         self.assertEqual(bridge.sent[0][1]["metadata"]["script_source"]["run_id"], 77)
+
+    def test_start_guided_live_run_rejects_observed_state_timeout(self):
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 3,
+                            "seed_played": "LIVE01",
+                        },
+                    }
+                )
+            }
+        )
+
+        class TimeoutBridge(FakeBridge):
+            def send_command(self, command, **kwargs):
+                self.sent.append((command, kwargs))
+                return {
+                    "ok": True,
+                    "command_id": "cmd-start",
+                    "command": command,
+                    "transport": "tcp-jsonl",
+                    "observed_update": {"ok": False, "error": "timed out waiting for observed state update"},
+                }
+
+        with self.assertRaisesRegex(ValueError, "guided START did not observe"):
+            _start_guided_live_run(collector, TimeoutBridge({"state_id": "menu-state"}))
 
     def test_start_guided_live_run_requires_active_script_seed(self):
         collector = GuidedCollector()
