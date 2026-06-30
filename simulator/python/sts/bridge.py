@@ -91,6 +91,7 @@ class BridgeMirror:
         now: float | None = None,
         *,
         source_state_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         command = command.strip()
         if not command:
@@ -126,16 +127,16 @@ class BridgeMirror:
         command_id = uuid4().hex
         command_path = self.session_dir / "next_command.txt"
         command_path.write_text(f"{command}\n", encoding="utf-8")
+        command_meta = {
+            "command_id": command_id,
+            "command": command,
+            "source_state_id": source_state_id,
+            "submitted_at": now if now is not None else time.time(),
+        }
+        if metadata is not None:
+            command_meta["metadata"] = metadata
         (self.session_dir / "next_command.json").write_text(
-            json.dumps(
-                {
-                    "command_id": command_id,
-                    "command": command,
-                    "source_state_id": source_state_id,
-                    "submitted_at": now if now is not None else time.time(),
-                },
-                sort_keys=True,
-            ),
+            json.dumps(command_meta, sort_keys=True),
             encoding="utf-8",
         )
         after = self.status(now=now)

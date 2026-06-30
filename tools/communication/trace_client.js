@@ -8,6 +8,7 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 const outDir = path.join(repoRoot, "verification", "corpus", "communication_mod");
 const sessionDir = path.join(__dirname, "session");
 const commandPath = path.join(sessionDir, "next_command.txt");
+const commandMetaPath = path.join(sessionDir, "next_command.json");
 const statePath = path.join(sessionDir, "current_state.json");
 const summaryPath = path.join(sessionDir, "summary.json");
 const statusPath = path.join(sessionDir, "status.json");
@@ -18,6 +19,9 @@ fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(sessionDir, { recursive: true });
 if (fs.existsSync(commandPath)) {
   fs.unlinkSync(commandPath);
+}
+if (fs.existsSync(commandMetaPath)) {
+  fs.unlinkSync(commandMetaPath);
 }
 
 const tracePath = path.join(
@@ -37,6 +41,15 @@ function writeRecord(record) {
 
 function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function readCommandMeta() {
+  if (!fs.existsSync(commandMetaPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(commandMetaPath, "utf8"));
+  } catch (error) {
+    return { error: error.message };
+  }
 }
 
 function markExit(reason, details = {}) {
@@ -150,6 +163,7 @@ async function waitForCommand(message) {
     if (fs.existsSync(commandPath)) {
       try {
         const command = fs.readFileSync(commandPath, "utf8").trim();
+        const commandMeta = readCommandMeta();
         try {
           fs.unlinkSync(commandPath);
         } catch (error) {
@@ -157,8 +171,15 @@ async function waitForCommand(message) {
             throw error;
           }
         }
+        try {
+          if (fs.existsSync(commandMetaPath)) fs.unlinkSync(commandMetaPath);
+        } catch (error) {
+          if (error.code !== "ENOENT") {
+            throw error;
+          }
+        }
         if (command) {
-          return command;
+          return { command, command_meta: commandMeta };
         }
       } catch (error) {
         if (error.code !== "EBUSY" && error.code !== "EPERM") {
@@ -167,7 +188,7 @@ async function waitForCommand(message) {
       }
     }
     if (Number.isFinite(autoStateMs) && autoStateMs > 0 && Date.now() - started >= autoStateMs) {
-      return "state";
+      return { command: "state", command_meta: null };
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -193,16 +214,23 @@ async function handleLine(line) {
     message,
   });
 
-  const command = await waitForCommand(message);
+  const commandResult = await waitForCommand(message);
+  const command = commandResult.command;
+  const commandMeta = commandResult.command_meta;
   step += 1;
 
-  writeRecord({ type: "action", step, sent_at: new Date().toISOString(), command });
+  const actionRecord = { type: "action", step, sent_at: new Date().toISOString(), command };
+  if (commandMeta) {
+    actionRecord.command_meta = commandMeta;
+  }
+  writeRecord(actionRecord);
   writeJson(statusPath, {
     step,
     client_pid: clientPid,
     status: "sent",
     trace_path: tracePath,
     command,
+    command_meta: commandMeta,
     sent_at: new Date().toISOString(),
   });
   process.stderr.write(`[step ${step}] ${command}\n`);
