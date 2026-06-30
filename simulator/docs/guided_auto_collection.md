@@ -23,14 +23,15 @@ The local SlayTheData chunk store lives outside the repo:
 - DB: `D:\dev\SlayTheData-index\slaythedata-chunks.sqlite3`
 - chunks: `D:\dev\SlayTheData-index\chunks\*.jsonl.zst`
 
-Observed on 2026-06-30:
+Observed on 2026-06-30 during the latest local status check:
 
-- `52,666,330` runs in `runs`
-- `52,639,808` runs in `chunk_runs`
+- `55,236,043` runs in `runs`
+- `55,235,247` runs in `chunk_runs`
+- `2,043` rows in `chunk_files`
 - supported exportable Ironclad A0 guided candidates are available for the UI
   default filters
-- full build still partial: `31,680` archive files indexed,
-  `13,142` pending
+- full build still partial: `34,040` archive files indexed,
+  `10,782` pending
 
 The chunk store is therefore usable for candidate selection, but status should
 still be checked before assuming full-corpus completeness.
