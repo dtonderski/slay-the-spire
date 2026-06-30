@@ -12,6 +12,7 @@ import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import sys
 import time
 from typing import Any
 
@@ -230,6 +231,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-depth", type=int, default=40)
     parser.add_argument("--allow-file-bridge", action="store_true")
     parser.add_argument("--report-output", type=Path, default=None)
+    parser.add_argument("--fail-on-not-ok", action="store_true")
     args = parser.parse_args(argv)
 
     report = collect_one_run(
@@ -252,6 +254,8 @@ def main(argv: list[str] | None = None) -> None:
         args.report_output.parent.mkdir(parents=True, exist_ok=True)
         args.report_output.write_text(f"{encoded}\n", encoding="utf-8")
     print(encoded)
+    if args.fail_on_not_ok and not report.get("ok"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
