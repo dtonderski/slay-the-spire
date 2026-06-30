@@ -70,6 +70,8 @@ The collector can now:
 - rank candidate runs by full path length and guided-decision richness, with UI
   defaults that require card/event/shop decision coverage
 - export a selected run from local chunks and start the collector from it
+- prime the live run start controls from the selected/loaded SlayTheData run
+  so the bridge starts the same seed the collector is following
 - preview the next SlayTheData-guided non-combat choice
 - send one matched non-combat bridge command when `tick` receives
   `{ "send": true }`, after strict seed replay confirms the command maps to a
