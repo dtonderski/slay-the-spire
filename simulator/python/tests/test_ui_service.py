@@ -314,6 +314,19 @@ class UiServiceTests(unittest.TestCase):
                         "trace_path": "trace.jsonl",
                         "bridge_step": 7,
                         "tcp_control_available": False,
+                        "preflight": {
+                            "ok": False,
+                            "bridge_clients": {
+                                "alive_count": 2,
+                                "clients": [
+                                    {"pid": 111, "current": True, "alive": True},
+                                    {"pid": 222, "current": False, "alive": True},
+                                ],
+                            },
+                            "pending_command": {"present": False},
+                            "summary": {"step": 7},
+                            "status": {"status": "waiting"},
+                        },
                         "trace_validation": {
                             "verified": False,
                             "stop_reason": "observed_state_diff",
@@ -354,6 +367,8 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["generated_at"], "2026-06-30T12:00:00Z")
         self.assertEqual(result["run_id"], 123)
         self.assertEqual(result["stop_reason"], "preflight_blocked")
+        self.assertEqual(result["preflight"]["bridge_clients"]["alive_count"], 2)
+        self.assertEqual(result["preflight"]["bridge_clients"]["clients"][1]["pid"], 222)
         self.assertEqual(result["selection"]["mode"], "auto")
         self.assertEqual(result["selection"]["selected_run_id"], 456)
         self.assertEqual(result["selection"]["skipped_unsupported_count"], 1)

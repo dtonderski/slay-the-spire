@@ -1271,6 +1271,7 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
         raise ValueError("guided collection report is not a JSON object")
     blocker = report.get("blocker") if isinstance(report.get("blocker"), dict) else None
     selection = report.get("selection") if isinstance(report.get("selection"), dict) else None
+    preflight = report.get("preflight") if isinstance(report.get("preflight"), dict) else None
     trace_validation = (
         report.get("trace_validation") if isinstance(report.get("trace_validation"), dict) else None
     )
@@ -1288,6 +1289,15 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
         "trace_path": report.get("trace_path"),
         "bridge_step": report.get("bridge_step"),
         "tcp_control_available": bool(report.get("tcp_control_available")),
+        "preflight": {
+            "ok": bool(preflight.get("ok")),
+            "bridge_clients": preflight.get("bridge_clients"),
+            "pending_command": preflight.get("pending_command"),
+            "summary": preflight.get("summary"),
+            "status": preflight.get("status"),
+        }
+        if preflight
+        else None,
         "trace_validation": {
             "verified": bool(trace_validation.get("verified")),
             "reason": trace_validation.get("reason"),

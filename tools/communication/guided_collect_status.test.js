@@ -58,6 +58,14 @@ function testInspectBlockedReport() {
         ok: false,
         ages: { status_age_seconds: 1, summary_age_seconds: 2 },
         pending_command: { present: false, transport: null },
+        bridge_clients: {
+          alive_count: 2,
+          current_pid: 111,
+          clients: [
+            { pid: 111, current: true, alive: true },
+            { pid: 222, current: false, alive: true },
+          ],
+        },
         summary: { step: 7 },
         status: { status: "waiting" },
       },
@@ -93,6 +101,8 @@ function testInspectBlockedReport() {
     assert.strictEqual(result.preflight.ok, false);
     assert.strictEqual(result.preflight.ages.summary_age_seconds, 2);
     assert.strictEqual(result.preflight.pending_command.present, false);
+    assert.strictEqual(result.preflight.bridge_clients.alive_count, 2);
+    assert.strictEqual(result.preflight.bridge_clients.clients[1].pid, 222);
     assert.strictEqual(result.preflight.summary.step, 7);
     assert.strictEqual(result.blocker.reason, "bridge_preflight");
     assert.deepStrictEqual(result.blocker.problems, ["session files are stale"]);

@@ -103,6 +103,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
         ok: Boolean(preflight.ok),
         ages: preflight.ages || null,
         pending_command: preflight.pending_command || null,
+        bridge_clients: preflight.bridge_clients || null,
         summary: preflight.summary || null,
         status: preflight.status || null,
       }
