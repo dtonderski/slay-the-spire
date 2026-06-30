@@ -95,6 +95,9 @@ The collector can now:
   SlayTheData run metadata, replay policy, and compact suggestion details
 - run a cooperative UI auto-loop that repeatedly ticks the collector, waits
   while the bridge command is pending or not ready, and pauses on real blockers
+- route `/api/collector/tick` live combat and non-combat sends through
+  `BridgeMirror.send_command`, preserving the same source-state guard and
+  provenance path used by manual UI sends
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot

@@ -665,16 +665,7 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(self.collector.start(_collector_start_payload(payload)))
                 return
             if parts == ["api", "collector", "tick"]:
-                self._send_json(
-                    self.collector.tick(
-                        self.bridge.status(),
-                        payload,
-                        send_command=self.bridge.send_command,
-                        send_non_combat=self.manager.send_live_non_combat_action,
-                        send_combat=self.manager.send_live_combat_action,
-                        verify_prediction=self.manager.verify_live_prediction,
-                    )
-                )
+                self._send_json(_tick_live_collector(self.collector, self.manager, self.bridge, payload))
                 return
             if parts == ["api", "collector", "stop"]:
                 self._send_json(self.collector.stop())
@@ -1115,6 +1106,28 @@ def _collector_start_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("run_id") is not None:
         return {"script": export_guided_run_script(int(payload["run_id"]))}
     return payload
+
+
+def _tick_live_collector(
+    collector: GuidedCollector,
+    manager: SessionManager,
+    bridge: BridgeMirror,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return collector.tick(
+        bridge.status(),
+        payload,
+        send_command=bridge.send_command,
+        send_non_combat=lambda **kwargs: manager.send_live_non_combat_action(
+            **kwargs,
+            send_command=bridge.send_command,
+        ),
+        send_combat=lambda **kwargs: manager.send_live_combat_action(
+            **kwargs,
+            send_command=bridge.send_command,
+        ),
+        verify_prediction=manager.verify_live_prediction,
+    )
 
 
 def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
