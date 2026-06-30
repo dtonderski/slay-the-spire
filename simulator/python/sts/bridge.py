@@ -48,7 +48,8 @@ class BridgeMirror:
             "summary_age_seconds": _age_seconds(self.session_dir / "summary.json", now),
             "current_state_age_seconds": _age_seconds(self.session_dir / "current_state.json", now),
         }
-        stale = _is_stale(ages, self.stale_after_seconds)
+        observed_state_stale = _is_observed_state_stale(ages, self.stale_after_seconds)
+        stale = observed_state_stale
         exited = status.get("status") == "exited" if isinstance(status, dict) else False
         connected = bool(status) and not status.get("missing", False) and not exited
         state_id = _bridge_state_id(status, summary, current_state)
@@ -64,6 +65,7 @@ class BridgeMirror:
         return {
             "connected": connected,
             "stale": stale,
+            "observed_state_stale": observed_state_stale,
             "exited": exited,
             "bridge_lifecycle": lifecycle,
             "state_id": state_id,
@@ -119,8 +121,8 @@ class BridgeMirror:
             problems.append("missing session status.json")
         if summary.get("missing"):
             problems.append("missing session summary.json")
-        if _is_stale({"status_age_seconds": status_age, "summary_age_seconds": summary_age}, self.stale_after_seconds):
-            problems.append("session files are stale")
+        if _is_observed_state_stale({"summary_age_seconds": summary_age}, self.stale_after_seconds):
+            problems.append("observed state summary is stale")
         if status.get("status") == "exited":
             problems.append(f"bridge exited: {status.get('reason') or 'unknown'}")
         if command_exists or tcp_pending:
@@ -621,10 +623,10 @@ def bridge_lifecycle_from_status(
         return _bridge_lifecycle("exited", "Exited", _first(status, key="reason") or _first(status, key="error"))
     if not connected:
         return _bridge_lifecycle("disconnected", "Disconnected", "No active bridge client")
-    if stale:
-        return _bridge_lifecycle("stale", "Stale", "Bridge files have not updated recently")
     if pending_command:
         return _bridge_lifecycle("waiting_for_command_ack", "Waiting for command ack", "next_command.txt is pending")
+    if stale:
+        return _bridge_lifecycle("stale", "Stale", "Bridge files have not updated recently")
     if raw_status == "sent":
         command = status.get("command")
         detail = f"Last command {command}" if command else "Command sent; waiting for observed state"
@@ -652,9 +654,9 @@ def _age_seconds(path: Path, now: float) -> float | None:
         return None
 
 
-def _is_stale(ages: dict[str, float | None], threshold: float) -> bool:
-    observed = [age for age in ages.values() if age is not None]
-    return not observed or min(observed) > threshold
+def _is_observed_state_stale(ages: dict[str, float | None], threshold: float) -> bool:
+    summary_age = ages.get("summary_age_seconds")
+    return summary_age is None or summary_age > threshold
 
 
 def _bridge_action(

@@ -50,6 +50,30 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(status["bridge_actions"][0]["source_state_id"], status["state_id"])
         self.assertEqual(status["bridge_lifecycle"]["status"], "ready")
 
+    def test_fresh_status_does_not_hide_stale_observed_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            status_path = root / "status.json"
+            summary_path = root / "summary.json"
+            status_path.write_text(json.dumps({"status": "waiting", "step": 4}), encoding="utf-8")
+            summary_path.write_text(
+                json.dumps({"step": 4, "ready_for_command": True, "available_commands": ["choose", "state"]}),
+                encoding="utf-8",
+            )
+            os.utime(status_path, (1000.0, 1000.0))
+            os.utime(summary_path, (800.0, 800.0))
+
+            mirror = BridgeMirror(root, stale_after_seconds=120)
+            status = mirror.status(now=1000.0)
+            preflight = mirror.preflight(now=1000.0)
+
+        self.assertTrue(status["stale"])
+        self.assertTrue(status["observed_state_stale"])
+        self.assertFalse(status["bridge_actions"])
+        self.assertEqual(status["bridge_lifecycle"]["status"], "stale")
+        self.assertFalse(preflight["ok"])
+        self.assertIn("observed state summary is stale", preflight["problems"])
+
     def test_status_prefers_bridge_advertised_state_id(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

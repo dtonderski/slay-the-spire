@@ -36,7 +36,13 @@ function testFreshSessionPasses() {
 function testStaleSessionFails() {
   const result = checkPreflightFrom(freshInput({ summaryAgeMs: 121000, statusAgeMs: 122000 }));
   assert.strictEqual(result.ok, false);
-  assert.match(result.problems.join("\n"), /session files stale/);
+  assert.match(result.problems.join("\n"), /observed state summary stale/);
+}
+
+function testFreshStatusDoesNotHideStaleSummary() {
+  const result = checkPreflightFrom(freshInput({ summaryAgeMs: 121000, statusAgeMs: 1000 }));
+  assert.strictEqual(result.ok, false);
+  assert.match(result.problems.join("\n"), /observed state summary stale/);
 }
 
 function testSentCommandAheadOfSummaryFails() {
@@ -84,6 +90,7 @@ function testHarvestReportSummaryIncluded() {
 
 testFreshSessionPasses();
 testStaleSessionFails();
+testFreshStatusDoesNotHideStaleSummary();
 testSentCommandAheadOfSummaryFails();
 testExistingCommandFileFails();
 testOrphanCommandMetadataFails();

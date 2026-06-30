@@ -41,8 +41,8 @@ function checkPreflightFrom({
 
   if (!summary) problems.push("missing session summary.json");
   if (!status) problems.push("missing session status.json");
-  if (summaryAgeMs > staleThresholdMs && statusAgeMs > staleThresholdMs) {
-    problems.push(`session files stale: summaryAgeMs=${Math.round(summaryAgeMs)} statusAgeMs=${Math.round(statusAgeMs)}`);
+  if (summaryAgeMs > staleThresholdMs) {
+    problems.push(`observed state summary stale: summaryAgeMs=${Math.round(summaryAgeMs)} statusAgeMs=${Math.round(statusAgeMs)}`);
   }
   if (status?.status === "exited") {
     problems.push(`bridge exited: ${status.reason || "unknown"}`);
