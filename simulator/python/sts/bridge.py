@@ -85,6 +85,71 @@ class BridgeMirror:
             "last_error": _first(status, summary, key="error"),
         }
 
+    def preflight(self, now: float | None = None) -> dict[str, Any]:
+        now = time.time() if now is None else now
+        status_path = self.session_dir / "status.json"
+        summary_path = self.session_dir / "summary.json"
+        command_path = self.session_dir / "next_command.txt"
+        command_meta_path = self.session_dir / "next_command.json"
+        status = _read_json(status_path)
+        summary = _read_json(summary_path)
+        status_age = _age_seconds(status_path, now)
+        summary_age = _age_seconds(summary_path, now)
+        command_exists = command_path.exists()
+        command_meta_exists = command_meta_path.exists()
+        problems = []
+        warnings = []
+
+        if status.get("missing"):
+            problems.append("missing session status.json")
+        if summary.get("missing"):
+            problems.append("missing session summary.json")
+        if _is_stale({"status_age_seconds": status_age, "summary_age_seconds": summary_age}, self.stale_after_seconds):
+            problems.append("session files are stale")
+        if status.get("status") == "exited":
+            problems.append(f"bridge exited: {status.get('reason') or 'unknown'}")
+        if command_exists:
+            problems.append("next_command.txt already exists")
+        if command_meta_exists and not command_exists:
+            problems.append("next_command.json exists without next_command.txt")
+        if summary.get("ready_for_command") is not True:
+            warnings.append("latest summary is not ready_for_command")
+        if status.get("status") == "sent" and summary.get("step") is not None and status.get("step") is not None:
+            try:
+                if int(status["step"]) > int(summary["step"]):
+                    problems.append(f"sent command step {status['step']} is newer than summary step {summary['step']}")
+            except (TypeError, ValueError):
+                warnings.append("could not compare status and summary steps")
+        available_commands = summary.get("available_commands") if isinstance(summary.get("available_commands"), list) else []
+        if available_commands and "state" not in available_commands:
+            warnings.append("available_commands does not include state")
+
+        return {
+            "ok": not problems,
+            "problems": problems,
+            "warnings": warnings,
+            "summary": {
+                "step": summary.get("step"),
+                "client_pid": summary.get("client_pid"),
+                "screen_type": summary.get("screen_type"),
+                "floor": summary.get("floor"),
+                "seed": summary.get("seed"),
+                "ready_for_command": summary.get("ready_for_command"),
+                "available_commands": available_commands,
+            }
+            if not summary.get("missing")
+            else None,
+            "status": {
+                "step": status.get("step"),
+                "client_pid": status.get("client_pid"),
+                "status": status.get("status"),
+                "trace_path": status.get("trace_path"),
+                "command": status.get("command"),
+            }
+            if not status.get("missing")
+            else None,
+        }
+
     def send_command(
         self,
         command: str,

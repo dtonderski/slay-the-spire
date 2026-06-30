@@ -582,6 +582,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "bridge"]:
                 self._send_json(self.bridge.status())
                 return
+            if parts == ["api", "bridge", "preflight"]:
+                self._send_json(self.bridge.preflight())
+                return
             if parts == ["api", "bridge", "clients"]:
                 self._send_json(self.bridge.clients())
                 return
@@ -592,7 +595,7 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(_slaythedata_candidates_from_query(query))
                 return
             if parts == ["api", "collector", "status"]:
-                self._send_json(self.collector.status())
+                self._send_json(_collector_status_with_preflight(self.collector, self.bridge))
                 return
             if parts[:2] == ["api", "traces"] and len(parts) == 3:
                 self._send_json(
@@ -1128,6 +1131,10 @@ def _tick_live_collector(
         ),
         verify_prediction=manager.verify_live_prediction,
     )
+
+
+def _collector_status_with_preflight(collector: GuidedCollector, bridge: BridgeMirror) -> dict[str, Any]:
+    return collector.status() | {"preflight": bridge.preflight()}
 
 
 def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
