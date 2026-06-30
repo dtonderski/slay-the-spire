@@ -212,6 +212,35 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(gold["status"], "matched")
         self.assertEqual(gold["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
+    def test_match_visible_choice_selects_shop_purchase_then_leave(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "items_purchased": ["Shrug It Off"],
+                    "item_purchase_floors": [3],
+                }
+            }
+        )
+
+        buy = match_visible_choice(
+            script,
+            floor=3,
+            choice_labels=["Strike", "Shrug It Off", "Leave"],
+            category="shop",
+        )
+        leave = match_visible_choice(
+            script,
+            floor=3,
+            choice_labels=["Leave"],
+            category="shop",
+            ordinal=1,
+        )
+
+        self.assertEqual(buy["status"], "matched")
+        self.assertEqual(buy["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(leave["status"], "matched")
+        self.assertEqual(leave["descriptor"], {"kind": "LeaveScreen"})
+
     def test_match_map_choice_finds_next_path_room(self):
         script = build_guided_run_script(
             {

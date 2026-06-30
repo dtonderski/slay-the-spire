@@ -15,6 +15,8 @@ def sample_script():
                 "path_per_floor": ["M", "?"],
                 "card_choices": [{"floor": 1, "picked": "Inflame"}],
                 "relics_obtained": [{"floor": 1, "key": "Oddly Smooth Stone"}],
+                "items_purchased": ["Shrug It Off"],
+                "item_purchase_floors": [3],
                 "campfire_choices": [{"floor": 4, "key": "SMITH", "data": "Bash+"}],
                 "event_choices": [
                     {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
@@ -134,6 +136,21 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_shop_bridge(self, choices=None):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "shop-bridge-state",
+            "summary": {
+                "floor": 3,
+                "screen_type": "SHOP",
+                "choices": choices or ["Strike", "Shrug It Off", "Leave"],
+                "available_commands": ["choose", "leave"],
+            },
+        }
+
     def ready_grid_bridge(self):
         return {
             "connected": True,
@@ -196,6 +213,21 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["category"], "reward")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 2})
+
+    def test_suggest_guided_action_matches_shop_purchase_and_leave(self):
+        buy = suggest_guided_action(sample_script(), self.ready_shop_bridge())
+        leave = suggest_guided_action(
+            sample_script(),
+            self.ready_shop_bridge(["Leave"]),
+            ordinal=1,
+        )
+
+        self.assertEqual(buy["status"], "matched")
+        self.assertEqual(buy["category"], "shop")
+        self.assertEqual(buy["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(leave["status"], "matched")
+        self.assertEqual(leave["category"], "shop")
+        self.assertEqual(leave["descriptor"], {"kind": "LeaveScreen"})
 
     def test_send_guided_suggestion_sends_matching_descriptor_with_source_state(self):
         calls = []

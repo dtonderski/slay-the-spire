@@ -222,6 +222,17 @@ def match_visible_choice(
     )
     if not target:
         return _blocked("missing_target", f"no {category} target at ordinal {ordinal} on floor {floor}")
+    descriptor = _descriptor_for_target(category, target)
+    if descriptor is not None:
+        return {
+            "status": "matched",
+            "descriptor": descriptor,
+            "target": target,
+            "matched_label": target,
+            "floor": floor,
+            "category": category,
+            "ordinal": ordinal,
+        }
 
     matches = [
         index
@@ -321,7 +332,11 @@ def _target_text_for_category(
         if decision is None:
             return None
         entry = _ordinal_entry(decision.get("shop_purchases"), ordinal)
-        return entry.get("item") if entry else None
+        if entry:
+            return entry.get("item")
+        if _shop_leave_visible(choice_labels):
+            return "__leave_shop__"
+        return None
     if category == "reward":
         if decision is None:
             return None
@@ -350,6 +365,16 @@ def _target_text_for_category(
         entry = _boss_relic_choice(script, floor=floor, act=act, ordinal=ordinal)
         return entry.get("picked") if entry else None
     return None
+
+
+def _descriptor_for_target(category: str, target: str) -> dict[str, Any] | None:
+    if category == "shop" and target == "__leave_shop__":
+        return {"kind": "LeaveScreen"}
+    return None
+
+
+def _shop_leave_visible(choice_labels: list[str]) -> bool:
+    return any(_normalized_token(label) in {"leave", "proceed", "return"} for label in choice_labels)
 
 
 def _reward_target(decision: dict[str, Any], choice_labels: list[str]) -> str | None:
