@@ -3,6 +3,9 @@
 This directory contains a reproducible SQLite indexing pipeline for
 `D:\dev\SlayTheData.7z`.
 
+For this machine's current data root, build state, and handoff commands, see
+`STATUS.md`.
+
 The archive is large and solid-compressed: about 28 GiB compressed, about
 370 GiB uncompressed, and about 44k JSON files. Do not extract it permanently.
 The indexer streams JSON files through `7z e -so`, writes a query index, and can
