@@ -354,6 +354,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["selection"]["mode"], "auto")
         self.assertEqual(result["selection"]["selected_run_id"], 456)
         self.assertEqual(result["selection"]["skipped_unsupported_count"], 1)
+        self.assertEqual(result["selection"]["skipped_unsupported"][0]["reason"], "unsupported_neow_followup")
         self.assertEqual(result["blocker"]["reason"], "bridge_preflight")
         self.assertFalse(result["trace_validation"]["verified"])
         self.assertEqual(result["trace_validation"]["stop_reason"], "observed_state_diff")

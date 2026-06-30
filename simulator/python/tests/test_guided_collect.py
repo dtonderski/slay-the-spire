@@ -411,6 +411,10 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["selection"]["candidate_count"], 2)
         self.assertEqual(report["selection"]["skipped_unsupported"][0]["run_id"], 11)
         self.assertEqual(report["selection"]["skipped_unsupported"][0]["reason"], "unsupported_neow_followup")
+        self.assertEqual(
+            report["selection"]["skipped_unsupported"][0]["blockers"][0]["reason"],
+            "unsupported_neow_followup",
+        )
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 0 LIVE02")
 
     def test_collect_one_run_auto_selection_forwards_potion_usage_filter(self):

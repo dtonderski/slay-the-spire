@@ -3,6 +3,7 @@ import unittest
 from sts.slaythedata_policy import (
     build_guided_run_script,
     floor_decision,
+    guided_script_support_audit,
     guided_script_support_blocker,
     identity_blocker,
     match_map_choice,
@@ -255,6 +256,44 @@ class SlayTheDataPolicyTests(unittest.TestCase):
 
         self.assertEqual(guided_script_support_blocker(missing)["reason"], "missing_neow_card_reward")
         self.assertIsNone(guided_script_support_blocker(present))
+
+    def test_guided_script_support_audit_reports_all_known_blockers(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "neow_bonus": "REMOVE_TWO",
+                    "neow_cost": "NONE",
+                    "event_choices": [
+                        {
+                            "floor": 3,
+                            "event_name": "The Cleric",
+                            "player_choice": "Remove",
+                            "cards_removed": ["Strike", "Defend"],
+                        }
+                    ],
+                    "campfire_choices": [
+                        {
+                            "floor": 3,
+                            "key": "SMITH",
+                            "data": "Bash",
+                        }
+                    ],
+                }
+            }
+        )
+
+        audit = guided_script_support_audit(script)
+        reasons = [entry["reason"] for entry in audit]
+
+        self.assertEqual(guided_script_support_blocker(script)["reason"], "unsupported_neow_followup")
+        self.assertIn("unsupported_neow_followup", reasons)
+        self.assertIn("unsupported_multi_card_grid", reasons)
+        self.assertIn("ambiguous_repeated_grid_floor", reasons)
+        multi = next(entry for entry in audit if entry["reason"] == "unsupported_multi_card_grid")
+        self.assertEqual(multi["floor"], 3)
+        self.assertEqual(multi["kind"], "cards_removed")
+        repeated = next(entry for entry in audit if entry["reason"] == "ambiguous_repeated_grid_floor")
+        self.assertEqual(repeated["grid_target_count"], 2)
 
     def test_identity_blocker_rejects_visible_character_or_ascension_mismatch(self):
         script = build_guided_run_script(

@@ -1607,6 +1607,13 @@
       msg.textContent = `Warnings: ${warnings.join("; ")}`;
       el.collectorReportPanel.appendChild(msg);
     }
+    const skippedUnsupported = arrayOf(selection.skipped_unsupported);
+    if (skippedUnsupported.length) {
+      const msg = document.createElement("div");
+      msg.className = "message info";
+      msg.textContent = `Skipped: ${skippedUnsupported.map(skippedCandidateText).join("; ")}`;
+      el.collectorReportPanel.appendChild(msg);
+    }
     if (traceValidation && traceValidation.verified === false) {
       const msg = document.createElement("div");
       msg.className = "message error";
@@ -1651,6 +1658,11 @@
       : "";
     const skipped = selection.skipped_unsupported_count ? `, skipped ${selection.skipped_unsupported_count}` : "";
     return `${mode}${considered}${skipped}`;
+  }
+
+  function skippedCandidateText(entry) {
+    if (!entry || typeof entry !== "object") return stringify(entry);
+    return `${firstDefined(entry.run_id, "-")}: ${firstDefined(entry.reason, entry.detail, "unsupported")}`;
   }
 
   function protocolTraceText(validation) {

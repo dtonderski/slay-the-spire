@@ -1313,6 +1313,9 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
             "skipped_unsupported_count": len(selection.get("skipped_unsupported") or [])
             if isinstance(selection.get("skipped_unsupported"), list)
             else 0,
+            "skipped_unsupported": (selection.get("skipped_unsupported") or [])[:5]
+            if isinstance(selection.get("skipped_unsupported"), list)
+            else [],
         }
         if selection
         else None,

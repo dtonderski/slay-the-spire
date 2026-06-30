@@ -19,7 +19,7 @@ from typing import Any
 from sts.bridge import BridgeMirror
 from sts.guided_collector import GuidedCollector
 from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
-from sts.slaythedata_policy import guided_script_support_blocker
+from sts.slaythedata_policy import guided_script_support_audit
 from sts.self_play import strict_replay_real_trace_to_env
 from sts.ui_service import SessionManager, _start_guided_live_run, _tick_live_collector
 
@@ -323,7 +323,8 @@ def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any]
         run_id = int(candidate["id"])
         considered += 1
         script = export_guided_run_script(run_id)
-        blocker = guided_script_support_blocker(script)
+        blockers = guided_script_support_audit(script)
+        blocker = blockers[0] if blockers else None
         if blocker is None:
             return run_id, script, {
                 "mode": "auto",
@@ -340,6 +341,7 @@ def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any]
                 else None,
                 "reason": blocker.get("reason"),
                 "detail": blocker.get("detail"),
+                "blockers": blockers,
             }
         )
     detail = "; ".join(f"{entry['run_id']}: {entry['reason']}" for entry in blocked[:5])
