@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from sts.guided_collect import GuidedCollectConfig, _archive_report_path, collect_one_run
+from sts.guided_collect import GuidedCollectConfig, _archive_report_path, collect_one_run, main
 
 
 class FakeBridge:
@@ -352,6 +354,31 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(path.name[-5:], ".json")
         self.assertIn("abc-123", path.name)
         self.assertIn("preflight-blocked", path.name)
+
+    def test_main_writes_report_when_collect_raises(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "latest.json"
+            archive_dir = Path(directory) / "reports"
+
+            with patch(
+                "sts.guided_collect.collect_one_run",
+                side_effect=RuntimeError("boom"),
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                main(
+                    [
+                        "--report-output",
+                        str(report_path),
+                        "--archive-report-dir",
+                        str(archive_dir),
+                    ]
+                )
+
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertFalse(report["ok"])
+            self.assertEqual(report["stop_reason"], "internal_error")
+            self.assertEqual(report["blocker"]["type"], "RuntimeError")
+            self.assertIn("boom", report["blocker"]["detail"])
+            self.assertEqual(len(list(archive_dir.glob("*.json"))), 1)
 
 
 if __name__ == "__main__":

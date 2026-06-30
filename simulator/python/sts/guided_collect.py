@@ -356,23 +356,27 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--preflight-poll-seconds", type=float, default=1.0)
     args = parser.parse_args(argv)
 
-    report = collect_one_run(
-        GuidedCollectConfig(
-            run_id=args.run_id,
-            character=args.character,
-            ascension=args.ascension,
-            min_floor=args.min_floor,
-            max_floor=args.max_floor,
-            max_actions=args.max_actions,
-            max_seconds=args.max_seconds,
-            poll_seconds=args.poll_seconds,
-            combat_policy=args.combat_policy,
-            max_depth=args.max_depth,
-            require_tcp_control=not args.allow_file_bridge,
-            preflight_timeout_seconds=args.preflight_timeout_seconds,
-            preflight_poll_seconds=args.preflight_poll_seconds,
+    started_at = time.time()
+    try:
+        report = collect_one_run(
+            GuidedCollectConfig(
+                run_id=args.run_id,
+                character=args.character,
+                ascension=args.ascension,
+                min_floor=args.min_floor,
+                max_floor=args.max_floor,
+                max_actions=args.max_actions,
+                max_seconds=args.max_seconds,
+                poll_seconds=args.poll_seconds,
+                combat_policy=args.combat_policy,
+                max_depth=args.max_depth,
+                require_tcp_control=not args.allow_file_bridge,
+                preflight_timeout_seconds=args.preflight_timeout_seconds,
+                preflight_poll_seconds=args.preflight_poll_seconds,
+            )
         )
-    )
+    except Exception as error:
+        report = _internal_error_report(error, elapsed_seconds=time.time() - started_at)
     encoded = json.dumps(report, indent=2, sort_keys=True)
     if args.report_output:
         args.report_output.parent.mkdir(parents=True, exist_ok=True)
@@ -384,6 +388,35 @@ def main(argv: list[str] | None = None) -> None:
     print(encoded)
     if args.fail_on_not_ok and not report.get("ok"):
         sys.exit(1)
+
+
+def _internal_error_report(error: Exception, *, elapsed_seconds: float) -> dict[str, Any]:
+    detail = str(error)
+    error_type = type(error).__name__
+    return {
+        "ok": False,
+        "run_id": None,
+        "seed": None,
+        "stop_reason": "internal_error",
+        "blocker": {
+            "reason": "internal_error",
+            "type": error_type,
+            "detail": detail,
+        },
+        "actions_sent": 0,
+        "elapsed_seconds": elapsed_seconds,
+        "trace_path": None,
+        "bridge_step": None,
+        "bridge_state_id": None,
+        "tcp_control_available": False,
+        "history_tail": [
+            {
+                "event": "internal_error",
+                "type": error_type,
+                "detail": detail,
+            }
+        ],
+    }
 
 
 def _archive_report_path(directory: Path, report: dict[str, Any]) -> Path:
