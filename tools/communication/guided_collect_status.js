@@ -42,6 +42,7 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
   const report = readJson(reportPath);
   const trace = validateTrace(report.trace_path);
   const blocker = report.blocker && typeof report.blocker === "object" ? report.blocker : null;
+  const selection = report.selection && typeof report.selection === "object" ? report.selection : null;
   return {
     ok: Boolean(report.ok),
     report_path: reportPath,
@@ -53,6 +54,17 @@ function inspectGuidedCollectReport(reportPath = defaultReportPath, archiveDir =
     bridge_step: report.bridge_step ?? null,
     bridge_state_id: report.bridge_state_id ?? null,
     tcp_control_available: Boolean(report.tcp_control_available),
+    selection: selection
+      ? {
+        mode: selection.mode ?? null,
+        selected_run_id: selection.selected_run_id ?? null,
+        considered_count: selection.considered_count ?? null,
+        candidate_count: selection.candidate_count ?? null,
+        skipped_unsupported_count: Array.isArray(selection.skipped_unsupported)
+          ? selection.skipped_unsupported.length
+          : 0,
+      }
+      : null,
     blocker: blocker
       ? {
         reason: blocker.reason ?? null,

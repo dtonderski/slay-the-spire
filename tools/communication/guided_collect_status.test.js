@@ -45,6 +45,13 @@ function testInspectBlockedReport() {
       stop_reason: "preflight_blocked",
       actions_sent: 0,
       tcp_control_available: false,
+      selection: {
+        mode: "auto",
+        selected_run_id: 456,
+        considered_count: 2,
+        candidate_count: 25,
+        skipped_unsupported: [{ run_id: 123, reason: "unsupported_neow_followup" }],
+      },
       blocker: {
         reason: "bridge_preflight",
         problems: ["session files are stale"],
@@ -56,6 +63,11 @@ function testInspectBlockedReport() {
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.run_id, 123);
     assert.strictEqual(result.stop_reason, "preflight_blocked");
+    assert.strictEqual(result.selection.mode, "auto");
+    assert.strictEqual(result.selection.selected_run_id, 456);
+    assert.strictEqual(result.selection.considered_count, 2);
+    assert.strictEqual(result.selection.candidate_count, 25);
+    assert.strictEqual(result.selection.skipped_unsupported_count, 1);
     assert.strictEqual(result.blocker.reason, "bridge_preflight");
     assert.deepStrictEqual(result.blocker.problems, ["session files are stale"]);
   });
