@@ -258,6 +258,7 @@ def _blocked_report(
     seed: str | None = None,
     selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    trace_validation = _validate_trace(bridge_status.get("trace_path"))
     return {
         "producer": "sts.guided_collect",
         "generated_at": _utc_now(),
@@ -272,6 +273,7 @@ def _blocked_report(
         "bridge_step": bridge_status.get("last_state_step"),
         "bridge_state_id": bridge_status.get("state_id"),
         "tcp_control_available": bool(bridge_status.get("control")),
+        "trace_validation": trace_validation,
         "preflight": preflight,
         "selection": selection,
         "history_tail": [
