@@ -54,6 +54,7 @@
             </div>
             <div class="live-secondary-actions">
               <button id="refreshBridgeButton" type="button">Refresh mirror</button>
+              <button id="liveRequestStateButton" type="button">Request state</button>
             </div>
             <div id="liveReason" class="live-reason"></div>
           </div>
@@ -169,15 +170,15 @@
             <div class="bridge-maintenance-actions">
               <button id="requestBridgeStateButton" type="button">Manual State - writes trace</button>
             </div>
-            <div class="bridge-client-tools">
-              <div class="section-head compact">
-                <h3>Bridge Clients</h3>
+            <details class="bridge-client-tools">
+              <summary>
+                <span>Bridge Clients</span>
                 <button id="refreshBridgeClientsButton" type="button">Refresh clients</button>
-              </div>
+              </summary>
               <div id="bridgeClientsPanel" class="bridge-clients-panel empty">
                 <span class="empty-text">Bridge clients not loaded.</span>
               </div>
-            </div>
+            </details>
             <div id="bridgePanel" class="bridge-panel empty">
               <span class="empty-text">Bridge status not loaded.</span>
             </div>
@@ -251,6 +252,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=live-ui-13"></script>
+    <script src="./app.js?v=live-ui-14"></script>
   </body>
 </html>

@@ -214,7 +214,8 @@ class BridgeMirrorTests(unittest.TestCase):
         cases = [
             ({"kind": "PlayHandSlot", "hand_slot": 1, "target_slot": 0}, "PLAY 1 0"),
             ({"kind": "EndTurn"}, "END"),
-            ({"kind": "UsePotionSlot", "potion_slot": 0, "target_slot": 1}, "POTION 0 1"),
+            ({"kind": "UsePotionSlot", "potion_slot": 0, "target_slot": 1}, "POTION USE 0 1"),
+            ({"kind": "UsePotionSlot", "potion_slot": 0}, "POTION USE 0"),
             ({"kind": "DiscardPotionSlot", "potion_slot": 0}, "POTION 0 DISCARD"),
             ({"kind": "ChooseVisibleOption", "option_slot": 2}, "CHOOSE 2"),
             ({"kind": "ConfirmChoice"}, "CONFIRM"),

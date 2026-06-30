@@ -101,6 +101,7 @@
       "searchStatus",
       "searchResult",
       "refreshBridgeButton",
+      "liveRequestStateButton",
       "requestBridgeStateButton",
       "refreshBridgeClientsButton",
       "bridgeClientsPanel",
@@ -148,8 +149,12 @@
     el.searchButton.addEventListener("click", runSearch);
     el.applyBestButton.addEventListener("click", applyBestAction);
     el.refreshBridgeButton.addEventListener("click", refreshBridge);
+    el.liveRequestStateButton.addEventListener("click", requestBridgeState);
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
-    el.refreshBridgeClientsButton.addEventListener("click", refreshBridgeClients);
+    el.refreshBridgeClientsButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      refreshBridgeClients();
+    });
     el.ackInvariantButton.addEventListener("click", acknowledgeInvariantViolation);
     el.refreshTracesButton.addEventListener("click", refreshTraces);
     el.loadTraceButton.addEventListener("click", loadSelectedTrace);
@@ -762,6 +767,7 @@
     el.searchButton.classList.toggle("hidden", app.viewMode === "live");
     el.applyBestButton.classList.toggle("hidden", app.viewMode === "live");
     el.refreshBridgeButton.disabled = app.inFlight;
+    el.liveRequestStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
     el.refreshBridgeClientsButton.disabled = app.bridgeClientsLoading;
     const startReason = startLiveRunBlockedReason();
@@ -778,6 +784,7 @@
     el.sendBestButton.title = sendReason || "Send the mapped recommendation to the live game.";
     el.sendBestReviewButton.title = sendReason || "Send the mapped recommendation to the live game.";
     el.requestBridgeStateButton.title = "Trace-mutating: sends a CommunicationMod state command and records it.";
+    el.liveRequestStateButton.title = "Trace-mutating: asks CommunicationMod to publish a fresh state.";
     el.refreshBridgeButton.title = "Read-only: refreshes local bridge files without sending a game command.";
     el.restoreSnapshotButton.disabled = !app.sessionId || app.inFlight || !hasLoadedSnapshotJson();
 
