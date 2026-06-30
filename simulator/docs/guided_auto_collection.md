@@ -67,6 +67,8 @@ missing or ambiguous.
 The collector can now:
 
 - list supported candidate runs from the local SlayTheData chunk index
+- rank candidate runs by full path length and guided-decision richness, with UI
+  defaults that require card/event/shop decision coverage
 - export a selected run from local chunks and start the collector from it
 - preview the next SlayTheData-guided non-combat choice
 - send one matched non-combat bridge command when `tick` receives
@@ -122,8 +124,7 @@ agreement, conservative map path matching, boss relic matching, campfire/grid
 matching, and post-send prediction checks are implemented, and the UI can
 repeatedly call tick until blocked. Remaining work is shop purge/grid coverage,
 map tie-breaking when room symbols are ambiguous, reward edge cases that need
-hidden identity checks, and candidate filtering/ranking beyond the initial
-"find supported runs" UI.
+hidden identity checks, and end-to-end live bridge smoke coverage.
 
 ## Important Boundaries
 

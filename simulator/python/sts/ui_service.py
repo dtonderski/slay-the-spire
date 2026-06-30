@@ -1120,6 +1120,10 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
     min_floor = _query_int(query, "min_floor", 45)
     max_floor = _query_optional_int(query, "max_floor")
     min_path_length = _query_optional_int(query, "min_path_length")
+    min_card_choices = _query_optional_int(query, "min_card_choices")
+    min_event_choices = _query_optional_int(query, "min_event_choices")
+    min_shop_purchases = _query_optional_int(query, "min_shop_purchases")
+    min_potion_usage = _query_optional_int(query, "min_potion_usage")
     limit = _query_int(query, "limit", 25)
     rows = select_guided_collection_candidates(
         character=character,
@@ -1127,6 +1131,10 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
         min_floor_reached=min_floor,
         max_floor_reached=max_floor,
         min_path_length=min_path_length,
+        min_card_choices=min_card_choices,
+        min_event_choices=min_event_choices,
+        min_shop_purchases=min_shop_purchases,
+        min_potion_usage=min_potion_usage,
         limit=limit,
     )
     return {
@@ -1137,6 +1145,10 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
             "min_floor": min_floor,
             "max_floor": max_floor,
             "min_path_length": min_path_length,
+            "min_card_choices": min_card_choices,
+            "min_event_choices": min_event_choices,
+            "min_shop_purchases": min_shop_purchases,
+            "min_potion_usage": min_potion_usage,
             "limit": limit,
         },
     }

@@ -183,6 +183,10 @@ class UiServiceTests(unittest.TestCase):
                     "min_floor": ["10"],
                     "max_floor": ["55"],
                     "min_path_length": ["10"],
+                    "min_card_choices": ["8"],
+                    "min_event_choices": ["1"],
+                    "min_shop_purchases": ["1"],
+                    "min_potion_usage": ["0"],
                     "limit": ["3"],
                 }
             )
@@ -195,6 +199,10 @@ class UiServiceTests(unittest.TestCase):
             min_floor_reached=10,
             max_floor_reached=55,
             min_path_length=10,
+            min_card_choices=8,
+            min_event_choices=1,
+            min_shop_purchases=1,
+            min_potion_usage=0,
             limit=3,
         )
 
