@@ -758,14 +758,19 @@
     }
     await singleFlight("Starting guided live run", async () => {
       pauseCollectorAutoRun();
-      const result = await requestJson("/api/collector/start-live-run", { method: "POST", body: {} });
-      app.collector = result.collector || app.collector;
-      app.collectorLastError = null;
-      await refreshBridgeQuietly();
-      await refreshCollectorReportQuietly();
-      if (options.armAuto) {
-        app.collectorAutoRun = true;
-        scheduleCollectorAutoStep(850);
+      try {
+        const result = await requestJson("/api/collector/start-live-run", { method: "POST", body: {} });
+        app.collector = result.collector || app.collector;
+        app.collectorLastError = null;
+        await refreshBridgeQuietly();
+        await refreshCollectorReportQuietly();
+        if (options.armAuto) {
+          app.collectorAutoRun = true;
+          scheduleCollectorAutoStep(850);
+        }
+      } catch (error) {
+        app.collectorLastError = readableError(error);
+        throw error;
       }
       renderCollector();
     });
@@ -811,17 +816,22 @@
       return;
     }
     await singleFlight(options.send ? "Sending guided choice" : "Previewing guided choice", async () => {
-      app.collector = await requestJson("/api/collector/tick", {
-        method: "POST",
-        body: collectorTickPayload(options),
-      });
-      app.collectorLastError = null;
-      await refreshBridgeQuietly();
-      await refreshParityQuietly();
-      await refreshCollectorReportQuietly();
-      const suggestion = app.collector && app.collector.suggestion;
-      if (suggestion && suggestion.status === "blocked") {
-        throw new Error(firstDefined(suggestion.detail, suggestion.reason, "Collector blocked."));
+      try {
+        app.collector = await requestJson("/api/collector/tick", {
+          method: "POST",
+          body: collectorTickPayload(options),
+        });
+        app.collectorLastError = null;
+        await refreshBridgeQuietly();
+        await refreshParityQuietly();
+        await refreshCollectorReportQuietly();
+        const suggestion = app.collector && app.collector.suggestion;
+        if (suggestion && suggestion.status === "blocked") {
+          throw new Error(firstDefined(suggestion.detail, suggestion.reason, "Collector blocked."));
+        }
+      } catch (error) {
+        app.collectorLastError = readableError(error);
+        throw error;
       }
     });
   }
