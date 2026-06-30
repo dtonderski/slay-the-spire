@@ -324,12 +324,28 @@ def send_guided_suggestion(
     source_state_id = bridge_status.get("state_id")
     command = command_for_descriptor(descriptor)
     try:
-        send_kwargs = {"source_state_id": source_state_id}
+        send_kwargs = {
+            "source_state_id": source_state_id,
+            "wait_for_state_update": True,
+        }
         if metadata is not None:
             send_kwargs["metadata"] = metadata
         result = send_command(command, **send_kwargs)
     except Exception as error:
         return suggestion | _blocked("send_failed", str(error))
+
+    observed_update = result.get("observed_update")
+    if result.get("transport") == "tcp-jsonl":
+        if not isinstance(observed_update, dict):
+            return suggestion | _blocked(
+                "observed_update_missing",
+                "TCP command did not return an observed bridge state update",
+            )
+        if observed_update.get("ok") is not True:
+            return suggestion | _blocked(
+                "observed_update_timeout",
+                str(observed_update.get("error") or "timed out waiting for observed bridge state after command"),
+            ) | {"observed_update": observed_update}
 
     return suggestion | {
         "status": "sent",
@@ -339,6 +355,8 @@ def send_guided_suggestion(
             "ok": result.get("ok"),
             "command_id": result.get("command_id"),
             "command": result.get("command"),
+            "transport": result.get("transport"),
+            "observed_update": observed_update,
         },
     }
 

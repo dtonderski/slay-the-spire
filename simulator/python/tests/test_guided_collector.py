@@ -396,8 +396,8 @@ class GuidedCollectorTests(unittest.TestCase):
     def test_send_guided_suggestion_sends_matching_descriptor_with_source_state(self):
         calls = []
 
-        def send_command(command, *, source_state_id=None):
-            calls.append((command, source_state_id))
+        def send_command(command, *, source_state_id=None, wait_for_state_update=False):
+            calls.append((command, source_state_id, wait_for_state_update))
             return {"ok": True, "command_id": "cmd-1", "command": command}
 
         suggestion = suggest_guided_action(sample_script(), self.ready_event_bridge())
@@ -411,7 +411,24 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "sent")
         self.assertEqual(result["command"], "CHOOSE 0")
         self.assertEqual(result["source_state_id"], "bridge-state")
-        self.assertEqual(calls, [("CHOOSE 0", "bridge-state")])
+        self.assertEqual(calls, [("CHOOSE 0", "bridge-state", True)])
+
+    def test_send_guided_suggestion_blocks_when_tcp_observed_update_is_missing(self):
+        suggestion = suggest_guided_action(sample_script(), self.ready_event_bridge())
+
+        result = send_guided_suggestion(
+            suggestion,
+            self.ready_event_bridge(),
+            send_command=lambda *_args, **_kwargs: {
+                "ok": True,
+                "transport": "tcp-jsonl",
+                "command_id": "cmd-1",
+                "command": "CHOOSE 0",
+            },
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "observed_update_missing")
 
     def test_send_guided_suggestion_blocks_when_bridge_is_not_ready(self):
         bridge = self.ready_event_bridge()
