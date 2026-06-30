@@ -4,7 +4,12 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { inspectGuidedCollectReport, recentReports, validateTrace } = require("./guided_collect_status");
+const {
+  inspectCurrentBridgePreflight,
+  inspectGuidedCollectReport,
+  recentReports,
+  validateTrace,
+} = require("./guided_collect_status");
 
 function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
@@ -30,7 +35,7 @@ function testValidateTraceReportsMissingFile() {
 }
 
 function testInspectMissingReport() {
-  const result = inspectGuidedCollectReport("does-not-exist.json");
+  const result = inspectGuidedCollectReport("does-not-exist.json", undefined, { current_bridge_preflight: false });
   assert.strictEqual(result.ok, false);
   assert.match(result.error, /not found/);
 }
@@ -85,7 +90,7 @@ function testInspectBlockedReport() {
       },
     });
 
-    const result = inspectGuidedCollectReport(reportPath);
+    const result = inspectGuidedCollectReport(reportPath, undefined, { current_bridge_preflight: false });
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.producer, "sts.guided_collect");
     assert.strictEqual(result.generated_at, "2026-06-30T12:00:00Z");
@@ -163,7 +168,7 @@ function testInspectReportValidatesTrace() {
       history_tail: [{ event: "start" }],
     });
 
-    const result = inspectGuidedCollectReport(reportPath);
+    const result = inspectGuidedCollectReport(reportPath, undefined, { current_bridge_preflight: false });
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.producer, "sts.guided_collect");
     assert.strictEqual(result.trace.ok, true);
@@ -210,10 +215,63 @@ function testInspectReportIncludesRecentReports() {
       actions_sent: 0,
     });
 
-    const result = inspectGuidedCollectReport(reportPath, archiveDir);
+    const result = inspectGuidedCollectReport(reportPath, archiveDir, { current_bridge_preflight: false });
 
     assert.strictEqual(result.recent_reports.length, 1);
     assert.strictEqual(result.recent_reports[0].name, "attempt.json");
+  });
+}
+
+function testInspectCurrentBridgePreflightReportsFreshTcpReadiness() {
+  withTempDir((dir) => {
+    writeJson(path.join(dir, "status.json"), {
+      step: 7,
+      client_pid: 111,
+      status: "waiting",
+      trace_path: "trace.jsonl",
+      control: { protocol: "tcp-jsonl", host: "127.0.0.1", port: 12345 },
+    });
+    writeJson(path.join(dir, "summary.json"), {
+      step: 7,
+      state_seq: 9,
+      client_pid: 111,
+      ready_for_command: true,
+      available_commands: ["start", "state"],
+      screen_type: "MAIN_MENU",
+    });
+
+    const result = inspectCurrentBridgePreflight(dir);
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.tcp_control_available, true);
+    assert.deepStrictEqual(result.problems, []);
+    assert.strictEqual(result.pending_command.present, false);
+    assert.strictEqual(result.summary.state_seq, 9);
+    assert.strictEqual(result.status.client_pid, 111);
+  });
+}
+
+function testInspectCurrentBridgePreflightReportsStaleFileOnlySession() {
+  withTempDir((dir) => {
+    const statusPath = path.join(dir, "status.json");
+    const summaryPath = path.join(dir, "summary.json");
+    writeJson(statusPath, { step: 7, client_pid: 111, status: "waiting" });
+    writeJson(summaryPath, {
+      step: 7,
+      client_pid: 111,
+      ready_for_command: true,
+      available_commands: ["play", "state"],
+    });
+    const old = new Date("2026-01-01T00:00:00Z");
+    fs.utimesSync(statusPath, old, old);
+    fs.utimesSync(summaryPath, old, old);
+
+    const result = inspectCurrentBridgePreflight(dir, new Date("2026-01-01T00:03:00Z").getTime());
+
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.tcp_control_available, false);
+    assert.ok(result.problems.includes("observed state summary is stale"));
+    assert.ok(result.warnings.some((warning) => warning.includes("TCP bridge control")));
   });
 }
 
@@ -223,5 +281,7 @@ testInspectBlockedReport();
 testInspectReportValidatesTrace();
 testRecentReportsSortsNewestFirst();
 testInspectReportIncludesRecentReports();
+testInspectCurrentBridgePreflightReportsFreshTcpReadiness();
+testInspectCurrentBridgePreflightReportsStaleFileOnlySession();
 
 console.log("guided_collect_status tests passed");
