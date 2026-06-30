@@ -305,7 +305,37 @@ class UiServiceTests(unittest.TestCase):
         result = _collector_status_with_preflight(GuidedCollector(), MultiClientBridge({"connected": True}))
 
         self.assertEqual(result["preflight"]["bridge_clients"]["alive_count"], 2)
+        self.assertEqual(result["preflight"]["bridge_clients"]["active_bridge_count"], 2)
         self.assertIn("multiple alive bridge clients detected: 111, 222", result["preflight"]["problems"])
+
+    def test_collector_status_does_not_block_on_reused_old_trace_pid(self):
+        class ReusedPidBridge(FakeBridge):
+            def clients(self):
+                return {
+                    "current_pid": 111,
+                    "clients": [
+                        {
+                            "pid": 111,
+                            "current": True,
+                            "alive": True,
+                            "killable": True,
+                            "trace_paths": ["current.jsonl"],
+                        },
+                        {
+                            "pid": 222,
+                            "current": False,
+                            "alive": True,
+                            "killable": False,
+                            "trace_paths": ["old.jsonl"],
+                        },
+                    ],
+                }
+
+        result = _collector_status_with_preflight(GuidedCollector(), ReusedPidBridge({"connected": True}))
+
+        self.assertEqual(result["preflight"]["bridge_clients"]["alive_count"], 2)
+        self.assertEqual(result["preflight"]["bridge_clients"]["active_bridge_count"], 1)
+        self.assertNotIn("multiple alive bridge clients detected: 111, 222", result["preflight"]["problems"])
 
     def test_guided_collect_report_reports_missing_file(self):
         with tempfile.TemporaryDirectory() as directory:
