@@ -40,10 +40,10 @@ select rows that already have a `chunk_runs` entry.
 
 Latest observed UI-fast status on 2026-06-30:
 
-- `52,666,330` rows in `runs`
-- `52,639,808` rows in `chunk_runs`
-- `1,949` rows in `chunk_files`
-- `31,680` archive files indexed and `13,142` pending
+- `55,236,043` rows in `runs`
+- `55,235,247` rows in `chunk_runs`
+- `2,043` rows in `chunk_files`
+- `34,040` archive files indexed and `10,782` pending
 - supported exportable Ironclad A0 guided candidates are available for the UI
   default filters
 
