@@ -123,6 +123,7 @@
       "stopCollectorButton",
       "collectorStatusPanel",
       "requestBridgeStateButton",
+      "clearOrphanCommandMetaButton",
       "refreshBridgeClientsButton",
       "bridgeClientsPanel",
       "invariantModal",
@@ -184,6 +185,7 @@
     el.pauseCollectorButton.addEventListener("click", pauseCollectorAutoRun);
     el.stopCollectorButton.addEventListener("click", stopGuidedCollector);
     el.requestBridgeStateButton.addEventListener("click", requestBridgeState);
+    el.clearOrphanCommandMetaButton.addEventListener("click", clearOrphanCommandMetadata);
     el.refreshBridgeClientsButton.addEventListener("click", (event) => {
       event.stopPropagation();
       refreshBridgeClients();
@@ -906,6 +908,20 @@
     await submitBridgeCommand("state");
   }
 
+  async function clearOrphanCommandMetadata() {
+    if (!hasOrphanCommandMetadataProblem()) return;
+    await singleFlight("Clearing stale command metadata", async () => {
+      await requestJson("/api/bridge/orphan-command-metadata/clear", { method: "POST", body: {} });
+      await refreshBridgeQuietly();
+      await refreshCollectorQuietly();
+    });
+  }
+
+  function hasOrphanCommandMetadataProblem() {
+    const problems = arrayOf(app.collector && app.collector.preflight && app.collector.preflight.problems);
+    return problems.some((problem) => String(problem).includes("next_command.json exists without next_command.txt"));
+  }
+
   async function submitBridgeCommand(command) {
     if (!command) return;
     await singleFlight(`Sending ${humanize(command)}`, async () => {
@@ -1066,6 +1082,7 @@
     el.refreshBridgeButton.disabled = app.inFlight;
     el.liveRequestStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
+    el.clearOrphanCommandMetaButton.disabled = app.inFlight || !hasOrphanCommandMetadataProblem();
     el.refreshBridgeClientsButton.disabled = app.bridgeClientsLoading;
     const startReason = startLiveRunBlockedReason();
     const searchReason = liveSearchBlockedReason();
@@ -1081,6 +1098,9 @@
     el.sendBestButton.title = sendReason || "Send only the current recommended move.";
     el.sendBestReviewButton.title = sendReason || "Keep sending the current principal variation while simulator predictions match.";
     el.requestBridgeStateButton.title = "Trace-mutating: sends a CommunicationMod state command and records it.";
+    el.clearOrphanCommandMetaButton.title = hasOrphanCommandMetadataProblem()
+      ? "Remove orphan next_command.json while no bridge command is pending."
+      : "Available only when preflight reports orphan command metadata.";
     el.liveRequestStateButton.title = "Trace-mutating: asks CommunicationMod to publish a fresh state.";
     el.refreshBridgeButton.title = "Read-only: refreshes local bridge files without sending a game command.";
     el.restoreSnapshotButton.disabled = !app.sessionId || app.inFlight || !hasLoadedSnapshotJson();

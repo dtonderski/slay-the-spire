@@ -658,6 +658,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
             if parts == ["api", "bridge", "clients", "kill"]:
                 self._send_json(self.bridge.kill_client(payload.get("pid")))
                 return
+            if parts == ["api", "bridge", "orphan-command-metadata", "clear"]:
+                self._send_json(self.bridge.clear_orphan_command_metadata())
+                return
             if parts == ["api", "slaythedata", "script"]:
                 self._send_json(_guided_script_from_payload(payload))
                 return
