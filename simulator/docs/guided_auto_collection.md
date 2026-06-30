@@ -12,7 +12,7 @@ Automatically play the real game through the local UI and CommunicationMod:
 2. Use the simulator combat agent for combat actions.
 3. Reconstruct live simulator state from the active trace by strict seed replay.
 4. Stop on illegal choices, stale bridge clients, simulator/live prediction
-   mismatches, or unsupported screens.
+   mismatches, visible character/ascension mismatches, or unsupported screens.
 5. Preserve provenance so generated traces can be labeled as guided collection,
    not strict parity proof.
 

@@ -191,6 +191,16 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
         self.assertEqual(result["category"], "event")
 
+    def test_suggest_guided_action_blocks_visible_run_identity_mismatch(self):
+        bridge = self.ready_event_bridge()
+        bridge["summary"]["class"] = "THE_SILENT"
+        bridge["summary"]["ascension_level"] = 0
+
+        result = suggest_guided_action(sample_script(), bridge)
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "run_identity_mismatch")
+
     def test_suggest_guided_action_matches_boss_relic_choice(self):
         result = suggest_guided_action(
             sample_script(),

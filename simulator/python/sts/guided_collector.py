@@ -14,6 +14,7 @@ from uuid import uuid4
 from sts.bridge import command_for_descriptor
 from sts.slaythedata_policy import (
     build_guided_run_script,
+    identity_blocker,
     match_map_choice,
     match_visible_choice,
     potion_uses_allowed_on_floor,
@@ -173,6 +174,9 @@ def suggest_guided_action(
     ordinal: int = 0,
 ) -> dict[str, Any]:
     summary = bridge_status.get("summary") if isinstance(bridge_status.get("summary"), dict) else {}
+    blocker = identity_blocker(script, summary)
+    if blocker is not None:
+        return blocker
     floor = _current_floor(summary, bridge_status)
     if floor is None:
         return _blocked("missing_floor", "bridge status does not expose a current floor")
