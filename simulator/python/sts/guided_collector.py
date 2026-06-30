@@ -14,6 +14,7 @@ from uuid import uuid4
 from sts.bridge import command_for_descriptor
 from sts.slaythedata_policy import (
     build_guided_run_script,
+    match_map_choice,
     match_visible_choice,
     potion_uses_allowed_on_floor,
 )
@@ -192,14 +193,22 @@ def suggest_guided_action(
     if decision_category == "unsupported":
         return _blocked("unsupported_screen", "could not infer a SlayTheData decision category")
 
-    match = match_visible_choice(
-        script,
-        floor=floor,
-        choice_labels=choices,
-        category=decision_category,
-        ordinal=ordinal,
-        act=act,
-    )
+    if decision_category == "map":
+        match = match_map_choice(
+            script,
+            floor=floor,
+            choice_labels=choices,
+            next_nodes=_next_map_nodes(bridge_status),
+        )
+    else:
+        match = match_visible_choice(
+            script,
+            floor=floor,
+            choice_labels=choices,
+            category=decision_category,
+            ordinal=ordinal,
+            act=act,
+        )
     return match | {
         "floor": floor,
         "act": act,
@@ -362,6 +371,14 @@ def _visible_choices(summary: dict[str, Any], bridge_status: dict[str, Any]) -> 
     return []
 
 
+def _next_map_nodes(bridge_status: dict[str, Any]) -> list[dict[str, Any]]:
+    screen_state = _game_state(bridge_status).get("screen_state")
+    nodes = screen_state.get("next_nodes") if isinstance(screen_state, dict) else None
+    if isinstance(nodes, list):
+        return [node for node in nodes if isinstance(node, dict)]
+    return []
+
+
 def _infer_category(summary: dict[str, Any], bridge_status: dict[str, Any]) -> str:
     text = " ".join(
         str(value).lower()
@@ -375,6 +392,8 @@ def _infer_category(summary: dict[str, Any], bridge_status: dict[str, Any]) -> s
     )
     if "boss" in text and "relic" in text:
         return "boss_relic"
+    if "map" in text:
+        return "map"
     if "card" in text and "reward" in text:
         return "card_reward"
     if "shop" in text:

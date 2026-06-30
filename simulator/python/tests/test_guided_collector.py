@@ -12,6 +12,7 @@ def sample_script():
                 "character_chosen": "IRONCLAD",
                 "ascension_level": 0,
                 "seed_played": "ABC",
+                "path_per_floor": ["M", "?"],
                 "card_choices": [{"floor": 1, "picked": "Inflame"}],
                 "event_choices": [
                     {"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}
@@ -69,6 +70,38 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_map_bridge(self):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "map-bridge-state",
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 1,
+                        "act": 1,
+                        "screen_type": "MAP",
+                        "choice_list": ["x=1 ?", "x=3 $"],
+                        "screen_state": {
+                            "next_nodes": [
+                                {"x": 1, "room_symbol": "?"},
+                                {"x": 3, "room_symbol": "$"},
+                            ]
+                        },
+                    }
+                }
+            },
+            "summary": {
+                "floor": 1,
+                "act": 1,
+                "screen_type": "MAP",
+                "choices": ["x=1 ?", "x=3 $"],
+                "available_commands": ["choose"],
+            },
+        }
+
     def test_suggest_guided_action_matches_visible_event_choice(self):
         result = suggest_guided_action(
             sample_script(),
@@ -88,6 +121,16 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["category"], "boss_relic")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+
+    def test_suggest_guided_action_matches_map_path_choice(self):
+        result = suggest_guided_action(
+            sample_script(),
+            self.ready_map_bridge(),
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "map")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
     def test_send_guided_suggestion_sends_matching_descriptor_with_source_state(self):
         calls = []
