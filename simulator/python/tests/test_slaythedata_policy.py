@@ -560,7 +560,10 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["reason"], "ambiguous_target")
+        self.assertEqual(result["reason"], "map_route_ambiguous")
+        self.assertEqual(result["category"], "map")
+        self.assertEqual(result["candidate_count"], 2)
+        self.assertEqual(result["match_evidence"], "next_nodes")
 
     def test_match_map_choice_disambiguates_ambiguous_route_with_map_lookahead(self):
         script = build_guided_run_script({"event": {"path_per_floor": ["M", "?", "$"]}})
@@ -609,7 +612,9 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["reason"], "ambiguous_target")
+        self.assertEqual(result["reason"], "map_route_ambiguous")
+        self.assertEqual(result["target"], "M")
+        self.assertEqual(result["candidate_count"], 2)
 
 
 if __name__ == "__main__":

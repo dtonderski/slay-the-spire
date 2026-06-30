@@ -383,7 +383,7 @@ def match_map_choice(
                     "match_evidence": "map_topology_lookahead",
                 }
             return _blocked("target_not_visible", f"matched route {target!r} has no visible map choice slot")
-        return _blocked("ambiguous_target", f"route {target!r} matched {len(node_matches)} map nodes")
+        return _map_route_ambiguous(target, floor=floor, candidate_count=len(node_matches), source="next_nodes")
 
     label_matches = [
         index
@@ -402,7 +402,7 @@ def match_map_choice(
         }
     if not label_matches:
         return _blocked("target_not_visible", f"route {target!r} is not visible")
-    return _blocked("ambiguous_target", f"route {target!r} matched {len(label_matches)} visible choices")
+    return _map_route_ambiguous(target, floor=floor, candidate_count=len(label_matches), source="choice_labels")
 
 
 def _target_text_for_category(
@@ -892,6 +892,25 @@ def _ordinal_entry(entries: Any, ordinal: int) -> dict[str, Any] | None:
 
 def _blocked(reason: str, detail: str) -> dict[str, Any]:
     return {"status": "blocked", "reason": reason, "detail": detail}
+
+
+def _map_route_ambiguous(
+    target: str,
+    *,
+    floor: int,
+    candidate_count: int,
+    source: str,
+) -> dict[str, Any]:
+    return _blocked(
+        "map_route_ambiguous",
+        f"route {target!r} matched {candidate_count} map candidates via {source}",
+    ) | {
+        "floor": floor,
+        "category": "map",
+        "target": target,
+        "candidate_count": candidate_count,
+        "match_evidence": source,
+    }
 
 
 def _list(value: Any) -> list[Any]:
