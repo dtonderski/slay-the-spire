@@ -609,6 +609,77 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertIn("summary_age_seconds", result["ages"])
             self.assertFalse(result["pending_command"]["present"])
 
+    def test_preflight_reports_active_tcp_controller(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "waiting",
+                        "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": 12345},
+                        "controller": {
+                            "owner_id": "other-controller",
+                            "acquired_at": "2026-06-30T12:00:00Z",
+                            "lease_age_seconds": 5,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-protocol-state",
+                        "state_seq": 7,
+                        "ready_for_command": True,
+                        "available_commands": ["choose", "state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = BridgeMirror(root, stale_after_seconds=120).preflight()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["controller"]["owner_id"], "other-controller")
+        self.assertEqual(result["controller"]["lease_age_seconds"], 5)
+        self.assertIn("TCP bridge is owned by controller: other-controller", result["warnings"])
+
+    def test_preflight_blocks_stale_tcp_controller_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "waiting",
+                        "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": 12345},
+                        "controller": {
+                            "owner_id": "dead-controller",
+                            "acquired_at": "2026-06-30T12:00:00Z",
+                            "lease_age_seconds": 999,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-protocol-state",
+                        "state_seq": 7,
+                        "ready_for_command": True,
+                        "available_commands": ["choose", "state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = BridgeMirror(root, stale_after_seconds=120).preflight()
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["controller"]["owner_id"], "dead-controller")
+        self.assertIn("TCP bridge controller lease is stale: dead-controller", result["problems"])
+
     def test_preflight_blocks_tcp_control_without_state_seq_for_guarded_commands(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

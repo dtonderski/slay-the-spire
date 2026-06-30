@@ -73,15 +73,17 @@ function stateIdFor(message, summary) {
 }
 
 function writeStatus(value) {
+  const controller = controlOwner
+    ? {
+      owner_id: controlOwner.owner_id,
+      acquired_at: controlOwner.acquired_at,
+      lease_age_seconds: Math.max(0, (Date.now() - controlOwner.acquired_at_ms) / 1000),
+    }
+    : null;
   latestStatus = {
     ...value,
     control: controlAddress,
-    controller: controlOwner
-      ? {
-        owner_id: controlOwner.owner_id,
-        acquired_at: controlOwner.acquired_at,
-      }
-      : null,
+    controller,
   };
   writeJson(statusPath, latestStatus);
 }
@@ -385,6 +387,7 @@ async function handleControlMessage(payload) {
         owner_id: ownerId,
         owner_token: crypto.randomUUID(),
         acquired_at: new Date().toISOString(),
+        acquired_at_ms: Date.now(),
       };
       if (latestStatus) writeStatus(latestStatus);
     }
