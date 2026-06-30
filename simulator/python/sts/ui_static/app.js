@@ -926,6 +926,8 @@
     if (bridgeIdentityWarningText()) return "bridge client identity changed";
     const tcpReason = collectorTcpBlockerReason();
     if (tcpReason) return tcpReason;
+    const pendingPrediction = app.collector && app.collector.pending_prediction;
+    if (pendingPrediction) return "verifying previous predicted state";
     if (!app.bridge || !app.bridge.connected) return "bridge disconnected";
     if (app.bridge.exited) return "bridge exited";
     if (app.bridge.pending_command) return "waiting for pending bridge command";
@@ -1483,7 +1485,6 @@
       msg.className = "message error";
       msg.textContent = app.collectorLastError;
       el.collectorStatusPanel.appendChild(msg);
-      return;
     }
     if (app.slaythedataLastError) {
       const msg = document.createElement("div");
@@ -1507,6 +1508,12 @@
         ["Seed", firstDefined(app.collector.config && app.collector.config.seed_played, "-")],
         ["Auto", app.collectorAutoRun ? collectorAutoWaitReason() || "Running" : "Paused"],
         ["History", firstDefined(app.collector.history_count, 0)],
+        [
+          "Prediction",
+          app.collector.pending_prediction
+            ? firstDefined(app.collector.pending_prediction.predicted_state_id, "pending")
+            : "-",
+        ],
       ]),
     );
     if (suggestion) {
