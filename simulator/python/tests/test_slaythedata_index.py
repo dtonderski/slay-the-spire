@@ -80,9 +80,70 @@ class SlayTheDataIndexTests(unittest.TestCase):
         self.assertNotIn("chunk_runs_count", status)
         self.assertFalse(status["schema_features"]["has_neow_columns"])
         self.assertTrue(status["schema_features"]["has_supported_profile"])
+        self.assertFalse(status["schema_features"]["has_decision_tables"])
+        self.assertFalse(status["schema_features"]["has_offer_tables"])
+        self.assertIsNone(status["schema_features"]["chunk_store_decisions"])
+        self.assertIsNone(status["schema_features"]["store_offers"])
         self.assertTrue(status["exportable_candidate_available"])
         self.assertEqual(status["archive_status_counts"], {"indexed": 1, "pending": 1})
         self.assertIn("partial", status["warnings"][0])
+
+    def test_slaythedata_index_status_reports_richer_schema_features(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE index_meta (key TEXT PRIMARY KEY, value TEXT);
+                INSERT INTO index_meta VALUES ('chunk_store_decisions', '1');
+                INSERT INTO index_meta VALUES ('store_offers', '1');
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER,
+                    neow_bonus TEXT,
+                    neow_cost TEXT
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                CREATE TABLE run_card_choices (run_id INTEGER);
+                CREATE TABLE run_events (run_id INTEGER);
+                CREATE TABLE run_shop_purchases (run_id INTEGER);
+                CREATE TABLE run_campfire_choices (run_id INTEGER);
+                CREATE TABLE run_boss_relic_choices (run_id INTEGER);
+                CREATE TABLE run_potion_usage (run_id INTEGER);
+                CREATE TABLE run_potions_obtained (run_id INTEGER);
+                CREATE TABLE run_card_offer_cards (run_id INTEGER);
+                CREATE TABLE run_boss_relic_offer_relics (run_id INTEGER);
+                """
+            )
+            conn.execute(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (1, "IRONCLAD", 0, 50, 0, 0, 0, 0, "A", 1, 50, 10, 2, 1, 0, "THREE_ENEMY_KILL", "NONE"),
+            )
+            conn.execute("INSERT INTO chunk_runs VALUES (1)")
+            conn.commit()
+            conn.close()
+
+            status = slaythedata_index_status(db)
+
+        features = status["schema_features"]
+        self.assertTrue(features["has_neow_columns"])
+        self.assertTrue(features["has_decision_tables"])
+        self.assertTrue(features["has_offer_tables"])
+        self.assertTrue(features["chunk_store_decisions"])
+        self.assertTrue(features["store_offers"])
 
     def test_slaythedata_index_status_can_include_exact_counts(self):
         with tempfile.TemporaryDirectory() as tmp:

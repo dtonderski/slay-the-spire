@@ -166,9 +166,27 @@ def slaythedata_index_status(
             return status
         run_columns = set(_sqlite_table_columns(conn, "runs"))
         safe_neow_filter_supported = {"neow_bonus", "neow_cost"}.issubset(run_columns)
+        decision_tables = {
+            "run_card_choices",
+            "run_events",
+            "run_shop_purchases",
+            "run_campfire_choices",
+            "run_boss_relic_choices",
+            "run_potion_usage",
+            "run_potions_obtained",
+        }
+        offer_tables = {"run_card_offer_cards", "run_boss_relic_offer_relics"}
         status["schema_features"] = {
             "has_neow_columns": safe_neow_filter_supported,
             "has_supported_profile": "unsupported_any" in run_columns,
+            "has_decision_tables": decision_tables.issubset(tables),
+            "has_offer_tables": offer_tables.issubset(tables),
+            "chunk_store_decisions": _sqlite_meta_value(conn, "chunk_store_decisions") == "1"
+            if "index_meta" in tables
+            else None,
+            "store_offers": _sqlite_meta_value(conn, "store_offers") == "1"
+            if "index_meta" in tables
+            else None,
         }
 
         status["counts_included"] = bool(include_counts)
@@ -398,6 +416,11 @@ def _archive_status_counts(conn: sqlite3.Connection) -> dict[str, int]:
         str(row[0]): int(row[1])
         for row in conn.execute("SELECT status, COUNT(*) FROM archive_files GROUP BY status").fetchall()
     }
+
+
+def _sqlite_meta_value(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM index_meta WHERE key = ?", [key]).fetchone()
+    return None if row is None else str(row[0])
 
 
 def _sqlite_fetchone_with_step_limit(
