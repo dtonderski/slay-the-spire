@@ -62,16 +62,12 @@ def collect_one_run(
         sleep=sleep,
     )
     if _preflight_blocks_collection(preflight, require_tcp_control=config.require_tcp_control):
+        preflight_blocker = _preflight_blocker(preflight, require_tcp_control=config.require_tcp_control)
         return _blocked_report(
             config,
             started_at=started_at,
             stop_reason="preflight_blocked",
-            blocker={
-                "reason": "bridge_preflight",
-                "problems": preflight.get("problems", []),
-                "warnings": preflight.get("warnings", []),
-                "tcp_control_available": preflight.get("tcp_control_available"),
-            },
+            blocker=preflight_blocker,
             bridge_status=bridge.status(),
             preflight=preflight,
         )
@@ -212,6 +208,21 @@ def _preflight_blocks_collection(preflight: dict[str, Any], *, require_tcp_contr
     if require_tcp_control and preflight.get("tcp_control_available") is not True:
         return True
     return False
+
+
+def _preflight_blocker(preflight: dict[str, Any], *, require_tcp_control: bool) -> dict[str, Any]:
+    problems = list(preflight.get("problems") or [])
+    warnings = list(preflight.get("warnings") or [])
+    if require_tcp_control and preflight.get("tcp_control_available") is not True:
+        problem = "TCP bridge control is required for guided auto-collection"
+        if problem not in problems:
+            problems.append(problem)
+    return {
+        "reason": "bridge_preflight",
+        "problems": problems,
+        "warnings": warnings,
+        "tcp_control_available": preflight.get("tcp_control_available"),
+    }
 
 
 def _wait_for_preflight(
