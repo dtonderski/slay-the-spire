@@ -1534,6 +1534,8 @@ pub struct RunState {
     pub relics: Vec<Relic>,
     #[serde(default)]
     pub potions: Vec<Potion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub empty_potion_slots: Vec<usize>,
     #[serde(default)]
     pub event_rng_seed: u64,
     #[serde(default)]
@@ -2049,6 +2051,7 @@ impl RunState {
             card_grid: None,
             relics,
             potions: Vec::new(),
+            empty_potion_slots: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -2123,6 +2126,7 @@ impl RunState {
             card_grid: None,
             relics: Vec::new(),
             potions: Vec::new(),
+            empty_potion_slots: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -2330,6 +2334,80 @@ impl RunState {
 
     pub fn can_gain_potions(&self) -> bool {
         !self.relics.contains(&Relic::Sozu)
+    }
+
+    pub fn open_potion_slots(&self) -> usize {
+        self.potion_capacity().saturating_sub(self.potions.len())
+    }
+
+    pub fn potion_index_for_slot(&self, slot: usize) -> Option<usize> {
+        if slot >= self.potion_capacity() || self.empty_potion_slots.contains(&slot) {
+            return None;
+        }
+
+        let earlier_empty_slots = self
+            .empty_potion_slots
+            .iter()
+            .filter(|empty_slot| **empty_slot < slot)
+            .count();
+        let potion_index = slot.checked_sub(earlier_empty_slots)?;
+        (potion_index < self.potions.len()).then_some(potion_index)
+    }
+
+    pub fn potion_at_slot(&self, slot: usize) -> Option<Potion> {
+        self.potion_index_for_slot(slot)
+            .and_then(|index| self.potions.get(index).copied())
+    }
+
+    pub fn occupied_potion_slots(&self) -> Vec<(usize, Potion)> {
+        (0..self.potion_capacity())
+            .filter_map(|slot| self.potion_at_slot(slot).map(|potion| (slot, potion)))
+            .collect()
+    }
+
+    pub fn gain_potion(&mut self, potion: Potion) -> SimResult<()> {
+        if !self.can_gain_potions() {
+            return Err(SimError::IllegalAction("potions cannot be obtained"));
+        }
+        if self.potions.len() >= self.potion_capacity() {
+            return Err(SimError::IllegalAction("potion belt is full"));
+        }
+
+        if let Some((empty_index, slot)) = self
+            .empty_potion_slots
+            .iter()
+            .copied()
+            .enumerate()
+            .min_by_key(|(_, slot)| *slot)
+        {
+            self.empty_potion_slots.remove(empty_index);
+            let earlier_empty_slots = self
+                .empty_potion_slots
+                .iter()
+                .filter(|empty_slot| **empty_slot < slot)
+                .count();
+            let potion_index = slot.saturating_sub(earlier_empty_slots);
+            self.potions
+                .insert(potion_index.min(self.potions.len()), potion);
+        } else {
+            self.potions.push(potion);
+        }
+
+        Ok(())
+    }
+
+    pub fn take_potion_slot(&mut self, slot: usize) -> SimResult<Potion> {
+        let Some(potion_index) = self.potion_index_for_slot(slot) else {
+            return Err(SimError::IllegalAction("potion slot is not available"));
+        };
+
+        let potion = self.potions.remove(potion_index);
+        if slot < self.potion_capacity() && !self.empty_potion_slots.contains(&slot) {
+            self.empty_potion_slots.push(slot);
+            self.empty_potion_slots.sort_unstable();
+        }
+
+        Ok(potion)
     }
 
     pub fn can_gain_gold(&self) -> bool {
@@ -2607,7 +2685,7 @@ impl RunState {
             return;
         }
 
-        let open_slots = self.potion_capacity().saturating_sub(self.potions.len());
+        let open_slots = self.open_potion_slots();
         let rolls = CAULDRON_POTIONS.min(open_slots);
         if rolls == 0 {
             return;
@@ -2616,8 +2694,8 @@ impl RunState {
         let mut potion_rng =
             StsRng::with_counter(self.potion_rng_seed as i64, self.potion_rng_counter);
         for _ in 0..rolls {
-            self.potions
-                .push(super::reward::target_random_potion(&mut potion_rng));
+            self.gain_potion(super::reward::target_random_potion(&mut potion_rng))
+                .expect("open potion slot validated");
         }
         self.potion_rng_counter = potion_rng.counter();
     }
@@ -2706,7 +2784,7 @@ impl RunState {
                 if !self.can_gain_potions() {
                     return Err(SimError::IllegalAction("potions cannot be obtained"));
                 }
-                if self.potions.len() >= self.potion_capacity() {
+                if self.open_potion_slots() == 0 {
                     return Err(SimError::IllegalAction("potion belt is full"));
                 }
                 Ok(())

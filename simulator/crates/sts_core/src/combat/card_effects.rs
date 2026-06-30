@@ -361,10 +361,42 @@ pub(super) fn play_card_queue(
         queue = apply_double_tap_to_queue(queue, card_id);
     }
 
+    apply_effective_cost_to_played_card_queue(card, definition, &mut queue);
     apply_corruption_to_played_skill_queue(state, definition, card_id, &mut queue);
     apply_strange_spoon_to_played_card_move(&mut queued_state, definition, card_id, &mut queue);
 
     Ok((queued_state, queue))
+}
+
+fn apply_effective_cost_to_played_card_queue(
+    card: &CardInstance,
+    definition: &CardDefinition,
+    queue: &mut VecDeque<InternalAction>,
+) {
+    let printed_cost = i32::from(definition.cost);
+    let effective_cost = effective_card_cost_for_queue(card, definition);
+    if effective_cost == printed_cost {
+        return;
+    }
+
+    for action in queue.iter_mut() {
+        if let InternalAction::SpendEnergy { amount } = action {
+            if *amount == printed_cost {
+                *amount = effective_cost;
+            }
+            break;
+        }
+    }
+}
+
+fn effective_card_cost_for_queue(card: &CardInstance, definition: &CardDefinition) -> i32 {
+    if let Some(cost) = card.temp_cost {
+        return i32::from(cost);
+    }
+    if definition.id == BLOOD_FOR_BLOOD_ID || definition.id == BLOOD_FOR_BLOOD_PLUS_ID {
+        return (i32::from(definition.cost) - card.blood_for_blood_cost_reduction).max(0);
+    }
+    i32::from(definition.cost)
 }
 
 fn apply_corruption_to_played_skill_queue(
@@ -1231,6 +1263,7 @@ fn infernal_blade_queue(
             content_id: generated,
             to: CardPile::Hand,
             temp_cost: Some(0),
+            temp_cost_turn_only: true,
         },
         InternalAction::MoveCard {
             card_id,
@@ -1271,6 +1304,7 @@ fn metamorphosis_queue(
             content_id: generated,
             to: CardPile::DrawPile,
             temp_cost: Some(0),
+            temp_cost_turn_only: false,
         });
     }
 
@@ -1408,6 +1442,7 @@ fn chrysalis_queue(
             content_id,
             to: CardPile::DrawPile,
             temp_cost: Some(0),
+            temp_cost_turn_only: false,
         });
     }
     queue.push_back(InternalAction::MoveCard {
@@ -1464,6 +1499,7 @@ fn jack_of_all_trades_queue(
             content_id: generated,
             to: CardPile::Hand,
             temp_cost: None,
+            temp_cost_turn_only: false,
         });
     }
     queue.extend([InternalAction::MoveCard {
@@ -3411,7 +3447,7 @@ fn seeing_red_queue(
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
-            to: CardPile::DiscardPile,
+            to: CardPile::ExhaustPile,
         },
     ]))
 }

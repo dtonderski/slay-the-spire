@@ -1248,7 +1248,10 @@ pub const SEEING_RED: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
-    keywords: CARD_KEYWORDS_NONE,
+    keywords: CardKeywords {
+        exhaust: true,
+        ..CARD_KEYWORDS_NONE
+    },
 };
 
 pub const POMMEL_STRIKE_PLUS: CardDefinition = CardDefinition {
@@ -1293,7 +1296,10 @@ pub const SEEING_RED_PLUS: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
-    keywords: CARD_KEYWORDS_NONE,
+    keywords: CardKeywords {
+        exhaust: true,
+        ..CARD_KEYWORDS_NONE
+    },
 };
 
 pub const INFLAME: CardDefinition = CardDefinition {
@@ -5738,6 +5744,7 @@ mod tests {
         assert_eq!(SEEING_RED.cost, 1);
         assert_eq!(SEEING_RED.target, TargetRequirement::None);
         assert_eq!(SEEING_RED.card_type, CardType::Skill);
+        assert!(SEEING_RED.keywords.exhaust);
     }
 
     #[test]
@@ -5838,6 +5845,7 @@ mod tests {
     #[test]
     fn seeing_red_plus_costs_zero() {
         assert_eq!(SEEING_RED_PLUS.cost, 0);
+        assert!(SEEING_RED_PLUS.keywords.exhaust);
     }
 
     #[test]

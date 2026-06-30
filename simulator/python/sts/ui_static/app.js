@@ -1066,6 +1066,7 @@
 
   async function submitBridgeCommand(command) {
     if (!command) return;
+    const beforeBridgeStateId = bridgeStateId();
     await singleFlight(`Sending ${humanize(command)}`, async () => {
       const result = await requestJson("/api/bridge/command", {
         method: "POST",
@@ -1074,6 +1075,7 @@
       app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
       await refreshParityQuietly();
     });
+    await attachObservedLiveStateAfterSend(beforeBridgeStateId);
   }
 
   async function submitBridgeAction(action) {
@@ -1092,6 +1094,7 @@
       return;
     }
 
+    const beforeBridgeStateId = bridgeStateId();
     await singleFlight(`Sending ${bridgeActionLabel(action)}`, async () => {
       const result = await requestJson("/api/bridge/descriptor", {
         method: "POST",
@@ -1103,6 +1106,24 @@
       app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
       await refreshParityQuietly();
     });
+    await attachObservedLiveStateAfterSend(beforeBridgeStateId);
+  }
+
+  async function attachObservedLiveStateAfterSend(previousBridgeStateId) {
+    if (app.viewMode !== "live") return;
+    const currentBridgeStateId = bridgeStateId();
+    if (!currentBridgeStateId || currentBridgeStateId === previousBridgeStateId) return;
+    await autoAttachLiveStateQuietly();
+    renderChrome();
+    renderLive();
+    renderBoard();
+    renderHand();
+    renderActions();
+    renderAllowedPotions();
+    renderSearch();
+    renderBridge();
+    renderDebug();
+    renderInvariantModal();
   }
 
   async function refreshTraces() {
@@ -2471,6 +2492,17 @@
     if (isEndTurnAction(best)) {
       return bridgeActions.find((action) => String(action.command || "").toUpperCase() === "END") || null;
     }
+    const potion = exactRunUsePotion(best);
+    if (potion) {
+      const targetSlot = observedMonsterSlotForTarget(potion.target);
+      return bridgeActions.find((action) => {
+        const descriptor = action.descriptor || {};
+        if (descriptor.kind !== "UsePotionSlot") return false;
+        if (Number(descriptor.potion_slot) !== Number(potion.slot)) return false;
+        if (potion.target === null || potion.target === undefined) return descriptor.target_slot === undefined || descriptor.target_slot === null;
+        return Number(descriptor.target_slot) === Number(targetSlot);
+      }) || null;
+    }
     const play = exactRunPlayCard(best);
     if (!play) return null;
     const slot = observedHandSlotForCardId(play.card_id);
@@ -2541,6 +2573,21 @@
     }
     const payload = action.action && action.action.PlayCard;
     if (payload) return { card_id: payload.card_id, target: payload.target };
+    return null;
+  }
+
+  function exactRunUsePotion(action) {
+    if (!action) return null;
+    if (action.kind === "UsePotion") {
+      return { slot: action.slot, target: action.target };
+    }
+    const descriptor = action.descriptor || {};
+    const descriptorPayload = descriptor.action && descriptor.action.UsePotion;
+    if (descriptorPayload) {
+      return { slot: descriptorPayload.slot, target: descriptorPayload.target };
+    }
+    const payload = action.action && action.action.UsePotion;
+    if (payload) return { slot: payload.slot, target: payload.target };
     return null;
   }
 

@@ -5380,6 +5380,22 @@ fn potions_from_observed(game: &Value) -> Vec<Potion> {
         .unwrap_or_default()
 }
 
+fn empty_potion_slots_from_observed(game: &Value) -> Vec<usize> {
+    game.get("potions")
+        .and_then(Value::as_array)
+        .map(|potions| {
+            potions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, potion)| {
+                    let name = potion.get("name").and_then(Value::as_str)?;
+                    name.eq_ignore_ascii_case("Potion Slot").then_some(index)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn potion_keys_from_value(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -6610,6 +6626,7 @@ fn run_from_observed_noncombat(message: &Value) -> Option<RunState> {
         card_grid: None,
         relics,
         potions: potions_from_observed(game),
+        empty_potion_slots: empty_potion_slots_from_observed(game),
         event_rng_seed,
         reward_rng_seed: 7,
         card_rng_counter: 0,
@@ -7127,6 +7144,7 @@ fn run_from_observed_combat_impl(
         card_grid: None,
         relics,
         potions: potions_from_observed(game),
+        empty_potion_slots: empty_potion_slots_from_observed(game),
         event_rng_seed: 0,
         reward_rng_seed: 7,
         card_rng_counter: 0,
@@ -7237,6 +7255,7 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         card_grid: None,
         relics: Vec::new(),
         potions: potions_from_observed(game),
+        empty_potion_slots: empty_potion_slots_from_observed(game),
         event_rng_seed: 0,
         reward_rng_seed: 0,
         card_rng_counter: 0,
@@ -7771,10 +7790,11 @@ fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Op
 fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> MonsterIntent {
     use sts_core::content::monsters::{
         ACID_SLIME_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, CENTURION_ID, CHOSEN_ID, CULTIST_ID,
-        DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID, GREMLIN_FAT_ID, GREMLIN_LEADER_ID,
-        GREMLIN_TSUNDERE_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID,
-        SENTRY_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK,
-        SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKE_SLIME_ID,
+        DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_FAT_ID,
+        GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID,
+        ORB_WALKER_ID, RED_LOUSE_ID, SENTRY_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SNECKO_ID,
+        SPHERIC_GUARDIAN_ACTIVATE_BLOCK, SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK,
+        SPHERIC_GUARDIAN_ID, SPIKE_SLIME_ID,
     };
 
     let damage = int(monster, "move_base_damage");
@@ -7782,6 +7802,7 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
     let move_id = int(monster, "move_id");
     match monster.get("intent").and_then(Value::as_str).unwrap_or("") {
         "STUN" => MonsterIntent::Stun,
+        "ESCAPE" => MonsterIntent::Escape,
         "DEBUG" if content_id == SENTRY_ID && damage <= 0 => {
             MonsterIntent::AddDazedToDiscard { count: 2 }
         }
@@ -7816,6 +7837,9 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
         {
             MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 }
         }
+        "DEBUFF" if content_id == GREEN_LOUSE_ID => MonsterIntent::ApplyPlayerWeak {
+            amount: GREEN_LOUSE_WEAK,
+        },
         "DEBUFF" => MonsterIntent::ApplyPlayerWeak { amount: 1 },
         "ATTACK_DEBUFF" if matches!(content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) => {
             MonsterIntent::AttackAddSlimedToDiscard {

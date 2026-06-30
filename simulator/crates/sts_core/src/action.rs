@@ -104,6 +104,7 @@ pub enum InternalAction {
         content_id: crate::ContentId,
         to: CardPile,
         temp_cost: Option<u8>,
+        temp_cost_turn_only: bool,
     },
     AddGeneratedCardToDrawPileRandomSpot {
         content_id: crate::ContentId,

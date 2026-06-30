@@ -1002,8 +1002,9 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         NeowRewardType::ThreeSmallPotions => {
             let reward = generate_neow_three_potions(next.event_rng_seed as i64);
             for potion in reward.potions {
-                if next.can_gain_potions() && next.potions.len() < next.potion_capacity() {
-                    next.potions.push(potion);
+                if next.can_gain_potions() && next.open_potion_slots() > 0 {
+                    next.gain_potion(potion)
+                        .expect("open potion slot validated");
                 }
             }
             next.potion_rng_counter = reward.potion_rng_counter;

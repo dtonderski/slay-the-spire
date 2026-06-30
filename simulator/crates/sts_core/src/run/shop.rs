@@ -262,7 +262,7 @@ pub fn affordable_shop_picks(run: &RunState) -> Vec<ShopPick> {
     for (slot, offer) in shop.potions.iter().enumerate() {
         if !offer.sold
             && run.gold >= offer.price
-            && run.potions.len() < run.potion_capacity()
+            && run.open_potion_slots() > 0
             && run.can_gain_potions()
         {
             picks.push(ShopPick::BuyPotion(slot));
@@ -610,7 +610,7 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
     for (slot, offer) in shop.potions.iter().enumerate() {
         if !offer.sold
             && run.gold >= offer.price
-            && run.potions.len() < run.potion_capacity()
+            && run.open_potion_slots() > 0
             && run.can_gain_potions()
         {
             actions.push(RunAction::BuyShopPotion { slot });
@@ -695,7 +695,7 @@ pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> 
                     if !run.can_gain_potions() {
                         return Err(SimError::IllegalAction("potions cannot be obtained"));
                     }
-                    if run.potions.len() >= run.potion_capacity() {
+                    if run.open_potion_slots() == 0 {
                         return Err(SimError::IllegalAction("potion belt is full"));
                     }
                     if run.gold < offer.price {
@@ -762,7 +762,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             offer.sold = true;
             next.gold -= price;
             next.break_maw_bank_on_shop_spend();
-            next.potions.push(potion);
+            next.gain_potion(potion)?;
             if has_the_courier(&next) {
                 restock_courier_potion_slot(&mut next, slot);
             }

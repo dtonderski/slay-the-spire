@@ -24,12 +24,13 @@ use crate::{
         target_chosen_next_intent_from_roll, target_fungi_beast_next_intent_from_roll,
         target_gremlin_leader_next_intent_from_roll, target_healer_next_intent_from_roll,
         target_jaw_worm_next_intent_from_roll, target_large_acid_slime_next_intent_from_roll,
-        target_medium_acid_slime_next_intent_from_roll,
+        target_louse_next_intent_from_roll, target_medium_acid_slime_next_intent_from_roll,
         target_shelled_parasite_next_intent_from_roll, target_snake_plant_next_intent_from_roll,
         ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, BRONZE_AUTOMATON_ID,
-        BRONZE_ORB_ID, CENTURION_ID, CHOSEN_ID, DARKLING_ID, FUNGI_BEAST_ID, GREMLIN_LEADER_ID,
-        HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID,
-        SPHERIC_GUARDIAN_ID,
+        BRONZE_ORB_ID, CENTURION_ID, CHOSEN_ID, DARKLING_ID, FUNGI_BEAST_ID,
+        GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID,
+        HEXAGHOST_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID,
+        SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SPHERIC_GUARDIAN_ID,
     },
     ids::MonsterId,
     rng::JavaRng,
@@ -583,6 +584,35 @@ fn prepare_next_intents(state: &mut CombatState) {
             } else if monster.content_id == JAW_WORM_ID {
                 if let Some(roll) = roll {
                     target_jaw_worm_next_intent_from_roll(&monster.move_history, roll)
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == RED_LOUSE_ID {
+                if let Some(roll) = roll {
+                    target_louse_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        monster.rolled_attack_damage,
+                        RED_LOUSE_BITE_DAMAGE,
+                        crate::MonsterIntent::StrengthAndBlock {
+                            strength: LOUSE_CURL_STRENGTH,
+                            block: 0,
+                        },
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == GREEN_LOUSE_ID {
+                if let Some(roll) = roll {
+                    target_louse_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        monster.rolled_attack_damage,
+                        GREEN_LOUSE_BITE_DAMAGE,
+                        crate::MonsterIntent::ApplyPlayerWeak {
+                            amount: GREEN_LOUSE_WEAK,
+                        },
+                    )
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }

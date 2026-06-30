@@ -59,11 +59,41 @@ pub fn apply_combat_action_with_events(
 
     match action {
         CombatAction::PlayCard { card_id, target } => apply_play_card(state, card_id, target),
-        CombatAction::EndTurn => Ok(CombatTransition {
-            state: crate::combat::end_player_turn(state),
-            event_log: Vec::new(),
-        }),
+        CombatAction::EndTurn => Ok(apply_end_turn(state)),
     }
+}
+
+fn apply_end_turn(state: &CombatState) -> CombatTransition {
+    let ethereal_ids = end_turn_ethereal_hand_card_ids(state);
+    let next = crate::combat::end_player_turn(state);
+    let event_log = ethereal_ids
+        .into_iter()
+        .filter(|card_id| {
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.id == *card_id)
+        })
+        .map(|card_id| InternalAction::CardExhausted { card_id })
+        .collect();
+
+    CombatTransition {
+        state: next,
+        event_log,
+    }
+}
+
+fn end_turn_ethereal_hand_card_ids(state: &CombatState) -> Vec<CardId> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| {
+            get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.keywords.ethereal)
+        })
+        .map(|card| card.id)
+        .collect()
 }
 
 pub fn apply_play_top_draw_card_action(
@@ -478,8 +508,9 @@ fn apply_internal_action(
             content_id,
             to,
             temp_cost,
+            temp_cost_turn_only,
         } => {
-            add_generated_card_to_pile(state, content_id, to, temp_cost);
+            add_generated_card_to_pile(state, content_id, to, temp_cost, temp_cost_turn_only);
             Ok(Vec::new())
         }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
@@ -491,7 +522,7 @@ fn apply_internal_action(
             if upgrade {
                 content_id = upgrade_content_id(content_id).unwrap_or(content_id);
             }
-            add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost);
+            add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost, false);
             Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
@@ -1104,6 +1135,7 @@ fn add_generated_card_to_pile(
     content_id: ContentId,
     to: CardPile,
     temp_cost: Option<u8>,
+    temp_cost_turn_only: bool,
 ) {
     let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
     let mut card = CardInstance {
@@ -1111,6 +1143,7 @@ fn add_generated_card_to_pile(
         ..CardInstance::new(next_id, content_id)
     };
     card.temp_cost = temp_cost;
+    card.temp_cost_turn_only = temp_cost_turn_only;
     push_card_to_pile(state, card, to);
 }
 
@@ -1344,6 +1377,7 @@ fn apply_play_top_draw_card(
                     content_id,
                     to: CardPile::DrawPile,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: false,
                 });
             }
         }
@@ -3572,6 +3606,7 @@ mod tests {
             .expect("generated attack");
         assert!(generated.combat_only);
         assert_eq!(generated.temp_cost, Some(0));
+        assert!(generated.temp_cost_turn_only);
         assert_eq!(
             get_card_definition(generated.content_id).map(|definition| definition.card_type),
             Some(CardType::Attack)
@@ -3595,6 +3630,7 @@ mod tests {
             .expect("generated attack");
         assert_eq!(generated.content_id, expected);
         assert_eq!(generated.temp_cost, Some(0));
+        assert!(generated.temp_cost_turn_only);
     }
 
     #[test]
@@ -3646,6 +3682,7 @@ mod tests {
                     content_id: expected,
                     to: CardPile::Hand,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: true,
                 },
                 InternalAction::MoveCard {
                     card_id,
@@ -3886,16 +3923,19 @@ mod tests {
                     content_id: expected,
                     to: CardPile::DrawPile,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: false,
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected,
                     to: CardPile::DrawPile,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: false,
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected,
                     to: CardPile::DrawPile,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: false,
                 },
                 InternalAction::MoveCard {
                     card_id,
@@ -4479,6 +4519,7 @@ mod tests {
                     content_id: expected,
                     to: CardPile::Hand,
                     temp_cost: None,
+                    temp_cost_turn_only: false,
                 },
                 InternalAction::MoveCard {
                     card_id,
@@ -8052,16 +8093,19 @@ mod tests {
                     content_id: expected[0],
                     to: CardPile::DrawPile,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: false,
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected[1],
                     to: CardPile::DrawPile,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: false,
                 },
                 InternalAction::AddGeneratedCardToPile {
                     content_id: expected[2],
                     to: CardPile::DrawPile,
                     temp_cost: Some(0),
+                    temp_cost_turn_only: false,
                 },
                 InternalAction::MoveCard {
                     card_id,
@@ -13138,7 +13182,7 @@ mod tests {
         assert_eq!(next.player.energy, state.player.energy + 1);
         assert!(next
             .piles
-            .discard_pile
+            .exhaust_pile
             .iter()
             .any(|card| card.id == CardId::new(20)));
     }
