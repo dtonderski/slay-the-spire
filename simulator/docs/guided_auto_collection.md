@@ -204,9 +204,10 @@ The collector can now:
 - publish accepted in-memory TCP commands into `session/status.json` as pending
   commands, so the UI and collector wait for CommunicationMod to consume them
   even though no legacy `next_command.txt` file exists
-- require TCP control for guided collector `START` and tick sends. Manual bridge
-  commands may still use the legacy file fallback, but guided auto-collection
-  now refuses to send on an old/file-only bridge
+- require TCP control for guided collector `START` and tick sends. Manual UI
+  bridge commands use the same TCP-required send-and-observe path, and fresh
+  TCP-enabled bridge clients reject legacy `next_command.txt` writes by default
+  unless `TRACE_ALLOW_FILE_COMMANDS=1` is set for compatibility diagnostics
 - request a post-command observed state for guided `START` as well as guided
   tick sends, so the first live auto-collection command has the same
   acknowledged/observed boundary as later actions
@@ -217,6 +218,12 @@ The collector can now:
 - verify guided combat and non-combat simulator predictions immediately from
   that observed TCP state when it is present, clearing the pending prediction
   in the same tick on a match and blocking loudly on timeout or mismatch
+- disable stale mirrored bridge actions in the Python/UI action model, so stale
+  session files remain visible for diagnosis but cannot be clicked as if they
+  were fresh commands
+- stop the headless collector as `game_complete` when the live bridge publishes
+  a terminal game-over/victory state; the report still requires strict trace
+  validation before `ok=true`
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot
@@ -272,7 +279,8 @@ same-symbol disambiguation, boss relic matching, campfire/grid matching,
 post-send prediction checks, and generated-trace provenance are implemented,
 and the UI can repeatedly call tick until blocked. The bridge write path now
 has an acknowledged TCP option with controller ownership, state sequence guards,
-and guided-auto enforcement. Manual UI bridge commands now use the same
+guided-auto enforcement, and default rejection of legacy file commands when a
+TCP control socket is active. Manual UI bridge commands now use the same
 TCP-required send-and-observe path, so successful sends can update from the
 post-command bridge state instead of waiting for file polling.
 

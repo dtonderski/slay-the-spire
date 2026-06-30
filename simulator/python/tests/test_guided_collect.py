@@ -74,6 +74,28 @@ class VerboseObservedUpdateBridge(FakeBridge):
         }
 
 
+class TerminalBridge(FakeBridge):
+    def __init__(self):
+        super().__init__()
+        self._status["summary"] = {
+            "state_id": "terminal-state",
+            "screen_type": "GAME_OVER",
+            "ready_for_command": True,
+            "available_commands": ["state"],
+        }
+        self._status["current_state"] = {
+            "message": {
+                "game_state": {
+                    "screen_type": "GAME_OVER",
+                    "current_hp": 0,
+                    "floor": 50,
+                }
+            }
+        }
+        self._status["state_id"] = "terminal-state"
+        self._status["last_state_step"] = 99
+
+
 class GuidedCollectTests(unittest.TestCase):
     def test_collect_one_run_reports_blocker_and_requires_tcp(self):
         bridge = FakeBridge()
@@ -500,6 +522,30 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["stop_reason"], "max_actions")
         self.assertEqual(report["actions_sent"], 1)
         self.assertEqual(report["trace_validation"]["reason"], "trace_path_not_found")
+
+    def test_collect_one_run_reports_game_complete_when_bridge_is_terminal(self):
+        bridge = TerminalBridge()
+
+        with patch(
+            "sts.guided_collect.export_guided_run_script",
+            return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
+        ), patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=AssertionError("terminal bridge should not tick"),
+        ), patch(
+            "sts.guided_collect._validate_trace",
+            return_value={"verified": True, "stop_reason": "trace_exhausted", "steps": 99},
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123, max_actions=5, max_seconds=5),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["stop_reason"], "game_complete")
+        self.assertEqual(report["actions_sent"], 0)
+        self.assertEqual(report["history_tail"][1]["event"], "terminal")
 
     def test_archive_report_path_is_safe_and_descriptive(self):
         with tempfile.TemporaryDirectory() as directory:

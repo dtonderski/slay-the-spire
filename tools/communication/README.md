@@ -33,11 +33,14 @@ Messages are newline-delimited JSON objects:
   `observed_update` object when the bridge saw the post-command state.
 
 `BridgeMirror.send_command(...)` prefers this socket when advertised and falls
-back to `next_command.txt` for older bridge clients. The legacy session files
-remain the read model and compatibility fallback; the socket is the preferred
-write path because it gives accepted/rejected acknowledgements, can wait for
-post-command state updates, and does not rely on file polling for command
-submission.
+back to `next_command.txt` for older bridge clients. When a trace client is
+launched with `TRACE_CONTROL_PORT` set, legacy `next_command.txt` ingestion is
+disabled by default so file commands cannot bypass state id/seq guards or
+controller ownership. Set `TRACE_ALLOW_FILE_COMMANDS=1` only for explicit
+compatibility diagnostics. The legacy session files remain the read model and
+old-client fallback; the socket is the preferred write path because it gives
+accepted/rejected acknowledgements, can wait for post-command state updates,
+and does not rely on file polling for command submission.
 
 ## Manual Control
 
@@ -109,6 +112,9 @@ Useful environment variables:
 - `STS_PREFLIGHT_STALE_MS`: session summary/status age treated as stale by preflight, default `120000`
 - `TRACE_CONTROL_PORT`: optional trace-client TCP JSONL control port. Use `0`
   to bind any free localhost port and publish it in `session/status.json`.
+- `TRACE_ALLOW_FILE_COMMANDS`: set to `1` to allow legacy
+  `session/next_command.txt` command ingestion even when `TRACE_CONTROL_PORT`
+  is enabled. Leave unset for guided auto-collection and normal UI use.
 
 ## Trace Health
 

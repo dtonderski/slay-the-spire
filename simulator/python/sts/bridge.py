@@ -693,6 +693,8 @@ def _bridge_disabled_reason(
 ) -> str | None:
     if not connected:
         return "bridge disconnected"
+    if stale:
+        return "bridge state is stale"
     if pending_command:
         return "bridge command already pending"
     if not summary.get("ready_for_command", False):
