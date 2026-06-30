@@ -1251,6 +1251,115 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(predict.call_args.args[1]["action_id"], "a0")
         self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-event-state")
 
+    def test_send_live_non_combat_action_rejects_tcp_without_observed_update(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeEventRunEnv(),
+        )
+        bridge_status = {
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 2,
+                        "screen_type": "EVENT",
+                        "choice_list": ["Pray", "Leave"],
+                    }
+                }
+            },
+        }
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-event-state",
+            "attach_fidelity": "seed_replay",
+            "state_kind": "run",
+            "state": {"phase": "event"},
+        }
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+            manager,
+            "predict",
+            return_value={"predicted_state_id": "predicted-event-state"},
+        ):
+            with self.assertRaisesRegex(ValueError, "observed TCP state update"):
+                manager.send_live_non_combat_action(
+                    bridge_status,
+                    {
+                        "status": "matched",
+                        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 0},
+                    },
+                    {},
+                    send_command=lambda command, **_kwargs: {
+                        "ok": True,
+                        "command_id": "cmd-event",
+                        "command": command,
+                        "transport": "tcp-jsonl",
+                    },
+                )
+
+    def test_send_live_combat_action_rejects_failed_tcp_observed_update(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeLiveEnv(),
+        )
+        bridge_status = {
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "bridge_actions": [
+                {
+                    "command": "PLAY 1 0",
+                    "descriptor": {"kind": "PlayHandSlot", "hand_slot": 1, "target_slot": 0},
+                }
+            ],
+            "summary": {
+                "combat": {
+                    "hand": [{"index": 1, "id": 101}],
+                    "monsters": [{"index": 0, "id": 7}],
+                }
+            },
+        }
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-live-state",
+            "attach_fidelity": "seed_replay",
+            "state": {"combat": {}},
+        }
+        recommendation = {
+            "best_action": {
+                "kind": "ExactRunAction",
+                "action_kind": "play_card",
+                "action": {"PlayCard": {"card_id": 101, "target": 7}},
+            }
+        }
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+            manager, "search", return_value={"recommendation": recommendation}
+        ), patch.object(
+            manager,
+            "predict",
+            return_value={"predicted_state_id": "predicted-live-state"},
+        ):
+            with self.assertRaisesRegex(ValueError, "did not observe post-command state"):
+                manager.send_live_combat_action(
+                    bridge_status,
+                    {"status": "combat", "potion_uses_allowed": 0},
+                    {"potion_uses_allowed": 0, "max_depth": 5},
+                    send_command=lambda command, **_kwargs: {
+                        "ok": True,
+                        "command_id": "cmd-combat",
+                        "command": command,
+                        "transport": "tcp-jsonl",
+                        "observed_update": {"ok": False, "error": "timed out waiting"},
+                    },
+                )
+
     def test_tick_live_collector_wires_bridge_sender_and_prediction_verifier(self):
         manager = SessionManager()
         manager._sessions["live"] = CombatSession(
