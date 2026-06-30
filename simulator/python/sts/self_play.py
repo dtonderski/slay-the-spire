@@ -629,6 +629,9 @@ def replay_real_trace_guided(
         if _next_trace_record_is_error(records, record_index):
             continue
 
+        if verb == "STATE":
+            continue
+
         actions = env.exact_legal_actions()
         action = _action_for_communication_command(
             env,

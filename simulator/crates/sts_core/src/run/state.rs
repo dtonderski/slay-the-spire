@@ -1824,8 +1824,7 @@ impl RunState {
                 counter: self.card_rng_counter,
             },
             RunRngStream::CardRandom => RunRngStreamState {
-                seed: (self.reward_rng_seed as i64).wrapping_add(i64::from(self.current_floor))
-                    as u64,
+                seed: self.reward_rng_seed + self.current_floor as u64,
                 counter: self.card_random_rng_counter,
             },
             RunRngStream::Event => RunRngStreamState {
@@ -1887,7 +1886,7 @@ impl RunState {
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
         combat.ascension = self.ascension;
-        if self.relics.contains(&Relic::SneckoEye) {
+        if combat.card_random_rng.is_none() {
             combat.card_random_rng = Some(self.card_random_rng());
         }
         if matches!(
