@@ -131,7 +131,7 @@ def collect_one_run(
             "event": "start",
             "run_id": run_id,
             "command": start_result.get("command"),
-            "send_result": start_result.get("send_result"),
+            "send_result": _compact_send_result(start_result.get("send_result")),
         }
     ]
     actions_sent = 0
@@ -334,6 +334,31 @@ def _compact_tick(tick: dict[str, Any]) -> dict[str, Any]:
         or (send or {}).get("command"),
         "pending_prediction": tick.get("pending_prediction"),
     }
+
+
+def _compact_send_result(send_result: Any) -> dict[str, Any] | None:
+    if not isinstance(send_result, dict):
+        return None
+    observed_update = send_result.get("observed_update")
+    compact = {
+        "ok": send_result.get("ok"),
+        "command_id": send_result.get("command_id"),
+        "command": send_result.get("command"),
+        "transport": send_result.get("transport"),
+    }
+    if isinstance(observed_update, dict):
+        compact["observed_update"] = {
+            "ok": observed_update.get("ok"),
+            "state_id": observed_update.get("state_id"),
+            "state_seq": observed_update.get("state_seq"),
+            "step": observed_update.get("step"),
+            "error": observed_update.get("error"),
+        }
+        bridge_status = observed_update.get("bridge_status")
+        if isinstance(bridge_status, dict):
+            compact["observed_update"]["bridge_state_id"] = bridge_status.get("state_id")
+            compact["observed_update"]["bridge_step"] = bridge_status.get("last_state_step")
+    return compact
 
 
 def main(argv: list[str] | None = None) -> None:
