@@ -3490,6 +3490,17 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
             _ => None,
         };
     }
+    if content_id == ACID_SLIME_ID {
+        return match intent {
+            MonsterIntent::AttackAddSlimedToDiscard { .. } => Some(1),
+            MonsterIntent::Attack { damage } if damage >= ACID_SLIME_M_NORMAL_TACKLE_DAMAGE => {
+                Some(2)
+            }
+            MonsterIntent::ApplyPlayerWeak { .. } => Some(4),
+            MonsterIntent::Attack { .. } => Some(1),
+            _ => None,
+        };
+    }
     None
 }
 
@@ -4301,6 +4312,112 @@ pub fn target_acid_slime_entry_intent_from_roll(hp: i32, roll: i32) -> MonsterIn
         MonsterIntent::ApplyPlayerWeak {
             amount: ACID_SLIME_WEAK,
         }
+    }
+}
+
+#[must_use]
+pub fn target_medium_acid_slime_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    rng: &mut StsRng,
+    ascension: u8,
+) -> MonsterIntent {
+    let wound_damage = if ascension >= 2 { 8 } else { ACID_SLIME_ATTACK_DAMAGE };
+    let attack_damage = if ascension >= 2 {
+        12
+    } else {
+        ACID_SLIME_M_NORMAL_TACKLE_DAMAGE
+    };
+    let weak = ACID_SLIME_WEAK;
+
+    if ascension >= 17 {
+        if roll < 40 {
+            if last_two_moves(move_history, 1) {
+                if rng.random_bool() {
+                    MonsterIntent::Attack {
+                        damage: attack_damage,
+                    }
+                } else {
+                    MonsterIntent::ApplyPlayerWeak { amount: weak }
+                }
+            } else {
+                MonsterIntent::AttackAddSlimedToDiscard {
+                    damage: wound_damage,
+                    count: 1,
+                }
+            }
+        } else if roll < 80 {
+            if last_two_moves(move_history, 2) {
+                if rng.random_float() < 0.5 {
+                    MonsterIntent::AttackAddSlimedToDiscard {
+                        damage: wound_damage,
+                        count: 1,
+                    }
+                } else {
+                    MonsterIntent::ApplyPlayerWeak { amount: weak }
+                }
+            } else {
+                MonsterIntent::Attack {
+                    damage: attack_damage,
+                }
+            }
+        } else if last_move(move_history, 4) {
+            if rng.random_float() < 0.4 {
+                MonsterIntent::AttackAddSlimedToDiscard {
+                    damage: wound_damage,
+                    count: 1,
+                }
+            } else {
+                MonsterIntent::Attack {
+                    damage: attack_damage,
+                }
+            }
+        } else {
+            MonsterIntent::ApplyPlayerWeak { amount: weak }
+        }
+    } else if roll < 30 {
+        if last_two_moves(move_history, 1) {
+            if rng.random_bool() {
+                MonsterIntent::Attack {
+                    damage: attack_damage,
+                }
+            } else {
+                MonsterIntent::ApplyPlayerWeak { amount: weak }
+            }
+        } else {
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: wound_damage,
+                count: 1,
+            }
+        }
+    } else if roll < 70 {
+        if last_move(move_history, 2) {
+            if rng.random_float() < 0.4 {
+                MonsterIntent::AttackAddSlimedToDiscard {
+                    damage: wound_damage,
+                    count: 1,
+                }
+            } else {
+                MonsterIntent::ApplyPlayerWeak { amount: weak }
+            }
+        } else {
+            MonsterIntent::Attack {
+                damage: attack_damage,
+            }
+        }
+    } else if last_two_moves(move_history, 4) {
+        if rng.random_float() < 0.4 {
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: wound_damage,
+                count: 1,
+            }
+        } else {
+            MonsterIntent::Attack {
+                damage: attack_damage,
+            }
+        }
+    } else {
+        MonsterIntent::ApplyPlayerWeak { amount: weak }
     }
 }
 
@@ -6485,6 +6602,45 @@ mod tests {
                 amount: ACID_SLIME_WEAK
             }
         );
+    }
+
+    #[test]
+    fn medium_acid_slime_next_roll_matches_target_move_table() {
+        let mut rng = StsRng::new(1);
+
+        assert_eq!(
+            target_medium_acid_slime_next_intent_from_roll(&[1], 30, &mut rng, 0),
+            MonsterIntent::Attack {
+                damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE
+            }
+        );
+        assert_eq!(
+            target_medium_acid_slime_next_intent_from_roll(&[1], 70, &mut rng, 0),
+            MonsterIntent::ApplyPlayerWeak {
+                amount: ACID_SLIME_WEAK
+            }
+        );
+    }
+
+    #[test]
+    fn acid_slime_records_target_move_bytes() {
+        let mut monster = monster_state(&ACID_SLIME_A0, MonsterId::new(1));
+        monster.hp = ACID_SLIME_M_A0_HP_RANGE.max;
+        monster.intent = MonsterIntent::AttackAddSlimedToDiscard {
+            damage: ACID_SLIME_ATTACK_DAMAGE,
+            count: 1,
+        };
+        record_target_move(&mut monster);
+        monster.intent = MonsterIntent::Attack {
+            damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE,
+        };
+        record_target_move(&mut monster);
+        monster.intent = MonsterIntent::ApplyPlayerWeak {
+            amount: ACID_SLIME_WEAK,
+        };
+        record_target_move(&mut monster);
+
+        assert_eq!(monster.move_history, vec![1, 2, 4]);
     }
 
     #[test]
