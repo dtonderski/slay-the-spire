@@ -372,6 +372,13 @@ class UiServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             manager.search(session["session_id"], {"candidate": "missing"})
 
+    def test_search_rejects_stale_source_state(self):
+        manager = SessionManager()
+        session = manager.create_session()
+
+        with self.assertRaises(ValueError):
+            manager.search(session["session_id"], {"max_depth": 1, "source_state_id": "old-state"})
+
     def test_run_map_fixture_exposes_run_decision_and_actions(self):
         manager = SessionManager()
         session = manager.create_session("run_map_fixture")

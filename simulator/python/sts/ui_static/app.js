@@ -66,6 +66,7 @@
       "attachLiveButton",
       "liveSearchButton",
       "sendBestButton",
+      "sendBestReviewButton",
       "liveReason",
       "sessionModeSelect",
       "newSessionButton",
@@ -132,6 +133,7 @@
     el.attachLiveButton.addEventListener("click", attachLiveSession);
     el.liveSearchButton.addEventListener("click", runLiveSearch);
     el.sendBestButton.addEventListener("click", sendBestToGame);
+    el.sendBestReviewButton.addEventListener("click", sendBestToGame);
     el.newSessionButton.addEventListener("click", startSession);
     el.reloadButton.addEventListener("click", reloadSession);
     el.searchButton.addEventListener("click", runSearch);
@@ -178,9 +180,11 @@
         renderBoard();
         renderHand();
         renderActions();
+        renderAllowedPotions();
         renderSearch();
         renderBridge();
         renderDebug();
+        renderInvariantModal();
       }
     }, 1000);
   }
@@ -330,6 +334,7 @@
             candidate,
             max_depth: Number.isFinite(maxDepth) ? maxDepth : undefined,
             allowed_potions: allowedPotions,
+            source_state_id: currentStateId(),
           },
         },
       );
@@ -544,6 +549,11 @@
       flashPending();
       return;
     }
+    const blocked = bridgeActionDisabledReason(action);
+    if (blocked) {
+      showError(blocked);
+      return;
+    }
     const descriptor = action && action.descriptor;
     if (!descriptor) {
       showError("Cannot submit this bridge action because it has no descriptor.");
@@ -679,10 +689,21 @@
     el.applyBestButton.classList.toggle("hidden", app.viewMode === "live");
     el.refreshBridgeButton.disabled = app.inFlight;
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
-    el.startLiveRunButton.disabled = app.inFlight || !!startLiveRunBlockedReason();
+    const startReason = startLiveRunBlockedReason();
+    const searchReason = liveSearchBlockedReason();
+    const sendReason = liveSendBlockedReason();
+    el.startLiveRunButton.disabled = app.inFlight || !!startReason;
     el.attachLiveButton.disabled = app.inFlight || !canAttachLiveSession();
-    el.liveSearchButton.disabled = app.inFlight || !!liveSearchBlockedReason();
-    el.sendBestButton.disabled = app.inFlight || !!liveSendBlockedReason();
+    el.liveSearchButton.disabled = app.inFlight || !!searchReason;
+    el.sendBestButton.disabled = app.inFlight || !!sendReason;
+    el.sendBestReviewButton.disabled = app.inFlight || !!sendReason;
+    el.startLiveRunButton.title = startReason || "Start a live run through CommunicationMod.";
+    el.attachLiveButton.title = canAttachLiveSession() ? "Attach the latest observed live state to the simulator." : "No current observed bridge state is available to attach.";
+    el.liveSearchButton.title = searchReason || "Search the attached live combat state.";
+    el.sendBestButton.title = sendReason || "Send the mapped recommendation to the live game.";
+    el.sendBestReviewButton.title = sendReason || "Send the mapped recommendation to the live game.";
+    el.requestBridgeStateButton.title = "Trace-mutating: sends a CommunicationMod state command and records it.";
+    el.refreshBridgeButton.title = "Read-only: refreshes local bridge files without sending a game command.";
     el.restoreSnapshotButton.disabled = !app.sessionId || app.inFlight || !hasLoadedSnapshotJson();
 
     el.stateSummary.textContent = summarizeState();
@@ -796,11 +817,14 @@
     el.actionsPanel.className = "button-grid";
     actions.forEach((action) => {
       const button = document.createElement("button");
-      const disabledReason = action.disabled_reason || action.disabledReason;
+      const disabledReason = live ? bridgeActionDisabledReason(action) : action.disabled_reason || action.disabledReason;
       const pendingReason = app.inFlight ? "A command is already in flight." : "";
       button.type = "button";
       button.className = "action-button";
-      button.disabled = app.inFlight || action.enabled === false;
+      if (live && isRecommendedBridgeAction(action)) {
+        button.classList.add("recommended-action");
+      }
+      button.disabled = app.inFlight || !!disabledReason || action.enabled === false;
       button.textContent = live ? bridgeActionLabel(action) : actionLabel(action);
       button.title = pendingReason || disabledReason || (live ? `Sends ${bridgeActionLabel(action)}` : sourceTitle(action));
       button.addEventListener("click", () => live ? submitBridgeAction(action) : submitAction(action));
@@ -819,6 +843,9 @@
     el.searchButton.disabled = !app.sessionId || app.inFlight || !combatSearch;
     const best = app.search && app.search.bestAction;
     el.applyBestButton.disabled = !best || app.inFlight || !combatSearch;
+    if (el.sendBestReviewButton) {
+      el.sendBestReviewButton.classList.toggle("hidden", app.viewMode !== "live");
+    }
     el.searchStatus.textContent = !combatSearch
       ? "Combat only"
       : app.inFlight && app.lifecycle.label === "Searching" ? "Running" : app.search ? "Ready" : "Idle";
@@ -930,9 +957,7 @@
       ]),
     );
 
-    const best = app.search && app.search.bestAction;
-    const bestText = best ? recommendationBestLabel() : "No recommendation yet.";
-    el.liveReason.textContent = sendBlocker || searchBlocker || startStatus || bestText;
+    el.liveReason.textContent = liveReasonText({ sendBlocker, searchBlocker, startStatus });
   }
 
   function renderBridge() {
@@ -996,6 +1021,13 @@
   }
 
   function bridgeLifecycle() {
+    if (!app.bridge) {
+      return {
+        status: "unknown",
+        label: "Unknown",
+        detail: "",
+      };
+    }
     const lifecycle = app.bridge && app.bridge.bridge_lifecycle;
     if (lifecycle && typeof lifecycle === "object") {
       const status = firstDefined(lifecycle.status, "unknown");
@@ -1073,11 +1105,11 @@
     grid.className = "bridge-action-grid";
     actions.forEach((action) => {
       const button = document.createElement("button");
-      const disabledReason = action.disabled_reason || action.disabledReason;
+      const disabledReason = bridgeActionDisabledReason(action);
       const sourceStateId = firstDefined(action.source_state_id, action.sourceStateId, null);
       button.type = "button";
       button.className = "bridge-action-button";
-      button.disabled = app.inFlight || app.bridge.pending_command || action.enabled === false;
+      button.disabled = app.inFlight || !!disabledReason || action.enabled === false;
       button.textContent = bridgeActionLabel(action);
       button.title = disabledReason || (app.bridge.pending_command ? "Bridge command pending." : `Derived from bridge state ${stringify(sourceStateId || bridgeStateId() || "-")}`);
       button.addEventListener("click", () => submitBridgeAction(action));
@@ -1227,7 +1259,7 @@
 
     const violation = {
       title: "Simulator prediction mismatch",
-      message: "The live game reached a different state than the simulator predicted. Cached recommendations and auto-play are blocked until you inspect and reattach/research.",
+      message: "The live game reached a different state than the simulator predicted. Cached recommendations are blocked until you inspect and reattach/research.",
       expected,
       observed: observedStateId || "-",
       source: firstDefined(pending.source_state_id, "-"),
@@ -1333,6 +1365,19 @@
     return null;
   }
 
+  function bridgeActionDisabledReason(action) {
+    if (app.liveInvariantViolation) return "Simulator/live mismatch needs acknowledgement.";
+    if (!app.bridge) return "Bridge status not loaded.";
+    if (app.bridge.exited) return "Bridge exited.";
+    if (!app.bridge.connected) return "Bridge disconnected.";
+    if (app.bridge.pending_command) return "Waiting for pending bridge command.";
+    if (app.bridge.stale) return "Bridge state is stale.";
+    if (action && (action.disabled_reason || action.disabledReason)) {
+      return action.disabled_reason || action.disabledReason;
+    }
+    return null;
+  }
+
   function bridgeLooksLikeCombat() {
     const summary = (app.bridge && app.bridge.summary) || {};
     if (summary.combat) return true;
@@ -1373,6 +1418,20 @@
       if (play.target === null || play.target === undefined) return descriptor.target_slot === undefined || descriptor.target_slot === null;
       return Number(descriptor.target_slot) === Number(targetSlot);
     }) || null;
+  }
+
+  function isRecommendedBridgeAction(action) {
+    const recommended = liveBridgeActionForBest();
+    if (!recommended || !action) return false;
+    return bridgeActionKey(recommended) === bridgeActionKey(action);
+  }
+
+  function bridgeActionKey(action) {
+    return JSON.stringify({
+      command: firstDefined(action && action.command, ""),
+      descriptor: firstDefined(action && action.descriptor, null),
+      source: firstDefined(action && action.source_state_id, action && action.sourceStateId, null),
+    });
   }
 
   function recommendationBestLabel() {
@@ -1468,6 +1527,14 @@
     if (app.livePendingPrediction) return "Awaiting observed state";
     if (app.search && app.liveSearchBridgeStateId === bridgeStateId()) return "Predicted";
     return "Idle";
+  }
+
+  function liveReasonText({ sendBlocker, searchBlocker, startStatus }) {
+    if (sendBlocker) return `Blocked: ${sendBlocker}`;
+    if (searchBlocker) return `Blocked: ${searchBlocker}`;
+    if (startStatus) return `Setup: ${startStatus}`;
+    if (app.search && app.search.bestAction) return `Will send: ${recommendationBestLabel()}`;
+    return "Ready: attach or search when combat is available.";
   }
 
   function allowedPotionsPayload() {
