@@ -52,6 +52,13 @@ function testInspectBlockedReport() {
         candidate_count: 25,
         skipped_unsupported: [{ run_id: 123, reason: "unsupported_neow_followup" }],
       },
+      preflight: {
+        ok: false,
+        ages: { status_age_seconds: 1, summary_age_seconds: 2 },
+        pending_command: { present: false, transport: null },
+        summary: { step: 7 },
+        status: { status: "waiting" },
+      },
       blocker: {
         reason: "bridge_preflight",
         problems: ["session files are stale"],
@@ -68,6 +75,10 @@ function testInspectBlockedReport() {
     assert.strictEqual(result.selection.considered_count, 2);
     assert.strictEqual(result.selection.candidate_count, 25);
     assert.strictEqual(result.selection.skipped_unsupported_count, 1);
+    assert.strictEqual(result.preflight.ok, false);
+    assert.strictEqual(result.preflight.ages.summary_age_seconds, 2);
+    assert.strictEqual(result.preflight.pending_command.present, false);
+    assert.strictEqual(result.preflight.summary.step, 7);
     assert.strictEqual(result.blocker.reason, "bridge_preflight");
     assert.deepStrictEqual(result.blocker.problems, ["session files are stale"]);
   });

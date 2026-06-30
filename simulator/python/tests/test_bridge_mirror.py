@@ -105,6 +105,8 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(status["pending_command_meta"]["protocol"], "tcp-jsonl")
         self.assertFalse(preflight["ok"])
         self.assertIn("bridge command already pending", preflight["problems"])
+        self.assertEqual(preflight["pending_command"]["transport"], "tcp-jsonl")
+        self.assertEqual(preflight["pending_command"]["command_id"], "tcp-cmd-1")
 
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -268,6 +270,7 @@ class BridgeMirrorTests(unittest.TestCase):
 
             self.assertFalse(result["ok"])
             self.assertIn("next_command.json exists without next_command.txt", result["problems"])
+            self.assertFalse(result["pending_command"]["present"])
 
     def test_preflight_reports_tcp_control_availability(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -291,6 +294,9 @@ class BridgeMirrorTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(result["tcp_control_available"])
             self.assertEqual(result["control"]["protocol"], "tcp-jsonl")
+            self.assertIn("status_age_seconds", result["ages"])
+            self.assertIn("summary_age_seconds", result["ages"])
+            self.assertFalse(result["pending_command"]["present"])
 
     def test_clear_orphan_command_metadata_removes_only_orphan_file(self):
         with tempfile.TemporaryDirectory() as directory:
