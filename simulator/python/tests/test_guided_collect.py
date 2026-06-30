@@ -9,6 +9,7 @@ from sts.guided_collect import GuidedCollectConfig, collect_one_run
 class FakeBridge:
     def __init__(self, *, preflight=None):
         self.sent = []
+        self._preflights = list(preflight) if isinstance(preflight, list) else None
         self._preflight = preflight or {
             "ok": True,
             "problems": [],
@@ -36,6 +37,10 @@ class FakeBridge:
         return self._status
 
     def preflight(self):
+        if self._preflights is not None:
+            if len(self._preflights) > 1:
+                return self._preflights.pop(0)
+            return self._preflights[0]
         return self._preflight
 
     def send_command(self, command, **kwargs):
@@ -116,6 +121,53 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["blocker"]["problems"], ["session files are stale"])
         self.assertFalse(report["blocker"]["tcp_control_available"])
         self.assertEqual(report["actions_sent"], 0)
+
+    def test_collect_one_run_waits_for_preflight_to_become_ready(self):
+        bridge = FakeBridge(
+            preflight=[
+                {
+                    "ok": False,
+                    "problems": ["missing session status.json"],
+                    "warnings": [],
+                    "tcp_control_available": False,
+                },
+                {
+                    "ok": True,
+                    "problems": [],
+                    "warnings": [],
+                    "tcp_control_available": True,
+                },
+            ]
+        )
+        sleeps = []
+
+        def fake_tick(_collector, _manager, _bridge, payload, *, require_tcp_control):
+            return {
+                "status": "blocked",
+                "blocker": {"status": "blocked", "reason": "done"},
+                "suggestion": {"status": "blocked", "reason": "done"},
+            }
+
+        with patch(
+            "sts.guided_collect.export_guided_run_script",
+            return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
+        ) as export, patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=fake_tick,
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(
+                    run_id=123,
+                    preflight_timeout_seconds=5,
+                    preflight_poll_seconds=0.25,
+                ),
+                bridge=bridge,
+                sleep=lambda seconds: sleeps.append(seconds),
+            )
+
+        export.assert_called_once()
+        self.assertEqual(sleeps, [0.25])
+        self.assertEqual(report["stop_reason"], "blocked")
 
 
 if __name__ == "__main__":

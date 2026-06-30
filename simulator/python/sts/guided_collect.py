@@ -35,6 +35,8 @@ class GuidedCollectConfig:
     combat_policy: str | None = None
     max_depth: int = 40
     require_tcp_control: bool = True
+    preflight_timeout_seconds: float = 0.0
+    preflight_poll_seconds: float = 1.0
 
 
 def collect_one_run(
@@ -51,7 +53,12 @@ def collect_one_run(
     manager = manager or SessionManager()
     collector = collector or GuidedCollector()
     started_at = time.time()
-    preflight = bridge.preflight()
+    preflight = _wait_for_preflight(
+        bridge,
+        config,
+        started_at=started_at,
+        sleep=sleep,
+    )
     if _preflight_blocks_collection(preflight, require_tcp_control=config.require_tcp_control):
         return _blocked_report(
             config,
@@ -150,6 +157,24 @@ def _preflight_blocks_collection(preflight: dict[str, Any], *, require_tcp_contr
     return False
 
 
+def _wait_for_preflight(
+    bridge: BridgeMirror,
+    config: GuidedCollectConfig,
+    *,
+    started_at: float,
+    sleep: Any,
+) -> dict[str, Any]:
+    timeout = max(0.0, float(config.preflight_timeout_seconds))
+    poll = max(0.05, float(config.preflight_poll_seconds))
+    while True:
+        preflight = bridge.preflight()
+        if not _preflight_blocks_collection(preflight, require_tcp_control=config.require_tcp_control):
+            return preflight
+        if time.time() - started_at >= timeout:
+            return preflight
+        sleep(min(poll, max(0.0, timeout - (time.time() - started_at))))
+
+
 def _blocked_report(
     config: GuidedCollectConfig,
     *,
@@ -232,6 +257,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--allow-file-bridge", action="store_true")
     parser.add_argument("--report-output", type=Path, default=None)
     parser.add_argument("--fail-on-not-ok", action="store_true")
+    parser.add_argument("--preflight-timeout-seconds", type=float, default=0.0)
+    parser.add_argument("--preflight-poll-seconds", type=float, default=1.0)
     args = parser.parse_args(argv)
 
     report = collect_one_run(
@@ -247,6 +274,8 @@ def main(argv: list[str] | None = None) -> None:
             combat_policy=args.combat_policy,
             max_depth=args.max_depth,
             require_tcp_control=not args.allow_file_bridge,
+            preflight_timeout_seconds=args.preflight_timeout_seconds,
+            preflight_poll_seconds=args.preflight_poll_seconds,
         )
     )
     encoded = json.dumps(report, indent=2, sort_keys=True)
