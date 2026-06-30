@@ -445,6 +445,44 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(provenance["suggestion"]["category"], "event")
         self.assertEqual(provenance["suggestion"]["target"], "Pray")
 
+    def test_collector_auto_advances_strict_non_combat_ordinals_after_prediction_match(self):
+        collector = GuidedCollector()
+        collector.start({"script": multi_shop_script()})
+        calls = []
+
+        first = collector.tick(
+            self.ready_shop_bridge(["Shrug It Off", "Membership Card", "Leave"]),
+            {"send": True},
+            send_non_combat=lambda **kwargs: calls.append(kwargs)
+            or {
+                "predicted_state_id": "after-buy-1",
+                "source_state_id": "sim-shop-1",
+                "bridge_state_id": "shop-bridge-state",
+                "bridge_step": 1,
+                "send_result": {"command": "CHOOSE 0"},
+            },
+        )
+        second = collector.tick(
+            self.ready_shop_bridge(["Shrug It Off", "Membership Card", "Leave"]),
+            {"send": True},
+            send_non_combat=lambda **kwargs: calls.append(kwargs)
+            or {
+                "predicted_state_id": "after-buy-2",
+                "source_state_id": "sim-shop-2",
+                "bridge_state_id": "shop-bridge-state",
+                "bridge_step": 2,
+                "send_result": {"command": "CHOOSE 1"},
+            },
+            verify_prediction=lambda *_args, **_kwargs: {"status": "matched"},
+        )
+
+        self.assertEqual(first["suggestion"]["status"], "sent_non_combat")
+        self.assertEqual(first["suggestion"]["ordinal"], 0)
+        self.assertEqual(first["pending_prediction"]["predicted_state_id"], "after-buy-1")
+        self.assertEqual(second["suggestion"]["status"], "sent_non_combat")
+        self.assertEqual(second["suggestion"]["ordinal"], 1)
+        self.assertEqual(calls[1]["suggestion"]["target"], "Membership Card")
+
     def test_collector_tick_blocks_combat_send_without_callback(self):
         collector = GuidedCollector()
         collector.start({"script": sample_script()})
