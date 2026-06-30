@@ -600,6 +600,11 @@ fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
                 .into_iter()
                 .map(ExactRunActionKind::Run),
         );
+        actions.extend(
+            legal_potion_actions_on_run(state)
+                .into_iter()
+                .map(ExactRunActionKind::Run),
+        );
     }
 
     if state.phase == RunPhase::Treasure {
@@ -1232,20 +1237,24 @@ fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
 }
 
 fn legal_potion_actions_on_run(state: &RunState) -> Vec<RunAction> {
-    let Some(combat) = state.combat.as_ref() else {
-        return Vec::new();
-    };
     state
         .potions
         .iter()
         .enumerate()
-        .flat_map(|(slot, potion)| potion_use_candidates(slot, *potion, combat))
+        .flat_map(|(slot, potion)| potion_use_candidates(slot, *potion, state.combat.as_ref()))
         .filter(|action| apply_run_action(state, *action).is_ok())
         .collect()
 }
 
-fn potion_use_candidates(slot: usize, potion: Potion, combat: &CombatState) -> Vec<RunAction> {
+fn potion_use_candidates(
+    slot: usize,
+    potion: Potion,
+    combat: Option<&CombatState>,
+) -> Vec<RunAction> {
     if potion.requires_target() {
+        let Some(combat) = combat else {
+            return Vec::new();
+        };
         return combat
             .monsters
             .iter()
@@ -1528,6 +1537,30 @@ mod tests {
             .iter()
             .any(|action| action.kind() == "confirm_exhaust_select"));
         assert_eq!(env.unsupported_reason(), None);
+    }
+
+    #[test]
+    fn reward_exact_actions_expose_fruit_juice_without_combat_state() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        env.state.phase = RunPhase::Reward;
+        env.state.combat = None;
+        env.state.player_hp = 75;
+        env.state.player_max_hp = 80;
+        env.state.potions = vec![Potion::Attack, Potion::FruitJuice];
+
+        let fruit_juice = env
+            .exact_legal_actions()
+            .into_iter()
+            .find(|action| action.kind() == "use_potion")
+            .expect("Fruit Juice is usable from reward screen")
+            .clone();
+
+        env.step(&fruit_juice)
+            .expect("reward-screen Fruit Juice applies");
+
+        assert_eq!(env.state.player_hp, 80);
+        assert_eq!(env.state.player_max_hp, 85);
+        assert_eq!(env.state.potions, vec![Potion::Attack]);
     }
 
     #[test]

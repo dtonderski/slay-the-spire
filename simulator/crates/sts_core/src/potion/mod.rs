@@ -266,6 +266,7 @@ impl Potion {
             self,
             Potion::Fire
                 | Potion::Fear
+                | Potion::Attack
                 | Potion::Block
                 | Potion::Weak
                 | Potion::Blood
@@ -285,6 +286,8 @@ impl Potion {
                 | Potion::Duplication
                 | Potion::DistilledChaos
                 | Potion::Elixir
+                | Potion::Skill
+                | Potion::Colorless
                 | Potion::LiquidMemories
                 | Potion::SneckoOil
                 | Potion::SmokeBomb
