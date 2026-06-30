@@ -72,6 +72,7 @@ class GuidedCollector:
         payload: dict[str, Any] | None = None,
         *,
         send_command: Callable[..., dict[str, Any]] | None = None,
+        send_non_combat: Callable[..., dict[str, Any]] | None = None,
         send_combat: Callable[..., dict[str, Any]] | None = None,
         verify_prediction: Callable[..., dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -99,16 +100,23 @@ class GuidedCollector:
                     payload=payload,
                     send_combat=send_combat,
                 )
+            elif send_non_combat is not None:
+                suggestion = send_guided_non_combat_suggestion(
+                    suggestion,
+                    bridge_status,
+                    payload=payload,
+                    send_non_combat=send_non_combat,
+                )
             else:
                 suggestion = send_guided_suggestion(
                     suggestion,
                     bridge_status,
                     send_command=send_command,
                 )
-        if suggestion.get("status") == "sent_combat":
-            combat_send = suggestion.get("combat_send")
-            if isinstance(combat_send, dict):
-                self._run.pending_prediction = _pending_prediction_from_combat_send(combat_send)
+        if suggestion.get("status") in {"sent_combat", "sent_non_combat"}:
+            send_result = suggestion.get("combat_send") or suggestion.get("non_combat_send")
+            if isinstance(send_result, dict):
+                self._run.pending_prediction = _pending_prediction_from_simulator_send(send_result)
         return self._record_suggestion(suggestion)
 
     def _verify_pending_prediction(
@@ -264,13 +272,41 @@ def send_guided_combat_suggestion(
     return suggestion | {"status": "sent_combat", "combat_send": result}
 
 
-def _pending_prediction_from_combat_send(combat_send: dict[str, Any]) -> dict[str, Any]:
+def send_guided_non_combat_suggestion(
+    suggestion: dict[str, Any],
+    bridge_status: dict[str, Any],
+    *,
+    payload: dict[str, Any],
+    send_non_combat: Callable[..., dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if suggestion.get("status") != "matched":
+        return suggestion | _blocked("not_sendable", "only matched non-combat suggestions can be sent")
+    if send_non_combat is None:
+        return suggestion | _blocked("missing_non_combat_sender", "collector tick has no non-combat sender")
+
+    blocker = _bridge_send_blocker(bridge_status)
+    if blocker is not None:
+        return suggestion | blocker
+
+    try:
+        result = send_non_combat(
+            bridge_status=bridge_status,
+            suggestion=suggestion,
+            payload=payload,
+        )
+    except Exception as error:
+        return suggestion | _blocked("non_combat_send_failed", str(error))
+
+    return suggestion | {"status": "sent_non_combat", "non_combat_send": result}
+
+
+def _pending_prediction_from_simulator_send(send_result: dict[str, Any]) -> dict[str, Any]:
     return {
-        "predicted_state_id": combat_send.get("predicted_state_id"),
-        "source_state_id": combat_send.get("source_state_id"),
-        "bridge_state_id": combat_send.get("bridge_state_id"),
-        "bridge_step": combat_send.get("bridge_step"),
-        "command": (combat_send.get("send_result") or {}).get("command"),
+        "predicted_state_id": send_result.get("predicted_state_id"),
+        "source_state_id": send_result.get("source_state_id"),
+        "bridge_state_id": send_result.get("bridge_state_id"),
+        "bridge_step": send_result.get("bridge_step"),
+        "command": (send_result.get("send_result") or {}).get("command"),
     }
 
 

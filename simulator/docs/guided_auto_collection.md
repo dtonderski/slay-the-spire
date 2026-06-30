@@ -70,9 +70,11 @@ The collector can now:
 - export a selected run from local chunks and start the collector from it
 - preview the next SlayTheData-guided non-combat choice
 - send one matched non-combat bridge command when `tick` receives
-  `{ "send": true }`
+  `{ "send": true }`, after strict seed replay confirms the command maps to a
+  current exact simulator action
 - delegate one combat action to the live combat search policy
-- store the predicted simulator state after a sent combat action
+- store the predicted simulator state after a sent combat or strict non-combat
+  action
 - block the next tick if strict replay of the live trace does not reach that
   predicted state
 - run a cooperative UI auto-loop that repeatedly ticks the collector, waits
@@ -106,10 +108,10 @@ Tick algorithm:
 6. Stop with a blocker if any required choice is illegal, ambiguous,
    unsupported, or would require guessing.
 
-Steps 1, 3, 4, and simple visible-choice sending are implemented, and the UI
-can repeatedly call tick until blocked. Remaining work is exact
-simulator/legal-action agreement for every non-combat choice category,
-path/reward/shop/campfire coverage beyond simple visible text matching, and
+Steps 1, 3, 4, simple visible-choice sending, strict non-combat legal-action
+agreement, and post-send prediction checks are implemented, and the UI can
+repeatedly call tick until blocked. Remaining work is broader
+path/reward/shop/campfire coverage beyond simple visible text matching and
 candidate filtering/ranking beyond the initial "find supported runs" UI.
 
 ## Important Boundaries

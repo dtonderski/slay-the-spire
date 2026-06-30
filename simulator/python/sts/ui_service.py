@@ -16,6 +16,7 @@ from sts.guided_collector import GuidedCollector
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
+from sts.self_play import _action_for_communication_command
 from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
 from sts.self_play import strict_replay_real_trace_to_env
 from sts.slaythedata_policy import build_guided_run_script, load_guided_run_script
@@ -338,6 +339,66 @@ class SessionManager:
             },
         }
 
+    def send_live_non_combat_action(
+        self,
+        bridge_status: dict[str, Any],
+        suggestion: dict[str, Any],
+        payload: dict[str, Any],
+        *,
+        send_command: Any,
+    ) -> dict[str, Any]:
+        live_session = self.create_live_session(bridge_status)
+        if live_session.get("attach_fidelity") != "seed_replay":
+            raise ValueError("live non-combat send requires strict seed replay attachment")
+        if live_session.get("state_kind") != "run":
+            raise ValueError("live non-combat send requires a run state")
+
+        descriptor = suggestion.get("descriptor")
+        if not isinstance(descriptor, dict):
+            raise ValueError("guided non-combat suggestion has no descriptor")
+        command = command_for_descriptor(descriptor)
+
+        observed = _observed_state_from_bridge_status(bridge_status)
+        session = self._require_session(live_session["session_id"])
+        exact_action = _action_for_communication_command(session.env, command, observed)
+        if exact_action is None:
+            raise ValueError("guided non-combat command does not map to a current exact legal action")
+        exact_json = exact_action.json()
+        legal_action = next(
+            (
+                action
+                for action in self._actions(session.env, live_session["state_id"])
+                if action["exact_action_json"] == exact_json
+            ),
+            None,
+        )
+        if legal_action is None:
+            raise ValueError("guided non-combat action is not legal in the current simulator state")
+
+        prediction = self.predict(
+            live_session["session_id"],
+            {
+                "action_id": legal_action["action_id"],
+                "source_state_id": live_session["state_id"],
+            },
+        )
+        source_state_id = bridge_status.get("state_id")
+        result = send_command(command, source_state_id=source_state_id)
+        return {
+            "session_id": live_session["session_id"],
+            "source_state_id": live_session["state_id"],
+            "bridge_state_id": source_state_id,
+            "bridge_step": bridge_status.get("last_state_step"),
+            "predicted_state_id": prediction["predicted_state_id"],
+            "command": command,
+            "matched_action": _public_action(legal_action),
+            "send_result": {
+                "ok": result.get("ok"),
+                "command_id": result.get("command_id"),
+                "command": result.get("command"),
+            },
+        }
+
     def verify_live_prediction(
         self,
         prediction: dict[str, Any],
@@ -606,6 +667,7 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                         self.bridge.status(),
                         payload,
                         send_command=self.bridge.send_command,
+                        send_non_combat=self.manager.send_live_non_combat_action,
                         send_combat=self.manager.send_live_combat_action,
                         verify_prediction=self.manager.verify_live_prediction,
                     )
