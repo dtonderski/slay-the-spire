@@ -263,7 +263,11 @@ def command_for_descriptor(descriptor: dict[str, Any]) -> str:
     if kind == "UsePotionSlot":
         potion_slot = _required_int(descriptor, "potion_slot")
         target_slot = descriptor.get("target_slot")
-        return f"POTION {potion_slot}" if target_slot is None else f"POTION {potion_slot} {_int(target_slot, 'target_slot')}"
+        return (
+            f"POTION USE {potion_slot}"
+            if target_slot is None
+            else f"POTION USE {potion_slot} {_int(target_slot, 'target_slot')}"
+        )
     if kind == "DiscardPotionSlot":
         return f"POTION {_required_int(descriptor, 'potion_slot')} DISCARD"
     if kind in {"ChooseVisibleOption", "ChooseMapNodeSlot", "ChooseRestOption", "ChooseShopSlot", "TakeRewardSlot"}:
