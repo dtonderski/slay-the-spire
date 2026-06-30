@@ -261,6 +261,12 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     const traceFiles = fs.readdirSync(outDir).filter((name) => name.endsWith(".jsonl"));
     assert.strictEqual(traceFiles.length, 1, stderr);
     const records = readJsonLines(path.join(outDir, traceFiles[0]));
+    const accept = records.find((record) => record.type === "command_accept");
+    assert.ok(accept, `missing command_accept record; stderr=${stderr}`);
+    assert.strictEqual(accept.command, "CHOOSE 0");
+    assert.strictEqual(accept.command_meta.protocol, "tcp-jsonl");
+    assert.strictEqual(accept.accepted_state_id, liveState.state_id);
+    assert.strictEqual(accept.accepted_state_seq, liveState.state_seq);
     const action = records.find((record) => record.type === "action");
     assert.ok(action, `missing action record; stderr=${stderr}`);
     assert.strictEqual(action.command, "CHOOSE 0");
@@ -359,10 +365,97 @@ async function testTcpControlDisablesLegacyFileCommandsByDefault() {
   }
 }
 
+async function testTcpControlRecordsObservedUpdateTimeout() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-timeout-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      game_state: {
+        screen_type: "EVENT",
+        floor: 2,
+        choice_list: ["Pray"],
+      },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "test-controller",
+    });
+
+    const accepted = await controlRequest(status.control.port, {
+      type: "command",
+      command: "CHOOSE 0",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+      wait_for_state_update: true,
+      update_timeout_ms: 50,
+    });
+    assert.strictEqual(accepted.ok, true);
+    assert.strictEqual(accepted.observed_update.ok, false);
+    assert.match(accepted.observed_update.error, /timed out/);
+    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+
+    const traceFiles = fs.readdirSync(outDir).filter((name) => name.endsWith(".jsonl"));
+    assert.strictEqual(traceFiles.length, 1, stderr);
+    const records = readJsonLines(path.join(outDir, traceFiles[0]));
+    const accept = records.find((record) => record.type === "command_accept");
+    assert.ok(accept, `missing command_accept record; stderr=${stderr}`);
+    const timeout = records.find((record) => record.type === "command_observed_timeout");
+    assert.ok(timeout, `missing command_observed_timeout record; stderr=${stderr}`);
+    assert.strictEqual(timeout.command, "CHOOSE 0");
+    assert.strictEqual(timeout.accepted_state_id, liveState.state_id);
+    assert.strictEqual(timeout.accepted_state_seq, liveState.state_seq);
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
   .then(testCommandMetadataIsPreservedInTraceActions)
   .then(testTcpControlRejectsStaleAndAcceptsGuardedCommand)
   .then(testTcpControlDisablesLegacyFileCommandsByDefault)
+  .then(testTcpControlRecordsObservedUpdateTimeout)
   .then(() => {
     console.log("trace_client tests passed");
   })

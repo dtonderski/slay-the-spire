@@ -42,6 +42,13 @@ old-client fallback; the socket is the preferred write path because it gives
 accepted/rejected acknowledgements, can wait for post-command state updates,
 and does not rely on file polling for command submission.
 
+TCP command acceptance is trace-visible before the command is consumed by the
+game: the bridge writes a `command_accept` row with the accepted state id/seq
+and command metadata. If a caller requested `wait_for_state_update` and no
+post-command state arrives before the timeout, the bridge also writes a
+`command_observed_timeout` row. The ordinary `action` row remains the record
+that the command was actually emitted to CommunicationMod.
+
 ## Manual Control
 
 - `send_command.ps1` writes one command to the active bridge session.
