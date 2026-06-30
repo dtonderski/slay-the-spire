@@ -430,10 +430,13 @@ class SlayTheDataPolicyTests(unittest.TestCase):
 
         self.assertEqual(relic["status"], "matched")
         self.assertEqual(relic["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 2})
+        self.assertEqual(relic["match_evidence"], "generic_floor_evidence")
         self.assertEqual(card["status"], "matched")
         self.assertEqual(card["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(card["match_evidence"], "generic_floor_evidence")
         self.assertEqual(gold["status"], "matched")
         self.assertEqual(gold["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+        self.assertEqual(gold["match_evidence"], "implicit_gold")
 
     def test_match_visible_choice_prefers_named_reward_identity(self):
         script = build_guided_run_script(
@@ -461,9 +464,11 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(relic["status"], "matched")
         self.assertEqual(relic["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(relic["target"], "Oddly Smooth Stone")
+        self.assertEqual(relic["match_evidence"], "named_identity")
         self.assertEqual(potion["status"], "matched")
         self.assertEqual(potion["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(potion["target"], "Fire Potion")
+        self.assertEqual(potion["match_evidence"], "named_identity")
 
     def test_match_visible_choice_selects_shop_purchase_then_leave(self):
         script = build_guided_run_script(
@@ -491,8 +496,10 @@ class SlayTheDataPolicyTests(unittest.TestCase):
 
         self.assertEqual(buy["status"], "matched")
         self.assertEqual(buy["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(buy["match_evidence"], "buy_if_visible")
         self.assertEqual(leave["status"], "matched")
         self.assertEqual(leave["descriptor"], {"kind": "LeaveScreen"})
+        self.assertEqual(leave["match_evidence"], "leave_after_script")
 
     def test_match_visible_choice_opens_shop_purge_then_selects_removed_card(self):
         script = build_guided_run_script(
@@ -520,6 +527,7 @@ class SlayTheDataPolicyTests(unittest.TestCase):
 
         self.assertEqual(purge["status"], "matched")
         self.assertEqual(purge["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+        self.assertEqual(purge["match_evidence"], "remove_card_grid_entry")
         self.assertEqual(grid["status"], "matched")
         self.assertEqual(grid["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
 
