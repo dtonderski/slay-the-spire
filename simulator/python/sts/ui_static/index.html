@@ -60,6 +60,13 @@
             <details class="collector-tools">
               <summary>Guided collector</summary>
               <div class="collector-grid">
+                <div class="collector-picker">
+                  <select id="slaythedataCandidateSelect" aria-label="SlayTheData run">
+                    <option value="">No SlayTheData runs loaded</option>
+                  </select>
+                  <button id="findSlaythedataRunsButton" type="button">Find runs</button>
+                  <button id="loadSlaythedataRunButton" type="button">Load selected</button>
+                </div>
                 <textarea id="collectorPayloadInput" rows="3" spellcheck="false" placeholder="Paste SlayTheData chunk-export JSON or GuidedRunScript"></textarea>
                 <div class="collector-actions">
                   <button id="startCollectorButton" type="button">Start</button>

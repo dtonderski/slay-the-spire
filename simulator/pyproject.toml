@@ -7,7 +7,9 @@ name = "py-sts"
 version = "0.1.0"
 description = "Python helpers and PyO3 bindings for the Slay the Spire simulator."
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "zstandard>=0.25.0",
+]
 
 [dependency-groups]
 dev = ["maturin>=1.9,<2"]

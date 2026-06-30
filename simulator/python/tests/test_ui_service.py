@@ -6,8 +6,10 @@ from sts.ui_service import (
     CombatSession,
     SessionManager,
     _bridge_action_for_exact_action,
+    _collector_start_payload,
     _guided_script_from_payload,
     _observed_state_from_bridge_status,
+    _slaythedata_candidates_from_query,
 )
 
 
@@ -114,6 +116,47 @@ class UiServiceTests(unittest.TestCase):
     def test_guided_script_payload_rejects_missing_source(self):
         with self.assertRaises(ValueError):
             _guided_script_from_payload({})
+
+    def test_guided_script_payload_accepts_slaythedata_run_id(self):
+        with patch("sts.ui_service.export_guided_run_script", return_value={"schema": 1}) as export:
+            result = _guided_script_from_payload({"run_id": 123})
+
+        self.assertEqual(result, {"script": {"schema": 1}})
+        export.assert_called_once_with(123)
+
+    def test_collector_start_payload_accepts_slaythedata_run_id(self):
+        with patch("sts.ui_service.export_guided_run_script", return_value={"schema": 1}) as export:
+            result = _collector_start_payload({"run_id": "123"})
+
+        self.assertEqual(result, {"script": {"schema": 1}})
+        export.assert_called_once_with(123)
+
+    def test_slaythedata_candidates_query_uses_filters(self):
+        with patch(
+            "sts.ui_service.select_guided_collection_candidates",
+            return_value=[{"id": 1}],
+        ) as select:
+            result = _slaythedata_candidates_from_query(
+                {
+                    "character": ["ironclad"],
+                    "ascension": ["0"],
+                    "min_floor": ["10"],
+                    "max_floor": ["55"],
+                    "min_path_length": ["10"],
+                    "limit": ["3"],
+                }
+            )
+
+        self.assertEqual(result["candidates"], [{"id": 1}])
+        self.assertEqual(result["filters"]["character"], "IRONCLAD")
+        select.assert_called_once_with(
+            character="IRONCLAD",
+            ascension=0,
+            min_floor_reached=10,
+            max_floor_reached=55,
+            min_path_length=10,
+            limit=3,
+        )
 
     def test_session_exposes_state_actions_and_snapshot(self):
         manager = SessionManager()
