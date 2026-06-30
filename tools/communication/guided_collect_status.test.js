@@ -69,6 +69,7 @@ function testInspectBlockedReport() {
           clients: [
             { pid: 111, current: true, alive: true },
             { pid: 222, current: false, alive: true },
+            { pid: 333, current: false, alive: false },
           ],
         },
         summary: { step: 7 },
@@ -107,6 +108,8 @@ function testInspectBlockedReport() {
     assert.strictEqual(result.preflight.ages.summary_age_seconds, 2);
     assert.strictEqual(result.preflight.pending_command.present, false);
     assert.strictEqual(result.preflight.bridge_clients.alive_count, 2);
+    assert.strictEqual(result.preflight.bridge_clients.omitted_exited_count, 1);
+    assert.strictEqual(result.preflight.bridge_clients.clients.length, 2);
     assert.strictEqual(result.preflight.bridge_clients.clients[1].pid, 222);
     assert.strictEqual(result.preflight.summary.step, 7);
     assert.strictEqual(result.blocker.reason, "bridge_preflight");
