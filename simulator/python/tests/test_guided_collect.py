@@ -35,6 +35,7 @@ class FakeBridge:
             "ready_for_command": True,
             "state_id": "bridge-state",
             "last_state_step": 0,
+            "client_pid": 111,
             "trace_path": "trace.jsonl",
             "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": 12345},
             "summary": {
@@ -633,6 +634,48 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["actions_sent"], 1)
         self.assertEqual(report["trace_validation"]["reason"], "trace_path_not_found")
 
+    def test_collect_one_run_blocks_if_bridge_identity_changes_mid_run(self):
+        bridge = FakeBridge()
+
+        def fake_tick(_collector, _manager, _bridge, payload, *, require_tcp_control):
+            bridge._status = bridge._status | {
+                "client_pid": 222,
+                "trace_path": "other-trace.jsonl",
+            }
+            return {
+                "status": "ready",
+                "pending_prediction": None,
+                "suggestion": {
+                    "status": "sent_non_combat",
+                    "floor": 1,
+                    "category": "reward",
+                    "non_combat_send": {"send_result": {"command": "CHOOSE 0"}},
+                },
+            }
+
+        with patch(
+            "sts.guided_selection.export_guided_run_script",
+            return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
+        ), patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=fake_tick,
+        ), patch(
+            "sts.guided_collect._validate_trace",
+            return_value={"verified": True, "stop_reason": "trace_exhausted", "steps": 1},
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123, max_actions=5, max_seconds=5),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "bridge_identity_changed")
+        self.assertEqual(report["blocker"]["reason"], "bridge_identity_changed")
+        self.assertIn("client_pid", report["blocker"]["fields"])
+        self.assertIn("trace_path", report["blocker"]["fields"])
+        self.assertEqual(report["actions_sent"], 1)
+
     def test_collect_one_run_reports_game_complete_when_bridge_is_terminal(self):
         bridge = TerminalBridge()
 
@@ -706,14 +749,40 @@ class GuidedCollectTests(unittest.TestCase):
                 replay.return_value.final_phase = None
                 replay.return_value.blocker = None
 
-                result = _validate_trace(trace_path)
+                result = _validate_trace(trace_path, require_tcp_protocol=True)
 
-        self.assertTrue(result["verified"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["reason"], "tcp_observed_timeout")
         self.assertEqual(result["actions"], 2)
         self.assertEqual(result["control_actions"], 1)
         self.assertEqual(result["passive_polls"], 1)
         self.assertEqual(result["command_accepts"], 1)
         self.assertEqual(result["command_observed_timeouts"], 1)
+
+    def test_validate_trace_allows_legacy_file_trace_without_tcp_protocol(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "trace.jsonl"
+            trace_path.write_text(
+                json.dumps({"type": "action", "step": 1, "command": "START IRONCLAD 0 LIVE01"}) + "\n",
+                encoding="utf-8",
+            )
+
+            with patch(
+                "sts.guided_collect.strict_replay_real_trace_to_env",
+            ) as replay:
+                replay.return_value.verified = True
+                replay.return_value.stop_reason = "trace_exhausted"
+                replay.return_value.steps = 1
+                replay.return_value.final_state_id = None
+                replay.return_value.final_phase = None
+                replay.return_value.blocker = None
+
+                result = _validate_trace(trace_path)
+
+        self.assertTrue(result["verified"])
+        self.assertIsNone(result["reason"])
+        self.assertEqual(result["command_accepts"], 0)
+        self.assertEqual(result["control_actions"], 1)
 
     def test_archive_report_path_is_safe_and_descriptive(self):
         with tempfile.TemporaryDirectory() as directory:
