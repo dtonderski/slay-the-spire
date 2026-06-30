@@ -151,6 +151,8 @@ async function sendCommandViaControl(command, status, summary) {
         state_id: response.observed_update.state_id,
         state_seq: response.observed_update.state_seq,
         step: response.observed_update.step,
+        observed_changed: response.observed_update.observed_changed,
+        application_status: response.observed_update.application_status,
         error: response.observed_update.error,
       }
       : null,

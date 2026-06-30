@@ -328,6 +328,8 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(accepted.observed_update.ok, true);
     assert.notStrictEqual(accepted.observed_update.state_id, liveState.state_id);
     assert.ok(accepted.observed_update.state_seq > liveState.state_seq);
+    assert.strictEqual(accepted.observed_update.observed_changed, true);
+    assert.strictEqual(accepted.observed_update.application_status, "changed");
 
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
@@ -504,6 +506,8 @@ async function testTcpControlRecordsObservedUpdateTimeout() {
     assert.strictEqual(accepted.ok, true);
     assert.strictEqual(accepted.observed_update.ok, false);
     assert.match(accepted.observed_update.error, /timed out/);
+    assert.strictEqual(accepted.observed_update.observed_changed, false);
+    assert.strictEqual(accepted.observed_update.application_status, "timeout");
     await waitFor(() => stdout.includes("CHOOSE 0\n"));
 
     child.stdin.end();

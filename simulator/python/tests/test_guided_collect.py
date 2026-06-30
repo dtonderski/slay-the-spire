@@ -71,6 +71,8 @@ class VerboseObservedUpdateBridge(FakeBridge):
                 "state_id": "observed-state",
                 "state_seq": 9,
                 "step": 3,
+                "observed_changed": True,
+                "application_status": "changed",
                 "bridge_status": {
                     "state_id": "observed-state",
                     "last_state_step": 3,
@@ -181,6 +183,8 @@ class GuidedCollectTests(unittest.TestCase):
         start_send = report["history_tail"][0]["send_result"]
         self.assertEqual(start_send["transport"], "tcp-jsonl")
         self.assertEqual(start_send["observed_update"]["state_id"], "observed-state")
+        self.assertEqual(start_send["observed_update"]["observed_changed"], True)
+        self.assertEqual(start_send["observed_update"]["application_status"], "changed")
         self.assertEqual(start_send["observed_update"]["bridge_step"], 3)
         self.assertNotIn("bridge_status", start_send["observed_update"])
         self.assertNotIn("current_state", json.dumps(start_send))

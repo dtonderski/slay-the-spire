@@ -61,6 +61,8 @@ async function testTcpCommandPathUsesExpectedStateAndNoFileWrite() {
         state_id: "state-2",
         state_seq: 8,
         step: 3,
+        observed_changed: true,
+        application_status: "changed",
       },
     };
   }, async (control) => {
@@ -81,6 +83,8 @@ async function testTcpCommandPathUsesExpectedStateAndNoFileWrite() {
     assert.strictEqual(result.accepted_state_id, "state-1");
     assert.strictEqual(result.accepted_state_seq, 7);
     assert.strictEqual(result.observed_update.state_id, "state-2");
+    assert.strictEqual(result.observed_update.observed_changed, true);
+    assert.strictEqual(result.observed_update.application_status, "changed");
     assert.strictEqual(result.release_error, null);
     assert.strictEqual(fs.existsSync(path.join(sessionDir, "next_command.txt")), false);
     assert.strictEqual(control.received.length, 3);
