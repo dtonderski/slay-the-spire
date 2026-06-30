@@ -430,6 +430,15 @@ async function handleControlMessage(payload) {
     }
     const acceptedStateSeq = stateSeq;
     const acceptedStateId = latestSummary?.state_id ?? null;
+    writeRecord({
+      type: "command_accept",
+      step,
+      accepted_at: new Date().toISOString(),
+      command: commandMeta.command,
+      command_meta: commandMeta,
+      accepted_state_id: acceptedStateId,
+      accepted_state_seq: acceptedStateSeq,
+    });
     enqueueCommand(commandMeta.command, commandMeta);
     const response = {
       ok: true,
@@ -458,6 +467,17 @@ async function handleControlMessage(payload) {
           accepted_state_seq: acceptedStateSeq,
           step,
         };
+      if (!observed) {
+        writeRecord({
+          type: "command_observed_timeout",
+          step,
+          timed_out_at: new Date().toISOString(),
+          command: commandMeta.command,
+          command_id: commandId,
+          accepted_state_id: acceptedStateId,
+          accepted_state_seq: acceptedStateSeq,
+        });
+      }
     }
     return response;
   }

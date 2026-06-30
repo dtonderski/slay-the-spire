@@ -204,6 +204,9 @@ The collector can now:
 - publish accepted in-memory TCP commands into `session/status.json` as pending
   commands, so the UI and collector wait for CommunicationMod to consume them
   even though no legacy `next_command.txt` file exists
+- write TCP `command_accept` trace rows before accepted commands are consumed,
+  plus `command_observed_timeout` rows when a send-and-observe command times
+  out before the next live state, making protocol gaps visible in trace audits
 - require TCP control for guided collector `START` and tick sends. Manual UI
   bridge commands use the same TCP-required send-and-observe path, and fresh
   TCP-enabled bridge clients reject legacy `next_command.txt` writes by default
