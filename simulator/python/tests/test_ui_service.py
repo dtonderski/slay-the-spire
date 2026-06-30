@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sts.bridge import BridgeMirror
+from sts.bridge import BridgeMirror, command_for_descriptor
 from sts.ui_service import (
     CombatSession,
     SessionManager,
@@ -142,6 +142,63 @@ class FakeBridge:
     def send_command(self, command, **kwargs):
         self.sent.append((command, kwargs))
         return {"ok": True, "command_id": "cmd-guided", "command": command}
+
+
+class MutableFakeBridge(FakeBridge):
+    def set_status(self, status):
+        self._status = status
+
+
+class FakeCollectorManager:
+    def send_live_non_combat_action(self, bridge_status, suggestion, payload, *, send_command):
+        command = command_for_descriptor(suggestion["descriptor"])
+        result = send_command(
+            command,
+            source_state_id=bridge_status.get("state_id"),
+            metadata=payload.get("provenance"),
+        )
+        return {
+            "source_state_id": f"sim-{bridge_status.get('state_id')}",
+            "bridge_state_id": bridge_status.get("state_id"),
+            "bridge_step": bridge_status.get("last_state_step"),
+            "predicted_state_id": bridge_status["next_predicted_state_id"],
+            "send_result": {
+                "ok": result.get("ok"),
+                "command_id": result.get("command_id"),
+                "command": result.get("command"),
+            },
+        }
+
+    def send_live_combat_action(self, bridge_status, suggestion, payload, *, send_command):
+        result = send_command(
+            "END",
+            source_state_id=bridge_status.get("state_id"),
+            metadata=payload.get("provenance"),
+        )
+        return {
+            "source_state_id": f"sim-{bridge_status.get('state_id')}",
+            "bridge_state_id": bridge_status.get("state_id"),
+            "bridge_step": bridge_status.get("last_state_step"),
+            "predicted_state_id": bridge_status["next_predicted_state_id"],
+            "recommendation": {"best_action": {"kind": "EndTurn"}},
+            "send_result": {
+                "ok": result.get("ok"),
+                "command_id": result.get("command_id"),
+                "command": result.get("command"),
+            },
+        }
+
+    def verify_live_prediction(self, prediction, *, bridge_status):
+        expected = prediction.get("predicted_state_id")
+        observed = bridge_status.get("state_id")
+        if expected == observed:
+            return {"status": "matched", "expected_state_id": expected, "observed_state_id": observed}
+        return {
+            "status": "mismatch",
+            "detail": f"expected {expected}, observed {observed}",
+            "expected_state_id": expected,
+            "observed_state_id": observed,
+        }
 
 
 class UiServiceTests(unittest.TestCase):
@@ -337,6 +394,187 @@ class UiServiceTests(unittest.TestCase):
                 verified = _tick_live_collector(collector, manager, bridge, {"send": False})
 
             self.assertIsNone(verified["pending_prediction"])
+
+    def test_guided_auto_collection_multiscreen_smoke(self):
+        def bridge_status(
+            state_id,
+            *,
+            floor,
+            screen_type=None,
+            choices=None,
+            available_commands=None,
+            game_state=None,
+            summary_extra=None,
+            next_predicted_state_id=None,
+        ):
+            summary = {
+                "floor": floor,
+                "ready_for_command": True,
+                "available_commands": available_commands or ["choose", "state"],
+                "step": len(state_id),
+            }
+            if screen_type:
+                summary["screen_type"] = screen_type
+            if choices is not None:
+                summary["choices"] = choices
+            if summary_extra:
+                summary.update(summary_extra)
+            state = game_state or {
+                "floor": floor,
+                "screen_type": screen_type,
+                "choice_list": choices or [],
+            }
+            return {
+                "connected": True,
+                "exited": False,
+                "pending_command": False,
+                "ready_for_command": True,
+                "state_id": state_id,
+                "last_state_step": len(state_id),
+                "summary": summary,
+                "current_state": {"message": {"game_state": state}},
+                "next_predicted_state_id": next_predicted_state_id or f"after-{state_id}",
+            }
+
+        script = build_guided_run_script(
+            {
+                "run_id": 1234,
+                "event": {
+                    "character_chosen": "IRONCLAD",
+                    "ascension_level": 0,
+                    "seed_played": "GUIDED01",
+                    "neow_bonus": "THREE_CARDS",
+                    "neow_cost": "NONE",
+                    "path_per_floor": ["M", "?", "$"],
+                    "card_choices": [
+                        {"floor": 0, "picked": "True Grit", "not_picked": ["Flex", "Anger"]},
+                        {"floor": 1, "picked": "SKIP", "not_picked": ["Clash", "Flex", "Anger"]},
+                    ],
+                },
+            }
+        )
+        collector = GuidedCollector()
+        collector.start({"script": script})
+        manager = FakeCollectorManager()
+        bridge = MutableFakeBridge(
+            {
+                "connected": True,
+                "exited": False,
+                "pending_command": False,
+                "ready_for_command": True,
+                "state_id": "menu",
+                "summary": {
+                    "ready_for_command": True,
+                    "available_commands": ["start", "state"],
+                    "in_game": False,
+                },
+            }
+        )
+
+        _start_guided_live_run(collector, bridge)
+        self.assertEqual(bridge.sent[-1][0], "START IRONCLAD 0 GUIDED01")
+
+        screens = [
+            bridge_status(
+                "neow-talk",
+                floor=0,
+                screen_type="EVENT",
+                choices=["talk"],
+                game_state={
+                    "floor": 0,
+                    "screen_type": "EVENT",
+                    "choice_list": ["talk"],
+                    "screen_state": {"event_name": "Neow", "event_id": "Neow Event"},
+                },
+                next_predicted_state_id="neow-bonus",
+            ),
+            bridge_status(
+                "neow-bonus",
+                floor=0,
+                screen_type="EVENT",
+                choices=["choose a card to obtain"],
+                game_state={
+                    "floor": 0,
+                    "screen_type": "EVENT",
+                    "choice_list": ["choose a card to obtain"],
+                    "screen_state": {"event_name": "Neow", "event_id": "Neow Event"},
+                },
+                next_predicted_state_id="neow-card",
+            ),
+            bridge_status(
+                "neow-card",
+                floor=0,
+                screen_type="CARD_REWARD",
+                choices=["Flex", "True Grit", "Anger"],
+                available_commands=["choose", "skip", "state"],
+                next_predicted_state_id="map-0",
+            ),
+            bridge_status(
+                "map-0",
+                floor=0,
+                screen_type="MAP",
+                choices=["x=1", "x=2"],
+                game_state={
+                    "floor": 0,
+                    "act": 1,
+                    "screen_type": "MAP",
+                    "choice_list": ["x=1", "x=2"],
+                    "screen_state": {
+                        "next_nodes": [
+                            {"x": 1, "y": 0, "symbol": "M"},
+                            {"x": 2, "y": 0, "symbol": "M"},
+                        ]
+                    },
+                    "map": [
+                        {"x": 1, "y": 0, "symbol": "M", "children": [{"x": 1, "y": 1}]},
+                        {"x": 2, "y": 0, "symbol": "M", "children": [{"x": 2, "y": 1}]},
+                        {"x": 1, "y": 1, "symbol": "?", "children": [{"x": 1, "y": 2}]},
+                        {"x": 2, "y": 1, "symbol": "$", "children": [{"x": 2, "y": 2}]},
+                        {"x": 1, "y": 2, "symbol": "$", "children": []},
+                        {"x": 2, "y": 2, "symbol": "?", "children": []},
+                    ],
+                },
+                next_predicted_state_id="combat-1",
+            ),
+            bridge_status(
+                "combat-1",
+                floor=1,
+                available_commands=["end", "state"],
+                summary_extra={"phase": "combat", "combat": {"monsters": []}},
+                game_state={"floor": 1, "screen_type": "NONE", "choice_list": []},
+                next_predicted_state_id="card-skip",
+            ),
+            bridge_status(
+                "card-skip",
+                floor=1,
+                screen_type="CARD_REWARD",
+                choices=["Clash", "Flex", "Anger"],
+                available_commands=["choose", "skip", "state"],
+                next_predicted_state_id="after-skip",
+            ),
+        ]
+
+        for status in screens:
+            bridge.set_status(status)
+            result = _tick_live_collector(collector, manager, bridge, {"send": True, "max_depth": 3})
+            self.assertIsNotNone(result["pending_prediction"])
+            self.assertEqual(result["pending_prediction"]["predicted_state_id"], status["next_predicted_state_id"])
+            self.assertEqual(result["status"], "ready")
+
+        self.assertEqual(
+            [command for command, _kwargs in bridge.sent],
+            [
+                "START IRONCLAD 0 GUIDED01",
+                "CHOOSE 0",
+                "CHOOSE 0",
+                "CHOOSE 1",
+                "CHOOSE 0",
+                "END",
+                "SKIP",
+            ],
+        )
+        self.assertEqual(bridge.sent[5][1]["metadata"]["suggestion"]["mode"], "combat_agent")
+        self.assertEqual(bridge.sent[6][1]["metadata"]["suggestion"]["target"], "SKIP")
 
     def test_slaythedata_candidates_query_uses_filters(self):
         with patch(

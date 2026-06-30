@@ -148,6 +148,10 @@ The collector can now:
   script start writes a provenance-tagged `START`, the bridge advances to a
   decision state, the collector sends a strict non-combat choice, records a
   prediction, and clears it after the predicted state is observed
+- cover a longer offline collector loop across guided start, Neow talk,
+  Neow card reward, topology-disambiguated map choice, delegated combat, and
+  card reward skip, verifying command provenance and prediction handoff at
+  each step
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot
