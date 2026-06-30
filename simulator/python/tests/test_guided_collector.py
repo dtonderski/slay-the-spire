@@ -28,6 +28,18 @@ def sample_script():
     )
 
 
+def shop_purge_script():
+    return build_guided_run_script(
+        {
+            "event": {
+                "event_choices": [
+                    {"floor": 3, "event_name": "Shop", "player_choice": "Purge", "cards_removed": ["Strike"]}
+                ],
+            },
+        }
+    )
+
+
 class GuidedCollectorTests(unittest.TestCase):
     def ready_event_bridge(self):
         return {
@@ -151,6 +163,9 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_shop_purge_bridge(self):
+        return self.ready_shop_bridge(["Remove Card", "Leave"])
+
     def ready_grid_bridge(self):
         return {
             "connected": True,
@@ -228,6 +243,13 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(leave["status"], "matched")
         self.assertEqual(leave["category"], "shop")
         self.assertEqual(leave["descriptor"], {"kind": "LeaveScreen"})
+
+    def test_suggest_guided_action_matches_shop_purge_open(self):
+        result = suggest_guided_action(shop_purge_script(), self.ready_shop_purge_bridge())
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "shop")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
     def test_send_guided_suggestion_sends_matching_descriptor_with_source_state(self):
         calls = []

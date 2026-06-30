@@ -241,6 +241,35 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(leave["status"], "matched")
         self.assertEqual(leave["descriptor"], {"kind": "LeaveScreen"})
 
+    def test_match_visible_choice_opens_shop_purge_then_selects_removed_card(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "event_choices": [
+                        {"floor": 3, "event_name": "Shop", "player_choice": "Purge", "cards_removed": ["Strike"]}
+                    ],
+                }
+            }
+        )
+
+        purge = match_visible_choice(
+            script,
+            floor=3,
+            choice_labels=["Remove Card", "Leave"],
+            category="shop",
+        )
+        grid = match_visible_choice(
+            script,
+            floor=3,
+            choice_labels=["Defend", "Strike"],
+            category="grid",
+        )
+
+        self.assertEqual(purge["status"], "matched")
+        self.assertEqual(purge["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+        self.assertEqual(grid["status"], "matched")
+        self.assertEqual(grid["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+
     def test_match_map_choice_finds_next_path_room(self):
         script = build_guided_run_script(
             {
