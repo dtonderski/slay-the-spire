@@ -217,10 +217,29 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(missingOwner.ok, false);
     assert.match(missingOwner.error, /owner_token/);
 
+    const missingStateId = await controlRequest(port, {
+      type: "command",
+      command: "CHOOSE 0",
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(missingStateId.ok, false);
+    assert.match(missingStateId.error, /expected_state_id is required/);
+
+    const missingStateSeq = await controlRequest(port, {
+      type: "command",
+      command: "CHOOSE 0",
+      expected_state_id: liveState.state_id,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(missingStateSeq.ok, false);
+    assert.match(missingStateSeq.error, /expected_state_seq is required/);
+
     const stale = await controlRequest(port, {
       type: "command",
       command: "CHOOSE 0",
       expected_state_id: "not-current",
+      expected_state_seq: liveState.state_seq,
       owner_token: acquired.owner_token,
     });
     assert.strictEqual(stale.ok, false);

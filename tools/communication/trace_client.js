@@ -339,6 +339,13 @@ function validateProtocolCommand(payload) {
   if (command.length > 200) return "command is too long";
   if (!latestSummary) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
+  const verb = command.split(/\s+/)[0].toLowerCase();
+  if (verb !== "state" && !payload.expected_state_id) {
+    return "expected_state_id is required";
+  }
+  if (verb !== "state" && (payload.expected_state_seq === undefined || payload.expected_state_seq === null)) {
+    return "expected_state_seq is required";
+  }
   if (payload.expected_state_id && payload.expected_state_id !== latestSummary.state_id) {
     return "expected_state_id does not match current state";
   }
@@ -348,7 +355,6 @@ function validateProtocolCommand(payload) {
   if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
     return "controller owner_token is required";
   }
-  const verb = command.split(/\s+/)[0].toLowerCase();
   const available = new Set((latestSummary.available_commands ?? []).map((item) => String(item).toLowerCase()));
   if (verb !== "state" && latestSummary.ready_for_command !== true) {
     return "bridge is not ready for a command";
