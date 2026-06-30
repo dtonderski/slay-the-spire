@@ -1124,7 +1124,7 @@
     el.sendCollectorButton.disabled = !canTick || !app.bridge || app.bridge.pending_command;
     el.stopCollectorButton.disabled = !active || app.inFlight;
     el.previewCollectorButton.title = canTick ? "Preview the next guided decision without sending." : "Start a collector and keep the bridge ready.";
-    el.sendCollectorButton.title = canTick ? "Send one matched guided non-combat choice." : "Collector cannot send right now.";
+    el.sendCollectorButton.title = canTick ? "Send one safe guided action." : "Collector cannot send right now.";
 
     clear(el.collectorStatusPanel);
     if (app.collectorLastError) {
@@ -1155,7 +1155,15 @@
           ["Floor", firstDefined(suggestion.floor, "-")],
           ["Kind", firstDefined(suggestion.category, suggestion.mode, "-")],
           ["Target", firstDefined(suggestion.target, suggestion.detail, suggestion.reason, "-")],
-          ["Command", firstDefined(suggestion.command, suggestion.descriptor && stringify(suggestion.descriptor), "-")],
+          [
+            "Command",
+            firstDefined(
+              suggestion.command,
+              suggestion.combat_send && suggestion.combat_send.send_result && suggestion.combat_send.send_result.command,
+              suggestion.descriptor && stringify(suggestion.descriptor),
+              "-",
+            ),
+          ],
         ]),
       );
     }
