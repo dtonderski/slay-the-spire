@@ -62,6 +62,7 @@ const SPIKE_SLIME_L_SPIT_DAMAGE: i32 = 16;
 
 const ACID_SLIME_S_TACKLE_DAMAGE: i32 = 3;
 const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
+const ACID_SLIME_M_NORMAL_TACKLE_DAMAGE: i32 = 10;
 const ACID_SLIME_WEAK: i32 = 1;
 
 const LAGAVULIN_SLEEP_TURNS: u32 = 3;
@@ -4281,24 +4282,24 @@ fn acid_slime_intent(moves_executed: u32) -> MonsterIntent {
 
 #[must_use]
 pub fn target_acid_slime_entry_intent_from_roll(hp: i32, roll: i32) -> MonsterIntent {
-    if roll < 30 {
-        return MonsterIntent::ApplyPlayerWeak {
-            amount: ACID_SLIME_WEAK,
+    if hp <= ACID_SLIME_S_A7_HP_RANGE.max {
+        return MonsterIntent::Attack {
+            damage: ACID_SLIME_S_TACKLE_DAMAGE,
         };
     }
 
-    if hp <= ACID_SLIME_S_A7_HP_RANGE.max {
-        MonsterIntent::Attack {
-            damage: ACID_SLIME_S_TACKLE_DAMAGE,
-        }
-    } else {
+    if roll < 30 {
         MonsterIntent::AttackAddSlimedToDiscard {
             damage: ACID_SLIME_ATTACK_DAMAGE,
-            count: if hp > ACID_SLIME_M_A7_HP_RANGE.max {
-                2
-            } else {
-                1
-            },
+            count: 1,
+        }
+    } else if roll < 70 {
+        MonsterIntent::Attack {
+            damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE,
+        }
+    } else {
+        MonsterIntent::ApplyPlayerWeak {
+            amount: ACID_SLIME_WEAK,
         }
     }
 }
@@ -6459,6 +6460,31 @@ mod tests {
         );
         assert_eq!(piles.discard_pile.len(), 1);
         assert_eq!(piles.discard_pile[0].content_id, SLIMED_ID);
+    }
+
+    #[test]
+    fn medium_acid_slime_entry_roll_matches_target_move_table() {
+        let hp = ACID_SLIME_M_A0_HP_RANGE.max;
+
+        assert_eq!(
+            target_acid_slime_entry_intent_from_roll(hp, 0),
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: ACID_SLIME_ATTACK_DAMAGE,
+                count: 1
+            }
+        );
+        assert_eq!(
+            target_acid_slime_entry_intent_from_roll(hp, 30),
+            MonsterIntent::Attack {
+                damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE
+            }
+        );
+        assert_eq!(
+            target_acid_slime_entry_intent_from_roll(hp, 70),
+            MonsterIntent::ApplyPlayerWeak {
+                amount: ACID_SLIME_WEAK
+            }
+        );
     }
 
     #[test]

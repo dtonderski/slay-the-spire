@@ -1489,11 +1489,6 @@
     });
     app.liveSearchBridgeStateId = bridgeId;
     app.liveSendAction = liveBridgeActionForBest();
-    if (!app.liveSendAction) {
-      app.search = null;
-      app.liveSearchBridgeStateId = null;
-      return false;
-    }
     app.livePendingPlanIndex = null;
     return true;
   }
