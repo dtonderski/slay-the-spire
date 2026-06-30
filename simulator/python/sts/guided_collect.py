@@ -50,6 +50,21 @@ def collect_one_run(
     manager = manager or SessionManager()
     collector = collector or GuidedCollector()
     started_at = time.time()
+    preflight = bridge.preflight()
+    if _preflight_blocks_collection(preflight, require_tcp_control=config.require_tcp_control):
+        return _blocked_report(
+            config,
+            started_at=started_at,
+            stop_reason="preflight_blocked",
+            blocker={
+                "reason": "bridge_preflight",
+                "problems": preflight.get("problems", []),
+                "warnings": preflight.get("warnings", []),
+                "tcp_control_available": preflight.get("tcp_control_available"),
+            },
+            bridge_status=bridge.status(),
+            preflight=preflight,
+        )
     run_id = config.run_id if config.run_id is not None else _select_run_id(config)
     script = export_guided_run_script(run_id)
     collector.start({"script": script})
@@ -123,6 +138,45 @@ def collect_one_run(
         "bridge_state_id": final_bridge.get("state_id"),
         "tcp_control_available": bool(final_bridge.get("control")),
         "history_tail": history[-25:],
+    }
+
+
+def _preflight_blocks_collection(preflight: dict[str, Any], *, require_tcp_control: bool) -> bool:
+    if preflight.get("problems"):
+        return True
+    if require_tcp_control and preflight.get("tcp_control_available") is not True:
+        return True
+    return False
+
+
+def _blocked_report(
+    config: GuidedCollectConfig,
+    *,
+    started_at: float,
+    stop_reason: str,
+    blocker: dict[str, Any],
+    bridge_status: dict[str, Any],
+    preflight: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "run_id": config.run_id,
+        "seed": None,
+        "stop_reason": stop_reason,
+        "blocker": blocker,
+        "actions_sent": 0,
+        "elapsed_seconds": time.time() - started_at,
+        "trace_path": bridge_status.get("trace_path"),
+        "bridge_step": bridge_status.get("last_state_step"),
+        "bridge_state_id": bridge_status.get("state_id"),
+        "tcp_control_available": bool(bridge_status.get("control")),
+        "preflight": preflight,
+        "history_tail": [
+            {
+                "event": "preflight",
+                "blocker": blocker,
+            }
+        ],
     }
 
 

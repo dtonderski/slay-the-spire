@@ -7,8 +7,14 @@ from sts.guided_collect import GuidedCollectConfig, collect_one_run
 
 
 class FakeBridge:
-    def __init__(self):
+    def __init__(self, *, preflight=None):
         self.sent = []
+        self._preflight = preflight or {
+            "ok": True,
+            "problems": [],
+            "warnings": [],
+            "tcp_control_available": True,
+        }
         self._status = {
             "connected": True,
             "exited": False,
@@ -28,6 +34,9 @@ class FakeBridge:
 
     def status(self):
         return self._status
+
+    def preflight(self):
+        return self._preflight
 
     def send_command(self, command, **kwargs):
         self.sent.append((command, kwargs))
@@ -82,6 +91,31 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["history_tail"][0]["event"], "start")
         self.assertEqual(report["history_tail"][1]["command"], "CHOOSE 0")
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
+
+    def test_collect_one_run_blocks_before_export_when_preflight_fails(self):
+        bridge = FakeBridge(
+            preflight={
+                "ok": False,
+                "problems": ["session files are stale"],
+                "warnings": ["TCP bridge control is not available; guided auto-collection will not send"],
+                "tcp_control_available": False,
+            }
+        )
+
+        with patch("sts.guided_collect.export_guided_run_script") as export:
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        export.assert_not_called()
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "preflight_blocked")
+        self.assertEqual(report["blocker"]["reason"], "bridge_preflight")
+        self.assertEqual(report["blocker"]["problems"], ["session files are stale"])
+        self.assertFalse(report["blocker"]["tcp_control_available"])
+        self.assertEqual(report["actions_sent"], 0)
 
 
 if __name__ == "__main__":
