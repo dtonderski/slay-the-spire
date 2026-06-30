@@ -22,6 +22,8 @@ This folder contains the local bridge and helper tools for collecting Slay the S
 - It persists pending `START` state so it waits for in-game confirmation before sending another seed, proceeds out of `SHOP_ROOM` after leaving the shop screen, and handles `HAND_SELECT` choose/confirm flows.
 - `run_overnight_collector.cmd` starts the autopilot. It persists the next seed index in `session/overnight_collector_state.json`, so restarts keep moving through seeds.
 - `overnight_preflight.js` checks whether the current bridge/session is fresh and safe for overnight supervision before starting.
+- It also fails when `next_command.json` exists without `next_command.txt`,
+  because orphan metadata could be attached to the next raw bridge command.
 - `run_overnight_preflight.cmd` runs the preflight check.
 - `bridge_probe.js` writes one temporary `state` command and verifies that the active CommunicationMod bridge consumes it. If the command is not consumed, it removes the probe command and exits nonzero.
 - Session `summary.json` and `status.json` include `client_pid`; use this to catch duplicate bridge clients writing conflicting session files.

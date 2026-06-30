@@ -19,6 +19,7 @@ function freshInput(overrides = {}) {
     summaryAgeMs: 1000,
     statusAgeMs: 900,
     commandExists: false,
+    commandMetaExists: false,
     staleThresholdMs: 120000,
     harvestReport: null,
     ...overrides,
@@ -55,6 +56,12 @@ function testExistingCommandFileFails() {
   assert.match(result.problems.join("\n"), /next_command/);
 }
 
+function testOrphanCommandMetadataFails() {
+  const result = checkPreflightFrom(freshInput({ commandMetaExists: true }));
+  assert.strictEqual(result.ok, false);
+  assert.match(result.problems.join("\n"), /next_command\.json/);
+}
+
 function testHarvestReportSummaryIncluded() {
   const result = checkPreflightFrom(
     freshInput({
@@ -79,6 +86,7 @@ testFreshSessionPasses();
 testStaleSessionFails();
 testSentCommandAheadOfSummaryFails();
 testExistingCommandFileFails();
+testOrphanCommandMetadataFails();
 testHarvestReportSummaryIncluded();
 
 console.log("overnight_preflight tests passed");

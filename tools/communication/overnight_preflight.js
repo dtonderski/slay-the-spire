@@ -7,6 +7,7 @@ const sessionDir = path.join(__dirname, "session");
 const summaryPath = path.join(sessionDir, "summary.json");
 const statusPath = path.join(sessionDir, "status.json");
 const commandPath = path.join(sessionDir, "next_command.txt");
+const commandMetaPath = path.join(sessionDir, "next_command.json");
 const harvestReportPath = path.join(sessionDir, "harvest_report.json");
 
 function readJson(filePath) {
@@ -31,6 +32,7 @@ function checkPreflightFrom({
   summaryAgeMs,
   statusAgeMs,
   commandExists,
+  commandMetaExists,
   staleThresholdMs,
   harvestReport,
 }) {
@@ -47,6 +49,9 @@ function checkPreflightFrom({
   }
   if (commandExists) {
     problems.push("next_command.txt already exists");
+  }
+  if (commandMetaExists && !commandExists) {
+    problems.push("next_command.json exists without next_command.txt");
   }
   if (summary && summary.ready_for_command !== true) {
     warnings.push("latest summary is not ready_for_command");
@@ -109,6 +114,7 @@ function checkPreflight(options = {}) {
     summaryAgeMs: fileAgeMs(summaryPath, now),
     statusAgeMs: fileAgeMs(statusPath, now),
     commandExists: fs.existsSync(commandPath),
+    commandMetaExists: fs.existsSync(commandMetaPath),
     staleThresholdMs,
     harvestReport: readJson(harvestReportPath),
   });
