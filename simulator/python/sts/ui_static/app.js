@@ -175,6 +175,7 @@
     el.loadSlaythedataRunButton.addEventListener("click", loadSelectedSlaythedataRun);
     el.slaythedataCandidateSelect.addEventListener("change", () => {
       app.slaythedataSelectedRunId = el.slaythedataCandidateSelect.value;
+      applySelectedSlaythedataRunToStartControls();
       renderCollector();
     });
     el.previewCollectorButton.addEventListener("click", () => tickGuidedCollector({ send: false }));
@@ -661,6 +662,7 @@
       app.slaythedataSelectedRunId = app.slaythedataCandidates.length
         ? String(app.slaythedataCandidates[0].id)
         : "";
+      applySelectedSlaythedataRunToStartControls();
       app.slaythedataLastError = null;
       renderCollectorPicker();
     });
@@ -678,9 +680,44 @@
         method: "POST",
         body: { run_id: Number(runId) },
       });
+      applyGuidedRunStartControls(app.collector && app.collector.config);
       app.collectorLastError = null;
       app.slaythedataLastError = null;
     });
+  }
+
+  function selectedSlaythedataCandidate() {
+    const runId = app.slaythedataSelectedRunId || (el.slaythedataCandidateSelect && el.slaythedataCandidateSelect.value);
+    if (!runId) return null;
+    return app.slaythedataCandidates.find((candidate) => String(candidate.id) === String(runId)) || null;
+  }
+
+  function applySelectedSlaythedataRunToStartControls() {
+    const candidate = selectedSlaythedataCandidate();
+    if (!candidate) return;
+    applyGuidedRunStartControls({
+      character: el.startCharacterSelect && el.startCharacterSelect.value,
+      ascension: el.startAscensionInput && el.startAscensionInput.value,
+      seed_played: candidate.seed_played,
+    });
+  }
+
+  function applyGuidedRunStartControls(config) {
+    if (!config) return;
+    const seed = firstDefined(config.seed_played, config.seed, null);
+    if (seed !== null && seed !== undefined && el.startSeedInput) {
+      el.startSeedInput.value = String(seed);
+    }
+    const ascension = firstDefined(config.ascension, config.ascension_level, null);
+    if (ascension !== null && ascension !== undefined && el.startAscensionInput) {
+      el.startAscensionInput.value = String(ascension);
+    }
+    const character = firstDefined(config.character, config.character_chosen, null);
+    if (character && el.startCharacterSelect) {
+      const normalized = String(character).trim().toUpperCase();
+      const option = Array.from(el.startCharacterSelect.options).find((entry) => entry.value === normalized);
+      if (option) el.startCharacterSelect.value = normalized;
+    }
   }
 
   async function tickGuidedCollector(options = {}) {
