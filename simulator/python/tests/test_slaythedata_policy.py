@@ -160,16 +160,19 @@ class SlayTheDataPolicyTests(unittest.TestCase):
                 "event": {
                     "character_chosen": "IRONCLAD",
                     "ascension_level": 0,
+                    "seed_played": "LIVE01",
                 }
             }
         )
 
         character = identity_blocker(script, {"class": "THE_SILENT", "ascension_level": 0})
         ascension = identity_blocker(script, {"class": "IRONCLAD", "ascension_level": 1})
-        matching = identity_blocker(script, {"class": "IRONCLAD", "ascension_level": 0})
+        seed = identity_blocker(script, {"class": "IRONCLAD", "ascension_level": 0, "seed": "OTHER"})
+        matching = identity_blocker(script, {"class": "IRONCLAD", "ascension_level": 0, "seed": "LIVE01"})
 
         self.assertEqual(character["reason"], "run_identity_mismatch")
         self.assertEqual(ascension["reason"], "run_identity_mismatch")
+        self.assertEqual(seed["reason"], "run_identity_mismatch")
         self.assertIsNone(matching)
 
     def test_match_visible_choice_blocks_missing_and_ambiguous_targets(self):
