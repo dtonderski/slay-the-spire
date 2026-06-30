@@ -19,6 +19,7 @@ from typing import Any
 from sts.bridge import BridgeMirror
 from sts.guided_collector import GuidedCollector
 from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
+from sts.slaythedata_policy import guided_script_support_blocker
 from sts.ui_service import SessionManager, _start_guided_live_run, _tick_live_collector
 
 
@@ -73,8 +74,7 @@ def collect_one_run(
             bridge_status=bridge.status(),
             preflight=preflight,
         )
-    run_id = config.run_id if config.run_id is not None else _select_run_id(config)
-    script = export_guided_run_script(run_id)
+    run_id, script = _select_run_script(config)
     collector_status = collector.start({"script": script})
     if collector_status.get("status") == "blocked":
         blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {
@@ -222,7 +222,11 @@ def _blocked_report(
     }
 
 
-def _select_run_id(config: GuidedCollectConfig) -> int:
+def _select_run_script(config: GuidedCollectConfig) -> tuple[int, dict[str, Any]]:
+    if config.run_id is not None:
+        run_id = int(config.run_id)
+        return run_id, export_guided_run_script(run_id)
+
     candidates = select_guided_collection_candidates(
         character=config.character,
         ascension=config.ascension,
@@ -233,12 +237,30 @@ def _select_run_id(config: GuidedCollectConfig) -> int:
         min_event_choices=1,
         min_shop_purchases=1,
         require_guided_safe_neow=True,
-        limit=1,
+        limit=25,
         ranked=False,
     )
     if not candidates:
         raise RuntimeError("no SlayTheData guided candidate run matched the default filters")
-    return int(candidates[0]["id"])
+    blocked: list[dict[str, Any]] = []
+    for candidate in candidates:
+        run_id = int(candidate["id"])
+        script = export_guided_run_script(run_id)
+        blocker = guided_script_support_blocker(script)
+        if blocker is None:
+            return run_id, script
+        blocked.append(
+            {
+                "run_id": run_id,
+                "seed": (script.get("config") or {}).get("seed_played")
+                if isinstance(script.get("config"), dict)
+                else None,
+                "reason": blocker.get("reason"),
+                "detail": blocker.get("detail"),
+            }
+        )
+    detail = "; ".join(f"{entry['run_id']}: {entry['reason']}" for entry in blocked[:5])
+    raise RuntimeError(f"no auto-selected SlayTheData candidates had supported guided scripts ({detail})")
 
 
 def _compact_tick(tick: dict[str, Any]) -> dict[str, Any]:
