@@ -229,6 +229,13 @@ The collector can now:
 - verify guided combat and non-combat simulator predictions immediately from
   that observed TCP state when it is present, clearing the pending prediction
   in the same tick on a match and blocking loudly on timeout or mismatch
+- pin the headless guided collector to the bridge client, trace path, and TCP
+  endpoint observed after guided `START`, then stop as
+  `bridge_identity_changed` if any of those change before the run finishes
+- treat TCP protocol anomalies as failed guided validation: accepted commands
+  must have matching trace action rows, and any `command_observed_timeout`
+  invalidates the generated guided report even if strict gameplay replay can
+  consume the trace prefix
 - disable stale mirrored bridge actions in the Python/UI action model, so stale
   session files remain visible for diagnosis but cannot be clicked as if they
   were fresh commands
