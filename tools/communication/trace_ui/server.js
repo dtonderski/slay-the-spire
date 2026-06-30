@@ -121,9 +121,22 @@ async function sendCommandViaControl(command, status, summary) {
   if (summary?.state_seq !== undefined) {
     payload.expected_state_seq = summary.state_seq;
   }
-  const response = await controlRequest(control, payload, 12000);
-  if (!response.ok) {
-    throw new Error(response.error || "bridge control command rejected");
+  let response;
+  let releaseError = null;
+  try {
+    response = await controlRequest(control, payload, 12000);
+    if (!response.ok) {
+      throw new Error(response.error || "bridge control command rejected");
+    }
+  } finally {
+    try {
+      await controlRequest(control, {
+        type: "release",
+        owner_token: acquired.owner_token,
+      });
+    } catch (error) {
+      releaseError = error.message || String(error);
+    }
   }
   return {
     ok: true,
@@ -141,6 +154,7 @@ async function sendCommandViaControl(command, status, summary) {
         error: response.observed_update.error,
       }
       : null,
+    release_error: releaseError,
   };
 }
 

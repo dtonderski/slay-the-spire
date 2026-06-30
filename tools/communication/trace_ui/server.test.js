@@ -47,6 +47,9 @@ async function testTcpCommandPathUsesExpectedStateAndNoFileWrite() {
     if (payload.type === "acquire") {
       return { ok: true, owner_id: payload.owner_id, owner_token: "owner-token" };
     }
+    if (payload.type === "release") {
+      return { ok: true, released: payload.owner_token === "owner-token", owner_id: `trace-ui-${process.pid}` };
+    }
     return {
       ok: true,
       command_id: payload.command_id,
@@ -78,8 +81,9 @@ async function testTcpCommandPathUsesExpectedStateAndNoFileWrite() {
     assert.strictEqual(result.accepted_state_id, "state-1");
     assert.strictEqual(result.accepted_state_seq, 7);
     assert.strictEqual(result.observed_update.state_id, "state-2");
+    assert.strictEqual(result.release_error, null);
     assert.strictEqual(fs.existsSync(path.join(sessionDir, "next_command.txt")), false);
-    assert.strictEqual(control.received.length, 2);
+    assert.strictEqual(control.received.length, 3);
     assert.strictEqual(control.received[0].type, "acquire");
     assert.strictEqual(control.received[0].owner_id, `trace-ui-${process.pid}`);
     assert.strictEqual(control.received[1].type, "command");
@@ -87,6 +91,8 @@ async function testTcpCommandPathUsesExpectedStateAndNoFileWrite() {
     assert.strictEqual(control.received[1].expected_state_seq, 7);
     assert.strictEqual(control.received[1].metadata.source, "trace_ui");
     assert.strictEqual(control.received[1].wait_for_state_update, true);
+    assert.strictEqual(control.received[2].type, "release");
+    assert.strictEqual(control.received[2].owner_token, "owner-token");
   });
 }
 
