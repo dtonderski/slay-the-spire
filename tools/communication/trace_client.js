@@ -335,6 +335,11 @@ function currentProtocolState() {
   };
 }
 
+function controlOwnerLeaseAgeMs(nowMs = Date.now()) {
+  if (!controlOwner) return null;
+  return Math.max(0, nowMs - controlOwner.acquired_at_ms);
+}
+
 function validateProtocolCommand(payload) {
   const command = String(payload.command ?? "").trim();
   if (!command) return "command is required";
@@ -376,10 +381,49 @@ async function handleControlMessage(payload) {
     const ownerId = String(payload.owner_id ?? "").trim();
     if (!ownerId) return { ok: false, error: "owner_id is required" };
     if (controlOwner && controlOwner.owner_id !== ownerId) {
+      const leaseAgeMs = controlOwnerLeaseAgeMs();
+      const takeoverAfterMs = Number(payload.takeover_if_stale_after_ms);
+      if (
+        Number.isFinite(takeoverAfterMs)
+        && takeoverAfterMs >= 0
+        && leaseAgeMs !== null
+        && leaseAgeMs > takeoverAfterMs
+      ) {
+        const replacedOwnerId = controlOwner.owner_id;
+        const replacedLeaseAgeMs = leaseAgeMs;
+        controlOwner = {
+          owner_id: ownerId,
+          owner_token: crypto.randomUUID(),
+          acquired_at: new Date().toISOString(),
+          acquired_at_ms: Date.now(),
+          replaced_owner_id: replacedOwnerId,
+        };
+        writeRecord({
+          type: "metadata",
+          event: "controller_takeover",
+          replaced_owner_id: replacedOwnerId,
+          owner_id: ownerId,
+          replaced_lease_age_ms: replacedLeaseAgeMs,
+          takeover_if_stale_after_ms: takeoverAfterMs,
+          at: controlOwner.acquired_at,
+        });
+        if (latestStatus) writeStatus(latestStatus);
+        return {
+          ok: true,
+          protocol: "sts-bridge-jsonl-v1",
+          owner_id: controlOwner.owner_id,
+          owner_token: controlOwner.owner_token,
+          replaced_owner_id: replacedOwnerId,
+          takeover: true,
+          state_id: latestSummary?.state_id ?? null,
+          state_seq: stateSeq,
+        };
+      }
       return {
         ok: false,
         error: "bridge is already owned by another controller",
         owner_id: controlOwner.owner_id,
+        lease_age_ms: leaseAgeMs,
       };
     }
     if (!controlOwner) {

@@ -312,7 +312,10 @@ class BridgeMirror:
         update_timeout_seconds: float,
     ) -> dict[str, Any]:
         command_id = uuid4().hex
-        owner = _acquire_control_owner(control)
+        owner = _acquire_control_owner(
+            control,
+            takeover_if_stale_after_seconds=self.stale_after_seconds,
+        )
         payload: dict[str, Any] = {
             "type": "command",
             "command": command,
@@ -986,14 +989,18 @@ def _control_request(control: dict[str, Any], payload: dict[str, Any], timeout: 
     return response
 
 
-def _acquire_control_owner(control: dict[str, Any]) -> dict[str, Any]:
-    response = _control_request(
-        control,
-        {
-            "type": "acquire",
-            "owner_id": f"sts-python-ui-{os.getpid()}",
-        },
-    )
+def _acquire_control_owner(
+    control: dict[str, Any],
+    *,
+    takeover_if_stale_after_seconds: float | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "type": "acquire",
+        "owner_id": f"sts-python-ui-{os.getpid()}",
+    }
+    if takeover_if_stale_after_seconds is not None:
+        payload["takeover_if_stale_after_ms"] = int(max(0.0, takeover_if_stale_after_seconds) * 1000)
+    response = _control_request(control, payload)
     if not response.get("ok"):
         raise ValueError(str(response.get("error") or "bridge control ownership rejected"))
     if not response.get("owner_token"):

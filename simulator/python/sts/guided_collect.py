@@ -17,6 +17,7 @@ import time
 from typing import Any
 
 from sts.bridge import BridgeMirror
+from sts.bridge_audit import preflight_with_client_audit
 from sts.guided_collector import GuidedCollector
 from sts.slaythedata_index import export_guided_run_script, select_guided_collection_candidates
 from sts.slaythedata_policy import guided_script_support_audit
@@ -252,42 +253,7 @@ def _wait_for_preflight(
 
 
 def _preflight_with_client_audit(bridge: BridgeMirror) -> dict[str, Any]:
-    preflight = dict(bridge.preflight())
-    try:
-        clients_report = bridge.clients()
-    except AttributeError:
-        return preflight
-    except Exception as error:
-        warnings = list(preflight.get("warnings") or [])
-        warnings.append(f"could not inspect bridge clients: {error}")
-        preflight["warnings"] = warnings
-        return preflight
-
-    clients = clients_report.get("clients") if isinstance(clients_report, dict) else None
-    if not isinstance(clients, list):
-        return preflight
-    alive = [client for client in clients if isinstance(client, dict) and client.get("alive")]
-    preflight["bridge_clients"] = {
-        "alive_count": len(alive),
-        "current_pid": clients_report.get("current_pid"),
-        "clients": [
-            {
-                "pid": client.get("pid"),
-                "current": bool(client.get("current")),
-                "alive": bool(client.get("alive")),
-                "trace_paths": client.get("trace_paths") or [],
-            }
-            for client in clients
-        ],
-    }
-    if len(alive) > 1:
-        problems = list(preflight.get("problems") or [])
-        problems.append(
-            "multiple alive bridge clients detected: "
-            + ", ".join(str(client.get("pid")) for client in alive)
-        )
-        preflight["problems"] = problems
-    return preflight
+    return preflight_with_client_audit(bridge)
 
 
 def _blocked_report(
