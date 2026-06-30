@@ -20,6 +20,11 @@ the same bridge process and records accepted commands in the same trace.
 Messages are newline-delimited JSON objects:
 
 - `{ "type": "hello" }` returns protocol metadata.
+- `{ "type": "acquire", "owner_id": "..." }` returns an owner token for the
+  single active controller. A competing controller may include
+  `takeover_if_stale_after_ms` to replace the current owner only when that
+  owner's lease is older than the supplied threshold; fresh competing owners
+  are rejected.
 - `{ "type": "state" }` returns the latest state, summary, trace path, step,
   and bridge-advertised `state_id`.
 - `{ "type": "command", "command": "CHOOSE 0", "expected_state_id": "...",
@@ -52,6 +57,10 @@ and command metadata. If a caller requested `wait_for_state_update` and no
 post-command state arrives before the timeout, the bridge also writes a
 `command_observed_timeout` row. The ordinary `action` row remains the record
 that the command was actually emitted to CommunicationMod.
+
+Stale controller recovery is trace-visible too: when an explicit stale takeover
+is accepted, the bridge writes a `controller_takeover` metadata row with the
+replaced owner and lease age.
 
 ## Manual Control
 
