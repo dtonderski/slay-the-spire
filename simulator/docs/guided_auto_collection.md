@@ -90,6 +90,9 @@ The collector can now:
   action
 - block the next tick if strict replay of the live trace does not reach that
   predicted state
+- write guided-collector provenance into `next_command.json` and preserve that
+  object on trace `action.command_meta`, including collector id, source
+  SlayTheData run metadata, replay policy, and compact suggestion details
 - run a cooperative UI auto-loop that repeatedly ticks the collector, waits
   while the bridge command is pending or not ready, and pauses on real blockers
 
@@ -123,10 +126,10 @@ Tick algorithm:
 
 Steps 1, 3, 4, simple visible-choice sending, strict non-combat legal-action
 agreement, conservative map path matching, boss relic matching, campfire/grid
-matching, and post-send prediction checks are implemented, and the UI can
-repeatedly call tick until blocked. Remaining work is map tie-breaking when
-room symbols are ambiguous, reward edge cases that need hidden identity checks,
-and end-to-end live bridge smoke coverage.
+matching, post-send prediction checks, and generated-trace provenance are
+implemented, and the UI can repeatedly call tick until blocked. Remaining work
+is map tie-breaking when room symbols are ambiguous, reward edge cases that
+need hidden identity checks, and end-to-end live bridge smoke coverage.
 
 ## Important Boundaries
 
