@@ -425,40 +425,37 @@ pub fn ironclad_combat_power_discovery_pool() -> &'static [ContentId] {
 #[must_use]
 pub fn ironclad_combat_attack_discovery_pool() -> Vec<ContentId> {
     // Target `AbstractDungeon.returnTrulyRandomCardInCombat(type)` uses source
-    // card pools whose full order is not the shop rarity-array order. This
-    // trace-backed order makes LIVE01 Attack Potion draw indices 0, 27, and 5
-    // as Headbutt, Dropkick, and Clothesline.
+    // card pools whose order comes from CardLibrary/HashMap source-pool
+    // construction, then filters by type and excludes HEALING-tagged cards.
     const DISCOVERY_ATTACKS: &[&str] = &[
-        "HEADBUTT",
-        "ANGER",
-        "BODY_SLAM",
-        "CLASH",
-        "CLEAVE",
-        "CLOTHESLINE",
-        "HEAVY_BLADE",
-        "IRON_WAVE",
-        "PERFECTED_STRIKE",
-        "POMMEL_STRIKE",
         "SWORD_BOOMERANG",
-        "THUNDERCLAP",
-        "TWIN_STRIKE",
+        "PERFECTED_STRIKE",
+        "HEAVY_BLADE",
         "WILD_STRIKE",
-        "BLOOD_FOR_BLOOD",
-        "CARNAGE",
-        "HEMOKINESIS",
-        "PUMMEL",
-        "RAMPAGE",
-        "RECKLESS_CHARGE",
-        "SEARING_BLOW",
-        "SEVER_SOUL",
+        "HEADBUTT",
+        "CLOTHESLINE",
+        "TWIN_STRIKE",
+        "POMMEL_STRIKE",
+        "THUNDERCLAP",
+        "CLASH",
+        "BODY_SLAM",
+        "IRON_WAVE",
+        "CLEAVE",
+        "ANGER",
         "UPPERCUT",
-        "WHIRLWIND",
-        "BLUDGEON",
-        "FEED",
-        "FIEND_FIRE",
         "DROPKICK",
+        "CARNAGE",
+        "SEARING_BLOW",
+        "WHIRLWIND",
+        "SEVER_SOUL",
+        "RAMPAGE",
+        "PUMMEL",
+        "BLOOD_FOR_BLOOD",
+        "HEMOKINESIS",
+        "RECKLESS_CHARGE",
+        "BLUDGEON",
+        "FIEND_FIRE",
         "IMMOLATE",
-        "REAPER",
     ];
     DISCOVERY_ATTACKS
         .iter()
@@ -669,45 +666,46 @@ mod tests {
     fn ironclad_attack_discovery_pool_matches_target_source_pool_order() {
         let pool = ironclad_combat_attack_discovery_pool();
         let expected_names = [
-            "HEADBUTT",
-            "ANGER",
-            "BODY_SLAM",
-            "CLASH",
-            "CLEAVE",
-            "CLOTHESLINE",
-            "HEAVY_BLADE",
-            "IRON_WAVE",
-            "PERFECTED_STRIKE",
-            "POMMEL_STRIKE",
             "SWORD_BOOMERANG",
-            "THUNDERCLAP",
-            "TWIN_STRIKE",
+            "PERFECTED_STRIKE",
+            "HEAVY_BLADE",
             "WILD_STRIKE",
-            "BLOOD_FOR_BLOOD",
-            "CARNAGE",
-            "HEMOKINESIS",
-            "PUMMEL",
-            "RAMPAGE",
-            "RECKLESS_CHARGE",
-            "SEARING_BLOW",
-            "SEVER_SOUL",
+            "HEADBUTT",
+            "CLOTHESLINE",
+            "TWIN_STRIKE",
+            "POMMEL_STRIKE",
+            "THUNDERCLAP",
+            "CLASH",
+            "BODY_SLAM",
+            "IRON_WAVE",
+            "CLEAVE",
+            "ANGER",
             "UPPERCUT",
-            "WHIRLWIND",
-            "BLUDGEON",
-            "FEED",
-            "FIEND_FIRE",
             "DROPKICK",
+            "CARNAGE",
+            "SEARING_BLOW",
+            "WHIRLWIND",
+            "SEVER_SOUL",
+            "RAMPAGE",
+            "PUMMEL",
+            "BLOOD_FOR_BLOOD",
+            "HEMOKINESIS",
+            "RECKLESS_CHARGE",
+            "BLUDGEON",
+            "FIEND_FIRE",
             "IMMOLATE",
-            "REAPER",
         ];
         let expected: Vec<_> = expected_names
             .iter()
             .map(|name| shop_card_content_id(name))
             .collect();
         assert_eq!(pool, expected);
-        assert_eq!(pool[0], shop_card_content_id("HEADBUTT"));
-        assert_eq!(pool[27], shop_card_content_id("DROPKICK"));
-        assert_eq!(pool[5], shop_card_content_id("CLOTHESLINE"));
+        assert_eq!(pool.len(), 28);
+        assert_eq!(pool[1], shop_card_content_id("PERFECTED_STRIKE"));
+        assert_eq!(pool[16], shop_card_content_id("CARNAGE"));
+        assert_eq!(pool[25], shop_card_content_id("BLUDGEON"));
+        assert!(!pool.contains(&shop_card_content_id("FEED")));
+        assert!(!pool.contains(&shop_card_content_id("REAPER")));
     }
 
     #[test]

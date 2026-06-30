@@ -276,15 +276,15 @@ and guided-auto enforcement. Manual UI bridge commands now use the same
 TCP-required send-and-observe path, so successful sends can update from the
 post-command bridge state instead of waiting for file polling.
 
-Current strict replay of
+Strict replay of
 `verification/corpus/communication_mod/trace-2026-06-30T10-04-19-680Z.jsonl`
-fails at the floor 8 Attack Potion. The real game offers
-`Carnage, Bludgeon, Perfected Strike` (`[131, 139, 109]`), while the simulator
-offers `Sword Boomerang, Whirlwind, Pommel Strike` (`[110, 33, 21]`). This is
-now reported as an `observed_state_diff` on `combat.card_reward_choices`
-immediately after `POTION USE 0`, not later as a selected-hand-card mismatch.
-Do not use that trace as a clean parity proof until the Attack Potion
-`cardRandomRng` source-pool/order issue is fixed.
+now reaches trace exhaustion with `verified=true`. The floor 8 Attack Potion
+parity bug was fixed by modeling the target
+`AbstractDungeon.returnTrulyRandomCardInCombat(CardType.ATTACK)` source-pool
+order and excluding HEALING-tagged attacks (`Feed`, `Reaper`). The verifier also
+now compares combat card-reward choices, so future generated-card divergence is
+reported at the reward-choice screen instead of later as a selected hand-card
+mismatch.
 
 The browser UI still needs an end-to-end live smoke against a freshly restarted
 TCP-enabled bridge. Remaining work is broader support for Neow bonuses whose
