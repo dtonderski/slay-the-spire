@@ -10,4 +10,5 @@ set NODE=C:\Program Files\nodejs\node.exe
 "%NODE%" "%REPO%\tools\communication\guided_collect_status.test.js" || exit /b 1
 "%NODE%" "%REPO%\tools\communication\launcher_scripts.test.js" || exit /b 1
 "%NODE%" "%REPO%\tools\communication\trace_tools.test.js" || exit /b 1
+"%NODE%" "%REPO%\tools\communication\trace_client.test.js" || exit /b 1
 "%NODE%" "%REPO%\tools\communication\trace_ui\server.test.js" || exit /b 1
