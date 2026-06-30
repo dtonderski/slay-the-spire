@@ -468,6 +468,9 @@ def _validate_trace(trace_path: Any) -> dict[str, Any]:
 
 def _trace_protocol_counts(path: Path) -> dict[str, int]:
     counts = {
+        "actions": 0,
+        "control_actions": 0,
+        "passive_polls": 0,
         "command_accepts": 0,
         "command_observed_timeouts": 0,
     }
@@ -477,7 +480,15 @@ def _trace_protocol_counts(path: Path) -> dict[str, int]:
                 continue
             record = json.loads(line)
             record_type = record.get("type") if isinstance(record, dict) else None
-            if record_type == "command_accept":
+            if record_type == "action":
+                counts["actions"] += 1
+                command = str(record.get("command") or "").strip().upper()
+                command_meta = record.get("command_meta") if isinstance(record.get("command_meta"), dict) else {}
+                if command == "STATE" and command_meta.get("source") == "passive_poll":
+                    counts["passive_polls"] += 1
+                else:
+                    counts["control_actions"] += 1
+            elif record_type == "command_accept":
                 counts["command_accepts"] += 1
             elif record_type == "command_observed_timeout":
                 counts["command_observed_timeouts"] += 1
