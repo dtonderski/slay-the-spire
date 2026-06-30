@@ -396,6 +396,39 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(sleeps, [0.25])
         self.assertEqual(report["stop_reason"], "blocked")
 
+    def test_collect_one_run_action_cap_is_not_clean_success_without_verified_trace(self):
+        bridge = FakeBridge()
+
+        def fake_tick(_collector, _manager, _bridge, payload, *, require_tcp_control):
+            return {
+                "status": "ready",
+                "pending_prediction": None,
+                "suggestion": {
+                    "status": "sent_non_combat",
+                    "floor": 1,
+                    "category": "reward",
+                    "non_combat_send": {"send_result": {"command": "CHOOSE 0"}},
+                },
+            }
+
+        with patch(
+            "sts.guided_collect.export_guided_run_script",
+            return_value={"config": {"character": "IRONCLAD", "ascension": 0, "seed_played": "LIVE01"}},
+        ), patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=fake_tick,
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123, max_actions=1, max_seconds=5),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "max_actions")
+        self.assertEqual(report["actions_sent"], 1)
+        self.assertEqual(report["trace_validation"]["reason"], "trace_path_not_found")
+
     def test_archive_report_path_is_safe_and_descriptive(self):
         with tempfile.TemporaryDirectory() as directory:
             path = _archive_report_path(

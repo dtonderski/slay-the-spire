@@ -146,6 +146,9 @@ The collector can now:
   repeatedly ticks the collector, and writes a compact JSON report with run id,
   seed, trace path, bridge step/state, stop reason, blocker, and recent tick
   history
+- validate the produced trace with strict Python replay before reporting a
+  clean collection result. Hitting an action cap is progress, not success; the
+  report now separates `actions_sent` from `trace_validation.verified`
 - when no run id is supplied, export a small batch of candidate rows and skip
   those whose normalized script is known to be unsupported before selecting a
   run; explicit `--run-id` remains strict and reports `script_blocked` instead

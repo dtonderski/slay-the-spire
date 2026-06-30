@@ -372,6 +372,35 @@ class UiServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "guided START did not observe"):
             _start_guided_live_run(collector, TimeoutBridge({"state_id": "menu-state"}))
 
+    def test_start_guided_live_run_rejects_tcp_without_observed_update(self):
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 3,
+                            "seed_played": "LIVE01",
+                        },
+                    }
+                )
+            }
+        )
+
+        class NoObservedUpdateBridge(FakeBridge):
+            def send_command(self, command, **kwargs):
+                self.sent.append((command, kwargs))
+                return {
+                    "ok": True,
+                    "command_id": "cmd-start",
+                    "command": command,
+                    "transport": "tcp-jsonl",
+                }
+
+        with self.assertRaisesRegex(ValueError, "guided START did not return an observed TCP state update"):
+            _start_guided_live_run(collector, NoObservedUpdateBridge({"state_id": "menu-state"}))
+
     def test_start_guided_live_run_requires_active_script_seed(self):
         collector = GuidedCollector()
         bridge = FakeBridge({"state_id": "menu-state"})

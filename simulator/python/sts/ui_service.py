@@ -1216,10 +1216,7 @@ def _start_guided_live_run(
         wait_for_state_update=True,
         update_timeout_seconds=30.0,
     )
-    observed_update = send_result.get("observed_update")
-    if isinstance(observed_update, dict) and observed_update.get("ok") is not True:
-        detail = observed_update.get("error") or "timed out waiting for observed state after guided START"
-        raise ValueError(f"guided START did not observe post-command state: {detail}")
+    observed_update = _observed_update_or_raise(send_result, "guided START")
     return {
         "ok": True,
         "command": command,
