@@ -2,7 +2,12 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sts.ui_service import CombatSession, SessionManager, _observed_state_from_bridge_status
+from sts.ui_service import (
+    CombatSession,
+    SessionManager,
+    _guided_script_from_payload,
+    _observed_state_from_bridge_status,
+)
 
 
 class EmptyActionEnv:
@@ -85,6 +90,29 @@ class UiServiceTests(unittest.TestCase):
             _observed_state_from_bridge_status(
                 {"current_state": {"message": {"available_commands": ["start", "state"]}}}
             )
+
+    def test_guided_script_payload_accepts_exported_slaythedata_run(self):
+        result = _guided_script_from_payload(
+            {
+                "exported_run": {
+                    "run_id": 7,
+                    "event": {
+                        "character_chosen": "IRONCLAD",
+                        "ascension_level": 0,
+                        "seed_played": "ABC",
+                        "card_choices": [{"floor": 1, "picked": "Inflame"}],
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(result["script"]["source"]["run_id"], 7)
+        self.assertEqual(result["script"]["config"]["seed_played"], "ABC")
+        self.assertEqual(result["script"]["floor_decisions"][0]["card_rewards"][0]["picked"], "Inflame")
+
+    def test_guided_script_payload_rejects_missing_source(self):
+        with self.assertRaises(ValueError):
+            _guided_script_from_payload({})
 
     def test_session_exposes_state_actions_and_snapshot(self):
         manager = SessionManager()
