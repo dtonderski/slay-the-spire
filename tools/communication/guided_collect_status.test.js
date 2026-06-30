@@ -4,7 +4,7 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { inspectGuidedCollectReport, validateTrace } = require("./guided_collect_status");
+const { inspectGuidedCollectReport, recentReports, validateTrace } = require("./guided_collect_status");
 
 function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
@@ -99,9 +99,49 @@ function testInspectReportValidatesTrace() {
   });
 }
 
+function testRecentReportsSortsNewestFirst() {
+  withTempDir((dir) => {
+    const oldPath = path.join(dir, "old.json");
+    const newPath = path.join(dir, "new.json");
+    writeJson(oldPath, { ok: false });
+    writeJson(newPath, { ok: true });
+    const oldTime = new Date("2026-01-01T00:00:00Z");
+    const newTime = new Date("2026-01-02T00:00:00Z");
+    fs.utimesSync(oldPath, oldTime, oldTime);
+    fs.utimesSync(newPath, newTime, newTime);
+
+    const result = recentReports(dir);
+
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0].name, "new.json");
+    assert.strictEqual(result[1].name, "old.json");
+  });
+}
+
+function testInspectReportIncludesRecentReports() {
+  withTempDir((dir) => {
+    const archiveDir = path.join(dir, "reports");
+    fs.mkdirSync(archiveDir);
+    writeJson(path.join(archiveDir, "attempt.json"), { ok: false });
+    const reportPath = path.join(dir, "latest.json");
+    writeJson(reportPath, {
+      ok: false,
+      stop_reason: "preflight_blocked",
+      actions_sent: 0,
+    });
+
+    const result = inspectGuidedCollectReport(reportPath, archiveDir);
+
+    assert.strictEqual(result.recent_reports.length, 1);
+    assert.strictEqual(result.recent_reports[0].name, "attempt.json");
+  });
+}
+
 testValidateTraceReportsMissingFile();
 testInspectMissingReport();
 testInspectBlockedReport();
 testInspectReportValidatesTrace();
+testRecentReportsSortsNewestFirst();
+testInspectReportIncludesRecentReports();
 
 console.log("guided_collect_status tests passed");
