@@ -77,6 +77,12 @@ def select_guided_collection_candidates(
     conn = _connect_readonly(db_path)
     try:
         run_columns = set(_sqlite_table_columns(conn, "runs"))
+        if require_guided_safe_neow and not {"neow_bonus", "neow_cost"}.issubset(run_columns):
+            missing = sorted({"neow_bonus", "neow_cost"} - run_columns)
+            raise ValueError(
+                "SlayTheData locator database is missing guided safe-Neow column(s): "
+                + ", ".join(missing)
+            )
         neow_bonus_expr = "neow_bonus" if "neow_bonus" in run_columns else "NULL AS neow_bonus"
         neow_cost_expr = "neow_cost" if "neow_cost" in run_columns else "NULL AS neow_cost"
         query = f"""
@@ -160,6 +166,10 @@ def slaythedata_index_status(
             return status
         run_columns = set(_sqlite_table_columns(conn, "runs"))
         safe_neow_filter_supported = {"neow_bonus", "neow_cost"}.issubset(run_columns)
+        status["schema_features"] = {
+            "has_neow_columns": safe_neow_filter_supported,
+            "has_supported_profile": "unsupported_any" in run_columns,
+        }
 
         status["counts_included"] = bool(include_counts)
         if include_counts:
