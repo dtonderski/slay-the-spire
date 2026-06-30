@@ -126,7 +126,6 @@ class BridgeMirror:
         self.session_dir.mkdir(parents=True, exist_ok=True)
         command_id = uuid4().hex
         command_path = self.session_dir / "next_command.txt"
-        command_path.write_text(f"{command}\n", encoding="utf-8")
         command_meta = {
             "command_id": command_id,
             "command": command,
@@ -139,6 +138,7 @@ class BridgeMirror:
             json.dumps(command_meta, sort_keys=True),
             encoding="utf-8",
         )
+        command_path.write_text(f"{command}\n", encoding="utf-8")
         after = self.status(now=now)
         return {
             "ok": True,
