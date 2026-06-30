@@ -23,8 +23,6 @@ pub const WEAK_POTION_WEAK: i32 = 3;
 pub const FRUIT_JUICE_MAX_HP: i32 = 5;
 pub const SWIFT_POTION_DRAW: usize = 3;
 pub const SNECKO_OIL_DRAW: usize = 5;
-pub const GAMBLE_POTION_WIN_GOLD: i32 = 50;
-pub const GAMBLE_POTION_LOSS_GOLD: i32 = 50;
 pub const FAIRY_HEAL_PERCENT: i32 = 30;
 
 /// Content id for [Potion::Fire].
@@ -33,15 +31,18 @@ pub const FIRE_POTION_ID: ContentId = ContentId::new(200);
 pub const BLOCK_POTION_ID: ContentId = ContentId::new(201);
 /// Content id for [Potion::Fear].
 pub const FEAR_POTION_ID: ContentId = ContentId::new(202);
-/// Content id for [Potion::Gamble].
-pub const GAMBLE_POTION_ID: ContentId = ContentId::new(203);
+/// Content id for [Potion::GamblersBrew].
+pub const GAMBLERS_BREW_POTION_ID: ContentId = ContentId::new(203);
+/// Backward-compatible alias for the previous local name of [Potion::GamblersBrew].
+pub const GAMBLE_POTION_ID: ContentId = GAMBLERS_BREW_POTION_ID;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Potion {
     Fire,
     Block,
     Fear,
-    Gamble,
+    #[serde(alias = "Gamble")]
+    GamblersBrew,
     Blood,
     Elixir,
     HeartOfIron,
@@ -103,7 +104,7 @@ pub const IRONCLAD_POTION_POOL: [Potion; 33] = [
     Potion::Regen,
     Potion::Ancient,
     Potion::LiquidBronze,
-    Potion::Gamble,
+    Potion::GamblersBrew,
     Potion::EssenceOfSteel,
     Potion::Duplication,
     Potion::DistilledChaos,
@@ -123,7 +124,7 @@ impl Potion {
             Potion::Fire => FIRE_POTION_ID,
             Potion::Block => BLOCK_POTION_ID,
             Potion::Fear => FEAR_POTION_ID,
-            Potion::Gamble => GAMBLE_POTION_ID,
+            Potion::GamblersBrew => GAMBLERS_BREW_POTION_ID,
             _ => ContentId::new(1_000 + self.target_ordinal() as u64),
         }
     }
@@ -134,7 +135,7 @@ impl Potion {
             id if id == FIRE_POTION_ID => Some(Potion::Fire),
             id if id == BLOCK_POTION_ID => Some(Potion::Block),
             id if id == FEAR_POTION_ID => Some(Potion::Fear),
-            id if id == GAMBLE_POTION_ID => Some(Potion::Gamble),
+            id if id == GAMBLERS_BREW_POTION_ID => Some(Potion::GamblersBrew),
             id => Potion::from_target_ordinal((id.get().checked_sub(1_000)?) as u8),
         }
     }
@@ -164,7 +165,7 @@ impl Potion {
             | Potion::Duplication
             | Potion::Elixir
             | Potion::EssenceOfSteel
-            | Potion::Gamble
+            | Potion::GamblersBrew
             | Potion::LiquidBronze
             | Potion::LiquidMemories
             | Potion::Regen => PotionRarity::Uncommon,
@@ -200,7 +201,7 @@ impl Potion {
             Potion::Fire => 23,
             Potion::Flex => 24,
             Potion::FruitJuice => 26,
-            Potion::Gamble => 27,
+            Potion::GamblersBrew => 27,
             Potion::HeartOfIron => 29,
             Potion::LiquidBronze => 30,
             Potion::LiquidMemories => 31,
@@ -238,7 +239,7 @@ impl Potion {
             23 => Some(Potion::Fire),
             24 => Some(Potion::Flex),
             26 => Some(Potion::FruitJuice),
-            27 => Some(Potion::Gamble),
+            27 => Some(Potion::GamblersBrew),
             29 => Some(Potion::HeartOfIron),
             30 => Some(Potion::LiquidBronze),
             31 => Some(Potion::LiquidMemories),
@@ -286,6 +287,7 @@ impl Potion {
                 | Potion::Duplication
                 | Potion::DistilledChaos
                 | Potion::Elixir
+                | Potion::GamblersBrew
                 | Potion::Skill
                 | Potion::Colorless
                 | Potion::LiquidMemories
@@ -299,7 +301,7 @@ impl Potion {
     pub fn uses_rng(self) -> bool {
         matches!(
             self,
-            Potion::Gamble | Potion::EntropicBrew | Potion::DistilledChaos | Potion::SneckoOil
+            Potion::EntropicBrew | Potion::DistilledChaos | Potion::SneckoOil
         )
     }
 }
@@ -364,8 +366,8 @@ mod tests {
     }
 
     #[test]
-    fn gamble_potion_uses_rng() {
-        assert!(Potion::Gamble.uses_rng());
+    fn gamblers_brew_does_not_use_rng_directly() {
+        assert!(!Potion::GamblersBrew.uses_rng());
         assert!(!Potion::Block.uses_rng());
     }
 

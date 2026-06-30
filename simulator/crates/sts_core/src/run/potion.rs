@@ -6,8 +6,8 @@ use crate::{
         choose_exhaust_select, choose_hand_select, confirm_discard_select, confirm_draw_select,
         confirm_exhaust_select, confirm_hand_select, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
-        hand_select_ui_to_hand_index, open_discard_select, open_exhaust_select, player_draw_cards,
-        top_draw_card_definition,
+        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
+        open_gambling_chip_select, player_draw_cards, top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose},
     content::cards::{get_card_definition, upgrade_content_id},
@@ -21,14 +21,15 @@ use crate::{
         Potion, ANCIENT_POTION_ARTIFACT, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT,
         CULTIST_POTION_RITUAL, DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY,
         ESSENCE_OF_STEEL_PLATED_ARMOR, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK,
-        FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP, GAMBLE_POTION_LOSS_GOLD,
-        GAMBLE_POTION_WIN_GOLD, HEART_OF_IRON_METALLICIZE, LIQUID_BRONZE_THORNS,
-        REGEN_POTION_REGEN, SNECKO_OIL_DRAW, SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH,
-        SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
+        FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP,
+        HEART_OF_IRON_METALLICIZE, LIQUID_BRONZE_THORNS, REGEN_POTION_REGEN, SNECKO_OIL_DRAW,
+        SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     power::apply_monster_weak,
-    rng::{RngStream, SimulatorRng, StsRng},
-    run::reward::{apply_dead_branch_for_exhaust_count, target_random_potion},
+    rng::StsRng,
+    run::reward::{
+        apply_dead_branch_for_exhaust_count, target_random_combat_potion, target_random_potion,
+    },
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -593,7 +594,8 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::Duplication => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.duplication_potion_pending = true;
+                    combat.duplication_potion_stacks += multiplier;
+                    combat.duplication_potion_pending = false;
                 }
                 Potion::DistilledChaos => {
                     let mut combat = next.combat.take().expect("validated combat state");
@@ -618,7 +620,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::LiquidMemories => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    open_discard_select(combat)?;
+                    open_discard_select_with_max_choices(combat, multiplier as usize)?;
                 }
                 Potion::Weak => {
                     let target = target.expect("validated weak potion target");
@@ -639,15 +641,9 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         combat.player.hp += max_hp;
                     }
                 }
-                Potion::Gamble => {
-                    let mut rng = SimulatorRng::new(next.potion_rng_seed);
-                    let win = rng.next_bool(RngStream::Potion, "gamble_potion");
-                    next.potion_rng_seed = rng.seed_state();
-                    if win {
-                        next.gain_gold(GAMBLE_POTION_WIN_GOLD);
-                    } else {
-                        next.gold = (next.gold - GAMBLE_POTION_LOSS_GOLD).max(0);
-                    }
+                Potion::GamblersBrew => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    open_gambling_chip_select(combat)?;
                 }
                 Potion::EntropicBrew => {
                     let mut rng = crate::rng::StsRng::with_counter(
@@ -655,9 +651,18 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.potion_rng_counter,
                     );
                     if next.can_gain_potions() {
-                        while next.open_potion_slots() > 0 {
-                            next.gain_potion(target_random_potion(&mut rng))
-                                .expect("open potion slot validated");
+                        let capacity = next.potion_capacity();
+                        let combat_fill = next.phase == RunPhase::Combat;
+                        for _ in 0..capacity {
+                            let potion = if combat_fill {
+                                target_random_combat_potion(&mut rng)
+                            } else {
+                                target_random_potion(&mut rng)
+                            };
+                            if next.open_potion_slots() > 0 {
+                                next.gain_potion(potion)
+                                    .expect("open potion slot validated");
+                            }
                         }
                     }
                     next.potion_rng_counter = rng.counter();
@@ -757,8 +762,8 @@ mod tests {
     use crate::{
         action::CombatAction,
         content::cards::{
-            DAZED_ID, DEFEND_R_ID, DISCOVERY_ID, HEADBUTT_ID, REAPER_ID, SECRET_TECHNIQUE_ID,
-            SHRUG_IT_OFF_ID, STRIKE_R_ID, WOUND_ID,
+            BASH_ID, DAZED_ID, DEFEND_R_ID, DISCOVERY_ID, HEADBUTT_ID, REAPER_ID,
+            SECRET_TECHNIQUE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, WOUND_ID,
         },
         map::RoomKind,
         MapNodeId, MonsterId, Relic,
@@ -900,11 +905,9 @@ mod tests {
     }
 
     #[test]
-    fn gamble_potion_wins_gold_deterministically_for_seed() {
-        let mut run = RunState::map_fixture();
-        run.potion_rng_seed = 42;
-        run.potions.push(Potion::Gamble);
-        let gold_before = run.gold;
+    fn gamblers_brew_opens_discard_draw_selection_and_is_consumed() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::GamblersBrew);
 
         let after = apply_potion_action(
             &run,
@@ -913,34 +916,16 @@ mod tests {
                 target: None,
             },
         )
-        .expect("use gamble potion");
+        .expect("use gamblers brew");
 
-        assert_ne!(after.potion_rng_seed, run.potion_rng_seed);
-        assert!(
-            after.gold == gold_before + GAMBLE_POTION_WIN_GOLD
-                || after.gold == (gold_before - GAMBLE_POTION_LOSS_GOLD).max(0)
+        let combat = after.combat.as_ref().expect("combat continues");
+        assert_eq!(
+            combat.exhaust_select.as_ref().map(|select| select.purpose),
+            Some(ExhaustSelectPurpose::GamblingChip)
         );
+        assert_eq!(after.gold, run.gold);
+        assert_eq!(after.potion_rng_counter, run.potion_rng_counter);
         assert!(after.potions.is_empty());
-    }
-
-    #[test]
-    fn gamble_potion_round_trips_rng_seed_through_run_json() {
-        let mut run = RunState::map_fixture();
-        run.potion_rng_seed = 99;
-        run.potions.push(Potion::Gamble);
-
-        let after = apply_potion_action(
-            &run,
-            RunAction::UsePotion {
-                slot: 0,
-                target: None,
-            },
-        )
-        .expect("use gamble potion");
-
-        let json = serde_json::to_string(&after).expect("run serializes");
-        let restored: RunState = serde_json::from_str(&json).expect("run deserializes");
-        assert_eq!(restored.potion_rng_seed, after.potion_rng_seed);
     }
 
     #[test]
@@ -977,6 +962,9 @@ mod tests {
         let mut expected_rng =
             StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
         let expected_refill = target_random_potion(&mut expected_rng);
+        for _ in 1..run.potion_capacity() {
+            target_random_potion(&mut expected_rng);
+        }
 
         let after = apply_potion_action(
             &run,
@@ -1021,6 +1009,37 @@ mod tests {
     }
 
     #[test]
+    fn combat_entropic_brew_filters_fruit_juice_and_uses_capacity_roll_count() {
+        let seed = (0..100_000)
+            .find(|seed| {
+                let mut rng = StsRng::new(*seed);
+                target_random_potion(&mut rng) == Potion::FruitJuice
+            })
+            .expect("test seed with Fruit Juice as first ordinary potion");
+        let mut run = RunState::combat_fixture();
+        run.potion_rng_seed = seed as u64;
+        run.potions.push(Potion::EntropicBrew);
+        let mut expected_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let expected_potions = (0..run.potion_capacity())
+            .map(|_| target_random_combat_potion(&mut expected_rng))
+            .collect::<Vec<_>>();
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use combat entropic brew");
+
+        assert_eq!(after.potions, expected_potions);
+        assert!(!after.potions.contains(&Potion::FruitJuice));
+        assert_eq!(after.potion_rng_counter, expected_rng.counter());
+    }
+
+    #[test]
     fn sozu_makes_entropic_brew_consume_without_filling_slots() {
         let mut run = RunState::map_fixture();
         run.relics.push(crate::Relic::Sozu);
@@ -1061,18 +1080,20 @@ mod tests {
     }
 
     #[test]
-    fn gamble_potion_works_outside_combat() {
+    fn gamblers_brew_requires_combat() {
         let mut run = RunState::map_fixture();
-        run.potions.push(Potion::Gamble);
+        run.potions.push(Potion::GamblersBrew);
 
-        apply_potion_action(
-            &run,
-            RunAction::UsePotion {
-                slot: 0,
-                target: None,
-            },
-        )
-        .expect("gamble outside combat");
+        assert_eq!(
+            apply_potion_action(
+                &run,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            ),
+            Err(SimError::IllegalAction("potion use requires combat phase"))
+        );
     }
 
     #[test]
@@ -1400,8 +1421,28 @@ mod tests {
         .expect("use duplication potion");
 
         let combat = after.combat.expect("combat continues");
-        assert!(combat.duplication_potion_pending);
+        assert!(!combat.duplication_potion_pending);
+        assert_eq!(combat.duplication_potion_stacks, 1);
         assert!(after.potions.is_empty());
+    }
+
+    #[test]
+    fn sacred_bark_duplication_potion_sets_two_duplicate_stacks() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::SacredBark]);
+        run.potions.push(Potion::Duplication);
+
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use duplication potion");
+
+        let combat = after.combat.expect("combat continues");
+        assert!(!combat.duplication_potion_pending);
+        assert_eq!(combat.duplication_potion_stacks, 2);
     }
 
     #[test]
@@ -1579,6 +1620,62 @@ mod tests {
             .expect("returned card");
         assert_eq!(returned.content_id, DEFEND_R_ID);
         assert_eq!(returned.temp_cost, Some(0));
+    }
+
+    #[test]
+    fn sacred_bark_liquid_memories_returns_two_selected_discard_cards() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::SacredBark]);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(20), STRIKE_R_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            CardInstance::new(CardId::new(22), BASH_ID),
+        ];
+        run.potions.push(Potion::LiquidMemories);
+
+        let opened = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use liquid memories");
+        let selected = apply_discard_select_choice(&opened, 0).expect("choose strike");
+        let selected = apply_discard_select_choice(&selected, 2).expect("choose bash");
+        let after = apply_discard_select_confirm(&selected).expect("confirm liquid memories");
+        let combat = after.combat.expect("combat continues");
+
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .filter(|card| card.id == CardId::new(20) || card.id == CardId::new(22))
+                .count(),
+            2
+        );
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .find(|card| card.id == CardId::new(20))
+                .expect("strike returned")
+                .temp_cost,
+            Some(0)
+        );
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .find(|card| card.id == CardId::new(22))
+                .expect("bash returned")
+                .temp_cost,
+            Some(0)
+        );
+        assert_eq!(combat.piles.discard_pile.len(), 1);
     }
 
     #[test]

@@ -4292,7 +4292,7 @@ fn potion_trace_name(potion: Potion) -> &'static str {
         Potion::Fire => "Fire Potion",
         Potion::Block => "Block Potion",
         Potion::Fear => "Fear Potion",
-        Potion::Gamble => "Gamblers Brew",
+        Potion::GamblersBrew => "Gamblers Brew",
         Potion::Blood => "Blood Potion",
         Potion::Elixir => "Elixir",
         Potion::HeartOfIron => "Heart of Iron",
@@ -5343,7 +5343,7 @@ fn potion_from_trace_name(name: &str) -> Option<Potion> {
         "Fire Potion" => Some(Potion::Fire),
         "Flex Potion" => Some(Potion::Flex),
         "Fruit Juice" => Some(Potion::FruitJuice),
-        "Gamblers Brew" => Some(Potion::Gamble),
+        "Gamblers Brew" => Some(Potion::GamblersBrew),
         "Heart of Iron" => Some(Potion::HeartOfIron),
         "Liquid Bronze" => Some(Potion::LiquidBronze),
         "Liquid Memories" => Some(Potion::LiquidMemories),
@@ -7125,6 +7125,7 @@ fn run_from_observed_combat_impl(
         discard_select: None,
         exhaust_select: None,
         duplication_potion_pending: false,
+        duplication_potion_stacks: 0,
         double_tap_pending,
     };
 

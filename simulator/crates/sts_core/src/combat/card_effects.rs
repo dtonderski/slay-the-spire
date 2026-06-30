@@ -354,7 +354,7 @@ pub(super) fn play_card_queue(
     let mut queue = queue?;
     apply_akabeko_to_first_attack_queue(state, definition.card_type, card_id, &mut queue);
     apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
-    if state.duplication_potion_pending {
+    if state.duplication_potion_pending || state.duplication_potion_stacks > 0 {
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
     if should_apply_necronomicon(state, card, definition) {
@@ -621,12 +621,12 @@ fn apply_duplication_potion_to_queue(
     queue = immediate_queue;
 
     queue.push_front(InternalAction::ConsumeDuplicationPotion);
-    queue.append(&mut delayed_prevention);
     if let Some(action) = final_move {
         queue.push_back(action);
     }
     queue.push_back(InternalAction::PlayCardCopy { card_id });
     queue.append(&mut duplicated_effects);
+    queue.append(&mut delayed_prevention);
 
     queue
 }

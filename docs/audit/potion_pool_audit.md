@@ -19,12 +19,12 @@ Evidence used:
 ## Summary
 
 `IRONCLAD_POTION_POOL` has the correct target size, membership, and order for
-Ironclad potion generation if the local `Potion::Gamble` variant is interpreted
-as the target game's `GamblersBrew` slot.
+Ironclad potion generation. The original audit found that the local
+`Potion::Gamble` variant occupied the target game's `GamblersBrew` slot.
 
-However, the local `Potion::Gamble` behavior is not Gambler's Brew behavior, so
-that pool entry is only positionally correct. The audit also found several
-behavior differences in local potion use logic.
+Follow-up implementation renamed that entry to `Potion::GamblersBrew` and fixed
+the behavior differences listed below. This document preserves the original
+audit findings and records their resolution status.
 
 ## Pool Order
 
@@ -68,8 +68,21 @@ It then appends the shared potion sequence:
 29. `SmokeBomb`
 30. `EntropicBrew`
 
-Local `IRONCLAD_POTION_POOL` matches this order except that slot 23 in the
-local array is named `Potion::Gamble` rather than `Potion::GamblersBrew`.
+Local `IRONCLAD_POTION_POOL` now matches this order with
+`Potion::GamblersBrew` in the target `GamblersBrew` slot.
+
+## Resolution Status
+
+- `Potion::Gamble` was replaced by `Potion::GamblersBrew` for the target
+  `GamblersBrew` slot, with a serde alias retained for old saved local data.
+- Gambler's Brew now requires combat and opens the discard/draw selection instead
+  of applying local gold RNG.
+- Blood Potion now supports out-of-combat healing.
+- Sacred Bark + Duplication Potion now creates two future duplication stacks.
+- Sacred Bark + Liquid Memories now allows up to two discard-pile cards to be
+  selected and returned at zero cost.
+- In-combat Entropic Brew now filters Fruit Juice and consumes target random
+  potion rolls based on potion capacity.
 
 ## Differences Found
 

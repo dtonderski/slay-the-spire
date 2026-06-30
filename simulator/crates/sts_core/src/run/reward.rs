@@ -770,6 +770,22 @@ pub fn target_elite_relic_tier(rng: &mut StsRng) -> RelicTier {
 }
 
 pub fn target_random_potion(rng: &mut StsRng) -> Potion {
+    target_random_potion_with_filter(rng, |_| true)
+}
+
+pub fn target_random_combat_potion(rng: &mut StsRng) -> Potion {
+    loop {
+        let potion = target_random_potion(rng);
+        if potion != Potion::FruitJuice {
+            return potion;
+        }
+    }
+}
+
+fn target_random_potion_with_filter(
+    rng: &mut StsRng,
+    allows_potion: impl Fn(Potion) -> bool,
+) -> Potion {
     let rarity = match rng.random_int_range(0, 99) {
         roll if roll < 65 => PotionRarity::Common,
         roll if roll < 90 => PotionRarity::Uncommon,
@@ -779,7 +795,7 @@ pub fn target_random_potion(rng: &mut StsRng) -> Potion {
     loop {
         let index = rng.random_int((IRONCLAD_POTION_POOL.len() - 1) as i32) as usize;
         let potion = IRONCLAD_POTION_POOL[index];
-        if potion.rarity() == rarity {
+        if potion.rarity() == rarity && allows_potion(potion) {
             return potion;
         }
     }

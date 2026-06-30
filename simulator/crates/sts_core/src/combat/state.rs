@@ -62,6 +62,9 @@ pub struct CombatState {
     /// One-shot flag from Duplication Potion: the next played card resolves twice.
     #[serde(default, skip_serializing_if = "is_false")]
     pub duplication_potion_pending: bool,
+    /// Remaining Duplication Potion stacks. Sacred Bark grants two stacks.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub duplication_potion_stacks: i32,
     /// Pending Double Tap stacks: the next played Attack resolves twice per stack.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub double_tap_pending: i32,
@@ -115,7 +118,15 @@ pub struct DiscardSelectState {
     pub source_card_id: Option<CardId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_card: Option<CardInstance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_discard_indices: Vec<usize>,
+    #[serde(default = "default_discard_select_max_choices")]
+    pub max_choices: usize,
     pub selected_discard_index: Option<usize>,
+}
+
+fn default_discard_select_max_choices() -> usize {
+    1
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -394,6 +405,7 @@ impl CombatState {
             discard_select: None,
             exhaust_select: None,
             duplication_potion_pending: false,
+            duplication_potion_stacks: 0,
             double_tap_pending: 0,
             bomb_timers: Vec::new(),
         }

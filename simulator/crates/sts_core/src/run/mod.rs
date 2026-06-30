@@ -47,7 +47,8 @@ pub use reward::{
     legacy_fixed_card_reward_choices, placeholder_card_reward_choices, roll_event_relic_reward,
     setup_treasure_room, source_backed_card_reward_choices, target_card_reward_choices,
     target_elite_relic_tier, target_normal_combat_gold, target_potion_reward_offer,
-    target_random_potion, target_relic_tier, CombatRewardKind, TreasureRoomState,
+    target_random_combat_potion, target_random_potion, target_relic_tier, CombatRewardKind,
+    TreasureRoomState,
 };
 pub use shop::{
     affordable_shop_picks, apply_shop_action, enter_shop_room, enter_shop_screen,

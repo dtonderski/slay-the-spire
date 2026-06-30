@@ -125,7 +125,7 @@
 - Rest-site energy relic: Ancient Tea Set
 - Block-retention relic: Calipers
 - Stateful relic: Ice Cream preserves energy between turns
-- Random-effect potion: Gamble Potion (+50/-50 gold via RNG)
+- Potion identity fix: Gambler's Brew uses discard/draw selection instead of local gold RNG
 
 ### Verification (Milestone 12 + 19)
 - CommunicationMod trace importer (`sts_verify`)

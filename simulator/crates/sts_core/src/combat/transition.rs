@@ -170,7 +170,14 @@ fn apply_internal_action(
 ) -> SimResult<Vec<InternalAction>> {
     match action {
         InternalAction::ConsumeDuplicationPotion => {
-            state.duplication_potion_pending = false;
+            if state.duplication_potion_stacks > 0 {
+                state.duplication_potion_stacks -= 1;
+                if state.duplication_potion_stacks == 0 {
+                    state.duplication_potion_pending = false;
+                }
+            } else if state.duplication_potion_pending {
+                state.duplication_potion_pending = false;
+            }
             Ok(Vec::new())
         }
         InternalAction::ConsumeDoubleTap => {
@@ -714,6 +721,8 @@ fn apply_internal_action(
                 purpose,
                 source_card_id: Some(source_card_id),
                 source_card,
+                selected_discard_indices: Vec::new(),
+                max_choices: 1,
                 selected_discard_index: None,
             });
             Ok(Vec::new())
@@ -1750,6 +1759,13 @@ fn confirm_forethought_select(
 }
 
 pub fn open_discard_select(state: &mut CombatState) -> SimResult<()> {
+    open_discard_select_with_max_choices(state, 1)
+}
+
+pub fn open_discard_select_with_max_choices(
+    state: &mut CombatState,
+    max_choices: usize,
+) -> SimResult<()> {
     if state.piles.discard_pile.is_empty() {
         return Err(SimError::IllegalAction("discard pile is empty"));
     }
@@ -1757,6 +1773,8 @@ pub fn open_discard_select(state: &mut CombatState) -> SimResult<()> {
         purpose: DiscardSelectPurpose::LiquidMemoriesReturnToHand,
         source_card_id: None,
         source_card: None,
+        selected_discard_indices: Vec::new(),
+        max_choices,
         selected_discard_index: None,
     });
     Ok(())
@@ -1768,7 +1786,24 @@ pub fn choose_discard_select(state: &mut CombatState, ui_index: usize) -> SimRes
         .discard_select
         .as_mut()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
-    discard_select.selected_discard_index = Some(ui_index);
+    if discard_select.purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand {
+        if let Some(position) = discard_select
+            .selected_discard_indices
+            .iter()
+            .position(|index| *index == ui_index)
+        {
+            discard_select.selected_discard_indices.remove(position);
+        } else {
+            if discard_select.selected_discard_indices.len() >= discard_select.max_choices {
+                return Err(SimError::IllegalAction("too many discard select choices"));
+            }
+            discard_select.selected_discard_indices.push(ui_index);
+        }
+        discard_select.selected_discard_index =
+            discard_select.selected_discard_indices.first().copied();
+    } else {
+        discard_select.selected_discard_index = Some(ui_index);
+    }
     Ok(())
 }
 
@@ -1794,18 +1829,31 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
     if discard_select.purpose != DiscardSelectPurpose::LiquidMemoriesReturnToHand {
         return Err(SimError::IllegalAction("discard select purpose mismatch"));
     }
-    let index = discard_select
-        .selected_discard_index
-        .ok_or(SimError::IllegalAction("discard select choice is required"))?;
-    let mut card = state
-        .piles
-        .discard_pile
-        .get(index)
-        .copied()
-        .ok_or(SimError::IllegalAction("discard select index out of range"))?;
-    state.piles.discard_pile.remove(index);
-    card.temp_cost = Some(0);
-    state.piles.hand.push(card);
+    let mut selected = discard_select.selected_discard_indices;
+    if selected.is_empty() {
+        selected.extend(discard_select.selected_discard_index);
+    }
+    if selected.is_empty() {
+        return Err(SimError::IllegalAction("discard select choice is required"));
+    }
+    if selected.len() > discard_select.max_choices {
+        return Err(SimError::IllegalAction("too many discard select choices"));
+    }
+    selected.sort_unstable();
+    selected.dedup();
+    for index in &selected {
+        if *index >= state.piles.discard_pile.len() {
+            return Err(SimError::IllegalAction("discard select index out of range"));
+        }
+    }
+    let mut cards = Vec::new();
+    for index in selected.into_iter().rev() {
+        let mut card = state.piles.discard_pile.remove(index);
+        card.temp_cost = Some(0);
+        cards.push(card);
+    }
+    cards.reverse();
+    state.piles.hand.extend(cards);
     Ok(())
 }
 
@@ -2469,6 +2517,23 @@ mod tests {
         assert_eq!(next.player.block, state.player.block + 10);
         assert_eq!(next.player.energy, state.player.energy - 1);
         assert!(!next.duplication_potion_pending);
+    }
+
+    #[test]
+    fn duplication_potion_stacks_duplicate_multiple_future_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.duplication_potion_stacks = 2;
+        state.monsters[0].hp = 50;
+
+        let after_strike =
+            apply_combat_action(&state, strike_action(&state)).expect("Strike applies");
+        assert_eq!(after_strike.monsters[0].hp, 38);
+        assert_eq!(after_strike.duplication_potion_stacks, 1);
+
+        let next_defend = defend_action(&after_strike);
+        let after_defend = apply_combat_action(&after_strike, next_defend).expect("Defend applies");
+        assert_eq!(after_defend.player.block, after_strike.player.block + 10);
+        assert_eq!(after_defend.duplication_potion_stacks, 0);
     }
 
     #[test]

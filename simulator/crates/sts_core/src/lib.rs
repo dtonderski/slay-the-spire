@@ -49,8 +49,7 @@ pub use map::{
 };
 pub use potion::{
     Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,
-    FIRE_POTION_DAMAGE, FIRE_POTION_ID, GAMBLE_POTION_ID, GAMBLE_POTION_LOSS_GOLD,
-    GAMBLE_POTION_WIN_GOLD, MAX_POTIONS,
+    FIRE_POTION_DAMAGE, FIRE_POTION_ID, GAMBLERS_BREW_POTION_ID, GAMBLE_POTION_ID, MAX_POTIONS,
 };
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
@@ -84,13 +83,14 @@ pub use run::{
     open_shop_merchant, placeholder_card_reward_choices, rest_heal_amount, select_grid_card,
     shop_action_for_choice_index, shop_card_rarity_roll, shop_relic_tier_roll,
     source_backed_card_reward_choices, target_card_reward_choices, target_elite_relic_tier,
-    target_normal_combat_gold, target_potion_reward_offer, target_random_potion, target_relic_tier,
-    validate_event_action, validate_potion_action, validate_rest_action, validate_shop_action,
-    CardGridScreen, CombatRewardKind, Event, EventChoice, EventScreen, GeneratedNeowOption,
-    GridPurpose, KnownNeowBranch, KnownNeowColorlessReward, KnownNeowScreen, NeowBossSwapReward,
-    NeowCardReward, NeowColorlessReward, NeowDrawback, NeowPotionReward, NeowRelicReward,
-    NeowRewardType, NeowTransformReward, RewardScreen, RunAction, RunPhase, RunState, ShopCardSlot,
-    ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT,
+    target_normal_combat_gold, target_potion_reward_offer, target_random_combat_potion,
+    target_random_potion, target_relic_tier, validate_event_action, validate_potion_action,
+    validate_rest_action, validate_shop_action, CardGridScreen, CombatRewardKind, Event,
+    EventChoice, EventScreen, GeneratedNeowOption, GridPurpose, KnownNeowBranch,
+    KnownNeowColorlessReward, KnownNeowScreen, NeowBossSwapReward, NeowCardReward,
+    NeowColorlessReward, NeowDrawback, NeowPotionReward, NeowRelicReward, NeowRewardType,
+    NeowTransformReward, RewardScreen, RunAction, RunPhase, RunState, ShopCardSlot, ShopPick,
+    ShopPotionSlot, ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT,
     REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
 };
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

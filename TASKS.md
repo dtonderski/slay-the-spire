@@ -1206,7 +1206,7 @@ Completed slice:
 - implemented Smoke Bomb non-boss escape with no reward
 - implemented Elixir multi-card hand exhaust selection
 - implemented Fairy in a Bottle passive lethal-damage revive and direct-use rejection
-- preserved existing Fire, Block, Fear, Gamble, Power, discard, target validation, and potion-reward/shop belt behavior
+- preserved existing Fire, Block, Fear, Gambler's Brew, Power, discard, target validation, and potion-reward/shop belt behavior
 - added unit tests for each new deterministic potion effect
 
 Remaining:
