@@ -310,7 +310,7 @@
       await refreshParityQuietly();
       if (verifyPendingLivePrediction(currentStateId())) {
         const advanced = advanceLiveSearchPlan(previousSearch, pendingPlanIndex, currentBridgeStateId);
-        if (advanced && app.liveAutoPlayPlan) {
+        if (app.liveAutoPlayPlan) {
           scheduleAutoPlayPlanStep();
         }
       } else if (app.liveInvariantViolation) {
@@ -2317,7 +2317,8 @@
     const pv = arrayOf(previousSearch && previousSearch.principal_variation);
     if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex >= pv.length) {
       app.search = null;
-      app.liveAutoPlayPlan = false;
+      app.liveSearchBridgeStateId = null;
+      app.liveSendAction = null;
       return false;
     }
     app.search = Object.assign({}, previousSearch, {
