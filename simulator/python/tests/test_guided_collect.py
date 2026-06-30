@@ -151,6 +151,55 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["actions_sent"], 0)
         self.assertEqual(bridge.sent, [])
 
+    def test_collect_one_run_auto_selection_skips_unsupported_script(self):
+        bridge = FakeBridge()
+        unsupported = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "GRID01",
+                "neow_bonus": "REMOVE_CARD",
+                "neow_cost": "NONE",
+            }
+        }
+        supported = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "LIVE02",
+                "neow_bonus": "THREE_ENEMY_KILL",
+                "neow_cost": "NONE",
+            }
+        }
+        ticks = [
+            {
+                "status": "blocked",
+                "blocker": {"status": "blocked", "reason": "done"},
+                "suggestion": {"status": "blocked", "reason": "done"},
+            }
+        ]
+
+        with patch(
+            "sts.guided_collect.select_guided_collection_candidates",
+            return_value=[{"id": 11}, {"id": 22}],
+        ), patch(
+            "sts.guided_collect.export_guided_run_script",
+            side_effect=[unsupported, supported],
+        ) as export, patch(
+            "sts.guided_collect._tick_live_collector",
+            side_effect=lambda *_args, **_kwargs: ticks.pop(0),
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=None),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertEqual([call.args[0] for call in export.call_args_list], [11, 22])
+        self.assertEqual(report["run_id"], 22)
+        self.assertEqual(report["seed"], "LIVE02")
+        self.assertEqual(bridge.sent[0][0], "START IRONCLAD 0 LIVE02")
+
     def test_collect_one_run_waits_for_preflight_to_become_ready(self):
         bridge = FakeBridge(
             preflight=[

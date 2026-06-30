@@ -146,6 +146,10 @@ The collector can now:
   repeatedly ticks the collector, and writes a compact JSON report with run id,
   seed, trace path, bridge step/state, stop reason, blocker, and recent tick
   history
+- when no run id is supplied, export a small batch of candidate rows and skip
+  those whose normalized script is known to be unsupported before selecting a
+  run; explicit `--run-id` remains strict and reports `script_blocked` instead
+  of silently choosing a different run
 - block guided scripts before sending `START` when the exported SlayTheData row
   would require an unrecorded Neow follow-up card grid target, such as remove,
   transform, or upgrade, or when Neow card-choice bonuses lack a floor-0 picked
