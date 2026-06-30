@@ -27,6 +27,8 @@ _GUIDED_SAFE_NEOW_BONUSES = (
     "TWO_FIFTY_GOLD",
     "ONE_RANDOM_RARE_CARD",
     "RANDOM_RARE_CARD",
+    "THREE_CARDS",
+    "THREE_RARE_CARDS",
     "THREE_SMALL_POTIONS",
     "BOSS_RELIC",
 )
@@ -72,18 +74,21 @@ def select_guided_collection_candidates(
         require_guided_safe_neow=require_guided_safe_neow,
         require_supported=require_supported,
     )
-    query = f"""
-        SELECT id, seed_played, floor_reached, victory, path_length,
-               card_choice_count, event_choice_count, shop_purchase_count,
-               potion_usage_count,
-               (card_choice_count + event_choice_count * 2 + shop_purchase_count * 3 + potion_usage_count) AS guided_score
-        FROM runs
-        WHERE {where}
-        {_candidate_order_clause(ranked)}
-        LIMIT ?
-    """
     conn = _connect_readonly(db_path)
     try:
+        run_columns = set(_sqlite_table_columns(conn, "runs"))
+        neow_bonus_expr = "neow_bonus" if "neow_bonus" in run_columns else "NULL AS neow_bonus"
+        neow_cost_expr = "neow_cost" if "neow_cost" in run_columns else "NULL AS neow_cost"
+        query = f"""
+            SELECT id, seed_played, floor_reached, victory, path_length,
+                   card_choice_count, event_choice_count, shop_purchase_count,
+                   potion_usage_count, {neow_bonus_expr}, {neow_cost_expr},
+                   (card_choice_count + event_choice_count * 2 + shop_purchase_count * 3 + potion_usage_count) AS guided_score
+            FROM runs
+            WHERE {where}
+            {_candidate_order_clause(ranked)}
+            LIMIT ?
+        """
         rows = conn.execute(query, [*params, int(limit)]).fetchall()
     finally:
         conn.close()
@@ -98,7 +103,9 @@ def select_guided_collection_candidates(
             "event_choice_count": row[6],
             "shop_purchase_count": row[7],
             "potion_usage_count": row[8],
-            "guided_score": row[9],
+            "neow_bonus": row[9],
+            "neow_cost": row[10],
+            "guided_score": row[11],
         }
         for row in rows
     ]

@@ -88,6 +88,11 @@ The collector can now:
 - filter UI candidates to guided-safe Neow bonuses by default, avoiding starts
   that immediately require unsupported Neow follow-up grids such as remove,
   transform, upgrade, or choose-card screens
+- return Neow bonus/cost metadata with candidate rows and default the candidate
+  API to guided-safe Neow filtering unless `safe_neow=0` is explicitly passed
+- preserve floor-0 SlayTheData card reward rows, enabling guided Neow
+  `THREE_CARDS` and `THREE_RARE_CARDS` follow-up card choices when those rows
+  provide the picked card and offered alternatives
 - export a selected run from local chunks and start the collector from it
 - prime the live run start controls from the selected/loaded SlayTheData run
   so the bridge starts the same seed the collector is following
@@ -178,7 +183,8 @@ same-symbol disambiguation, boss relic matching, campfire/grid matching,
 post-send prediction checks, and generated-trace provenance are implemented,
 and the UI can repeatedly call tick until blocked. Remaining work is reward
 edge cases that need hidden identity checks, broader support for Neow bonuses
-that open follow-up grids, and end-to-end live bridge smoke coverage.
+whose follow-up target is not explicitly recorded by SlayTheData, and
+end-to-end live bridge smoke coverage.
 
 ## Important Boundaries
 

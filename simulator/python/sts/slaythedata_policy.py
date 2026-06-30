@@ -31,7 +31,7 @@ def build_guided_run_script(exported: dict[str, Any]) -> dict[str, Any]:
     floors: dict[int, dict[str, Any]] = defaultdict(_empty_floor_decision)
 
     for ordinal, choice in enumerate(_list(event.get("card_choices"))):
-        floor = _parse_floor(choice.get("floor"))
+        floor = _parse_non_negative_floor(choice.get("floor"))
         if floor is None:
             continue
         floors[floor]["card_rewards"].append(
@@ -780,6 +780,11 @@ def _parse_int(value: Any) -> int | None:
 def _parse_floor(value: Any) -> int | None:
     parsed = _parse_int(value)
     return parsed if parsed and parsed > 0 else None
+
+
+def _parse_non_negative_floor(value: Any) -> int | None:
+    parsed = _parse_int(value)
+    return parsed if parsed is not None and parsed >= 0 else None
 
 
 def _optional_string(value: Any) -> str | None:
