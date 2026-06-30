@@ -286,6 +286,14 @@ def identity_blocker(script: dict[str, Any], bridge_summary: dict[str, Any]) -> 
             "run_identity_mismatch",
             f"script ascension {expected_ascension} does not match live ascension {observed_ascension}",
         )
+
+    expected_seed = _optional_string(config.get("seed_played") or config.get("seed"))
+    observed_seed = _optional_string(bridge_summary.get("seed") or bridge_summary.get("seed_played"))
+    if expected_seed and observed_seed and expected_seed != observed_seed:
+        return _blocked(
+            "run_identity_mismatch",
+            f"script seed {expected_seed!r} does not match live seed {observed_seed!r}",
+        )
     return None
 
 
