@@ -1248,6 +1248,9 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
         raise ValueError("guided collection report is not a JSON object")
     blocker = report.get("blocker") if isinstance(report.get("blocker"), dict) else None
     selection = report.get("selection") if isinstance(report.get("selection"), dict) else None
+    trace_validation = (
+        report.get("trace_validation") if isinstance(report.get("trace_validation"), dict) else None
+    )
     return {
         "ok": bool(report.get("ok")),
         "report_path": str(report_path),
@@ -1259,6 +1262,21 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
         "trace_path": report.get("trace_path"),
         "bridge_step": report.get("bridge_step"),
         "tcp_control_available": bool(report.get("tcp_control_available")),
+        "trace_validation": {
+            "verified": bool(trace_validation.get("verified")),
+            "reason": trace_validation.get("reason"),
+            "stop_reason": trace_validation.get("stop_reason"),
+            "steps": trace_validation.get("steps"),
+            "final_phase": trace_validation.get("final_phase"),
+            "blocker_reason": (trace_validation.get("blocker") or {}).get("reason")
+            if isinstance(trace_validation.get("blocker"), dict)
+            else None,
+            "blocker_detail": (trace_validation.get("blocker") or {}).get("detail")
+            if isinstance(trace_validation.get("blocker"), dict)
+            else None,
+        }
+        if trace_validation
+        else None,
         "selection": {
             "mode": selection.get("mode"),
             "selected_run_id": selection.get("selected_run_id"),

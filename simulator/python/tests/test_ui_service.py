@@ -283,6 +283,15 @@ class UiServiceTests(unittest.TestCase):
                         "trace_path": "trace.jsonl",
                         "bridge_step": 7,
                         "tcp_control_available": False,
+                        "trace_validation": {
+                            "verified": False,
+                            "stop_reason": "observed_state_diff",
+                            "steps": 4,
+                            "blocker": {
+                                "reason": "observed_state_diff",
+                                "detail": "hp differs",
+                            },
+                        },
                         "selection": {
                             "mode": "auto",
                             "selected_run_id": 456,
@@ -311,6 +320,10 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["selection"]["selected_run_id"], 456)
         self.assertEqual(result["selection"]["skipped_unsupported_count"], 1)
         self.assertEqual(result["blocker"]["reason"], "bridge_preflight")
+        self.assertFalse(result["trace_validation"]["verified"])
+        self.assertEqual(result["trace_validation"]["stop_reason"], "observed_state_diff")
+        self.assertEqual(result["trace_validation"]["blocker_reason"], "observed_state_diff")
+        self.assertEqual(result["trace_validation"]["blocker_detail"], "hp differs")
         self.assertEqual(result["history_tail_count"], 1)
 
     def test_start_guided_live_run_sends_script_start_with_provenance(self):

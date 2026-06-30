@@ -1571,11 +1571,13 @@
 
     const blocker = report.blocker || {};
     const selection = report.selection || {};
+    const traceValidation = report.trace_validation || {};
     const traceName = report.trace_path ? String(report.trace_path).split(/[\\/]/).pop() : "-";
     el.collectorReportPanel.append(
       statBlock("Last Guided Report", [
         ["Result", report.ok ? "OK" : "Blocked"],
         ["Stop", firstDefined(report.stop_reason, "-")],
+        ["Trace replay", validationText(traceValidation)],
         ["Run", firstDefined(report.run_id, "-")],
         ["Selection", selectionText(selection)],
         ["Actions", firstDefined(report.actions_sent, 0)],
@@ -1602,6 +1604,18 @@
       msg.textContent = `Warnings: ${warnings.join("; ")}`;
       el.collectorReportPanel.appendChild(msg);
     }
+    if (traceValidation && traceValidation.verified === false) {
+      const msg = document.createElement("div");
+      msg.className = "message error";
+      msg.textContent = `Trace replay not verified: ${firstDefined(
+        traceValidation.blocker_detail,
+        traceValidation.blocker_reason,
+        traceValidation.reason,
+        traceValidation.stop_reason,
+        "unknown reason",
+      )}`;
+      el.collectorReportPanel.appendChild(msg);
+    }
   }
 
   function selectionText(selection) {
@@ -1612,6 +1626,23 @@
       : "";
     const skipped = selection.skipped_unsupported_count ? `, skipped ${selection.skipped_unsupported_count}` : "";
     return `${mode}${considered}${skipped}`;
+  }
+
+  function validationText(validation) {
+    if (!validation) return "-";
+    if (validation.verified === true) {
+      const steps = validation.steps === undefined || validation.steps === null ? "" : `, ${validation.steps} steps`;
+      return `verified${steps}`;
+    }
+    if (validation.verified === false) {
+      return firstDefined(
+        validation.reason,
+        validation.blocker_reason,
+        validation.stop_reason,
+        "not verified",
+      );
+    }
+    return "-";
   }
 
   function renderSlaythedataStatus() {
