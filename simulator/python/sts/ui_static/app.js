@@ -638,6 +638,7 @@
     await singleFlight("Starting guided collector", async () => {
       pauseCollectorAutoRun();
       app.collector = await requestJson("/api/collector/start", { method: "POST", body });
+      applyGuidedRunStartControls(app.collector && app.collector.config);
       app.collectorLastError = null;
     });
   }
