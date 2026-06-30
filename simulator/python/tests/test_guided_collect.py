@@ -130,6 +130,23 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["preflight"]["pending_command"]["present"], False)
         self.assertEqual(report["actions_sent"], 0)
 
+    def test_collect_one_run_reports_selection_failure(self):
+        bridge = FakeBridge()
+
+        with patch("sts.guided_collect.select_guided_collection_candidates", side_effect=RuntimeError("db locked")):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=None),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "selection_failed")
+        self.assertEqual(report["blocker"]["reason"], "selection_failed")
+        self.assertIn("db locked", report["blocker"]["detail"])
+        self.assertEqual(report["actions_sent"], 0)
+        self.assertEqual(bridge.sent, [])
+
     def test_collect_one_run_reports_script_blocker_before_start(self):
         bridge = FakeBridge()
         script = {
@@ -156,6 +173,38 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["blocker"]["reason"], "unsupported_neow_followup")
         self.assertEqual(report["selection"]["mode"], "explicit")
         self.assertEqual(report["selection"]["selected_run_id"], 321)
+        self.assertEqual(report["actions_sent"], 0)
+        self.assertEqual(bridge.sent, [])
+
+    def test_collect_one_run_reports_start_failure(self):
+        bridge = FakeBridge()
+        script = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "LIVE01",
+                "neow_bonus": "THREE_ENEMY_KILL",
+                "neow_cost": "NONE",
+            }
+        }
+
+        with patch("sts.guided_collect.export_guided_run_script", return_value=script), patch(
+            "sts.guided_collect._start_guided_live_run",
+            side_effect=RuntimeError("START rejected"),
+        ):
+            report = collect_one_run(
+                GuidedCollectConfig(run_id=123),
+                bridge=bridge,
+                sleep=lambda _seconds: None,
+            )
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["stop_reason"], "start_failed")
+        self.assertEqual(report["blocker"]["reason"], "start_failed")
+        self.assertIn("start", report["blocker"]["detail"].lower())
+        self.assertEqual(report["run_id"], 123)
+        self.assertEqual(report["seed"], "LIVE01")
+        self.assertEqual(report["selection"]["mode"], "explicit")
         self.assertEqual(report["actions_sent"], 0)
         self.assertEqual(bridge.sent, [])
 

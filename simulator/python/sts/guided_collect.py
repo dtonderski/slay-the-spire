@@ -74,7 +74,20 @@ def collect_one_run(
             bridge_status=bridge.status(),
             preflight=preflight,
         )
-    run_id, script, selection = _select_run_script(config)
+    try:
+        run_id, script, selection = _select_run_script(config)
+    except Exception as error:
+        return _blocked_report(
+            config,
+            started_at=started_at,
+            stop_reason="selection_failed",
+            blocker={
+                "reason": "selection_failed",
+                "detail": str(error),
+            },
+            bridge_status=bridge.status(),
+            preflight=preflight,
+        )
     collector_status = collector.start({"script": script})
     if collector_status.get("status") == "blocked":
         blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {
@@ -91,11 +104,27 @@ def collect_one_run(
             seed=((collector_status.get("config") or {}).get("seed_played")),
             selection=selection,
         )
-    start_result = _start_guided_live_run(
-        collector,
-        bridge,
-        require_tcp_control=config.require_tcp_control,
-    )
+    try:
+        start_result = _start_guided_live_run(
+            collector,
+            bridge,
+            require_tcp_control=config.require_tcp_control,
+        )
+    except Exception as error:
+        return _blocked_report(
+            config,
+            started_at=started_at,
+            stop_reason="start_failed",
+            blocker={
+                "reason": "start_failed",
+                "detail": str(error),
+            },
+            bridge_status=bridge.status(),
+            run_id=run_id,
+            seed=((collector_status.get("config") or {}).get("seed_played")),
+            preflight=preflight,
+            selection=selection,
+        )
 
     history: list[dict[str, Any]] = [
         {
