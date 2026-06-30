@@ -165,6 +165,12 @@ The collector can now:
   localhost port and advertise it in `session/status.json`; Python
   `BridgeMirror.send_command` prefers that socket and falls back to the legacy
   `next_command.txt` path when unavailable
+- advertise a monotonic bridge `state_seq` alongside each `state_id`, acquire a
+  single TCP controller owner token before Python UI commands, and require both
+  the expected state id and sequence for TCP command acceptance
+- require TCP control for guided collector `START` and tick sends. Manual bridge
+  commands may still use the legacy file fallback, but guided auto-collection
+  now refuses to send on an old/file-only bridge
 
 Combat sending is deliberately routed through `SessionManager` so the same
 strict live-session attach, stale search guard, prediction, visible bridge slot
@@ -199,10 +205,11 @@ agreement, conservative map path matching including topology-backed
 same-symbol disambiguation, boss relic matching, campfire/grid matching,
 post-send prediction checks, and generated-trace provenance are implemented,
 and the UI can repeatedly call tick until blocked. The bridge write path now
-has an acknowledged TCP option, but the browser UI still needs an end-to-end
-live smoke against a freshly restarted TCP-enabled bridge. Remaining work is
-reward edge cases that need hidden identity checks, broader support for Neow
-bonuses whose follow-up target is not explicitly recorded by SlayTheData, and
+has an acknowledged TCP option with controller ownership, state sequence guards,
+and guided-auto enforcement. The browser UI still needs an end-to-end live
+smoke against a freshly restarted TCP-enabled bridge. Remaining work is reward
+edge cases that need hidden identity checks, broader support for Neow bonuses
+whose follow-up target is not explicitly recorded by SlayTheData, and
 end-to-end live bridge smoke coverage.
 
 ## Important Boundaries

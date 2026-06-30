@@ -283,6 +283,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["command"], "START IRONCLAD 3 LIVE01")
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 3 LIVE01")
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "menu-state")
+        self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector_start")
         self.assertEqual(bridge.sent[0][1]["metadata"]["script_source"]["run_id"], 77)
 
@@ -337,7 +338,7 @@ class UiServiceTests(unittest.TestCase):
                 }
             )
 
-            start = _start_guided_live_run(collector, bridge)
+            start = _start_guided_live_run(collector, bridge, require_tcp_control=False)
             command_meta = json.loads((root / "next_command.json").read_text(encoding="utf-8"))
             self.assertEqual(start["command"], "START IRONCLAD 0 LIVE01")
             self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "START IRONCLAD 0 LIVE01\n")
@@ -379,7 +380,13 @@ class UiServiceTests(unittest.TestCase):
                 "predict",
                 return_value={"predicted_state_id": "predicted-event-state"},
             ):
-                sent = _tick_live_collector(collector, manager, bridge, {"send": True})
+                sent = _tick_live_collector(
+                    collector,
+                    manager,
+                    bridge,
+                    {"send": True},
+                    require_tcp_control=False,
+                )
 
             self.assertEqual(sent["suggestion"]["status"], "sent_non_combat")
             self.assertEqual(sent["pending_prediction"]["predicted_state_id"], "predicted-event-state")
@@ -1195,6 +1202,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(sent["pending_prediction"]["predicted_state_id"], "predicted-event-state")
         self.assertEqual(bridge.sent[0][0], "CHOOSE 0")
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "bridge-state")
+        self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector")
 
         observed_session = live_session | {"state_id": "predicted-event-state"}

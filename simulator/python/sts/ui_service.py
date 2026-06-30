@@ -1129,24 +1129,34 @@ def _tick_live_collector(
     manager: SessionManager,
     bridge: BridgeMirror,
     payload: dict[str, Any],
+    *,
+    require_tcp_control: bool = True,
 ) -> dict[str, Any]:
+    def send_guided_command(command: str, **kwargs: Any) -> dict[str, Any]:
+        return bridge.send_command(command, require_tcp_control=require_tcp_control, **kwargs)
+
     return collector.tick(
         bridge.status(),
         payload,
-        send_command=bridge.send_command,
+        send_command=send_guided_command,
         send_non_combat=lambda **kwargs: manager.send_live_non_combat_action(
             **kwargs,
-            send_command=bridge.send_command,
+            send_command=send_guided_command,
         ),
         send_combat=lambda **kwargs: manager.send_live_combat_action(
             **kwargs,
-            send_command=bridge.send_command,
+            send_command=send_guided_command,
         ),
         verify_prediction=manager.verify_live_prediction,
     )
 
 
-def _start_guided_live_run(collector: GuidedCollector, bridge: BridgeMirror) -> dict[str, Any]:
+def _start_guided_live_run(
+    collector: GuidedCollector,
+    bridge: BridgeMirror,
+    *,
+    require_tcp_control: bool = True,
+) -> dict[str, Any]:
     collector_status = collector.status()
     if not collector_status.get("active"):
         raise ValueError("start guided live run requires an active collector")
@@ -1169,6 +1179,7 @@ def _start_guided_live_run(collector: GuidedCollector, bridge: BridgeMirror) -> 
         command,
         source_state_id=bridge_status.get("state_id"),
         metadata=metadata,
+        require_tcp_control=require_tcp_control,
     )
     return {
         "ok": True,

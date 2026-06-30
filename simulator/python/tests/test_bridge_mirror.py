@@ -109,26 +109,32 @@ class BridgeMirrorTests(unittest.TestCase):
         received = []
 
         def run_server(server):
-            conn, _addr = server.accept()
-            with conn:
-                data = b""
-                while b"\n" not in data:
-                    data += conn.recv(4096)
-                payload = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
-                received.append(payload)
-                conn.sendall(
-                    (
-                        json.dumps(
-                            {
-                                "ok": True,
-                                "command_id": payload["command_id"],
-                                "command": payload["command"],
-                                "accepted_state_id": payload["expected_state_id"],
-                            }
-                        )
-                        + "\n"
-                    ).encode("utf-8")
-                )
+            owner_token = "owner-token-1"
+            for _ in range(2):
+                conn, _addr = server.accept()
+                with conn:
+                    data = b""
+                    while b"\n" not in data:
+                        data += conn.recv(4096)
+                    payload = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
+                    received.append(payload)
+                    if payload["type"] == "acquire":
+                        response = {
+                            "ok": True,
+                            "owner_id": payload["owner_id"],
+                            "owner_token": owner_token,
+                            "state_id": "bridge-protocol-state",
+                            "state_seq": 7,
+                        }
+                    else:
+                        response = {
+                            "ok": True,
+                            "command_id": payload["command_id"],
+                            "command": payload["command"],
+                            "accepted_state_id": payload["expected_state_id"],
+                            "accepted_state_seq": payload.get("expected_state_seq"),
+                        }
+                    conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
             server.bind(("127.0.0.1", 0))
@@ -152,6 +158,7 @@ class BridgeMirrorTests(unittest.TestCase):
                     json.dumps(
                         {
                             "state_id": "bridge-protocol-state",
+                            "state_seq": 7,
                             "ready_for_command": True,
                             "available_commands": ["choose", "state"],
                         }
@@ -170,14 +177,45 @@ class BridgeMirrorTests(unittest.TestCase):
                 self.assertTrue(result["ok"])
                 self.assertEqual(result["transport"], "tcp-jsonl")
                 self.assertEqual(result["accepted_state_id"], "bridge-protocol-state")
+                self.assertEqual(result["accepted_state_seq"], 7)
+                self.assertEqual(result["owner_id"], "sts-python-ui")
                 self.assertFalse((root / "next_command.txt").exists())
                 self.assertFalse((root / "next_command.json").exists())
 
-        self.assertEqual(len(received), 1)
-        self.assertEqual(received[0]["type"], "command")
-        self.assertEqual(received[0]["command"], "CHOOSE 0")
-        self.assertEqual(received[0]["expected_state_id"], "bridge-protocol-state")
-        self.assertEqual(received[0]["metadata"], {"source": "test"})
+        self.assertEqual(len(received), 2)
+        self.assertEqual(received[0]["type"], "acquire")
+        self.assertEqual(received[0]["owner_id"], "sts-python-ui")
+        self.assertEqual(received[1]["type"], "command")
+        self.assertEqual(received[1]["command"], "CHOOSE 0")
+        self.assertEqual(received[1]["expected_state_id"], "bridge-protocol-state")
+        self.assertEqual(received[1]["expected_state_seq"], 7)
+        self.assertEqual(received[1]["owner_token"], "owner-token-1")
+        self.assertEqual(received[1]["metadata"], {"source": "test"})
+
+    def test_send_command_can_require_tcp_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "file-only-state",
+                        "ready_for_command": True,
+                        "available_commands": ["choose", "state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "TCP bridge control is required"):
+                BridgeMirror(root, stale_after_seconds=9999).send_command(
+                    "CHOOSE 0",
+                    source_state_id="file-only-state",
+                    require_tcp_control=True,
+                )
+
+            self.assertFalse((root / "next_command.txt").exists())
+            self.assertFalse((root / "next_command.json").exists())
 
     def test_preflight_reports_orphan_command_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -193,6 +231,29 @@ class BridgeMirrorTests(unittest.TestCase):
 
             self.assertFalse(result["ok"])
             self.assertIn("next_command.json exists without next_command.txt", result["problems"])
+
+    def test_preflight_reports_tcp_control_availability(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "waiting",
+                        "control": {"protocol": "tcp-jsonl", "host": "127.0.0.1", "port": 12345},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps({"ready_for_command": True, "available_commands": ["state"], "step": 1}),
+                encoding="utf-8",
+            )
+
+            result = BridgeMirror(root, stale_after_seconds=9999).preflight()
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["tcp_control_available"])
+            self.assertEqual(result["control"]["protocol"], "tcp-jsonl")
 
     def test_clear_orphan_command_metadata_removes_only_orphan_file(self):
         with tempfile.TemporaryDirectory() as directory:
