@@ -54,6 +54,8 @@ function summarize(records) {
   const states = records.filter((record) => record.type === "state").length;
   const errors = records.filter((record) => record.type === "error").length;
   const actions = records.filter((record) => record.type === "action").length;
+  const commandAccepts = records.filter((record) => record.type === "command_accept").length;
+  const commandObservedTimeouts = records.filter((record) => record.type === "command_observed_timeout").length;
   const floors = new Set();
   const encounters = new Set();
   const seeds = new Set();
@@ -99,6 +101,8 @@ function summarize(records) {
     states,
     errors,
     actions,
+    command_accepts: commandAccepts,
+    command_observed_timeouts: commandObservedTimeouts,
     starts,
     seeds: [...seeds],
     act_bosses: [...bosses],

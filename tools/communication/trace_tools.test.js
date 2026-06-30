@@ -47,6 +47,32 @@ function testMissingActionStillFailsValidation() {
   assert.deepStrictEqual(result.missing, [{ line: 2, step: 1, command: "END" }]);
 }
 
+function testProtocolRowsAreSummarizedButDoNotRequireStateResponses() {
+  const result = validate([
+    state(0, { floor: 0 }),
+    {
+      type: "command_accept",
+      step: 1,
+      command: "END",
+      accepted_state_id: "state-0",
+      accepted_state_seq: 4,
+    },
+    {
+      type: "command_observed_timeout",
+      step: 1,
+      command: "END",
+      accepted_state_id: "state-0",
+      accepted_state_seq: 4,
+    },
+  ]);
+
+  assert.strictEqual(result.ok, true);
+  assert.deepStrictEqual(result.missing, []);
+  assert.strictEqual(result.summary.actions, 0);
+  assert.strictEqual(result.summary.command_accepts, 1);
+  assert.strictEqual(result.summary.command_observed_timeouts, 1);
+}
+
 function testDeathTerminal() {
   const summary = summarize([state(1, { floor: 1, screen_type: "GAME_OVER", current_hp: 0 })]);
   assert.strictEqual(summary.deaths, 1);
@@ -113,6 +139,7 @@ function testExtractBestRunRebasesSelectedRun() {
 
 testCoverageSummaryForEliteRewardPrefix();
 testMissingActionStillFailsValidation();
+testProtocolRowsAreSummarizedButDoNotRequireStateResponses();
 testDeathTerminal();
 testRunReportSelectsBestHarvestRun();
 testExtractBestRunRebasesSelectedRun();
