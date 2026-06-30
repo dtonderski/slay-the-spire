@@ -704,9 +704,7 @@ fn generic_attack_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy {
-            amount: i32::from(definition.cost),
-        },
+        InternalAction::SpendCardEnergy { card_id },
         InternalAction::DealDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
@@ -1681,9 +1679,7 @@ fn clothesline_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy {
-            amount: i32::from(definition.cost),
-        },
+        InternalAction::SpendCardEnergy { card_id },
         InternalAction::DealDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
