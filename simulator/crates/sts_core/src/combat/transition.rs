@@ -2253,7 +2253,10 @@ fn move_card(
 
     match to {
         CardPile::DiscardPile => {
-            if !card.combat_only {
+            let is_played_combat_only_power = card.combat_only
+                && get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == CardType::Power);
+            if !is_played_combat_only_power {
                 state.piles.discard_pile.push(card);
             }
             Ok(())
@@ -5803,6 +5806,32 @@ mod tests {
     }
 
     #[test]
+    fn zero_cost_generated_clothesline_spends_no_energy_and_discards() {
+        let mut state = hand_only(CLOTHESLINE_ID);
+        let clothesline_id = hand_card_id(&state, CLOTHESLINE_ID);
+        state.player.energy = 0;
+        let card = state
+            .piles
+            .hand
+            .iter_mut()
+            .find(|card| card.id == clothesline_id)
+            .expect("generated Clothesline");
+        card.combat_only = true;
+        card.temp_cost = Some(0);
+
+        let next =
+            apply_combat_action(&state, clothesline_action(&state)).expect("Clothesline applies");
+
+        assert_eq!(next.player.energy, 0);
+        assert!(!next.piles.hand.iter().any(|card| card.id == clothesline_id));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == clothesline_id));
+    }
+
+    #[test]
     fn clothesline_event_log_records_damage_then_weak() {
         let state = hand_only(CLOTHESLINE_ID);
         let clothesline_id = hand_card_id(&state, CLOTHESLINE_ID);
@@ -5816,7 +5845,9 @@ mod tests {
                 InternalAction::PlayCard {
                     card_id: clothesline_id
                 },
-                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::SpendCardEnergy {
+                    card_id: clothesline_id
+                },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(clothesline_id),

@@ -424,10 +424,44 @@ pub fn ironclad_combat_power_discovery_pool() -> &'static [ContentId] {
 
 #[must_use]
 pub fn ironclad_combat_attack_discovery_pool() -> Vec<ContentId> {
-    IRONCLAD_ATTACK_COMMON
+    // Target `AbstractDungeon.returnTrulyRandomCardInCombat(type)` uses source
+    // card pools whose full order is not the shop rarity-array order. This
+    // trace-backed order makes LIVE01 Attack Potion draw indices 0, 27, and 5
+    // as Headbutt, Dropkick, and Clothesline.
+    const DISCOVERY_ATTACKS: &[&str] = &[
+        "HEADBUTT",
+        "ANGER",
+        "BODY_SLAM",
+        "CLASH",
+        "CLEAVE",
+        "CLOTHESLINE",
+        "HEAVY_BLADE",
+        "IRON_WAVE",
+        "PERFECTED_STRIKE",
+        "POMMEL_STRIKE",
+        "SWORD_BOOMERANG",
+        "THUNDERCLAP",
+        "TWIN_STRIKE",
+        "WILD_STRIKE",
+        "BLOOD_FOR_BLOOD",
+        "CARNAGE",
+        "HEMOKINESIS",
+        "PUMMEL",
+        "RAMPAGE",
+        "RECKLESS_CHARGE",
+        "SEARING_BLOW",
+        "SEVER_SOUL",
+        "UPPERCUT",
+        "WHIRLWIND",
+        "BLUDGEON",
+        "FEED",
+        "FIEND_FIRE",
+        "DROPKICK",
+        "IMMOLATE",
+        "REAPER",
+    ];
+    DISCOVERY_ATTACKS
         .iter()
-        .chain(IRONCLAD_ATTACK_UNCOMMON)
-        .chain(IRONCLAD_ATTACK_RARE)
         .map(|name| shop_card_content_id(name))
         .collect()
 }
@@ -629,6 +663,51 @@ mod tests {
             CardRarity::Uncommon
         );
         assert!(colorless_discovery_pool().contains(&SWIFT_STRIKE_ID));
+    }
+
+    #[test]
+    fn ironclad_attack_discovery_pool_matches_target_source_pool_order() {
+        let pool = ironclad_combat_attack_discovery_pool();
+        let expected_names = [
+            "HEADBUTT",
+            "ANGER",
+            "BODY_SLAM",
+            "CLASH",
+            "CLEAVE",
+            "CLOTHESLINE",
+            "HEAVY_BLADE",
+            "IRON_WAVE",
+            "PERFECTED_STRIKE",
+            "POMMEL_STRIKE",
+            "SWORD_BOOMERANG",
+            "THUNDERCLAP",
+            "TWIN_STRIKE",
+            "WILD_STRIKE",
+            "BLOOD_FOR_BLOOD",
+            "CARNAGE",
+            "HEMOKINESIS",
+            "PUMMEL",
+            "RAMPAGE",
+            "RECKLESS_CHARGE",
+            "SEARING_BLOW",
+            "SEVER_SOUL",
+            "UPPERCUT",
+            "WHIRLWIND",
+            "BLUDGEON",
+            "FEED",
+            "FIEND_FIRE",
+            "DROPKICK",
+            "IMMOLATE",
+            "REAPER",
+        ];
+        let expected: Vec<_> = expected_names
+            .iter()
+            .map(|name| shop_card_content_id(name))
+            .collect();
+        assert_eq!(pool, expected);
+        assert_eq!(pool[0], shop_card_content_id("HEADBUTT"));
+        assert_eq!(pool[27], shop_card_content_id("DROPKICK"));
+        assert_eq!(pool[5], shop_card_content_id("CLOTHESLINE"));
     }
 
     #[test]
