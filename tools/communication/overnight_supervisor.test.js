@@ -10,6 +10,8 @@ const {
   currentTracePathFromStatus,
   formatBestRunSummary,
   formatValidationSummary,
+  legacyCollectorAllowed,
+  legacyCollectorOptInMessage,
   parseValidationOutput,
   validPrefixPath,
 } = require("./overnight_supervisor");
@@ -59,6 +61,13 @@ function testFreshSessionIsActive() {
     staleThresholdMs: 120000,
   });
   assert.deepStrictEqual(result, { stale: false, reason: "session active" });
+}
+
+function testLegacyCollectorRequiresExplicitOptIn() {
+  assert.strictEqual(legacyCollectorAllowed({}), false);
+  assert.strictEqual(legacyCollectorAllowed({ STS_LEGACY_HEURISTIC_COLLECTOR: "0" }), false);
+  assert.strictEqual(legacyCollectorAllowed({ STS_LEGACY_HEURISTIC_COLLECTOR: "1" }), true);
+  assert.match(legacyCollectorOptInMessage(), /run_auto_collect\.cmd/);
 }
 
 function testTracePathExtraction() {
@@ -195,6 +204,7 @@ testNoSessionFilesAreStale();
 testOldSessionFilesAreStale();
 testExitedBridgeIsStale();
 testFreshSessionIsActive();
+testLegacyCollectorRequiresExplicitOptIn();
 testTracePathExtraction();
 testValidationOutputParsing();
 testValidationSummaryFormatting();

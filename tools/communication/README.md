@@ -78,8 +78,13 @@ submission.
 - `bridge_probe.js` writes one temporary `state` command and verifies that the active CommunicationMod bridge consumes it. If the command is not consumed, it removes the probe command and exits nonzero.
 - Session `summary.json` and `status.json` include `client_pid`; use this to catch duplicate bridge clients writing conflicting session files.
 - `overnight_supervisor.js` repeatedly runs the collector, validates the active trace after collector exit, writes a `.valid-prefix.jsonl` salvage file when a trace has a missing action response, writes a `.best-run.jsonl` extracted keeper from valid traces, updates `session/harvest_report.json`, logs compact harvest-quality and best-run lines, and stops with a clear reason if the bridge/session files are stale or the bridge has exited.
-- `run_overnight_supervisor.cmd` starts the supervised overnight workflow. Start Slay the Spire with CommunicationMod first.
-- `run_overnight_guarded.cmd` runs preflight first and only starts the supervised overnight workflow if the bridge/session is fresh.
+- `run_overnight_supervisor.cmd` starts the legacy heuristic supervised
+  workflow. It requires `STS_LEGACY_HEURISTIC_COLLECTOR=1` so it is not
+  confused with guided auto-collection. Start Slay the Spire with
+  CommunicationMod first.
+- `run_overnight_guarded.cmd` runs preflight first and only starts the legacy
+  heuristic supervised workflow if the bridge/session is fresh and
+  `STS_LEGACY_HEURISTIC_COLLECTOR=1` is set.
 - `harvest_status.js` reads `session/harvest_report.json` and validates referenced raw, valid-prefix, and best-run artifacts without writing new trace files.
 - `run_communication_checks.cmd` runs the communication tool regression tests.
 - `overnight_collector.test.js` is a fast Node regression test for command policy edge cases seen in harvested traces.
@@ -135,6 +140,7 @@ tools\communication\run_guided_collect_status.cmd
 Before a legacy heuristic overnight run:
 
 ```powershell
+$env:STS_LEGACY_HEURISTIC_COLLECTOR = "1"
 tools\communication\run_overnight_guarded.cmd
 node tools\communication\bridge_probe.js
 node tools\communication\harvest_status.js
