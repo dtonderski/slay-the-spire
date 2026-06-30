@@ -499,7 +499,13 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 self._send_json(self.collector.start(payload))
                 return
             if parts == ["api", "collector", "tick"]:
-                self._send_json(self.collector.tick(self.bridge.status(), payload))
+                self._send_json(
+                    self.collector.tick(
+                        self.bridge.status(),
+                        payload,
+                        send_command=self.bridge.send_command,
+                    )
+                )
                 return
             if parts == ["api", "collector", "stop"]:
                 self._send_json(self.collector.stop())
