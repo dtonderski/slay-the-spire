@@ -3002,25 +3002,7 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
         if observed_sim_summary:
             sim_reward = simulator.get("reward") or {}
             obs_reward = observed_sim_summary.get("reward") or {}
-            for key in (
-                "choices",
-                "choice_count",
-                "gold_offer",
-                "stolen_gold_offer",
-                "potion_offer",
-                "relic_offer",
-                "card_reward_active",
-                "card_reward_pending",
-                "pending_card_reward_count",
-            ):
-                if sim_reward.get(key) != obs_reward.get(key):
-                    diffs.append(
-                        {
-                            "field": f"reward.{key}",
-                            "simulator": sim_reward.get(key),
-                            "observed": obs_reward.get(key),
-                        }
-                    )
+            diffs.extend(_reward_summary_diffs(sim_reward, obs_reward, observed))
     if simulator.get("phase") == "map" and observed_summary.get("phase") == "map":
         sim_map = simulator.get("map") or {}
         obs_map = observed_summary.get("map") or {}
@@ -3036,6 +3018,63 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
                     }
                 )
     return diffs
+
+
+def _reward_summary_diffs(
+    simulator_reward: dict[str, Any],
+    observed_reward: dict[str, Any],
+    observed: dict[str, Any],
+) -> list[dict[str, Any]]:
+    diffs: list[dict[str, Any]] = []
+    for key in (
+        "choices",
+        "choice_count",
+        "gold_offer",
+        "stolen_gold_offer",
+        "potion_offer",
+        "relic_offer",
+        "card_reward_active",
+        "card_reward_pending",
+        "pending_card_reward_count",
+    ):
+        if _reward_field_matches(key, simulator_reward, observed_reward, observed):
+            continue
+        diffs.append(
+            {
+                "field": f"reward.{key}",
+                "simulator": simulator_reward.get(key),
+                "observed": observed_reward.get(key),
+            }
+        )
+    return diffs
+
+
+def _reward_field_matches(
+    key: str,
+    simulator_reward: dict[str, Any],
+    observed_reward: dict[str, Any],
+    observed: dict[str, Any],
+) -> bool:
+    if simulator_reward.get(key) == observed_reward.get(key):
+        return True
+    if key == "relic_offer":
+        return (
+            observed_reward.get(key) is None
+            and simulator_reward.get(key) is not None
+            and _observed_reward_has_choice(observed, "relic")
+        )
+    return False
+
+
+def _observed_reward_has_choice(observed: dict[str, Any], choice: str) -> bool:
+    choices = observed.get("choice_list")
+    if not isinstance(choices, list):
+        screen_state = observed.get("screen_state")
+        if isinstance(screen_state, dict):
+            choices = screen_state.get("choice_list") or screen_state.get("options")
+    if not isinstance(choices, list):
+        return False
+    return any(str(item).lower() == choice for item in choices)
 
 
 def _observed_import_summary(observed: dict[str, Any]) -> dict[str, Any] | None:

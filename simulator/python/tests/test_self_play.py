@@ -16,6 +16,7 @@ from sts.self_play import (
     _real_trace_combat_baselines,
     _parse_candidate_names,
     _reward_choose_action,
+    _reward_summary_diffs,
     _trace_candidates_by_name,
     _trace_combat_roots,
     evaluate_self_play_corpus,
@@ -965,6 +966,15 @@ class SelfPlayTests(unittest.TestCase):
         )
 
         self.assertIsNone(action)
+
+    def test_reward_relic_offer_allows_hidden_relic_identity_when_choice_exists(self):
+        diffs = _reward_summary_diffs(
+            {"relic_offer": "PaperPhrog", "choice_count": 0},
+            {"relic_offer": None, "choice_count": 0},
+            {"choice_list": ["gold", "relic", "card"]},
+        )
+
+        self.assertEqual(diffs, [])
 
     def test_trace_guided_anchor_preserves_observed_relics_and_counters(self):
         with tempfile.TemporaryDirectory() as directory:
