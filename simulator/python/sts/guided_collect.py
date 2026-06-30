@@ -440,6 +440,7 @@ def _validate_trace(trace_path: Any) -> dict[str, Any]:
     path = Path(str(trace_path))
     if not path.exists():
         return {"verified": False, "reason": "trace_path_not_found", "trace_path": str(path)}
+    protocol_counts = _trace_protocol_counts(path)
     try:
         result = strict_replay_real_trace_to_env(trace=path)
     except Exception as error:
@@ -457,7 +458,26 @@ def _validate_trace(trace_path: Any) -> dict[str, Any]:
         "final_phase": result.final_phase,
         "blocker": result.blocker,
         "trace_path": str(path),
+        **protocol_counts,
     }
+
+
+def _trace_protocol_counts(path: Path) -> dict[str, int]:
+    counts = {
+        "command_accepts": 0,
+        "command_observed_timeouts": 0,
+    }
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            record_type = record.get("type") if isinstance(record, dict) else None
+            if record_type == "command_accept":
+                counts["command_accepts"] += 1
+            elif record_type == "command_observed_timeout":
+                counts["command_observed_timeouts"] += 1
+    return counts
 
 
 def main(argv: list[str] | None = None) -> None:

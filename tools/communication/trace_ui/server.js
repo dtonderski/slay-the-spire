@@ -103,7 +103,7 @@ async function sendCommandViaControl(command, status, summary) {
   if (!control) return null;
   const acquired = await controlRequest(control, {
     type: "acquire",
-    owner_id: "trace-ui",
+    owner_id: `trace-ui-${process.pid}`,
   });
   if (!acquired.ok || !acquired.owner_token) {
     throw new Error(acquired.error || "bridge control ownership rejected");

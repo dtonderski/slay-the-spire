@@ -7,7 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from sts.guided_collect import GuidedCollectConfig, _archive_report_path, collect_one_run, main
+from sts.guided_collect import (
+    GuidedCollectConfig,
+    _archive_report_path,
+    _validate_trace,
+    collect_one_run,
+    main,
+)
 
 
 class FakeBridge:
@@ -546,6 +552,46 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["stop_reason"], "game_complete")
         self.assertEqual(report["actions_sent"], 0)
         self.assertEqual(report["history_tail"][1]["event"], "terminal")
+
+    def test_validate_trace_reports_tcp_protocol_counts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "trace.jsonl"
+            trace_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "command_accept",
+                                "command": "START IRONCLAD 0 LIVE01",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "command_observed_timeout",
+                                "command": "START IRONCLAD 0 LIVE01",
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch(
+                "sts.guided_collect.strict_replay_real_trace_to_env",
+            ) as replay:
+                replay.return_value.verified = True
+                replay.return_value.stop_reason = "trace_exhausted"
+                replay.return_value.steps = 0
+                replay.return_value.final_state_id = None
+                replay.return_value.final_phase = None
+                replay.return_value.blocker = None
+
+                result = _validate_trace(trace_path)
+
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["command_accepts"], 1)
+        self.assertEqual(result["command_observed_timeouts"], 1)
 
     def test_archive_report_path_is_safe_and_descriptive(self):
         with tempfile.TemporaryDirectory() as directory:
