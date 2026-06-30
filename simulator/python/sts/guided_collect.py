@@ -151,13 +151,22 @@ def collect_one_run(
         if config.combat_policy:
             payload["candidate"] = config.combat_policy
 
-        tick = _tick_live_collector(
-            collector,
-            manager,
-            bridge,
-            payload,
-            require_tcp_control=config.require_tcp_control,
-        )
+        try:
+            tick = _tick_live_collector(
+                collector,
+                manager,
+                bridge,
+                payload,
+                require_tcp_control=config.require_tcp_control,
+            )
+        except Exception as error:
+            stop_reason = "tick_failed"
+            blocker = {
+                "reason": "tick_failed",
+                "detail": str(error),
+            }
+            history.append({"status": "blocked", "reason": "tick_failed", "detail": str(error)})
+            break
         suggestion = tick.get("suggestion") if isinstance(tick.get("suggestion"), dict) else {}
         history.append(_compact_tick(tick))
 
@@ -178,7 +187,7 @@ def collect_one_run(
 
     final_bridge = bridge.status()
     return {
-        "ok": stop_reason not in {"blocked", "timeout"},
+        "ok": stop_reason not in {"blocked", "timeout", "tick_failed"},
         "run_id": run_id,
         "seed": ((collector.status().get("config") or {}).get("seed_played")),
         "stop_reason": stop_reason,
