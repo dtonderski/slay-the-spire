@@ -224,6 +224,56 @@ class SlayTheDataIndexTests(unittest.TestCase):
 
         self.assertEqual([row["id"] for row in rows], [2])
 
+    def test_candidate_selection_can_skip_global_ranking_for_fast_ui_loads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 45, 0, 0, 0, 0, "FIRST", 0, 45, 8, 1, 1, 0),
+                    (2, "IRONCLAD", 0, 55, 0, 0, 0, 0, "BETTER", 1, 55, 20, 10, 10, 5),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,)])
+            conn.commit()
+            conn.close()
+
+            rows = select_guided_collection_candidates(
+                db,
+                min_floor_reached=45,
+                min_path_length=45,
+                min_card_choices=8,
+                min_event_choices=1,
+                min_shop_purchases=1,
+                ranked=False,
+                limit=10,
+            )
+
+        self.assertEqual([row["id"] for row in rows], [1, 2])
+
     def test_candidate_selection_filters_and_scores_guided_decisions(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "runs.sqlite3"

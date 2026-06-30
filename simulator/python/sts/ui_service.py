@@ -1158,6 +1158,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
     min_shop_purchases = _query_optional_int(query, "min_shop_purchases")
     min_potion_usage = _query_optional_int(query, "min_potion_usage")
     limit = _query_int(query, "limit", 25)
+    ranked = _query_bool(query, "ranked", True)
     rows = select_guided_collection_candidates(
         character=character,
         ascension=ascension,
@@ -1169,6 +1170,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
         min_shop_purchases=min_shop_purchases,
         min_potion_usage=min_potion_usage,
         limit=limit,
+        ranked=ranked,
     )
     return {
         "candidates": rows,
@@ -1183,6 +1185,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
             "min_shop_purchases": min_shop_purchases,
             "min_potion_usage": min_potion_usage,
             "limit": limit,
+            "ranked": ranked,
         },
     }
 

@@ -215,11 +215,13 @@ class UiServiceTests(unittest.TestCase):
                     "min_shop_purchases": ["1"],
                     "min_potion_usage": ["0"],
                     "limit": ["3"],
+                    "ranked": ["0"],
                 }
             )
 
         self.assertEqual(result["candidates"], [{"id": 1}])
         self.assertEqual(result["filters"]["character"], "IRONCLAD")
+        self.assertFalse(result["filters"]["ranked"])
         select.assert_called_once_with(
             character="IRONCLAD",
             ascension=0,
@@ -231,6 +233,7 @@ class UiServiceTests(unittest.TestCase):
             min_shop_purchases=1,
             min_potion_usage=0,
             limit=3,
+            ranked=False,
         )
 
     def test_slaythedata_status_query_uses_filters(self):

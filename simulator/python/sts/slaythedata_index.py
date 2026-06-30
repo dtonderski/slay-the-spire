@@ -32,6 +32,7 @@ def select_guided_collection_candidates(
     min_potion_usage: int | None = None,
     require_supported: bool = True,
     limit: int = 50,
+    ranked: bool = True,
 ) -> list[dict[str, Any]]:
     """Return exportable SlayTheData run candidates from the locator DB."""
 
@@ -54,7 +55,7 @@ def select_guided_collection_candidates(
                (card_choice_count + event_choice_count * 2 + shop_purchase_count * 3 + potion_usage_count) AS guided_score
         FROM runs
         WHERE {where}
-        ORDER BY path_length DESC, guided_score DESC, floor_reached DESC, id ASC
+        {_candidate_order_clause(ranked)}
         LIMIT ?
     """
     conn = _connect_readonly(db_path)
@@ -77,6 +78,12 @@ def select_guided_collection_candidates(
         }
         for row in rows
     ]
+
+
+def _candidate_order_clause(ranked: bool) -> str:
+    if not ranked:
+        return ""
+    return "ORDER BY path_length DESC, guided_score DESC, floor_reached DESC, id ASC"
 
 
 def slaythedata_index_status(

@@ -679,6 +679,7 @@
       min_event_choices: "1",
       min_shop_purchases: "1",
       limit: "25",
+      ranked: "0",
     });
     await singleFlight("Finding SlayTheData runs", async () => {
       await refreshSlaythedataStatusQuietly();

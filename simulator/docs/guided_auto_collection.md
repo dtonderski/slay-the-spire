@@ -82,6 +82,9 @@ The collector can now:
   is loaded, including missing DB/table blockers and partial-build warnings
 - rank candidate runs by full path length and guided-decision richness, with UI
   defaults that require card/event/shop decision coverage
+- load UI candidates with `ranked=0` by default to avoid global sort latency on
+  the huge partial local index; ranked selection remains available for slower
+  diagnostics
 - export a selected run from local chunks and start the collector from it
 - prime the live run start controls from the selected/loaded SlayTheData run
   so the bridge starts the same seed the collector is following
