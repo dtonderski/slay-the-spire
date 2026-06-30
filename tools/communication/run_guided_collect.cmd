@@ -1,0 +1,5 @@
+@echo off
+setlocal
+set REPO=D:\dev\slay-the-spire
+cd /d "%REPO%\simulator" || exit /b 1
+uv run python -m sts.guided_collect --report-output target\guided-collect\latest.json %*
