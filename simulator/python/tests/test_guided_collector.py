@@ -159,6 +159,28 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(calls[0]["payload"]["max_depth"], 4)
         self.assertEqual(calls[0]["suggestion"]["potion_uses_allowed"], 1)
 
+    def test_collector_tick_send_non_combat_delegates_to_strict_callback(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+        calls = []
+
+        result = collector.tick(
+            self.ready_event_bridge(),
+            {"send": True},
+            send_non_combat=lambda **kwargs: calls.append(kwargs)
+            or {
+                "predicted_state_id": "predicted-event",
+                "source_state_id": "sim-event",
+                "bridge_state_id": "bridge-state",
+                "bridge_step": 2,
+                "send_result": {"command": "CHOOSE 0"},
+            },
+        )
+
+        self.assertEqual(result["suggestion"]["status"], "sent_non_combat")
+        self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-event")
+        self.assertEqual(calls[0]["suggestion"]["category"], "event")
+
     def test_collector_tick_blocks_combat_send_without_callback(self):
         collector = GuidedCollector()
         collector.start({"script": sample_script()})

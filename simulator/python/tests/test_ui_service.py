@@ -78,6 +78,46 @@ class FakeLiveEnv:
         return []
 
 
+class FakeRunAction:
+    def __init__(self, kind, payload):
+        self._kind = kind
+        self._payload = payload
+
+    def family(self):
+        return "run"
+
+    def kind(self):
+        return self._kind
+
+    def json(self):
+        import json
+
+        return json.dumps(self._payload, sort_keys=True)
+
+
+class FakeEventRunEnv:
+    def __init__(self):
+        self.action = FakeRunAction("event_choose", {"Choose": {"choice_index": 0}})
+
+    def snapshot_hash(self):
+        return "fake-event-state"
+
+    def state_json(self):
+        return '{"phase":"event"}'
+
+    def snapshot_json(self):
+        return "{}"
+
+    def phase(self):
+        return "event"
+
+    def current_decision(self):
+        return "event"
+
+    def exact_legal_actions(self):
+        return [self.action]
+
+
 class UiServiceTests(unittest.TestCase):
     def test_observed_bridge_state_extracts_game_state_message(self):
         observed = {"current_hp": 80, "max_hp": 80, "floor": 1}
@@ -583,6 +623,58 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(search.call_args.args[1]["source_state_id"], "fake-live-state")
         self.assertEqual(search.call_args.args[1]["allowed_potions"], [])
         self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-live-state")
+
+    def test_send_live_non_combat_action_requires_strict_replay_and_predicts(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeEventRunEnv(),
+        )
+        bridge_status = {
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 2,
+                        "screen_type": "EVENT",
+                        "choice_list": ["Pray", "Leave"],
+                    }
+                }
+            },
+        }
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-event-state",
+            "attach_fidelity": "seed_replay",
+            "state_kind": "run",
+            "state": {"phase": "event"},
+        }
+        sent = []
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+            manager,
+            "predict",
+            return_value={"predicted_state_id": "predicted-event-state"},
+        ) as predict:
+            result = manager.send_live_non_combat_action(
+                bridge_status,
+                {
+                    "status": "matched",
+                    "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 0},
+                },
+                {},
+                send_command=lambda command, **kwargs: sent.append((command, kwargs))
+                or {"ok": True, "command_id": "cmd-event", "command": command},
+            )
+
+        self.assertEqual(result["command"], "CHOOSE 0")
+        self.assertEqual(result["predicted_state_id"], "predicted-event-state")
+        self.assertEqual(sent, [("CHOOSE 0", {"source_state_id": "bridge-state"})])
+        self.assertEqual(predict.call_args.args[1]["action_id"], "a0")
+        self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-event-state")
 
     def test_verify_live_prediction_reports_mismatch(self):
         manager = SessionManager()
