@@ -211,7 +211,15 @@ def match_visible_choice(
     if category != "boss_relic" and not decision:
         return _blocked("missing_floor_decision", f"no SlayTheData decision for floor {floor}")
 
-    target = _target_text_for_category(script, decision, category, ordinal, floor=floor, act=act)
+    target = _target_text_for_category(
+        script,
+        decision,
+        category,
+        ordinal,
+        floor=floor,
+        act=act,
+        choice_labels=choice_labels,
+    )
     if not target:
         return _blocked("missing_target", f"no {category} target at ordinal {ordinal} on floor {floor}")
 
@@ -297,6 +305,7 @@ def _target_text_for_category(
     *,
     floor: int,
     act: int | None,
+    choice_labels: list[str],
 ) -> str | None:
     if category == "card_reward":
         if decision is None:
@@ -313,6 +322,10 @@ def _target_text_for_category(
             return None
         entry = _ordinal_entry(decision.get("shop_purchases"), ordinal)
         return entry.get("item") if entry else None
+    if category == "reward":
+        if decision is None:
+            return None
+        return _reward_target(decision, choice_labels)
     if category == "campfire":
         if decision is None:
             return None
@@ -337,6 +350,37 @@ def _target_text_for_category(
         entry = _boss_relic_choice(script, floor=floor, act=act, ordinal=ordinal)
         return entry.get("picked") if entry else None
     return None
+
+
+def _reward_target(decision: dict[str, Any], choice_labels: list[str]) -> str | None:
+    visible = [_canonical_reward_label(label) for label in choice_labels]
+    if decision.get("relics_obtained") and "relic" in visible:
+        return "relic"
+    potions = decision.get("potions") if isinstance(decision.get("potions"), dict) else {}
+    if potions.get("obtained") and "potion" in visible:
+        return "potion"
+    if decision.get("card_rewards") and "card" in visible:
+        return "card"
+    if "stolen_gold" in visible:
+        return "stolen_gold"
+    if "gold" in visible:
+        return "gold"
+    return None
+
+
+def _canonical_reward_label(value: Any) -> str:
+    token = _normalized_token(value)
+    if token in {"stolengold", "stolengoldreward"}:
+        return "stolen_gold"
+    if "relic" in token:
+        return "relic"
+    if "potion" in token:
+        return "potion"
+    if "card" in token:
+        return "card"
+    if "gold" in token:
+        return "gold"
+    return token
 
 
 def _empty_floor_decision() -> dict[str, Any]:

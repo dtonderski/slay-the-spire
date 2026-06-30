@@ -398,6 +398,8 @@ def _infer_category(summary: dict[str, Any], bridge_status: dict[str, Any]) -> s
         return "grid"
     if "card" in text and "reward" in text:
         return "card_reward"
+    if "reward" in text:
+        return "reward"
     if "shop" in text:
         return "shop"
     if "rest" in text or "campfire" in text:
