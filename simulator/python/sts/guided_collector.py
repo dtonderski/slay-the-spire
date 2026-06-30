@@ -62,6 +62,7 @@ class GuidedCollector:
             "status": self._run.status,
             "source": self._run.script.get("source"),
             "config": self._run.script.get("config"),
+            "replay_policy": self._run.script.get("replay_policy"),
             "blocker": self._run.blocker,
             "last_suggestion": self._run.last_suggestion,
             "pending_prediction": self._run.pending_prediction,

@@ -88,6 +88,10 @@ The collector can now:
 - export a selected run from local chunks and start the collector from it
 - prime the live run start controls from the selected/loaded SlayTheData run
   so the bridge starts the same seed the collector is following
+- start the live game directly from the active guided script via
+  `POST /api/collector/start-live-run`, sending `START <character> <ascension>
+  <seed>` with guided-collector provenance so the first trace action is tied to
+  the selected SlayTheData run
 - preview the next SlayTheData-guided non-combat choice
 - automatically advance scripted decision ordinals after successful sends, so
   repeated auto ticks can handle multiple same-floor shop buys or similar
@@ -159,7 +163,8 @@ agreement, conservative map path matching, boss relic matching, campfire/grid
 matching, post-send prediction checks, and generated-trace provenance are
 implemented, and the UI can repeatedly call tick until blocked. Remaining work
 is map tie-breaking when room symbols are ambiguous, reward edge cases that
-need hidden identity checks, and end-to-end live bridge smoke coverage.
+need hidden identity checks, Neow bonuses that open unsupported follow-up grids,
+and end-to-end live bridge smoke coverage.
 
 ## Important Boundaries
 
