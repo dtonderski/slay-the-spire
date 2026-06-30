@@ -97,6 +97,8 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["actions_sent"], 1)
         self.assertEqual(report["history_tail"][0]["event"], "start")
         self.assertEqual(report["history_tail"][1]["command"], "CHOOSE 0")
+        self.assertEqual(report["selection"]["mode"], "explicit")
+        self.assertEqual(report["selection"]["selected_run_id"], 123)
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
 
     def test_collect_one_run_blocks_before_export_when_preflight_fails(self):
@@ -148,6 +150,8 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["seed"], "GRID01")
         self.assertEqual(report["stop_reason"], "script_blocked")
         self.assertEqual(report["blocker"]["reason"], "unsupported_neow_followup")
+        self.assertEqual(report["selection"]["mode"], "explicit")
+        self.assertEqual(report["selection"]["selected_run_id"], 321)
         self.assertEqual(report["actions_sent"], 0)
         self.assertEqual(bridge.sent, [])
 
@@ -198,6 +202,12 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in export.call_args_list], [11, 22])
         self.assertEqual(report["run_id"], 22)
         self.assertEqual(report["seed"], "LIVE02")
+        self.assertEqual(report["selection"]["mode"], "auto")
+        self.assertEqual(report["selection"]["selected_run_id"], 22)
+        self.assertEqual(report["selection"]["considered_count"], 2)
+        self.assertEqual(report["selection"]["candidate_count"], 2)
+        self.assertEqual(report["selection"]["skipped_unsupported"][0]["run_id"], 11)
+        self.assertEqual(report["selection"]["skipped_unsupported"][0]["reason"], "unsupported_neow_followup")
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 0 LIVE02")
 
     def test_collect_one_run_waits_for_preflight_to_become_ready(self):

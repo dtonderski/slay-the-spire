@@ -150,6 +150,9 @@ The collector can now:
   those whose normalized script is known to be unsupported before selecting a
   run; explicit `--run-id` remains strict and reports `script_blocked` instead
   of silently choosing a different run
+- include selection diagnostics in guided collection reports: explicit vs auto
+  mode, selected run id, candidates considered, and unsupported candidates
+  skipped before start
 - block guided scripts before sending `START` when the exported SlayTheData row
   would require an unrecorded Neow follow-up card grid target, such as remove,
   transform, or upgrade, or when Neow card-choice bonuses lack a floor-0 picked

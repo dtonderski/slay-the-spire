@@ -1560,12 +1560,14 @@
     }
 
     const blocker = report.blocker || {};
+    const selection = report.selection || {};
     const traceName = report.trace_path ? String(report.trace_path).split(/[\\/]/).pop() : "-";
     el.collectorReportPanel.append(
       statBlock("Last Guided Report", [
         ["Result", report.ok ? "OK" : "Blocked"],
         ["Stop", firstDefined(report.stop_reason, "-")],
         ["Run", firstDefined(report.run_id, "-")],
+        ["Selection", selectionText(selection)],
         ["Actions", firstDefined(report.actions_sent, 0)],
         ["Bridge", firstDefined(report.bridge_step, "-")],
         ["Trace", traceName],
@@ -1590,6 +1592,16 @@
       msg.textContent = `Warnings: ${warnings.join("; ")}`;
       el.collectorReportPanel.appendChild(msg);
     }
+  }
+
+  function selectionText(selection) {
+    if (!selection || !selection.mode) return "-";
+    const mode = String(selection.mode);
+    const considered = selection.considered_count || selection.candidate_count
+      ? ` ${firstDefined(selection.considered_count, "-")}/${firstDefined(selection.candidate_count, "-")}`
+      : "";
+    const skipped = selection.skipped_unsupported_count ? `, skipped ${selection.skipped_unsupported_count}` : "";
+    return `${mode}${considered}${skipped}`;
   }
 
   function renderSlaythedataStatus() {
