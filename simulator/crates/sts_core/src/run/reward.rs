@@ -1561,6 +1561,9 @@ fn apply_dead_branch_for_exhaust_count_with_placement(
         }
     }
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
+    if combat.card_random_rng.is_some() {
+        combat.card_random_rng = Some(rng);
+    }
 }
 
 fn dead_branch_card_pool() -> Vec<ContentId> {
@@ -1870,9 +1873,9 @@ mod tests {
     use crate::card::CardType;
     use crate::content::cards::{
         ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID,
-        CURSE_OF_THE_BELL_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, EXHUME_ID, FEED_ID, HAVOC_ID,
-        INFLAME_ID, POWER_THROUGH_ID, REAPER_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        CURSE_OF_THE_BELL_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, ENTRENCH_ID, EXHUME_ID,
+        FEED_ID, HAVOC_ID, INFLAME_ID, POWER_THROUGH_ID, REAPER_ID, SEEING_RED_ID, SENTINEL_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::Relic;
@@ -2414,6 +2417,55 @@ mod tests {
         assert_eq!(combat.piles.discard_pile.len(), 1);
         assert!(combat.piles.discard_pile[0].combat_only);
         assert_eq!(run.card_random_rng_counter, 1);
+    }
+
+    #[test]
+    fn dead_branch_run_level_exhaust_syncs_active_combat_card_rng() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        run.reward_rng_seed = 1_131_274_026;
+        run.current_floor = 16;
+        run.card_random_rng_counter = 1;
+        let mut combat = run.combat.take().expect("combat fixture");
+        combat.card_random_rng = Some(run.card_random_rng());
+        combat.piles.hand = vec![CardInstance::new(CardId::new(25), SEEING_RED_ID)];
+        combat.piles.draw_pile.clear();
+        combat.piles.discard_pile.clear();
+        combat.piles.exhaust_pile.clear();
+
+        apply_dead_branch_for_exhaust_count(&mut run, &mut combat, 1);
+
+        assert_eq!(run.card_random_rng_counter, 2);
+        assert_eq!(
+            combat
+                .card_random_rng
+                .as_ref()
+                .expect("combat card rng")
+                .counter(),
+            run.card_random_rng_counter
+        );
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == CLOTHESLINE_ID && card.combat_only));
+
+        run.combat = Some(combat);
+        let after = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("Seeing Red exhaust applies");
+        let combat = after.combat.expect("combat remains active");
+
+        assert_eq!(after.card_random_rng_counter, 3);
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == ENTRENCH_ID && card.combat_only));
     }
 
     #[test]
