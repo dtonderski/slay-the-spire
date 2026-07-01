@@ -30,16 +30,15 @@ use sts_core::{
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
     generate_neow_three_potions, generate_neow_transform_reward,
-    initialize_combat_piles_with_relics, known_neow_colorless_reward_for_seed,
-    known_neow_screen_for_seed, leave_shop_merchant, leave_shop_room, legal_map_actions_on_run,
-    open_neow_reward_grid, select_grid_card, shop_action_for_choice_index, starter_only_deck,
-    target_room_kinds_on_path, Act1Boss, CardId, CardInstance, CardPiles, CombatAction,
-    CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice, EventScreen, FixedMap,
-    GeneratedNeowOption, GridPurpose, KnownNeowBranch, MapNode, MapNodeId, MapRunState, MonsterId,
-    MonsterIntent, MonsterPowers, MonsterState, NeowDrawback, NeowRewardType, PlayerPowers,
-    PlayerState, Relic, RelicCounters, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
-    RunPhase, RunState, ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, StsRng,
-    TargetMapAct,
+    initialize_combat_piles_with_relics, leave_shop_merchant, leave_shop_room,
+    legal_map_actions_on_run, open_neow_reward_grid, select_grid_card,
+    shop_action_for_choice_index, starter_only_deck, target_room_kinds_on_path, Act1Boss, CardId,
+    CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction,
+    EventChoice, EventScreen, FixedMap, GeneratedNeowOption, GridPurpose, MapNode, MapNodeId,
+    MapRunState, MonsterId, MonsterIntent, MonsterPowers, MonsterState, NeowDrawback,
+    NeowRewardType, PlayerPowers, PlayerState, Relic, RelicCounters, RelicKey, RestAction,
+    RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopCardSlot, ShopPick, ShopPotionSlot,
+    ShopRelicSlot, ShopScreen, StsRng, TargetMapAct,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -382,7 +381,6 @@ fn verify_seed_start_transitions(
     options: SeedStartVerifyOptions,
 ) -> SeedStartBoundary {
     let mut phase = SeedStartPhase::BeforeStart;
-    let mut combat_step = 0usize;
     let mut _reward_step = 0usize;
     let mut combat_index = 0usize;
     let mut map_pick_index = 0usize;
@@ -397,7 +395,6 @@ fn verify_seed_start_transitions(
     let mut neow_current_hp = 80;
     let mut neow_max_hp = 80;
     let mut neow_card_reward_choices: Option<Vec<String>> = None;
-    let mut pending_neow_deferred_curse = false;
     let mut neow_potion_reward: Vec<String> = Vec::new();
     let mut neow_potions_taken = 0usize;
     let mut relics = vec!["Burning Blood".to_owned()];
@@ -578,8 +575,7 @@ fn verify_seed_start_transitions(
             SeedStartPhase::NeowTransformConfirm
                 if action.command.eq_ignore_ascii_case("CONFIRM") =>
             {
-                let visible_deck_after_transform =
-                    seed_start_visible_deck_after_transform(&start.external_seed);
+                let visible_deck_after_transform = ironclad_deck_after_transform_selection_keys();
                 compare_subset(
                     report,
                     action,
@@ -597,8 +593,7 @@ fn verify_seed_start_transitions(
                         "choices": ["leave"],
                     }),
                 );
-                deck_ids =
-                    seed_start_deck_after_transform(start.numeric_seed, &start.external_seed);
+                deck_ids = seed_start_deck_after_transform(start.numeric_seed);
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
@@ -671,7 +666,6 @@ fn verify_seed_start_transitions(
                 let run =
                     seed_start_apply_neow_reward_drawback(start.numeric_seed, &deck_ids, &option);
                 deck_ids = deck_content_keys(&run.deck);
-                pending_neow_deferred_curse = option.drawback == NeowDrawback::Curse;
                 neow_gold = run.gold;
                 neow_current_hp = run.player_hp;
                 neow_max_hp = run.player_max_hp;
@@ -708,7 +702,6 @@ fn verify_seed_start_transitions(
                 let run =
                     seed_start_apply_neow_reward_drawback(start.numeric_seed, &deck_ids, &option);
                 deck_ids = deck_content_keys(&run.deck);
-                pending_neow_deferred_curse = option.drawback == NeowDrawback::Curse;
                 neow_gold = run.gold;
                 neow_current_hp = run.player_hp;
                 neow_max_hp = run.player_max_hp;
@@ -1010,11 +1003,6 @@ fn verify_seed_start_transitions(
                     };
                 };
                 deck_ids = deck_content_keys(&next.deck);
-                if let Some(visible) =
-                    seed_start_trace_backed_neow_grid_complete_deck(start.numeric_seed, &deck_ids)
-                {
-                    deck_ids = visible;
-                }
                 if next.card_grid.is_some() {
                     compare_subset(
                         report,
@@ -1078,11 +1066,6 @@ fn verify_seed_start_transitions(
                     seed_sim = Some(next);
                     phase = SeedStartPhase::NeowGridConfirm;
                     continue;
-                }
-                if let Some(visible) =
-                    seed_start_trace_backed_neow_grid_complete_deck(start.numeric_seed, &deck_ids)
-                {
-                    deck_ids = visible;
                 }
                 if screen_type(&post.message) == Some("MAP") {
                     compare_subset(
@@ -1410,7 +1393,7 @@ fn verify_seed_start_transitions(
                 compare_subset(
                     report,
                     action,
-                    seed_start_colorless_pick_label(&start.external_seed),
+                    "Neow colorless pickup",
                     seed_start_observed_subset(&post.message),
                     json!({
                         "screen_type": "EVENT",
@@ -1487,34 +1470,7 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::Map;
             }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
-                if pending_neow_deferred_curse {
-                    if let Some(curse) =
-                        seed_start_trace_backed_neow_deferred_curse(start.numeric_seed)
-                    {
-                        if !deck_ids.iter().any(|card| card == curse) {
-                            deck_ids.push(curse.to_owned());
-                        }
-                        pending_neow_deferred_curse = false;
-                    }
-                }
-                let visible_deck = if seed_start_is_transform_neow_branch(&start.external_seed) {
-                    let observed_deck = deck_keys_from_value(
-                        post.message
-                            .get("game_state")
-                            .and_then(|game| game.get("deck")),
-                    );
-                    let transformed = seed_start_generated_transform_card(start.numeric_seed);
-                    if observed_deck
-                        .iter()
-                        .any(|card| transformed.as_deref() == Some(card.as_str()))
-                    {
-                        deck_ids.clone()
-                    } else {
-                        seed_start_visible_deck_after_transform(&start.external_seed)
-                    }
-                } else {
-                    deck_ids.clone()
-                };
+                let visible_deck = deck_ids.clone();
                 compare_subset(
                     report,
                     action,
@@ -1591,7 +1547,6 @@ fn verify_seed_start_transitions(
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Combat;
-                                    combat_step = 0;
                                 }
                                 RunPhase::Rest => {
                                     let label = format!("map rest node {}", map_path_xs.len());
@@ -1666,16 +1621,11 @@ fn verify_seed_start_transitions(
                         }
                     }
                 }
-                let room_kind = if start.external_seed == "TEST" {
-                    seed_start_test_room_kind_for_pick(map_pick_index)
-                } else if start.external_seed == "M290001" {
-                    seed_start_m290001_room_kind_for_pick(map_pick_index)
-                } else {
+                let room_kind =
                     seed_start_room_kinds_on_path(start.numeric_seed, &map_path_xs, &post.message)
                         .last()
                         .copied()
-                        .unwrap_or(RoomKind::Combat)
-                };
+                        .unwrap_or(RoomKind::Combat);
                 map_pick_index += 1;
                 match room_kind {
                     RoomKind::Event => {
@@ -1705,22 +1655,15 @@ fn verify_seed_start_transitions(
                     RoomKind::Combat => {
                         let label = seed_start_map_label(combat_index);
                         let expected = seed_start_encounter_observed_subset(&post.message);
-                        let actual = if (start.external_seed == "TEST" && combat_index >= 3)
-                            || (start.external_seed == "M290001" && combat_index >= 3)
-                            || (start.external_seed == "M290008" && combat_index >= 2)
-                        {
-                            expected.clone()
-                        } else {
-                            seed_start_encounter_expected_at_index(
-                                start.numeric_seed,
-                                combat_index,
-                                start.ascension,
-                                &deck_ids,
-                                &relics,
-                                seed_start_core_neow_lament_active(seed_sim.as_ref()),
-                                &post.message,
-                            )
-                        };
+                        let actual = seed_start_encounter_expected_at_index(
+                            start.numeric_seed,
+                            combat_index,
+                            start.ascension,
+                            &deck_ids,
+                            &relics,
+                            seed_start_core_neow_lament_active(seed_sim.as_ref()),
+                            &post.message,
+                        );
                         compare_subset(report, action, &label, expected, actual);
                         phase = SeedStartPhase::Combat;
                         seed_sim = seed_start_run_from_combat_entry(
@@ -1731,7 +1674,6 @@ fn verify_seed_start_transitions(
                             seed_sim.as_ref(),
                             false,
                         );
-                        combat_step = 0;
                     }
                     RoomKind::Elite => {
                         let label = format!("map elite node {}", elite_index + 1);
@@ -1741,8 +1683,8 @@ fn verify_seed_start_transitions(
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
                         compare_subset(report, action, &label, expected.clone(), expected);
-                        combat_elite_boss_observed_sync = !(start.external_seed == "TEST"
-                            && elite_index < options.disabled_test_elite_observed_sync_count());
+                        combat_elite_boss_observed_sync =
+                            elite_index >= options.disabled_test_elite_observed_sync_count();
                         in_elite_boss_combat = true;
                         elite_combat = true;
                         elite_index += 1;
@@ -1755,7 +1697,6 @@ fn verify_seed_start_transitions(
                             seed_sim.as_ref(),
                             false,
                         );
-                        combat_step = 0;
                     }
                     RoomKind::Rest => {
                         let label = format!("map rest node {}", map_path_xs.len());
@@ -1824,8 +1765,7 @@ fn verify_seed_start_transitions(
                             map.insert("relic_ids".to_owned(), json!(relics));
                         }
                         compare_subset(report, action, &label, expected.clone(), expected);
-                        combat_elite_boss_observed_sync = !(start.external_seed == "TEST"
-                            && options.disable_test_boss_observed_sync);
+                        combat_elite_boss_observed_sync = !options.disable_test_boss_observed_sync;
                         in_elite_boss_combat = true;
                         observed_combat_sync = combat_elite_boss_observed_sync;
                         phase = SeedStartPhase::Combat;
@@ -1835,19 +1775,12 @@ fn verify_seed_start_transitions(
                             &start.external_seed,
                             combat_index,
                             seed_sim.as_ref(),
-                            start.external_seed == "TEST"
-                                && options.disable_test_boss_observed_sync,
+                            options.disable_test_boss_observed_sync,
                         );
-                        combat_step = 0;
                     }
                 }
             }
             SeedStartPhase::Treasure if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
-                if start.external_seed == "TEST" && action.step >= 240 {
-                    if let Some(boundary) = seed_start_test_complete_boundary(start) {
-                        return boundary;
-                    }
-                }
                 if let Some(sim) = seed_sim.as_mut() {
                     seed_start_sync_run_from_observed(sim, &post.message);
                     seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
@@ -1876,12 +1809,6 @@ fn verify_seed_start_transitions(
                 if screen_type(&pre.message) == Some("CHEST") && choose_index == 0 {
                     if screen_type(&post.message) == Some("BOSS_REWARD") {
                         enter_boss_relic_reward_screen(sim);
-                        if start.external_seed == "TEST" {
-                            if let Some(reward) = sim.reward.as_mut() {
-                                reward.relic_key_offer = Some(RelicKey::CursedKey);
-                                reward.relic_offer = None;
-                            }
-                        }
                         compare_subset(
                             report,
                             action,
@@ -1949,21 +1876,13 @@ fn verify_seed_start_transitions(
                     }
                 }
                 seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
-                if start.external_seed == "TEST" {
-                    report.verified.push(VerifiedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        label: "rest skip card reward".to_owned(),
-                    });
-                } else {
-                    compare_subset(
-                        report,
-                        action,
-                        "rest skip card reward",
-                        seed_start_rest_observed_subset(&post.message),
-                        seed_start_rest_simulated_subset(sim, &relics),
-                    );
-                }
+                compare_subset(
+                    report,
+                    action,
+                    "rest skip card reward",
+                    seed_start_rest_observed_subset(&post.message),
+                    seed_start_rest_simulated_subset(sim, &relics),
+                );
                 if sim.phase == RunPhase::Idle {
                     phase = SeedStartPhase::Proceed;
                 }
@@ -2100,32 +2019,6 @@ fn verify_seed_start_transitions(
                     });
                     return boundary;
                 };
-                if start.external_seed == "M290008"
-                    && action.step == 46
-                    && screen_event_name(&pre.message) == Some("Scrap Ooze")
-                    && command_is_choose(&action.command, 0)
-                {
-                    seed_start_sync_run_from_observed(sim, &post.message);
-                    seed_start_sync_relic_keys_from_observed(sim, &post.message);
-                    sim.phase = RunPhase::Event;
-                    sim.event = Some(EventScreen {
-                        event: Event::ScrapOoze,
-                        choices: vec![EventChoice {
-                            label: "Leave".to_owned(),
-                        }],
-                        stage: 2,
-                        event_data: 0,
-                    });
-                    seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
-                    compare_subset(
-                        report,
-                        action,
-                        "captured Scrap Ooze success",
-                        seed_start_event_observed_subset(&post.message),
-                        seed_start_event_observed_subset(&post.message),
-                    );
-                    continue;
-                }
                 compare_subset(
                     report,
                     action,
@@ -2281,7 +2174,6 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         label: label.to_owned(),
                     });
-                    combat_step += 1;
                     continue;
                 }
 
@@ -2342,7 +2234,6 @@ fn verify_seed_start_transitions(
                         false,
                     );
                     *sim = next;
-                    combat_step += 1;
                     continue;
                 }
 
@@ -2386,7 +2277,6 @@ fn verify_seed_start_transitions(
                         false,
                     );
                     *sim = next;
-                    combat_step += 1;
                     continue;
                 }
 
@@ -2418,7 +2308,6 @@ fn verify_seed_start_transitions(
                         sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
                     }
                     *sim = next;
-                    combat_step += 1;
                     continue;
                 }
 
@@ -2459,7 +2348,6 @@ fn verify_seed_start_transitions(
                         sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
                     }
                     *sim = next;
-                    combat_step += 1;
                     continue;
                 }
 
@@ -2546,52 +2434,19 @@ fn verify_seed_start_transitions(
                         in_elite_boss_combat = false;
                     }
                     let label = combat_label(command, sim);
-                    if start.external_seed == "VERIFY01" {
-                        if let Some(expected) =
-                            seed_start_cultist_combat_expected(combat_step, command)
-                        {
-                            compare_subset(
-                                report,
-                                action,
-                                expected.label,
-                                seed_start_combat_observed_subset(&post.message),
-                                expected.state,
-                            );
-                        }
-                    } else {
-                        compare_subset(
-                            report,
-                            action,
-                            &label,
-                            seed_start_victory_observed_subset(&post.message),
-                            seed_start_victory_simulated_subset(&next, &post.message),
-                        );
-                    }
+                    compare_subset(
+                        report,
+                        action,
+                        &label,
+                        seed_start_victory_observed_subset(&post.message),
+                        seed_start_victory_simulated_subset(&next, &post.message),
+                    );
                     seed_sim = Some(next);
-                    combat_step += 1;
-                    if start.external_seed == "CODEX04" && combat_index >= 2 {
-                        phase = SeedStartPhase::Complete;
-                    } else {
-                        phase = SeedStartPhase::Reward;
-                    }
+                    phase = SeedStartPhase::Reward;
                     continue;
                 }
 
-                let retry_sim_holder;
-                let mut next = apply_combat_action_on_run(sim, combat_action);
-                if next.as_ref().err().is_some_and(|err| {
-                    start.external_seed == "M290001"
-                        && err.to_string().contains("target is not a living monster")
-                }) {
-                    retry_sim_holder =
-                        run_from_observed_combat(&pre.message).unwrap_or_else(|| sim.clone());
-                    if let Some(retry_action) = combat_action_from_command(
-                        command,
-                        retry_sim_holder.combat.as_ref().expect("combat run"),
-                    ) {
-                        next = apply_combat_action_on_run(&retry_sim_holder, retry_action);
-                    }
-                }
+                let next = apply_combat_action_on_run(sim, combat_action);
                 let Ok(mut next) = next else {
                     push_sim_error(
                         report,
@@ -2608,26 +2463,6 @@ fn verify_seed_start_transitions(
                 let label = combat_label(command, sim);
                 let end_turn = command.eq_ignore_ascii_case("END");
                 let mut comparison_run = next.clone();
-                if start.external_seed == "M290008"
-                    && end_turn
-                    && screen_type(&post.message) == Some("COMBAT_REWARD")
-                {
-                    enter_normal_combat_reward_screen(&mut next);
-                    seed_start_sync_run_from_observed(&mut next, &post.message);
-                    seed_start_sync_reward_offers_from_observed(&mut next, &post.message);
-                    seed_start_sync_carry_from_run(&next, &mut relics, &mut deck_ids);
-                    compare_subset(
-                        report,
-                        action,
-                        "captured Looter escape reward",
-                        seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_observed_subset(&post.message),
-                    );
-                    seed_sim = Some(next);
-                    combat_step += 1;
-                    phase = SeedStartPhase::Reward;
-                    continue;
-                }
                 if end_turn
                     && (!in_elite_boss_combat || combat_elite_boss_observed_sync)
                     && !options.disable_post_end_non_pile_observed_sync
@@ -2665,7 +2500,6 @@ fn verify_seed_start_transitions(
                     sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
                 }
                 *sim = next;
-                combat_step += 1;
             }
             SeedStartPhase::Reward => {
                 if action.command.trim().eq_ignore_ascii_case("SKIP") {
@@ -2684,13 +2518,6 @@ fn verify_seed_start_transitions(
                     seed_start_sync_run_from_observed(sim, &post.message);
                     seed_start_sync_reward_offers_from_observed(sim, &post.message);
                     seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
-                    if start.external_seed == "TEST" {
-                        report.verified.push(VerifiedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "skip card reward".to_owned(),
-                        });
-                    }
                     if seed_start_reward_sequence_complete(sim) {
                         phase = SeedStartPhase::Proceed;
                     }
@@ -2789,24 +2616,7 @@ fn verify_seed_start_transitions(
                     Ok(label) => {
                         seed_start_sync_run_from_observed(sim, &post.message);
                         seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
-                        if start.external_seed == "TEST" && label == "relic reward" {
-                            if let Some(game) = post.message.get("game_state") {
-                                relics = relic_keys_from_value(game.get("relics"));
-                            }
-                        }
-                        if start.external_seed == "TEST" && action.step == 111 {
-                            if let Some(game) = post.message.get("game_state") {
-                                relics = relic_keys_from_value(game.get("relics"));
-                                seed_start_sync_relic_keys_from_observed(sim, &post.message);
-                            }
-                        }
-                        if start.external_seed == "TEST" && action.step >= 104 {
-                            report.verified.push(VerifiedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                label,
-                            });
-                        } else if seed_start_reward_sequence_complete(sim)
+                        if seed_start_reward_sequence_complete(sim)
                             && screen_type(&post.message) == Some("EVENT")
                         {
                             compare_subset(
@@ -3002,13 +2812,6 @@ fn verify_seed_start_transitions(
                 let command = action.command.trim();
                 if command.eq_ignore_ascii_case("LEAVE") {
                     leave_shop_merchant(sim);
-                    if start.external_seed == "TEST" {
-                        seed_start_sync_run_from_observed(sim, &post.message);
-                        if let Some(game) = post.message.get("game_state") {
-                            relics = relic_keys_from_value(game.get("relics"));
-                            deck_ids = deck_keys_from_value(game.get("deck"));
-                        }
-                    }
                     compare_subset(
                         report,
                         action,
@@ -3022,13 +2825,6 @@ fn verify_seed_start_transitions(
                     && screen_type(&pre.message) == Some("SHOP_ROOM")
                 {
                     leave_shop_room(sim);
-                    if start.external_seed == "TEST" {
-                        seed_start_sync_run_from_observed(sim, &post.message);
-                        if let Some(game) = post.message.get("game_state") {
-                            relics = relic_keys_from_value(game.get("relics"));
-                            deck_ids = deck_keys_from_value(game.get("deck"));
-                        }
-                    }
                     seed_start_sync_carry_from_run(sim, &mut relics, &mut deck_ids);
                     compare_subset(
                         report,
@@ -3126,47 +2922,7 @@ fn verify_seed_start_transitions(
                 });
                 return boundary;
             }
-            SeedStartPhase::Proceed if start.external_seed == "VERIFY01" => {
-                if action.command.eq_ignore_ascii_case("PROCEED") {
-                    let deck = seed_sim
-                        .as_ref()
-                        .map(|sim| deck_content_keys(&sim.deck))
-                        .unwrap_or_else(|| ironclad_deck_with_twin_strike_keys());
-                    compare_subset(
-                        report,
-                        action,
-                        "captured return to map",
-                        seed_start_map_return_observed_subset(&post.message),
-                        seed_start_simulated_map_return(
-                            start.numeric_seed,
-                            &map_path_xs,
-                            seed_sim.as_ref(),
-                            &relics,
-                            &deck,
-                            &deck,
-                        ),
-                    );
-                    phase = SeedStartPhase::Complete;
-                } else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_post_reward_map".to_owned(),
-                        reason: "seed-start verifier expected captured reward-to-map PROCEED command; alternate post-reward paths are not implemented".to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return boundary;
-                }
-            }
-            SeedStartPhase::Proceed
-                if matches!(
-                    start.external_seed.as_str(),
-                    "CODEX04" | "CODEX03" | "TEST" | "M290001" | "M290008"
-                ) =>
-            {
+            SeedStartPhase::Proceed => {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
                     if screen_type(&post.message) == Some("CHEST") {
                         if let Some(sim) = seed_sim.as_mut() {
@@ -3199,21 +2955,13 @@ fn verify_seed_start_transitions(
                     ) {
                         return boundary;
                     }
-                    if start.external_seed == "TEST"
-                        && action.step >= 93
-                        && !options.disable_test_late_normal_observed_sync
-                    {
-                        observed_combat_sync = true;
-                    }
                     continue;
                 } else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_post_reward_map".to_owned(),
-                        reason: format!(
-                            "seed-start verifier expected {} reward-to-map PROCEED command",
-                            start.external_seed
-                        ),
+                        reason: "seed-start verifier expected reward-to-map PROCEED command"
+                            .to_owned(),
                     };
                     report.unsupported.push(UnsupportedTransition {
                         action_step: action.step,
@@ -3256,13 +3004,7 @@ fn verify_seed_start_transitions(
     }
 
     if matches!(phase, SeedStartPhase::Complete) {
-        let reason = if start.external_seed == "CODEX04" {
-            "seed-start verifier reached CODEX04 floor-3 combat completion".to_owned()
-        } else if start.external_seed == "TEST" {
-            "seed-start verifier reached TEST Act 1 boss relic return-to-map".to_owned()
-        } else {
-            "seed-start verifier reached the captured return-to-map state".to_owned()
-        };
+        let reason = "seed-start verifier reached the captured return-to-map state".to_owned();
         SeedStartBoundary {
             path: "$.actions[complete]".to_owned(),
             category: "none".to_owned(),
@@ -3409,243 +3151,6 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
         "combat_player_energy": player.map(|p| int(p, "energy")).unwrap_or(0),
         "monsters": seed_start_monsters_from_value(combat.and_then(|combat| combat.get("monsters"))),
-    })
-}
-
-struct CapturedCombatExpectation {
-    label: &'static str,
-    state: Value,
-}
-
-fn seed_start_cultist_combat_expected(
-    combat_step: usize,
-    command: &str,
-) -> Option<CapturedCombatExpectation> {
-    let expected_command = match combat_step {
-        0 => "PLAY 5 0",
-        1 => "PLAY 1 0",
-        2 => "END",
-        3 => "PLAY 3 0",
-        4 => "PLAY 3 0",
-        5 => "PLAY 1",
-        6 => "END",
-        7 => "PLAY 3 0",
-        8 => "PLAY 1 0",
-        _ => return None,
-    };
-    if !command.eq_ignore_ascii_case(expected_command) {
-        return None;
-    }
-
-    let expectation = match combat_step {
-        0 => CapturedCombatExpectation {
-            label: "captured Cultist Bash",
-            state: seed_start_combat_state(
-                80,
-                0,
-                1,
-                &["Strike_R", "Strike_R", "Defend_R", "Strike_R"],
-                &["Defend_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R"],
-                &["Bash"],
-                41,
-                "BUFF",
-                0,
-                0,
-                2,
-                false,
-            ),
-        },
-        1 => CapturedCombatExpectation {
-            label: "captured Cultist Strike after Bash",
-            state: seed_start_combat_state(
-                80,
-                0,
-                0,
-                &["Strike_R", "Defend_R", "Strike_R"],
-                &["Defend_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R"],
-                &["Bash", "Strike_R"],
-                32,
-                "BUFF",
-                0,
-                0,
-                2,
-                false,
-            ),
-        },
-        2 => CapturedCombatExpectation {
-            label: "captured Cultist first end turn",
-            state: seed_start_combat_state(
-                80,
-                0,
-                3,
-                &["Defend_R", "Defend_R", "Strike_R", "Strike_R", "Defend_R"],
-                &[],
-                &["Bash", "Strike_R", "Strike_R", "Defend_R", "Strike_R"],
-                32,
-                "ATTACK",
-                0,
-                3,
-                1,
-                false,
-            ),
-        },
-        3 => CapturedCombatExpectation {
-            label: "captured Cultist second-turn Strike one",
-            state: seed_start_combat_state(
-                80,
-                0,
-                2,
-                &["Defend_R", "Defend_R", "Strike_R", "Defend_R"],
-                &[],
-                &[
-                    "Bash", "Strike_R", "Strike_R", "Defend_R", "Strike_R", "Strike_R",
-                ],
-                23,
-                "ATTACK",
-                0,
-                3,
-                1,
-                false,
-            ),
-        },
-        4 => CapturedCombatExpectation {
-            label: "captured Cultist second-turn Strike two",
-            state: seed_start_combat_state(
-                80,
-                0,
-                1,
-                &["Defend_R", "Defend_R", "Defend_R"],
-                &[],
-                &[
-                    "Bash", "Strike_R", "Strike_R", "Defend_R", "Strike_R", "Strike_R", "Strike_R",
-                ],
-                14,
-                "ATTACK",
-                0,
-                3,
-                1,
-                false,
-            ),
-        },
-        5 => CapturedCombatExpectation {
-            label: "captured Cultist Defend",
-            state: seed_start_combat_state(
-                80,
-                5,
-                0,
-                &["Defend_R", "Defend_R"],
-                &[],
-                &[
-                    "Bash", "Strike_R", "Strike_R", "Defend_R", "Strike_R", "Strike_R", "Strike_R",
-                    "Defend_R",
-                ],
-                14,
-                "ATTACK",
-                0,
-                3,
-                1,
-                false,
-            ),
-        },
-        6 => CapturedCombatExpectation {
-            label: "captured Cultist second end turn and shuffle",
-            state: seed_start_combat_state(
-                79,
-                0,
-                3,
-                &["Strike_R", "Strike_R", "Bash", "Defend_R", "Strike_R"],
-                &["Defend_R", "Strike_R", "Defend_R", "Defend_R", "Strike_R"],
-                &[],
-                14,
-                "ATTACK",
-                3,
-                3,
-                0,
-                true,
-            ),
-        },
-        7 => CapturedCombatExpectation {
-            label: "captured Cultist final Bash",
-            state: seed_start_combat_state(
-                79,
-                0,
-                1,
-                &["Strike_R", "Strike_R", "Defend_R", "Strike_R"],
-                &["Defend_R", "Strike_R", "Defend_R", "Defend_R", "Strike_R"],
-                &["Bash"],
-                6,
-                "ATTACK",
-                3,
-                3,
-                2,
-                false,
-            ),
-        },
-        8 => CapturedCombatExpectation {
-            label: "captured Cultist lethal Strike",
-            state: json!({
-                "screen_type": "COMBAT_REWARD",
-                "floor": 1,
-                "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
-                "deck_ids": ironclad_starter_deck_keys(),
-                "relic_ids": ["Burning Blood", "Toy Ornithopter"],
-                "choices": ["gold", "card"],
-                "reward_types": ["GOLD", "CARD"],
-                "gold_offer": 14,
-                "unobservable": {
-                    "reward_gold_rng_draws": true,
-                    "card_reward_rng_draws": true,
-                    "reward_screen_internal_ids": true,
-                },
-            }),
-        },
-        _ => return None,
-    };
-    Some(expectation)
-}
-
-fn seed_start_combat_state(
-    player_hp: i32,
-    player_block: i32,
-    player_energy: i32,
-    hand: &[&str],
-    draw: &[&str],
-    discard: &[&str],
-    monster_hp: i32,
-    monster_intent: &str,
-    monster_strength: i32,
-    monster_ritual: i32,
-    monster_vulnerable: i32,
-    unobservable_shuffle: bool,
-) -> Value {
-    json!({
-        "screen_type": "NONE",
-        "floor": 1,
-        "gold": 99,
-        "current_hp": player_hp,
-        "max_hp": 80,
-        "combat_player_hp": player_hp,
-        "combat_player_block": player_block,
-        "combat_player_energy": player_energy,
-        "hand_ids": hand,
-        "draw_ids": draw,
-        "discard_ids": discard,
-        "monsters": [{
-            "name": "Cultist",
-            "current_hp": monster_hp,
-            "max_hp": 49,
-            "block": 0,
-            "intent": monster_intent,
-            "strength": monster_strength,
-            "ritual": monster_ritual,
-            "vulnerable": monster_vulnerable,
-        }],
-        "unobservable": {
-            "shuffle_rng_draws": unobservable_shuffle,
-            "card_uuids": true,
-        },
     })
 }
 
@@ -3878,13 +3383,7 @@ fn ironclad_starter_deck_keys() -> Vec<String> {
     .collect()
 }
 
-fn ironclad_deck_with_twin_strike_keys() -> Vec<String> {
-    let mut deck = ironclad_starter_deck_keys();
-    deck.push("Twin Strike".to_owned());
-    deck
-}
-
-fn seed_start_m290001_visible_deck_after_transform() -> Vec<String> {
+fn ironclad_deck_after_transform_selection_keys() -> Vec<String> {
     vec![
         "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R", "Defend_R",
         "Defend_R", "Bash",
@@ -3894,17 +3393,6 @@ fn seed_start_m290001_visible_deck_after_transform() -> Vec<String> {
     .collect()
 }
 
-fn seed_start_is_transform_neow_branch(seed: &str) -> bool {
-    known_neow_screen_for_seed(seed).branch == Some(KnownNeowBranch::TransformCard)
-}
-
-fn seed_start_visible_deck_after_transform(seed: &str) -> Vec<String> {
-    match seed {
-        "M290001" | "M290008" => seed_start_m290001_visible_deck_after_transform(),
-        _ => ironclad_starter_deck_keys(),
-    }
-}
-
 fn seed_start_generated_transform_card(numeric_seed: i64) -> Option<String> {
     generate_neow_transform_reward(numeric_seed, &[STRIKE_R_ID])
         .cards
@@ -3912,12 +3400,10 @@ fn seed_start_generated_transform_card(numeric_seed: i64) -> Option<String> {
         .map(|card| deck_content_key(*card).to_owned())
 }
 
-fn seed_start_deck_after_transform(numeric_seed: i64, seed: &str) -> Vec<String> {
-    let mut deck = seed_start_visible_deck_after_transform(seed);
-    if seed_start_is_transform_neow_branch(seed) {
-        if let Some(card) = seed_start_generated_transform_card(numeric_seed) {
-            deck.push(card);
-        }
+fn seed_start_deck_after_transform(numeric_seed: i64) -> Vec<String> {
+    let mut deck = ironclad_deck_after_transform_selection_keys();
+    if let Some(card) = seed_start_generated_transform_card(numeric_seed) {
+        deck.push(card);
     }
     deck
 }
@@ -4022,56 +3508,10 @@ fn seed_start_apply_neow_curse_simple_option(
     run.gold = 99;
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
-    if !matches!(numeric_seed, 2 | 36) {
-        run.relics = vec![Relic::BurningBlood];
-        apply_neow_curse_drawback(&mut run);
-    }
+    run.relics = vec![Relic::BurningBlood];
+    apply_neow_curse_drawback(&mut run);
     apply_neow_simple_reward(&mut run, option.reward);
     run
-}
-
-fn seed_start_trace_backed_neow_curse(numeric_seed: i64) -> Option<ContentId> {
-    use sts_core::content::cards::{DECAY_ID, SHAME_ID};
-
-    match numeric_seed {
-        24 => Some(DECAY_ID),
-        46 => Some(SHAME_ID),
-        _ => None,
-    }
-}
-
-fn seed_start_trace_backed_neow_deferred_curse(numeric_seed: i64) -> Option<&'static str> {
-    match numeric_seed {
-        12 => Some("Writhe"),
-        _ => None,
-    }
-}
-
-fn seed_start_trace_backed_neow_grid_complete_deck(
-    numeric_seed: i64,
-    deck_ids: &[String],
-) -> Option<Vec<String>> {
-    match numeric_seed {
-        46 => {
-            let mut visible = deck_ids
-                .iter()
-                .filter(|id| id.as_str() == "Strike_R")
-                .take(3)
-                .cloned()
-                .collect::<Vec<_>>();
-            visible.extend(
-                deck_ids
-                    .iter()
-                    .filter(|id| id.as_str() == "Defend_R")
-                    .take(4)
-                    .cloned(),
-            );
-            visible.push("Bash".to_owned());
-            visible.push("Shame".to_owned());
-            Some(visible)
-        }
-        _ => None,
-    }
 }
 
 fn seed_start_neow_drawback_is_supported_for_reward_screen(drawback: NeowDrawback) -> bool {
@@ -4088,7 +3528,9 @@ fn seed_start_apply_neow_reward_drawback(
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
     match option.drawback {
-        NeowDrawback::Curse => {}
+        NeowDrawback::Curse => {
+            apply_neow_curse_drawback(&mut run);
+        }
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
     run
@@ -4104,7 +3546,9 @@ fn seed_start_open_neow_grid_run(
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
     match option.drawback {
-        NeowDrawback::Curse => {}
+        NeowDrawback::Curse => {
+            apply_neow_curse_drawback(&mut run);
+        }
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
     open_neow_reward_grid(&mut run, option.reward);
@@ -4251,10 +3695,6 @@ fn seed_start_neow_card_reward_content_ids(
     option: &GeneratedNeowOption,
     run: Option<&RunState>,
 ) -> Vec<ContentId> {
-    if let Some(cards) = seed_start_trace_backed_neow_card_reward_content_ids(numeric_seed, option)
-    {
-        return cards;
-    }
     match option.reward {
         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
             if let Some(run) = run {
@@ -4269,23 +3709,6 @@ fn seed_start_neow_card_reward_content_ids(
             }
         }
         _ => generate_neow_card_reward(numeric_seed, option.reward).cards,
-    }
-}
-
-fn seed_start_trace_backed_neow_card_reward_content_ids(
-    numeric_seed: i64,
-    option: &GeneratedNeowOption,
-) -> Option<Vec<ContentId>> {
-    use sts_core::content::cards::{
-        CHRYSALIS_ID, FEED_ID, HAND_OF_GREED_ID, IMPERVIOUS_ID, LIMIT_BREAK_ID, MAGNETISM_ID,
-    };
-
-    match (numeric_seed, option.reward) {
-        (8, NeowRewardType::ThreeRareCards) => Some(vec![LIMIT_BREAK_ID, IMPERVIOUS_ID, FEED_ID]),
-        (12, NeowRewardType::RandomColorlessTwo) => {
-            Some(vec![MAGNETISM_ID, CHRYSALIS_ID, HAND_OF_GREED_ID])
-        }
-        _ => None,
     }
 }
 
@@ -4326,13 +3749,9 @@ fn seed_start_apply_neow_relic_reward(
     run.deck = deck_instances_from_keys(deck_ids);
     match option.drawback {
         NeowDrawback::Curse => {
-            if let Some(curse) = seed_start_trace_backed_neow_curse(numeric_seed) {
-                run.gain_deck_card(curse);
-            } else {
-                run.reward_rng_seed = numeric_seed as u64;
-                run.relics = vec![Relic::BurningBlood];
-                apply_neow_curse_drawback(&mut run);
-            }
+            run.reward_rng_seed = numeric_seed as u64;
+            run.relics = vec![Relic::BurningBlood];
+            apply_neow_curse_drawback(&mut run);
         }
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
@@ -4359,12 +3778,6 @@ fn seed_start_neow_relic_reward_label(reward: NeowRewardType) -> &'static str {
         NeowRewardType::OneRareRelic => "Neow rare relic",
         _ => "Neow relic",
     }
-}
-
-fn seed_start_colorless_pick_label(seed: &str) -> &'static str {
-    known_neow_colorless_reward_for_seed(seed)
-        .map(|reward| reward.pick_label)
-        .unwrap_or("Neow colorless pickup")
 }
 
 fn seed_start_pick_neow_card_reward(
@@ -4742,35 +4155,7 @@ fn seed_start_test_pop_last_diff(
     action: &TraceAction,
     external_seed: &str,
 ) {
-    if external_seed != "TEST" {
-        return;
-    }
-    let popped = report
-        .unexpected_diffs
-        .last()
-        .filter(|diff| diff.action_step == action.step)
-        .map(|diff| (diff.label.clone(), diff.action_step));
-    if let Some((label, step)) = popped {
-        if step == action.step {
-            report.unexpected_diffs.pop();
-            report.verified.push(VerifiedTransition {
-                action_step: action.step,
-                command: action.command.clone(),
-                label,
-            });
-        }
-    }
-}
-
-fn seed_start_test_complete_boundary(start: &StartRunCommand) -> Option<SeedStartBoundary> {
-    if start.external_seed != "TEST" {
-        return None;
-    }
-    Some(SeedStartBoundary {
-        path: "$.actions[complete]".to_owned(),
-        category: "none".to_owned(),
-        reason: "seed-start verifier reached TEST Act 1 boss relic return-to-map".to_owned(),
-    })
+    let _ = (report, action, external_seed);
 }
 
 fn seed_start_handle_proceed_to_map(
@@ -4791,36 +4176,18 @@ fn seed_start_handle_proceed_to_map(
         .map(|sim| deck_content_keys(&sim.deck))
         .unwrap_or_else(|| deck_ids.to_vec());
     let observed = seed_start_map_return_observed_subset(post_message);
-    let simulated = if start.external_seed == "TEST" && action.step >= 108 {
-        observed.clone()
-    } else {
-        seed_start_simulated_map_return(
-            start.numeric_seed,
-            map_path_xs,
-            seed_sim,
-            relics,
-            &deck,
-            &deck,
-        )
-    };
+    let simulated = seed_start_simulated_map_return(
+        start.numeric_seed,
+        map_path_xs,
+        seed_sim,
+        relics,
+        &deck,
+        &deck,
+    );
     compare_subset(report, action, &label, observed, simulated);
     seed_start_test_pop_last_diff(report, action, &start.external_seed);
     *combat_index += 1;
     *reward_step = 0;
-    if start.external_seed == "TEST" && action.step >= 240 {
-        if let Some(boundary) = seed_start_test_complete_boundary(start) {
-            *phase = SeedStartPhase::Complete;
-            return Some(boundary);
-        }
-    }
-    if start.external_seed == "CODEX03" && *combat_index >= 3 {
-        return Some(SeedStartBoundary {
-            path: "$.actions[complete]".to_owned(),
-            category: "none".to_owned(),
-            reason: "seed-start verifier reached CODEX03 floor-3 return-to-map after Neow's Lament prefix"
-                .to_owned(),
-        });
-    }
     *phase = SeedStartPhase::Map;
     None
 }
@@ -4835,39 +4202,8 @@ fn seed_start_map_label(combat_index: usize) -> String {
 }
 
 fn seed_start_map_choice(seed: &str, pick_index: usize) -> usize {
-    match (seed, pick_index) {
-        ("CODEX04", 0) => 1,
-        ("CODEX04", _) => 0,
-        ("CODEX03", _) => 0,
-        ("TEST", 0) => 1,
-        ("TEST", 4) => 1,
-        ("TEST", 11) => 1,
-        ("TEST", 12) => 1,
-        ("TEST", _) => 0,
-        (_, 0) => 0,
-        _ => 0,
-    }
-}
-
-fn seed_start_test_room_kind_for_pick(pick_index: usize) -> RoomKind {
-    match pick_index {
-        2 | 3 => RoomKind::Event,
-        5 | 9 | 13 => RoomKind::Elite,
-        6 | 14 => RoomKind::Rest,
-        8 => RoomKind::Treasure,
-        12 => RoomKind::Shop,
-        15 => RoomKind::Boss,
-        _ => RoomKind::Combat,
-    }
-}
-
-fn seed_start_m290001_room_kind_for_pick(pick_index: usize) -> RoomKind {
-    match pick_index {
-        2 => RoomKind::Event,
-        5 => RoomKind::Rest,
-        6 => RoomKind::Elite,
-        _ => RoomKind::Combat,
-    }
+    let _ = (seed, pick_index);
+    0
 }
 
 fn seed_start_map_pick_x(external_seed: &str, path_so_far: &[i32], command: &str) -> i32 {
@@ -5649,13 +4985,6 @@ fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relic_keys.contains(&key) || run.relics.iter().any(|relic| relic.key() == key)
 }
 
-fn seed_start_sync_relic_keys_from_observed(run: &mut RunState, message: &Value) {
-    let Some(game) = message.get("game_state") else {
-        return;
-    };
-    seed_start_sync_relics_from_game(run, game);
-}
-
 fn seed_start_sync_relics_from_game(run: &mut RunState, game: &Value) {
     run.relics.clear();
     run.relic_keys.clear();
@@ -5728,25 +5057,8 @@ fn seed_start_prepare_event_entry(
     external_seed: &str,
     event_room_index: usize,
 ) {
+    let _ = (external_seed, event_room_index);
     run.current_floor += 1;
-    if external_seed == "TEST" && event_room_index == 0 {
-        run.event_rng_counter = 24;
-    }
-    if external_seed == "M290001" && event_room_index == 0 {
-        run.phase = RunPhase::Event;
-        run.event = Some(event_screen(Event::TheSsssserpent));
-        return;
-    }
-    if external_seed == "M290008" && event_room_index == 0 {
-        run.phase = RunPhase::Event;
-        run.event = Some(event_screen(Event::ScrapOoze));
-        return;
-    }
-    if external_seed == "M290008" && event_room_index == 1 {
-        run.phase = RunPhase::Event;
-        run.event = Some(event_screen(Event::TheSsssserpent));
-        return;
-    }
     enter_event_screen(run);
 }
 
@@ -6118,9 +5430,6 @@ fn seed_start_run_from_combat_entry(
     } else {
         seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
     }
-    if external_seed == "CODEX04" {
-        seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
-    }
     if run.neow_lament_combats_remaining > 0 {
         run.neow_lament_combats_remaining -= 1;
     }
@@ -6347,6 +5656,7 @@ fn seed_start_apply_reward_rng_snapshot(
     external_seed: &str,
     combat_index: usize,
 ) {
+    let _ = (external_seed, combat_index);
     run.reward_rng_seed = numeric_seed as u64;
     run.treasure_rng_seed = numeric_seed as u64;
     run.potion_rng_seed = numeric_seed as u64;
@@ -6355,51 +5665,6 @@ fn seed_start_apply_reward_rng_snapshot(
     run.event_rng_seed = numeric_seed as u64;
     run.misc_rng_seed = numeric_seed as u64;
     run.current_act = 1;
-    match (external_seed, combat_index) {
-        ("CODEX04", 0) => {
-            run.card_rng_counter = 3;
-            run.card_rarity_factor = 5;
-            run.treasure_rng_counter = 0;
-            run.potion_rng_counter = 0;
-            run.potion_chance = 0;
-        }
-        ("TEST", 0) => {
-            run.card_rng_counter = 3;
-            run.card_rarity_factor = 5;
-            run.treasure_rng_counter = 0;
-            run.potion_rng_counter = 0;
-            run.potion_chance = 0;
-        }
-        ("CODEX04", 1) => {
-            run.card_rng_counter = 12;
-            run.card_rarity_factor = 4;
-            run.treasure_rng_counter = 1;
-            run.potion_rng_counter = 1;
-            run.potion_chance = 10;
-        }
-        ("CODEX04", 2) => {
-            run.card_rng_counter = 21;
-            run.card_rarity_factor = 3;
-            run.treasure_rng_counter = 2;
-            run.potion_rng_counter = 2;
-            run.potion_chance = 20;
-        }
-        ("CODEX03", 0) => {
-            run.card_rng_counter = 0;
-            run.card_rarity_factor = 5;
-            run.treasure_rng_counter = 0;
-            run.potion_rng_counter = 0;
-            run.potion_chance = 0;
-        }
-        ("VERIFY01", 0) => {
-            run.card_rng_counter = 0;
-            run.card_rarity_factor = 5;
-            run.treasure_rng_counter = 0;
-            run.potion_rng_counter = 0;
-            run.potion_chance = 0;
-        }
-        _ => {}
-    }
 }
 
 fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
@@ -6468,6 +5733,7 @@ fn seed_start_apply_reward_choose(
     post: &Value,
     external_seed: &str,
 ) -> Result<String, String> {
+    let _ = external_seed;
     let choose_index = choose_index(command)
         .ok_or_else(|| format!("seed-start verifier could not parse reward command {command:?}"))?;
 
@@ -6499,25 +5765,6 @@ fn seed_start_apply_reward_choose(
         "stolen_gold" => apply_run_action(sim, RunAction::TakeStolenGoldReward),
         "gold" => apply_run_action(sim, RunAction::TakeGoldReward),
         "card" => apply_run_action(sim, RunAction::OpenCardReward),
-        "potion" if external_seed == "TEST" => {
-            let mut next = sim.clone();
-            if let Some(game) = post.get("game_state") {
-                if let Some(potions) = game.get("potions").and_then(Value::as_array) {
-                    next.potions = potions
-                        .iter()
-                        .filter_map(|p| {
-                            p.get("name")
-                                .and_then(Value::as_str)
-                                .and_then(potion_from_trace_name)
-                        })
-                        .collect();
-                }
-            }
-            if let Some(reward) = next.reward.as_mut() {
-                reward.potion_offer = None;
-            }
-            Ok(next)
-        }
         "potion" if post_potion_count(post) > potions_before => {
             apply_run_action(sim, RunAction::TakePotionReward)
         }
@@ -6527,9 +5774,6 @@ fn seed_start_apply_reward_choose(
     }
     .map_err(|err| err.to_string())?;
     *sim = next;
-    if choice == "relic" && external_seed == "TEST" {
-        seed_start_sync_relic_keys_from_observed(sim, post);
-    }
     Ok(format!("{choice} reward"))
 }
 
@@ -8954,14 +8198,6 @@ fn screen_type(message: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn screen_event_name(message: &Value) -> Option<&str> {
-    message
-        .get("game_state")
-        .and_then(|game| game.get("screen_state"))
-        .and_then(|state| state.get("event_name"))
-        .and_then(Value::as_str)
-}
-
 fn first_choice(message: &Value) -> Option<&str> {
     message
         .get("game_state")
@@ -11298,8 +10534,8 @@ mod tests {
         assert_eq!(run.gold, 349);
         assert_eq!(run.player_hp, 80);
         assert_eq!(run.player_max_hp, 80);
-        assert_eq!(run.card_rng_counter, 0);
-        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len());
+        assert_eq!(run.card_rng_counter, 1);
+        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len() + 1);
     }
 
     #[test]
@@ -11784,13 +11020,10 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let transformed_keys = deck_content_keys(&after_second_select.deck);
-        let transformed_deck: Vec<_> =
-            seed_start_trace_backed_neow_grid_complete_deck(numeric_seed, &transformed_keys)
-                .unwrap_or(transformed_keys)
-                .into_iter()
-                .map(|id| json!({ "id": id }))
-                .collect();
+        let transformed_deck: Vec<_> = deck_content_keys(&after_second_select.deck)
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
         let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
             ["choices"]
             .as_array()
@@ -11881,7 +11114,7 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 3 && transition.label == "Neow curse transform two grid"
         }));
-        assert_eq!(initial_run.card_rng_counter, 0);
+        assert_eq!(initial_run.card_rng_counter, 1);
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 5 && transition.label == "Neow grid confirm"
         }));
@@ -12143,9 +11376,9 @@ mod tests {
         let shifted = seed_start_neow_card_reward_content_ids(numeric_seed, &option, Some(&run));
         let unshifted = generate_neow_colorless_reward(numeric_seed, option.reward).cards;
 
-        assert_eq!(run.card_rng_counter, 0);
-        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len());
-        assert_eq!(shifted, unshifted);
+        assert_eq!(run.card_rng_counter, 1);
+        assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len() + 1);
+        assert_ne!(shifted, unshifted);
         assert_eq!(
             shifted,
             generate_neow_colorless_reward_with_card_rng_counter(

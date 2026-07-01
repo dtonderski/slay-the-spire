@@ -120,17 +120,13 @@ pub fn verify_m22_encounter_spawn_prefix(
 }
 
 fn extend_generated_encounter_entries(
-    external_seed: &str,
+    _external_seed: &str,
     numeric_seed: i64,
     ascension: u8,
     neow_lament: bool,
     captured_combats: usize,
     predicted_entries: &mut Vec<M22EncounterEntry>,
 ) {
-    if external_seed != "VERIFY01" {
-        return;
-    }
-
     for combat_index in captured_combats..3 {
         let floor = u32::try_from(combat_index + 1).expect("first three floors fit in u32");
         let Some(spawn) = target_normal_encounter_spawn_at_combat_index(
@@ -320,7 +316,7 @@ fn compare_powers(captured: &[(String, i32)], expected: &[TargetSpawnPower]) -> 
         .iter()
         .map(|power| (power.id.to_owned(), power.amount))
         .collect();
-    if captured == &expected_pairs {
+    if captured == expected_pairs {
         return None;
     }
     Some(format!(

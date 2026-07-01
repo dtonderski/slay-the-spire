@@ -219,11 +219,51 @@ mod tests {
 
     #[test]
     fn passing_seed_start_trace_has_no_minimize_target() {
-        let Some(content) =
-            load_corpus_file("communication_mod/trace-2026-06-18T06-04-49-264Z.jsonl")
-        else {
-            return;
-        };
+        let deck = [
+            "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
+            "Defend_R", "Defend_R", "Bash",
+        ]
+        .into_iter()
+        .map(|id| serde_json::json!({ "id": id }))
+        .collect::<Vec<_>>();
+        let lines = [
+            serde_json::json!({
+                "type": "state",
+                "step": 0,
+                "message": {
+                    "available_commands": ["start", "state"],
+                    "in_game": false,
+                    "ready_for_command": true
+                }
+            }),
+            serde_json::json!({
+                "type": "action",
+                "step": 1,
+                "command": "START IRONCLAD 0 1"
+            }),
+            serde_json::json!({
+                "type": "state",
+                "step": 1,
+                "message": {
+                    "game_state": {
+                        "screen_type": "EVENT",
+                        "ascension_level": 0,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck": deck,
+                        "relics": [{ "name": "Burning Blood" }],
+                        "choice_list": ["talk"]
+                    }
+                }
+            }),
+        ];
+        let content = lines
+            .into_iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
         let err = minimize_communication_mod_trace(&content, VerificationMode::SeedStart)
             .expect_err("passing trace");
         assert_eq!(err, MinimizeError::NoFailure);

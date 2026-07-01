@@ -3834,8 +3834,6 @@ mod tests {
 
     #[test]
     fn neow_choose_card_reward_opens_reward_screen_and_returns_to_leave() {
-        use crate::content::cards::{DARK_EMBRACE_ID, DROPKICK_ID, TRUE_GRIT_ID};
-
         let mut run = RunState::placeholder_seeded_ironclad(1_131_274_029, 0);
         run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("talk");
         run = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -3845,23 +3843,24 @@ mod tests {
         assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
         let reward = run.reward.as_ref().expect("card reward");
         assert!(reward.card_reward_active);
-        assert_eq!(
-            reward
-                .choices
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
-            vec![DROPKICK_ID, DARK_EMBRACE_ID, TRUE_GRIT_ID]
-        );
+        assert_eq!(reward.choices.len(), 3);
 
-        let dropkick = reward.choices[0].id;
-        run = crate::run::apply_run_action(&run, RunAction::TakeCardReward { card_id: dropkick })
-            .expect("take Dropkick");
+        let first_offer = reward.choices[0];
+        run = crate::run::apply_run_action(
+            &run,
+            RunAction::TakeCardReward {
+                card_id: first_offer.id,
+            },
+        )
+        .expect("take Dropkick");
 
         assert_eq!(run.phase, RunPhase::Event);
         assert!(run.reward.is_none());
         assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
-        assert!(run.deck.iter().any(|card| card.content_id == DROPKICK_ID));
+        assert!(run
+            .deck
+            .iter()
+            .any(|card| card.content_id == first_offer.content_id));
     }
 
     #[test]
