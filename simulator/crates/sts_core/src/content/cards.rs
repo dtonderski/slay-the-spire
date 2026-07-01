@@ -1262,7 +1262,7 @@ pub const POMMEL_STRIKE_PLUS: CardDefinition = CardDefinition {
     card_type: CardType::Attack,
     target: TargetRequirement::Enemy,
     values: CardValues {
-        damage: Some(12),
+        damage: Some(10),
         block: None,
         vulnerable: None,
     },
@@ -5832,8 +5832,8 @@ mod tests {
     }
 
     #[test]
-    fn pommel_strike_plus_deals_three_more_damage() {
-        assert_eq!(POMMEL_STRIKE_PLUS.values.damage, Some(12));
+    fn pommel_strike_plus_deals_one_more_damage() {
+        assert_eq!(POMMEL_STRIKE_PLUS.values.damage, Some(10));
     }
 
     #[test]
