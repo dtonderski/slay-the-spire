@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Combat
+- Latest live-trace card reward rarity slice: Ironclad combat card rewards now
+  classify Dark Embrace as an uncommon card in the target reward pool, matching
+  the source `RarityCardPool` order used by `AbstractDungeon.getRewardCards`.
+  This restores the uncommon reward RNG indexing that produced
+  `Bloodletting/Cleave/Havoc` in the fresh UI trace. Focused regressions pin the
+  known rarity metadata and the uncommon pool order around Combust, Dark
+  Embrace, and Bloodletting; `trace-2026-07-01T20-30-26-163Z.jsonl` now
+  strict-replays to trace exhaustion after the longer reward screen.
 - Latest live-trace Discovery fidelity slice: Discovery now keeps the played
   source card pending while the generated-card reward screen is open, moving it
   to the normal played-card destination only after the combat reward choice

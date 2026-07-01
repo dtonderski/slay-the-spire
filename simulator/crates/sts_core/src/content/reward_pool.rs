@@ -215,7 +215,7 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
     },
     RewardCardEntry {
         content_id: DARK_EMBRACE_ID,
-        rarity: CardRarity::Rare,
+        rarity: CardRarity::Uncommon,
     },
     RewardCardEntry {
         content_id: SEEING_RED_ID,
@@ -495,9 +495,25 @@ mod tests {
         assert_eq!(rarity(HAVOC_ID), CardRarity::Common);
         assert_eq!(rarity(WARCRY_ID), CardRarity::Common);
         assert_eq!(rarity(BATTLE_TRANCE_ID), CardRarity::Uncommon);
+        assert_eq!(rarity(DARK_EMBRACE_ID), CardRarity::Uncommon);
+        assert_eq!(rarity(BLOODLETTING_ID), CardRarity::Uncommon);
         assert_eq!(rarity(SEARING_BLOW_ID), CardRarity::Uncommon);
         assert_eq!(rarity(DOUBLE_TAP_ID), CardRarity::Rare);
         assert_eq!(rarity(IMMOLATE_ID), CardRarity::Rare);
+    }
+
+    #[test]
+    fn ironclad_reward_uncommon_pool_matches_target_rarity_pool_order() {
+        let uncommon: Vec<_> = IRONCLAD_REWARD_ENTRIES
+            .iter()
+            .filter(|entry| entry.rarity == CardRarity::Uncommon)
+            .map(|entry| entry.content_id)
+            .collect();
+
+        assert_eq!(uncommon.len(), 36);
+        assert_eq!(uncommon[17], COMBUST_ID);
+        assert_eq!(uncommon[18], DARK_EMBRACE_ID);
+        assert_eq!(uncommon[29], BLOODLETTING_ID);
     }
 
     #[test]
