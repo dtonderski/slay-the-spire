@@ -674,8 +674,9 @@ pub fn known_neow_colorless_reward_for_seed(seed: &str) -> Option<KnownNeowColor
 mod tests {
     use super::*;
     use crate::content::cards::{
-        is_curse_content_id, CORRUPTION_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID,
-        JACK_OF_ALL_TRADES_ID, SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        is_curse_content_id, CLASH_ID, CORRUPTION_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID,
+        JACK_OF_ALL_TRADES_ID, RAMPAGE_ID, SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID,
+        SWIFT_STRIKE_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
@@ -959,6 +960,14 @@ mod tests {
 
         assert_eq!(reward.cards, vec![SENTINEL_ID]);
         assert_eq!(reward.neow_rng_counter, 6);
+    }
+
+    #[test]
+    fn transform_two_reward_matches_live03_captured_replacements() {
+        let reward = generate_neow_transform_reward(1_131_274_028, &[STRIKE_R_ID, STRIKE_R_ID]);
+
+        assert_eq!(reward.cards, vec![RAMPAGE_ID, CLASH_ID]);
+        assert_eq!(reward.neow_rng_counter, 7);
     }
 
     #[test]
