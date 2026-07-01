@@ -368,7 +368,7 @@ fn apply_internal_action(
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
-            let (spikes, still_alive, hand_drill_applies) = {
+            let (spikes, still_alive, minion, hand_drill_applies) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
                 let damage = deal_damage_info_to_monster_with_result(
@@ -383,6 +383,7 @@ fn apply_internal_action(
                 (
                     spikes,
                     monster.alive,
+                    monster.powers.minion > 0,
                     relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
                 )
             };
@@ -395,8 +396,10 @@ fn apply_internal_action(
             }
             check_slime_boss_split(state, info.target);
             if !still_alive {
-                state.player.max_hp += max_hp_gain;
-                state.player.hp += max_hp_gain;
+                if !minion {
+                    state.player.max_hp += max_hp_gain;
+                    state.player.hp += max_hp_gain;
+                }
                 apply_monster_death_hooks(state, info.target);
             }
             if spikes > 0 {
@@ -5168,6 +5171,28 @@ mod tests {
         assert_eq!(next.player.hp, 43);
         assert!(!next.monsters[0].alive);
         assert_eq!(next.piles.exhaust_pile[0].content_id, FEED_PLUS_ID);
+    }
+
+    #[test]
+    fn feed_plus_does_not_gain_max_hp_from_minion_kill() {
+        let mut state = two_monster_hand(FEED_PLUS_ID);
+        state.player.hp = 40;
+        state.player.max_hp = 70;
+        state.monsters[0].hp = 12;
+        state.monsters[0].powers.minion = 1;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: hand_card_id(&state, FEED_PLUS_ID),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Feed+ applies");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.max_hp, 70);
+        assert_eq!(next.player.hp, 40);
     }
 
     #[test]
