@@ -27,7 +27,10 @@ use crate::{
         apply_potion_action,
     },
     run::shop::apply_shop_action,
-    run::state::RunRngStream,
+    run::state::{
+        RunRngStream, DEFAULT_EVENT_ROOM_MONSTER_CHANCE, DEFAULT_EVENT_ROOM_SHOP_CHANCE,
+        DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
+    },
     CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -1234,6 +1237,9 @@ fn enter_next_act_map(run: &mut RunState) {
     let next_act = run.current_act + 1;
     advance_card_rng_for_dungeon_transition(run);
     run.potion_chance = 0;
+    run.event_room_monster_chance = DEFAULT_EVENT_ROOM_MONSTER_CHANCE;
+    run.event_room_shop_chance = DEFAULT_EVENT_ROOM_SHOP_CHANCE;
+    run.event_room_treasure_chance = DEFAULT_EVENT_ROOM_TREASURE_CHANCE;
     if next_act == 2 {
         run.map = Some(generate_target_fixed_map(
             run.reward_rng_seed as i64,
@@ -3497,11 +3503,23 @@ mod tests {
         run.current_floor = 17;
         run.phase = RunPhase::Reward;
         run.potion_chance = 30;
+        run.event_room_monster_chance = 40;
+        run.event_room_shop_chance = 12;
+        run.event_room_treasure_chance = 8;
 
         enter_next_act_map(&mut run);
 
         assert_eq!(run.current_act, 2);
         assert_eq!(run.potion_chance, 0);
+        assert_eq!(
+            run.event_room_monster_chance,
+            DEFAULT_EVENT_ROOM_MONSTER_CHANCE
+        );
+        assert_eq!(run.event_room_shop_chance, DEFAULT_EVENT_ROOM_SHOP_CHANCE);
+        assert_eq!(
+            run.event_room_treasure_chance,
+            DEFAULT_EVENT_ROOM_TREASURE_CHANCE
+        );
     }
 
     #[test]
