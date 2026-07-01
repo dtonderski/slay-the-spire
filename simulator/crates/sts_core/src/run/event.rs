@@ -859,7 +859,6 @@ pub fn enter_event_screen(run: &mut RunState) {
     ensure_event_lists(run);
     let mut rng = StsRng::with_counter(run.event_rng_seed as i64, run.event_rng_counter);
     let event = generate_event(run, &mut rng);
-    run.store_rng_counter(RunRngStream::Event, &rng);
     run.phase = RunPhase::Event;
     run.event = Some(entered_event_screen_for_run(run, event));
 }
@@ -3284,7 +3283,7 @@ mod tests {
     }
 
     #[test]
-    fn entering_world_of_goop_rolls_gold_loss_and_stores_event_rng_counter() {
+    fn entering_world_of_goop_rolls_gold_loss_without_storing_event_rng_counter() {
         let mut run = RunState::map_fixture();
         run.gold = 42;
         run.ascension = 0;
@@ -3302,7 +3301,7 @@ mod tests {
         assert!(screen.event_data >= WORLD_OF_GOOP_MIN_GOLD_LOSS as u32);
         assert!(screen.event_data <= WORLD_OF_GOOP_MAX_GOLD_LOSS as u32);
         assert_eq!(run.misc_rng_counter, 1);
-        assert!(run.event_rng_counter > 0);
+        assert_eq!(run.event_rng_counter, 0);
     }
 
     #[test]
