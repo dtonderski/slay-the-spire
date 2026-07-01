@@ -12082,8 +12082,11 @@ mod tests {
         assert_eq!(spawns.len(), 1);
         assert_eq!(spawns[0].name, "Orb Walker");
         assert_eq!(spawns[0].max_hp, 93);
-        assert_eq!(spawns[0].intent, "AddBurnToDiscardAndDraw");
-        assert_eq!(spawns[0].rolled_attack_damage, Some(ORB_WALKER_CLAW_DAMAGE));
+        assert_eq!(spawns[0].intent, "Attack");
+        assert_eq!(
+            spawns[0].rolled_attack_damage,
+            Some(ORB_WALKER_LASER_DAMAGE)
+        );
     }
 
     #[test]
