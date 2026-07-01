@@ -7817,21 +7817,21 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
         BRUTALITY_ID, BURNING_PACT_ID, BURN_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DAZED_ID,
-        DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID,
-        DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID,
-        INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
-        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-        RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
-        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
+        CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID,
+        DARK_SHACKLES_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
+        DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID,
+        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID,
+        FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
+        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
+        IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
+        NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID,
+        REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -7868,6 +7868,8 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Cleave" | "cleave" => Some(CLEAVE_ID),
         "Deep Breath" | "deep breath" => Some(DEEP_BREATH_ID),
         "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
+        "Dark Shackles" | "dark shackles" => Some(DARK_SHACKLES_ID),
+        "Discovery" | "discovery" => Some(DISCOVERY_ID),
         "Swift Strike" | "swift strike" => Some(SWIFT_STRIKE_ID),
         "Jack Of All Trades" | "jack of all trades" => Some(JACK_OF_ALL_TRADES_ID),
         "Entrench" | "entrench" => Some(ENTRENCH_ID),
@@ -7950,21 +7952,21 @@ fn content_key(content_id: ContentId) -> &'static str {
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
         BURNING_PACT_ID, BURN_ID, CHRYSALIS_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID,
-        COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DAZED_ID, DECAY_ID,
-        DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
-        DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
-        FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-        HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID,
-        METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID,
-        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID,
-        REAPER_ID, REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID,
-        SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
-        TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
+        COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID,
+        DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID,
+        DISCOVERY_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID,
+        DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID,
+        FLAME_BARRIER_ID, FLEX_ID, FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID,
+        HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPERVIOUS_ID,
+        INFLAME_ID, INFLAME_PLUS_ID, INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID,
+        LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID,
+        OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID,
+        RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID => "Strike_R",
@@ -8004,6 +8006,8 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == DOUBLE_TAP_PLUS_ID => "Double Tap+",
         id if id == DEEP_BREATH_ID => "Deep Breath",
         id if id == DRAMATIC_ENTRANCE_ID => "Dramatic Entrance",
+        id if id == DARK_SHACKLES_ID => "Dark Shackles",
+        id if id == DISCOVERY_ID => "Discovery",
         id if id == SWIFT_STRIKE_ID => "Swift Strike",
         id if id == SWIFT_STRIKE_PLUS_ID => "Swift Strike+",
         id if id == JACK_OF_ALL_TRADES_ID => "Jack Of All Trades",
@@ -8476,6 +8480,63 @@ mod tests {
         assert_eq!(
             content_id_from_card_value(&card),
             Some(DRAMATIC_ENTRANCE_ID)
+        );
+    }
+
+    #[test]
+    fn colorless_reward_cards_map_from_observed_card_json() {
+        use sts_core::content::cards::{DARK_SHACKLES_ID, DISCOVERY_ID};
+
+        for (id, expected, key) in [
+            (
+                "Dramatic Entrance",
+                DRAMATIC_ENTRANCE_ID,
+                "Dramatic Entrance",
+            ),
+            ("Dark Shackles", DARK_SHACKLES_ID, "Dark Shackles"),
+            ("Discovery", DISCOVERY_ID, "Discovery"),
+        ] {
+            let card = json!({"id": id, "name": id});
+
+            assert_eq!(content_id_from_card_value(&card), Some(expected));
+            assert_eq!(content_key(expected), key);
+        }
+    }
+
+    #[test]
+    fn observed_card_reward_import_preserves_all_visible_colorless_choices() {
+        use sts_core::content::cards::{DARK_SHACKLES_ID, DISCOVERY_ID};
+
+        let message = json!({
+            "game_state": {
+                "screen_type": "CARD_REWARD",
+                "screen_state": {
+                    "cards": [
+                        {"id": "Dramatic Entrance", "name": "Dramatic Entrance"},
+                        {"id": "Dark Shackles", "name": "Dark Shackles"},
+                        {"id": "Discovery", "name": "Discovery"}
+                    ]
+                },
+                "deck": [],
+                "relics": [],
+                "current_hp": 80,
+                "max_hp": 80,
+                "gold": 99,
+                "floor": 0,
+                "act": 1,
+                "ascension_level": 0,
+                "seed": 1_u64
+            }
+        });
+
+        let run = run_state_from_observed_message(&message).expect("observed reward imports");
+        let reward = run.reward.expect("reward screen");
+        let ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
+
+        assert!(reward.card_reward_active);
+        assert_eq!(
+            ids,
+            vec![DRAMATIC_ENTRANCE_ID, DARK_SHACKLES_ID, DISCOVERY_ID]
         );
     }
 

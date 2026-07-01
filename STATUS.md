@@ -3,6 +3,15 @@
 ## What Exists
 
 ### Combat
+- Latest live-trace Neow colorless reward slice: Neow's colorless choice-card
+  rewards now open the normal run reward screen through `sts_core`, preserving
+  the event/Neow RNG counter and the card reward RNG counter before returning
+  to the Neow leave prompt after take/skip. The strict verifier's observed-card
+  mapper now recognizes Dark Shackles and Discovery so visible colorless reward
+  choices are not silently collapsed during CommunicationMod observed-state
+  import. Focused regressions cover the core Neow colorless reward transition
+  and observed import of Dramatic Entrance/Dark Shackles/Discovery; broader
+  live-run parity still depends on subsequent strict replay blockers.
 - Latest Searing Blow upgrade-model slice: `CardInstance` now carries a compact
   `searing_blow_upgrades` counter so Searing Blow can keep upgrading beyond the
   `Searing Blow+` content id. Combat damage, Havoc/top-draw play, Armaments,
