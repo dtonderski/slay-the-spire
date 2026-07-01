@@ -3458,6 +3458,7 @@ _CARD_CHOICE_CONTENT_IDS = {
     "cleave": 11,
     "twinstrike": 12,
     "flex": 17,
+    "feelnopain": 19,
     "pommelstrike": 21,
     "whirlwind": 33,
     "searingblow": 42,

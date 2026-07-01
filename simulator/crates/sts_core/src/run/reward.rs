@@ -1134,6 +1134,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         combat_gold_offer_with_relics(run, target_elite_combat_gold(&mut treasure_rng));
     run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
 
+    run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_elite_relic_tier(&mut relic_rng);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
@@ -4027,5 +4028,19 @@ mod tests {
             "relic pool init should advance relic_rng_counter, got {}",
             run.relic_rng_counter
         );
+    }
+
+    #[test]
+    fn elite_combat_reward_rolls_relic_tier_after_pool_initialization() {
+        let mut run = RunState::combat_fixture();
+        run.relic_rng_seed = 39_594_590_912;
+        run.relic_rng_counter = 0;
+        run.current_floor = 6;
+
+        enter_elite_combat_reward_screen(&mut run);
+
+        let reward = run.reward.as_ref().expect("elite combat reward");
+        assert_eq!(offered_relic_key(reward), Some(RelicKey::MummifiedHand));
+        assert_eq!(run.relic_rng_counter, 6);
     }
 }

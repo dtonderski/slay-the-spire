@@ -4971,8 +4971,14 @@ mod tests {
                 expected.push(content_id);
             }
         }
-        for _ in 0..9 {
-            let _ = expected_rng.random_int((pool.len() - 1) as i32);
+        for _ in 0..3 {
+            let mut hidden = Vec::new();
+            while hidden.len() < 3 {
+                let content_id = pool[expected_rng.random_int((pool.len() - 1) as i32) as usize];
+                if !hidden.contains(&content_id) {
+                    hidden.push(content_id);
+                }
+            }
         }
 
         let next =
@@ -9801,6 +9807,26 @@ mod tests {
         assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
         assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 8);
         assert_eq!(next.player.energy, state.player.energy - 1);
+    }
+
+    #[test]
+    fn cleave_uses_effective_temp_cost() {
+        let mut state = two_monster_hand(CLEAVE_ID);
+        state.piles.hand[0].temp_cost = Some(0);
+        state.piles.hand[0].temp_cost_turn_only = true;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Cleave applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 8);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 8);
+        assert_eq!(next.player.energy, state.player.energy);
     }
 
     #[test]

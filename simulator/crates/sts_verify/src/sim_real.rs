@@ -4553,20 +4553,23 @@ fn reward_types_from_value(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
-fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<String> {
+fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<Value> {
     let Some(cards) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
     cards
         .iter()
         .filter_map(|card| {
+            if let Some(content_id) = content_id_from_card_value(card) {
+                return Some(json!(content_id.get()));
+            }
             let upgrades = card.get("upgrades").and_then(Value::as_u64).unwrap_or(0);
             if upgrades > 0 {
                 card.get("name").and_then(Value::as_str)
             } else {
                 card.get("id").and_then(Value::as_str)
             }
-            .map(str::to_owned)
+            .map(|id| json!(id))
         })
         .collect()
 }
@@ -8590,7 +8593,7 @@ mod tests {
     fn long_trace_observed_cards_map_from_card_json() {
         use sts_core::content::cards::{
             BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BURNING_PACT_ID, COMBUST_ID, DARK_EMBRACE_ID,
-            DAZED_ID, DOUBLE_TAP_ID, RAGE_ID, REAPER_ID, RUPTURE_ID, WOUND_ID,
+            DAZED_ID, DOUBLE_TAP_ID, FEEL_NO_PAIN_ID, RAGE_ID, REAPER_ID, RUPTURE_ID, WOUND_ID,
         };
 
         for (id, expected, key) in [
@@ -8605,12 +8608,33 @@ mod tests {
             ("Bludgeon", BLUDGEON_ID, "Bludgeon"),
             ("Double Tap", DOUBLE_TAP_ID, "Double Tap"),
             ("Rage", RAGE_ID, "Rage"),
+            ("feelnopain", FEEL_NO_PAIN_ID, "Feel No Pain"),
         ] {
             let card = json!({"id": id, "name": id});
 
             assert_eq!(content_id_from_card_value(&card), Some(expected));
             assert_eq!(content_key(expected), key);
         }
+    }
+
+    #[test]
+    fn observed_combat_card_reward_ids_are_canonicalized() {
+        use sts_core::content::cards::{FEEL_NO_PAIN_ID, SHOCKWAVE_ID};
+
+        let cards = json!([
+            {"id": "Shockwave", "name": "Shockwave", "upgrades": 0},
+            {"id": "feelnopain", "name": "Feel No Pain", "upgrades": 0},
+            {"id": "unknown-custom-card", "name": "Unknown Custom Card", "upgrades": 0}
+        ]);
+
+        assert_eq!(
+            card_reward_ids_from_value(Some(&cards)),
+            vec![
+                json!(SHOCKWAVE_ID.get()),
+                json!(FEEL_NO_PAIN_ID.get()),
+                json!("unknown-custom-card")
+            ]
+        );
     }
 
     #[test]

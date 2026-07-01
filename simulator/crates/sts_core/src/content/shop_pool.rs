@@ -661,8 +661,12 @@ fn burn_discovery_random_picks(
 ) {
     assert!(pool_len > 0, "discovery pool must not be empty");
     for _ in 0..generations {
-        for _ in 0..count {
-            let _ = rng.random_int((pool_len - 1) as i32);
+        let mut choices = Vec::with_capacity(count);
+        while choices.len() < count {
+            let index = rng.random_int((pool_len - 1) as i32) as usize;
+            if !choices.contains(&index) {
+                choices.push(index);
+            }
         }
     }
 }

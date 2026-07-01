@@ -1431,11 +1431,9 @@ fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) 
             content_choices = discovery_choices_from_pool(rng, &pool);
             // Target DiscoveryAction.generate*Choices runs at the top of every update(),
             // before checking whether the reward screen is already open. Fast-mode actions
-            // therefore burn extra invisible random picks after the visible choices. Keep
-            // this as raw picks: this modeled pool is approximate, so local duplicate rerolls
-            // must not invent hidden target RNG calls.
+            // therefore burn extra invisible choice generations after the visible choices.
             for _ in 0..DISCOVERY_ACTION_HIDDEN_GENERATIONS {
-                burn_discovery_random_picks(rng, pool.len(), 3);
+                let _ = discovery_choices_from_pool(rng, &pool);
             }
         }
         None => content_choices.extend(pool.into_iter().take(3)),
@@ -1463,12 +1461,6 @@ fn discovery_choices_from_pool(rng: &mut crate::rng::StsRng, pool: &[ContentId])
         }
     }
     choices
-}
-
-fn burn_discovery_random_picks(rng: &mut crate::rng::StsRng, pool_len: usize, count: usize) {
-    for _ in 0..count {
-        let _ = rng.random_int((pool_len - 1) as i32);
-    }
 }
 
 pub(crate) fn discovery_modeled_card_pool() -> Vec<ContentId> {
@@ -2570,9 +2562,7 @@ fn cleave_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy {
-            amount: i32::from(definition.cost),
-        },
+        InternalAction::SpendCardEnergy { card_id },
         InternalAction::DealDamageAll {
             source: card_id,
             amount: definition.values.damage.unwrap_or(0),

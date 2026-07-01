@@ -12,6 +12,19 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace elite reward/Discovery/Mummified Hand slice: the fresh
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now advances past the floor-6 elite
+  relic mismatch by initializing relic pools before the elite relic-tier roll,
+  and past the compact `feelnopain` observed card-reward diff by canonicalizing
+  observed combat reward card ids in both Rust verifier summaries and Python
+  strict replay summaries. Cleave and related AoE queues now spend effective
+  card cost, and Discovery hidden update burns now use the same duplicate-aware
+  generation loop as the target `DiscoveryAction` bytecode. Current remaining
+  blocker for this trace is floor 10 after Discovery generates Fire Breathing:
+  target Mummified Hand discounts Cleave, while the simulator discounts Strike
+  from the same visible hand. This is intentionally left as an open generic
+  Mummified Hand/`cardRandomRng` ordering blocker rather than patched with a
+  trace-shaped override.
 - Latest live-trace Gremlin Nob Bellow strength slice: Gremlin Nob's Bellow
   intent now applies Anger without immediate Strength, matching the target
   `AngerPower` source behavior; subsequent player Skill plays convert that
