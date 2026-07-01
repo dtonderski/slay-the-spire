@@ -431,10 +431,10 @@ fn elite_combat_state_for_run(run: &mut RunState) -> CombatState {
     let combat_index = run.elite_combat_count as usize;
     let floor = u32::try_from(run.current_floor.max(1)).unwrap_or(1);
     let neow_lament = run.neow_lament_combats_remaining > 0;
-    let act = if run.current_act == 2 {
-        TargetMapAct::City
-    } else {
-        TargetMapAct::Exordium
+    let act = match run.current_act {
+        2 => TargetMapAct::City,
+        3 => TargetMapAct::Beyond,
+        _ => TargetMapAct::Exordium,
     };
     let spawns = if run.current_act == 2 {
         if let Some(encounter_key) = run.elite_encounter_list.get(combat_index).cloned() {

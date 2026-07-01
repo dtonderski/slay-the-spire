@@ -54,6 +54,24 @@ pub const EXPLODER_ID: ContentId = ContentId::new(140);
 pub const SPIKER_ID: ContentId = ContentId::new(141);
 pub const REPULSOR_ID: ContentId = ContentId::new(142);
 pub const TRANSIENT_ID: ContentId = ContentId::new(143);
+pub const BANDIT_BEAR_ID: ContentId = ContentId::new(144);
+pub const BANDIT_POINTY_ID: ContentId = ContentId::new(145);
+pub const BANDIT_LEADER_ID: ContentId = ContentId::new(146);
+pub const CHAMP_ID: ContentId = ContentId::new(147);
+pub const AWAKENED_ONE_ID: ContentId = ContentId::new(148);
+pub const DAGGER_ID: ContentId = ContentId::new(149);
+pub const DECA_ID: ContentId = ContentId::new(150);
+pub const DONU_ID: ContentId = ContentId::new(151);
+pub const GIANT_HEAD_ID: ContentId = ContentId::new(152);
+pub const NEMESIS_ID: ContentId = ContentId::new(153);
+pub const REPTOMANCER_ID: ContentId = ContentId::new(154);
+pub const SPIRE_GROWTH_ID: ContentId = ContentId::new(155);
+pub const MAW_ID: ContentId = ContentId::new(156);
+pub const TIME_EATER_ID: ContentId = ContentId::new(157);
+pub const WRITHING_MASS_ID: ContentId = ContentId::new(158);
+pub const CORRUPT_HEART_ID: ContentId = ContentId::new(159);
+pub const SPIRE_SHIELD_ID: ContentId = ContentId::new(160);
+pub const SPIRE_SPEAR_ID: ContentId = ContentId::new(161);
 
 pub(crate) const RED_LOUSE_BITE_DAMAGE: i32 = 6;
 pub(crate) const LOUSE_CURL_STRENGTH: i32 = 3;
@@ -274,20 +292,107 @@ const ORB_WALKER_A2_CLAW_DAMAGE: i32 = 16;
 const ORB_WALKER_STRENGTH_UP: i32 = 3;
 const DARKLING_CHOMP_DAMAGE: i32 = 8;
 const DARKLING_BLOCK: i32 = 12;
+const BANDIT_BEAR_MAUL_DAMAGE: i32 = 18;
+const BANDIT_BEAR_A2_MAUL_DAMAGE: i32 = 20;
+const BANDIT_BEAR_LUNGE_DAMAGE: i32 = 9;
+const BANDIT_BEAR_A2_LUNGE_DAMAGE: i32 = 10;
+const BANDIT_BEAR_LUNGE_BLOCK: i32 = 9;
+const BANDIT_POINTY_DAMAGE: i32 = 5;
+const BANDIT_POINTY_HITS: i32 = 2;
+const BANDIT_LEADER_STAB_DAMAGE: i32 = 10;
+const BANDIT_LEADER_A2_STAB_DAMAGE: i32 = 12;
+const BANDIT_LEADER_WEAK: i32 = 2;
+const CHAMP_HEAVY_SLASH_DAMAGE: i32 = 16;
+const CHAMP_A4_HEAVY_SLASH_DAMAGE: i32 = 18;
+const CHAMP_FACE_SLAP_DAMAGE: i32 = 12;
+const CHAMP_A4_FACE_SLAP_DAMAGE: i32 = 14;
+const CHAMP_EXECUTE_DAMAGE: i32 = 10;
+const CHAMP_EXECUTE_HITS: i32 = 2;
+const CHAMP_DEFENSIVE_BLOCK: i32 = 15;
+const COLLECTOR_FIREBALL_DAMAGE: i32 = 18;
+const COLLECTOR_A4_FIREBALL_DAMAGE: i32 = 21;
+const COLLECTOR_BUFF_BLOCK: i32 = 35;
+const TORCH_HEAD_TACKLE_DAMAGE: i32 = 7;
+const AWAKENED_ONE_SLASH_DAMAGE: i32 = 20;
+const AWAKENED_ONE_SOUL_STRIKE_DAMAGE: i32 = 6;
+const AWAKENED_ONE_SOUL_STRIKE_HITS: i32 = 4;
+const AWAKENED_ONE_DARK_ECHO_DAMAGE: i32 = 40;
+const AWAKENED_ONE_SLUDGE_DAMAGE: i32 = 18;
+const AWAKENED_ONE_TACKLE_DAMAGE: i32 = 10;
+const AWAKENED_ONE_TACKLE_HITS: i32 = 3;
+const DAGGER_WOUND_DAMAGE: i32 = 9;
+const DAGGER_EXPLODE_DAMAGE: i32 = 25;
+const DECA_BEAM_DAMAGE: i32 = 10;
+const DECA_A4_BEAM_DAMAGE: i32 = 12;
+const DECA_BEAM_HITS: i32 = 2;
+const DECA_PROTECTION_BLOCK: i32 = 16;
+const DONU_BEAM_DAMAGE: i32 = 10;
+const DONU_A4_BEAM_DAMAGE: i32 = 12;
+const DONU_BEAM_HITS: i32 = 2;
 const EXPLODER_ATTACK_DAMAGE: i32 = 9;
 const EXPLODER_A2_ATTACK_DAMAGE: i32 = 11;
 const EXPLODER_EXPLOSIVE: i32 = 3;
+const GIANT_HEAD_IT_IS_TIME_DAMAGE: i32 = 5;
+const GIANT_HEAD_A4_IT_IS_TIME_DAMAGE: i32 = 15;
+const GIANT_HEAD_COUNT_DAMAGE: i32 = 13;
+const NEMESIS_TRI_ATTACK_DAMAGE: i32 = 6;
+const NEMESIS_A3_TRI_ATTACK_DAMAGE: i32 = 7;
+const NEMESIS_TRI_ATTACK_HITS: i32 = 3;
+const NEMESIS_SCYTHE_DAMAGE: i32 = 45;
+const REPTOMANCER_SNAKE_STRIKE_DAMAGE: i32 = 13;
+const REPTOMANCER_A3_SNAKE_STRIKE_DAMAGE: i32 = 16;
+const REPTOMANCER_SNAKE_STRIKE_HITS: i32 = 2;
+const REPTOMANCER_BIG_BITE_DAMAGE: i32 = 30;
+const REPTOMANCER_A3_BIG_BITE_DAMAGE: i32 = 34;
+const REPULSOR_ATTACK_DAMAGE: i32 = 11;
+const REPULSOR_A2_ATTACK_DAMAGE: i32 = 13;
+const REPULSOR_DAZES: i32 = 2;
 const SPIKER_ATTACK_DAMAGE: i32 = 7;
 const SPIKER_A2_ATTACK_DAMAGE: i32 = 9;
 const SPIKER_THORNS: i32 = 3;
 const SPIKER_A2_THORNS: i32 = 4;
 const SPIKER_THORNS_BUFF: i32 = 2;
-const REPULSOR_ATTACK_DAMAGE: i32 = 11;
-const REPULSOR_A2_ATTACK_DAMAGE: i32 = 13;
-const REPULSOR_DAZES: i32 = 2;
+const SPIRE_GROWTH_QUICK_TACKLE_DAMAGE: i32 = 16;
+const SPIRE_GROWTH_A2_QUICK_TACKLE_DAMAGE: i32 = 18;
+const SPIRE_GROWTH_SMASH_DAMAGE: i32 = 22;
+const SPIRE_GROWTH_A2_SMASH_DAMAGE: i32 = 25;
+const MAW_SLAM_DAMAGE: i32 = 25;
+const MAW_A2_SLAM_DAMAGE: i32 = 30;
+const MAW_NOM_DAMAGE: i32 = 5;
+const TIME_EATER_REVERBERATE_DAMAGE: i32 = 7;
+const TIME_EATER_REVERBERATE_HITS: i32 = 3;
+const TIME_EATER_RIPPLE_BLOCK: i32 = 20;
+const TIME_EATER_HEAD_SLAM_DAMAGE: i32 = 26;
+const TIME_EATER_HASTE_BLOCK: i32 = 26;
 const TRANSIENT_HP: i32 = 999;
 const TRANSIENT_ATTACK_DAMAGE: i32 = 30;
+const TRANSIENT_A4_ATTACK_DAMAGE: i32 = 40;
 const TRANSIENT_ATTACK_DAMAGE_STEP: i32 = 10;
+const WRITHING_MASS_BIG_HIT_DAMAGE: i32 = 32;
+const WRITHING_MASS_A2_BIG_HIT_DAMAGE: i32 = 38;
+const WRITHING_MASS_MULTI_HIT_DAMAGE: i32 = 7;
+const WRITHING_MASS_A2_MULTI_HIT_DAMAGE: i32 = 9;
+const WRITHING_MASS_MULTI_HIT_HITS: i32 = 3;
+const WRITHING_MASS_ATTACK_BLOCK_DAMAGE: i32 = 15;
+const WRITHING_MASS_A2_ATTACK_BLOCK_DAMAGE: i32 = 16;
+const WRITHING_MASS_ATTACK_BLOCK_BLOCK: i32 = 16;
+const WRITHING_MASS_ATTACK_DEBUFF_DAMAGE: i32 = 10;
+const WRITHING_MASS_A2_ATTACK_DEBUFF_DAMAGE: i32 = 12;
+const CORRUPT_HEART_BLOOD_SHOTS_DAMAGE: i32 = 2;
+const CORRUPT_HEART_BLOOD_SHOTS_HITS: i32 = 12;
+const CORRUPT_HEART_ECHO_ATTACK_DAMAGE: i32 = 40;
+const CORRUPT_HEART_A4_ECHO_ATTACK_DAMAGE: i32 = 45;
+const SPIRE_SHIELD_BASH_DAMAGE: i32 = 12;
+const SPIRE_SHIELD_A2_BASH_DAMAGE: i32 = 14;
+const SPIRE_SHIELD_FORTIFY_BLOCK: i32 = 30;
+const SPIRE_SHIELD_SMASH_DAMAGE: i32 = 34;
+const SPIRE_SHIELD_A2_SMASH_DAMAGE: i32 = 38;
+const SPIRE_SHIELD_SMASH_BLOCK: i32 = 99;
+const SPIRE_SPEAR_BURN_STRIKE_DAMAGE: i32 = 5;
+const SPIRE_SPEAR_A2_BURN_STRIKE_DAMAGE: i32 = 6;
+const SPIRE_SPEAR_BURN_STRIKE_HITS: i32 = 2;
+const SPIRE_SPEAR_SKEWER_DAMAGE: i32 = 10;
+const SPIRE_SPEAR_SKEWER_HITS: i32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonsterDefinition {
@@ -892,12 +997,157 @@ pub const DARKLING_A0: MonsterDefinition = MonsterDefinition {
     starting_defensive_turns: 0,
 };
 
+pub const BANDIT_BEAR_A0: MonsterDefinition = MonsterDefinition {
+    content_id: BANDIT_BEAR_ID,
+    name: "Bear",
+    hp: 40,
+    attack_damage: BANDIT_BEAR_MAUL_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const BANDIT_POINTY_A0: MonsterDefinition = MonsterDefinition {
+    content_id: BANDIT_POINTY_ID,
+    name: "Pointy",
+    hp: 30,
+    attack_damage: BANDIT_POINTY_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const BANDIT_LEADER_A0: MonsterDefinition = MonsterDefinition {
+    content_id: BANDIT_LEADER_ID,
+    name: "Romeo",
+    hp: 37,
+    attack_damage: BANDIT_LEADER_STAB_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const CHAMP_A0: MonsterDefinition = MonsterDefinition {
+    content_id: CHAMP_ID,
+    name: "The Champ",
+    hp: 420,
+    attack_damage: CHAMP_HEAVY_SLASH_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const AWAKENED_ONE_A0: MonsterDefinition = MonsterDefinition {
+    content_id: AWAKENED_ONE_ID,
+    name: "Awakened One",
+    hp: 300,
+    attack_damage: AWAKENED_ONE_SLASH_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const DAGGER_A0: MonsterDefinition = MonsterDefinition {
+    content_id: DAGGER_ID,
+    name: "Dagger",
+    hp: 23,
+    attack_damage: DAGGER_WOUND_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const DECA_A0: MonsterDefinition = MonsterDefinition {
+    content_id: DECA_ID,
+    name: "Deca",
+    hp: 250,
+    attack_damage: DECA_BEAM_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const DONU_A0: MonsterDefinition = MonsterDefinition {
+    content_id: DONU_ID,
+    name: "Donu",
+    hp: 250,
+    attack_damage: DONU_BEAM_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
 /// Act 3 Exploder at ascension 0.
 pub const EXPLODER_A0: MonsterDefinition = MonsterDefinition {
     content_id: EXPLODER_ID,
     name: "Exploder",
     hp: 30,
     attack_damage: EXPLODER_ATTACK_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const GIANT_HEAD_A0: MonsterDefinition = MonsterDefinition {
+    content_id: GIANT_HEAD_ID,
+    name: "Giant Head",
+    hp: 500,
+    attack_damage: GIANT_HEAD_COUNT_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const NEMESIS_A0: MonsterDefinition = MonsterDefinition {
+    content_id: NEMESIS_ID,
+    name: "Nemesis",
+    hp: 185,
+    attack_damage: NEMESIS_TRI_ATTACK_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const REPTOMANCER_A0: MonsterDefinition = MonsterDefinition {
+    content_id: REPTOMANCER_ID,
+    name: "Reptomancer",
+    hp: 185,
+    attack_damage: REPTOMANCER_SNAKE_STRIKE_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+/// Act 3 Repulsor at ascension 0.
+pub const REPULSOR_A0: MonsterDefinition = MonsterDefinition {
+    content_id: REPULSOR_ID,
+    name: "Repulsor",
+    hp: 32,
+    attack_damage: REPULSOR_ATTACK_DAMAGE,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
@@ -918,12 +1168,11 @@ pub const SPIKER_A0: MonsterDefinition = MonsterDefinition {
     starting_defensive_turns: 0,
 };
 
-/// Act 3 Repulsor at ascension 0.
-pub const REPULSOR_A0: MonsterDefinition = MonsterDefinition {
-    content_id: REPULSOR_ID,
-    name: "Repulsor",
-    hp: 32,
-    attack_damage: REPULSOR_ATTACK_DAMAGE,
+pub const SPIRE_GROWTH_A0: MonsterDefinition = MonsterDefinition {
+    content_id: SPIRE_GROWTH_ID,
+    name: "Spire Growth",
+    hp: 170,
+    attack_damage: SPIRE_GROWTH_QUICK_TACKLE_DAMAGE,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
@@ -931,12 +1180,83 @@ pub const REPULSOR_A0: MonsterDefinition = MonsterDefinition {
     starting_defensive_turns: 0,
 };
 
-/// Act 3 Transient at ascension 0.
+pub const MAW_A0: MonsterDefinition = MonsterDefinition {
+    content_id: MAW_ID,
+    name: "The Maw",
+    hp: 300,
+    attack_damage: MAW_SLAM_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const TIME_EATER_A0: MonsterDefinition = MonsterDefinition {
+    content_id: TIME_EATER_ID,
+    name: "Time Eater",
+    hp: 456,
+    attack_damage: TIME_EATER_HEAD_SLAM_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
 pub const TRANSIENT_A0: MonsterDefinition = MonsterDefinition {
     content_id: TRANSIENT_ID,
     name: "Transient",
     hp: TRANSIENT_HP,
     attack_damage: TRANSIENT_ATTACK_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const WRITHING_MASS_A0: MonsterDefinition = MonsterDefinition {
+    content_id: WRITHING_MASS_ID,
+    name: "Writhing Mass",
+    hp: 160,
+    attack_damage: WRITHING_MASS_BIG_HIT_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const CORRUPT_HEART_A0: MonsterDefinition = MonsterDefinition {
+    content_id: CORRUPT_HEART_ID,
+    name: "Corrupt Heart",
+    hp: 750,
+    attack_damage: CORRUPT_HEART_ECHO_ATTACK_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const SPIRE_SHIELD_A0: MonsterDefinition = MonsterDefinition {
+    content_id: SPIRE_SHIELD_ID,
+    name: "Spire Shield",
+    hp: 110,
+    attack_damage: SPIRE_SHIELD_BASH_DAMAGE,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
+pub const SPIRE_SPEAR_A0: MonsterDefinition = MonsterDefinition {
+    content_id: SPIRE_SPEAR_ID,
+    name: "Spire Spear",
+    hp: 160,
+    attack_damage: SPIRE_SPEAR_BURN_STRIKE_DAMAGE,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
@@ -1614,7 +1934,11 @@ pub fn target_elite_encounter_spawn_at_combat_index(
         crate::map::TargetMapAct::City => {
             city_elite_encounter_key_at_combat_index(seed, combat_index)?
         }
-        crate::map::TargetMapAct::Beyond => return None,
+        crate::map::TargetMapAct::Beyond => {
+            crate::content::encounters::generate_beyond_elite_encounters(seed)
+                .into_iter()
+                .nth(combat_index)?
+        }
     };
     match act {
         crate::map::TargetMapAct::Exordium => Some(target_encounter_spawn_for_key(
@@ -1631,7 +1955,13 @@ pub fn target_elite_encounter_spawn_at_combat_index(
             ascension,
             neow_lament,
         ),
-        crate::map::TargetMapAct::Beyond => None,
+        crate::map::TargetMapAct::Beyond => target_beyond_encounter_spawn_for_key(
+            seed,
+            floor_num,
+            &encounter_key,
+            ascension,
+            neow_lament,
+        ),
     }
 }
 
@@ -1673,8 +2003,8 @@ pub fn target_beyond_encounter_spawn_for_key(
                     amount: ORB_WALKER_STRENGTH_UP,
                 }],
             );
-            spawn.intent = "AddBurnToDiscardAndDraw";
-            spawn.rolled_attack_damage = Some(ORB_WALKER_CLAW_DAMAGE);
+            spawn.intent = "Attack";
+            spawn.rolled_attack_damage = Some(orb_walker_laser_damage(ascension));
             Some(vec![spawn])
         }
         "Transient" => {
@@ -1684,6 +2014,20 @@ pub fn target_beyond_encounter_spawn_for_key(
             spawn.rolled_attack_damage = Some(TRANSIENT_ATTACK_DAMAGE);
             Some(vec![spawn])
         }
+        "Sphere and 2 Shapes" => Some(vec![
+            target_definition_spawn(&SPHERIC_GUARDIAN_A0, neow_lament),
+            target_definition_spawn(&SPIKER_A0, neow_lament),
+            target_definition_spawn(&REPULSOR_A0, neow_lament),
+        ]),
+        "Spire Growth" => Some(vec![target_definition_spawn(&SPIRE_GROWTH_A0, neow_lament)]),
+        "Maw" => Some(vec![target_definition_spawn(&MAW_A0, neow_lament)]),
+        "Writhing Mass" => Some(vec![target_definition_spawn(
+            &WRITHING_MASS_A0,
+            neow_lament,
+        )]),
+        "Giant Head" => Some(vec![target_definition_spawn(&GIANT_HEAD_A0, neow_lament)]),
+        "Nemesis" => Some(vec![target_definition_spawn(&NEMESIS_A0, neow_lament)]),
+        "Reptomancer" => Some(vec![target_definition_spawn(&REPTOMANCER_A0, neow_lament)]),
         _ => None,
     }
 }
@@ -1734,6 +2078,13 @@ fn target_orb_walker_hp(seed: i64, floor_num: u32, ascension: u8) -> i32 {
     };
     let _constructor_hp_roll = hp_rng.random_int(0);
     hp_range.roll(&mut hp_rng)
+}
+
+fn target_definition_spawn(
+    definition: &MonsterDefinition,
+    neow_lament: bool,
+) -> TargetEncounterSpawn {
+    target_combat_entry_spawn(definition.name, definition.hp, neow_lament, Vec::new())
 }
 
 fn target_darkling_encounter_spawn(
@@ -2827,10 +3178,28 @@ pub fn content_id_from_game_monster_id(game_id: &str) -> ContentId {
         "TorchHead" | "Torch Head" => TORCH_HEAD_ID,
         "Orb Walker" | "OrbWalker" => ORB_WALKER_ID,
         "Darkling" => DARKLING_ID,
+        "BanditBear" | "Bear" => BANDIT_BEAR_ID,
+        "BanditPointy" | "BanditChild" | "Pointy" => BANDIT_POINTY_ID,
+        "BanditLeader" | "Romeo" => BANDIT_LEADER_ID,
+        "Champ" | "TheChamp" | "The Champ" => CHAMP_ID,
+        "AwakenedOne" | "Awakened One" => AWAKENED_ONE_ID,
+        "Dagger" => DAGGER_ID,
+        "Deca" => DECA_ID,
+        "Donu" => DONU_ID,
         "Exploder" => EXPLODER_ID,
-        "Spiker" => SPIKER_ID,
+        "GiantHead" | "Giant Head" => GIANT_HEAD_ID,
+        "Nemesis" => NEMESIS_ID,
+        "Reptomancer" => REPTOMANCER_ID,
         "Repulsor" => REPULSOR_ID,
+        "Spiker" => SPIKER_ID,
+        "SpireGrowth" | "Spire Growth" | "Serpent" => SPIRE_GROWTH_ID,
+        "Maw" | "TheMaw" | "The Maw" => MAW_ID,
+        "TimeEater" | "Time Eater" => TIME_EATER_ID,
         "Transient" => TRANSIENT_ID,
+        "WrithingMass" | "Writhing Mass" => WRITHING_MASS_ID,
+        "CorruptHeart" | "Corrupt Heart" => CORRUPT_HEART_ID,
+        "SpireShield" | "Spire Shield" => SPIRE_SHIELD_ID,
+        "SpireSpear" | "Spire Spear" => SPIRE_SPEAR_ID,
         "SpikeSlime_S" | "SpikeSlime_M" | "SpikeSlime_L" | "Spike Slime (S)"
         | "Spike Slime (M)" | "Spike Slime (L)" => SPIKE_SLIME_ID,
         "AcidSlime_S" | "AcidSlime_M" | "AcidSlime_L" | "Acid Slime (S)" | "Acid Slime (M)"
@@ -2884,10 +3253,28 @@ pub fn get_monster_definition(content_id: ContentId) -> Option<&'static MonsterD
         TORCH_HEAD_ID => Some(&TORCH_HEAD_A0),
         ORB_WALKER_ID => Some(&ORB_WALKER_A0),
         DARKLING_ID => Some(&DARKLING_A0),
+        BANDIT_BEAR_ID => Some(&BANDIT_BEAR_A0),
+        BANDIT_POINTY_ID => Some(&BANDIT_POINTY_A0),
+        BANDIT_LEADER_ID => Some(&BANDIT_LEADER_A0),
+        CHAMP_ID => Some(&CHAMP_A0),
+        AWAKENED_ONE_ID => Some(&AWAKENED_ONE_A0),
+        DAGGER_ID => Some(&DAGGER_A0),
+        DECA_ID => Some(&DECA_A0),
+        DONU_ID => Some(&DONU_A0),
         EXPLODER_ID => Some(&EXPLODER_A0),
-        SPIKER_ID => Some(&SPIKER_A0),
+        GIANT_HEAD_ID => Some(&GIANT_HEAD_A0),
+        NEMESIS_ID => Some(&NEMESIS_A0),
+        REPTOMANCER_ID => Some(&REPTOMANCER_A0),
         REPULSOR_ID => Some(&REPULSOR_A0),
+        SPIKER_ID => Some(&SPIKER_A0),
+        SPIRE_GROWTH_ID => Some(&SPIRE_GROWTH_A0),
+        MAW_ID => Some(&MAW_A0),
+        TIME_EATER_ID => Some(&TIME_EATER_A0),
         TRANSIENT_ID => Some(&TRANSIENT_A0),
+        WRITHING_MASS_ID => Some(&WRITHING_MASS_A0),
+        CORRUPT_HEART_ID => Some(&CORRUPT_HEART_A0),
+        SPIRE_SHIELD_ID => Some(&SPIRE_SHIELD_A0),
+        SPIRE_SPEAR_ID => Some(&SPIRE_SPEAR_A0),
         _ => None,
     }
 }
@@ -3217,6 +3604,9 @@ fn prepare_monster_intent_for_monster(
     if definition.content_id == SLIME_BOSS_ID {
         return slime_boss_intent(moves_executed, ascension);
     }
+    if is_public_backlog_monster_content_id(definition.content_id) {
+        return public_backlog_monster_intent(definition.content_id, moves_executed, ascension);
+    }
     if is_gremlin_leader_minion_content_id(definition.content_id) {
         return gremlin_leader_minion_intent(definition.content_id, moves_executed, ascension);
     }
@@ -3265,6 +3655,9 @@ pub fn prepare_monster_intent_for(
         SPIKER_ID => spiker_intent(moves_executed, 0),
         REPULSOR_ID => repulsor_intent(moves_executed, 0),
         TRANSIENT_ID => transient_intent(moves_executed, 0),
+        _ if is_public_backlog_monster_content_id(definition.content_id) => {
+            public_backlog_monster_intent(definition.content_id, moves_executed, 0)
+        }
         FUNGI_BEAST_ID => fungi_beast_intent(moves_executed, 0),
         SLAVER_BLUE_ID => slaver_blue_intent(moves_executed, 0),
         SLAVER_RED_ID => slaver_red_intent(moves_executed, 0),
@@ -4858,6 +5251,427 @@ fn gremlin_leader_minion_intent(
             damage: gremlin_wizard_damage(ascension),
         },
         GREMLIN_WIZARD_ID => MonsterIntent::Block { block: 0 },
+        _ => MonsterIntent::Stun,
+    }
+}
+
+#[must_use]
+fn is_public_backlog_monster_content_id(content_id: ContentId) -> bool {
+    matches!(
+        content_id,
+        BANDIT_BEAR_ID
+            | BANDIT_POINTY_ID
+            | BANDIT_LEADER_ID
+            | CHAMP_ID
+            | THE_COLLECTOR_ID
+            | TORCH_HEAD_ID
+            | AWAKENED_ONE_ID
+            | DAGGER_ID
+            | DECA_ID
+            | DONU_ID
+            | EXPLODER_ID
+            | GIANT_HEAD_ID
+            | NEMESIS_ID
+            | REPTOMANCER_ID
+            | REPULSOR_ID
+            | SPIKER_ID
+            | SPIRE_GROWTH_ID
+            | MAW_ID
+            | TIME_EATER_ID
+            | TRANSIENT_ID
+            | WRITHING_MASS_ID
+            | CORRUPT_HEART_ID
+            | SPIRE_SHIELD_ID
+            | SPIRE_SPEAR_ID
+    )
+}
+
+fn asc_damage(ascension: u8, base: i32, upgraded: i32, threshold: u8) -> i32 {
+    if ascension >= threshold {
+        upgraded
+    } else {
+        base
+    }
+}
+
+#[must_use]
+fn public_backlog_monster_intent(
+    content_id: ContentId,
+    moves_executed: u32,
+    ascension: u8,
+) -> MonsterIntent {
+    match content_id {
+        BANDIT_BEAR_ID => match moves_executed % 3 {
+            0 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    BANDIT_BEAR_MAUL_DAMAGE,
+                    BANDIT_BEAR_A2_MAUL_DAMAGE,
+                    2,
+                ),
+            },
+            1 => MonsterIntent::SiphonPlayer {
+                strength: if ascension >= 17 { 4 } else { 2 },
+                dexterity: if ascension >= 17 { 4 } else { 2 },
+            },
+            _ => MonsterIntent::AttackAndBlock {
+                damage: asc_damage(
+                    ascension,
+                    BANDIT_BEAR_LUNGE_DAMAGE,
+                    BANDIT_BEAR_A2_LUNGE_DAMAGE,
+                    2,
+                ),
+                block: BANDIT_BEAR_LUNGE_BLOCK,
+            },
+        },
+        BANDIT_POINTY_ID => MonsterIntent::AttackMultiple {
+            damage: BANDIT_POINTY_DAMAGE,
+            hits: BANDIT_POINTY_HITS,
+        },
+        BANDIT_LEADER_ID => match moves_executed % 3 {
+            0 => MonsterIntent::Stun,
+            1 => MonsterIntent::AttackApplyPlayerWeak {
+                damage: asc_damage(
+                    ascension,
+                    BANDIT_LEADER_STAB_DAMAGE,
+                    BANDIT_LEADER_A2_STAB_DAMAGE,
+                    2,
+                ),
+                weak: BANDIT_LEADER_WEAK,
+            },
+            _ => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    BANDIT_LEADER_STAB_DAMAGE,
+                    BANDIT_LEADER_A2_STAB_DAMAGE,
+                    2,
+                ),
+            },
+        },
+        CHAMP_ID => match moves_executed % 6 {
+            0 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    CHAMP_HEAVY_SLASH_DAMAGE,
+                    CHAMP_A4_HEAVY_SLASH_DAMAGE,
+                    4,
+                ),
+            },
+            1 => MonsterIntent::StrengthAndBlock {
+                strength: 2,
+                block: CHAMP_DEFENSIVE_BLOCK,
+            },
+            2 => MonsterIntent::AttackMultiple {
+                damage: CHAMP_EXECUTE_DAMAGE,
+                hits: CHAMP_EXECUTE_HITS,
+            },
+            3 => MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: asc_damage(
+                    ascension,
+                    CHAMP_FACE_SLAP_DAMAGE,
+                    CHAMP_A4_FACE_SLAP_DAMAGE,
+                    4,
+                ),
+                vulnerable: 2,
+            },
+            4 => MonsterIntent::StrengthSelf { amount: 3 },
+            _ => MonsterIntent::ApplyPlayerWeak { amount: 2 },
+        },
+        THE_COLLECTOR_ID => match moves_executed % 4 {
+            0 => MonsterIntent::SummonGremlins { count: 2 },
+            1 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    COLLECTOR_FIREBALL_DAMAGE,
+                    COLLECTOR_A4_FIREBALL_DAMAGE,
+                    4,
+                ),
+            },
+            2 => MonsterIntent::StrengthAndBlock {
+                strength: 3,
+                block: COLLECTOR_BUFF_BLOCK,
+            },
+            _ => MonsterIntent::ApplyPlayerFrailAndWeak { frail: 3, weak: 3 },
+        },
+        TORCH_HEAD_ID => MonsterIntent::Attack {
+            damage: TORCH_HEAD_TACKLE_DAMAGE,
+        },
+        AWAKENED_ONE_ID => match moves_executed % 6 {
+            0 => MonsterIntent::Attack {
+                damage: AWAKENED_ONE_SLASH_DAMAGE,
+            },
+            1 => MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_SOUL_STRIKE_DAMAGE,
+                hits: AWAKENED_ONE_SOUL_STRIKE_HITS,
+            },
+            2 => MonsterIntent::Stun,
+            3 => MonsterIntent::Attack {
+                damage: AWAKENED_ONE_DARK_ECHO_DAMAGE,
+            },
+            4 => MonsterIntent::AttackApplyPlayerWeak {
+                damage: AWAKENED_ONE_SLUDGE_DAMAGE,
+                weak: 2,
+            },
+            _ => MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_TACKLE_DAMAGE,
+                hits: AWAKENED_ONE_TACKLE_HITS,
+            },
+        },
+        DAGGER_ID => match moves_executed % 2 {
+            0 => MonsterIntent::AttackAddWoundsToDiscard {
+                damage: DAGGER_WOUND_DAMAGE,
+                count: 1,
+            },
+            _ => MonsterIntent::Attack {
+                damage: DAGGER_EXPLODE_DAMAGE,
+            },
+        },
+        DECA_ID => match moves_executed % 2 {
+            0 => MonsterIntent::AttackMultiple {
+                damage: asc_damage(ascension, DECA_BEAM_DAMAGE, DECA_A4_BEAM_DAMAGE, 4),
+                hits: DECA_BEAM_HITS,
+            },
+            _ => MonsterIntent::Block {
+                block: DECA_PROTECTION_BLOCK,
+            },
+        },
+        DONU_ID => match moves_executed % 2 {
+            0 => MonsterIntent::AttackMultiple {
+                damage: asc_damage(ascension, DONU_BEAM_DAMAGE, DONU_A4_BEAM_DAMAGE, 4),
+                hits: DONU_BEAM_HITS,
+            },
+            _ => MonsterIntent::StrengthAllMonsters { amount: 3 },
+        },
+        EXPLODER_ID => match moves_executed % 2 {
+            0 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    EXPLODER_ATTACK_DAMAGE,
+                    EXPLODER_A2_ATTACK_DAMAGE,
+                    2,
+                ),
+            },
+            _ => MonsterIntent::Stun,
+        },
+        GIANT_HEAD_ID => match moves_executed % 3 {
+            0 => MonsterIntent::ApplyPlayerWeak { amount: 1 },
+            1 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    GIANT_HEAD_IT_IS_TIME_DAMAGE,
+                    GIANT_HEAD_A4_IT_IS_TIME_DAMAGE,
+                    4,
+                ),
+            },
+            _ => MonsterIntent::Attack {
+                damage: GIANT_HEAD_COUNT_DAMAGE,
+            },
+        },
+        NEMESIS_ID => match moves_executed % 3 {
+            0 => MonsterIntent::AttackMultiple {
+                damage: asc_damage(
+                    ascension,
+                    NEMESIS_TRI_ATTACK_DAMAGE,
+                    NEMESIS_A3_TRI_ATTACK_DAMAGE,
+                    3,
+                ),
+                hits: NEMESIS_TRI_ATTACK_HITS,
+            },
+            1 => MonsterIntent::Attack {
+                damage: NEMESIS_SCYTHE_DAMAGE,
+            },
+            _ => MonsterIntent::AddBurnToDiscard {
+                count: 3,
+                damage: 0,
+            },
+        },
+        REPTOMANCER_ID => match moves_executed % 3 {
+            0 => MonsterIntent::AttackMultiple {
+                damage: asc_damage(
+                    ascension,
+                    REPTOMANCER_SNAKE_STRIKE_DAMAGE,
+                    REPTOMANCER_A3_SNAKE_STRIKE_DAMAGE,
+                    3,
+                ),
+                hits: REPTOMANCER_SNAKE_STRIKE_HITS,
+            },
+            1 => MonsterIntent::SummonGremlins { count: 2 },
+            _ => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    REPTOMANCER_BIG_BITE_DAMAGE,
+                    REPTOMANCER_A3_BIG_BITE_DAMAGE,
+                    3,
+                ),
+            },
+        },
+        REPULSOR_ID => match moves_executed % 2 {
+            0 => MonsterIntent::AddDazedToDiscard { count: 2 },
+            _ => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    REPULSOR_ATTACK_DAMAGE,
+                    REPULSOR_A2_ATTACK_DAMAGE,
+                    2,
+                ),
+            },
+        },
+        SPIKER_ID => match moves_executed % 2 {
+            0 => MonsterIntent::Attack {
+                damage: asc_damage(ascension, SPIKER_ATTACK_DAMAGE, SPIKER_A2_ATTACK_DAMAGE, 2),
+            },
+            _ => MonsterIntent::StrengthAndBlock {
+                strength: 0,
+                block: SPIKER_THORNS,
+            },
+        },
+        SPIRE_GROWTH_ID => match moves_executed % 3 {
+            0 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    SPIRE_GROWTH_QUICK_TACKLE_DAMAGE,
+                    SPIRE_GROWTH_A2_QUICK_TACKLE_DAMAGE,
+                    2,
+                ),
+            },
+            1 => MonsterIntent::ApplyPlayerWeak { amount: 3 },
+            _ => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    SPIRE_GROWTH_SMASH_DAMAGE,
+                    SPIRE_GROWTH_A2_SMASH_DAMAGE,
+                    2,
+                ),
+            },
+        },
+        MAW_ID => match moves_executed % 4 {
+            0 => MonsterIntent::ApplyPlayerWeak { amount: 2 },
+            1 => MonsterIntent::Attack {
+                damage: asc_damage(ascension, MAW_SLAM_DAMAGE, MAW_A2_SLAM_DAMAGE, 2),
+            },
+            2 => MonsterIntent::StrengthSelf { amount: 5 },
+            _ => MonsterIntent::Attack {
+                damage: MAW_NOM_DAMAGE,
+            },
+        },
+        TIME_EATER_ID => match moves_executed % 4 {
+            0 => MonsterIntent::AttackMultiple {
+                damage: TIME_EATER_REVERBERATE_DAMAGE,
+                hits: TIME_EATER_REVERBERATE_HITS,
+            },
+            1 => MonsterIntent::Block {
+                block: TIME_EATER_RIPPLE_BLOCK,
+            },
+            2 => MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: TIME_EATER_HEAD_SLAM_DAMAGE,
+                vulnerable: 1,
+            },
+            _ => MonsterIntent::StrengthAndBlock {
+                strength: 2,
+                block: TIME_EATER_HASTE_BLOCK,
+            },
+        },
+        TRANSIENT_ID => MonsterIntent::Attack {
+            damage: asc_damage(
+                ascension,
+                TRANSIENT_ATTACK_DAMAGE,
+                TRANSIENT_A4_ATTACK_DAMAGE,
+                4,
+            ),
+        },
+        WRITHING_MASS_ID => match moves_executed % 5 {
+            0 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    WRITHING_MASS_BIG_HIT_DAMAGE,
+                    WRITHING_MASS_A2_BIG_HIT_DAMAGE,
+                    2,
+                ),
+            },
+            1 => MonsterIntent::AttackMultiple {
+                damage: asc_damage(
+                    ascension,
+                    WRITHING_MASS_MULTI_HIT_DAMAGE,
+                    WRITHING_MASS_A2_MULTI_HIT_DAMAGE,
+                    2,
+                ),
+                hits: WRITHING_MASS_MULTI_HIT_HITS,
+            },
+            2 => MonsterIntent::AttackAndBlock {
+                damage: asc_damage(
+                    ascension,
+                    WRITHING_MASS_ATTACK_BLOCK_DAMAGE,
+                    WRITHING_MASS_A2_ATTACK_BLOCK_DAMAGE,
+                    2,
+                ),
+                block: WRITHING_MASS_ATTACK_BLOCK_BLOCK,
+            },
+            3 => MonsterIntent::AttackApplyPlayerWeak {
+                damage: asc_damage(
+                    ascension,
+                    WRITHING_MASS_ATTACK_DEBUFF_DAMAGE,
+                    WRITHING_MASS_A2_ATTACK_DEBUFF_DAMAGE,
+                    2,
+                ),
+                weak: 2,
+            },
+            _ => MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 },
+        },
+        CORRUPT_HEART_ID => match moves_executed % 4 {
+            0 => MonsterIntent::AttackMultiple {
+                damage: CORRUPT_HEART_BLOOD_SHOTS_DAMAGE,
+                hits: CORRUPT_HEART_BLOOD_SHOTS_HITS,
+            },
+            1 => MonsterIntent::Attack {
+                damage: asc_damage(
+                    ascension,
+                    CORRUPT_HEART_ECHO_ATTACK_DAMAGE,
+                    CORRUPT_HEART_A4_ECHO_ATTACK_DAMAGE,
+                    4,
+                ),
+            },
+            2 => MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 },
+            _ => MonsterIntent::StrengthSelf { amount: 1 },
+        },
+        SPIRE_SHIELD_ID => match moves_executed % 3 {
+            0 => MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: asc_damage(
+                    ascension,
+                    SPIRE_SHIELD_BASH_DAMAGE,
+                    SPIRE_SHIELD_A2_BASH_DAMAGE,
+                    2,
+                ),
+                vulnerable: 1,
+            },
+            1 => MonsterIntent::Block {
+                block: SPIRE_SHIELD_FORTIFY_BLOCK,
+            },
+            _ => MonsterIntent::AttackAndBlock {
+                damage: asc_damage(
+                    ascension,
+                    SPIRE_SHIELD_SMASH_DAMAGE,
+                    SPIRE_SHIELD_A2_SMASH_DAMAGE,
+                    2,
+                ),
+                block: SPIRE_SHIELD_SMASH_BLOCK,
+            },
+        },
+        SPIRE_SPEAR_ID => match moves_executed % 3 {
+            0 => MonsterIntent::AttackMultiple {
+                damage: asc_damage(
+                    ascension,
+                    SPIRE_SPEAR_BURN_STRIKE_DAMAGE,
+                    SPIRE_SPEAR_A2_BURN_STRIKE_DAMAGE,
+                    2,
+                ),
+                hits: SPIRE_SPEAR_BURN_STRIKE_HITS,
+            },
+            1 => MonsterIntent::StrengthAllMonsters { amount: 2 },
+            _ => MonsterIntent::AttackMultiple {
+                damage: SPIRE_SPEAR_SKEWER_DAMAGE,
+                hits: SPIRE_SPEAR_SKEWER_HITS,
+            },
+        },
         _ => MonsterIntent::Stun,
     }
 }
@@ -7318,6 +8132,39 @@ mod tests {
     }
 
     #[test]
+    fn target_beyond_encounter_spawn_metadata_supports_all_generated_keys() {
+        let keys = [
+            "3 Darklings",
+            "Orb Walker",
+            "3 Shapes",
+            "4 Shapes",
+            "Sphere and 2 Shapes",
+            "Jaw Worm Horde",
+            "Spire Growth",
+            "Transient",
+            "Maw",
+            "Writhing Mass",
+            "Giant Head",
+            "Nemesis",
+            "Reptomancer",
+        ];
+
+        for key in keys {
+            let spawns = target_beyond_encounter_spawn_for_key(1_218_623, 42, key, 0, false)
+                .unwrap_or_else(|| panic!("missing Beyond spawn for {key}"));
+            assert!(!spawns.is_empty(), "empty Beyond spawn for {key}");
+            for spawn in spawns {
+                let content_id = content_id_from_game_monster_id(spawn.name);
+                assert!(
+                    get_monster_definition(content_id).is_some(),
+                    "unregistered spawn {} for {key}",
+                    spawn.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn city_monster_hp_ranges_match_target_constructor_sources() {
         assert_eq!(
             target_city_monster_hp_range("Byrd", 0),
@@ -8849,6 +9696,51 @@ mod tests {
         assert!(monster.escaped);
         assert_eq!(monster.block, 0);
         assert_eq!(monster.stolen_gold, MUGGER_THEFT);
+    }
+
+    #[test]
+    fn public_backlog_monsters_are_registered_with_representative_intents() {
+        let cases = [
+            ("BanditBear", BANDIT_BEAR_ID, "Bear"),
+            ("BanditPointy", BANDIT_POINTY_ID, "Pointy"),
+            ("BanditLeader", BANDIT_LEADER_ID, "Romeo"),
+            ("Champ", CHAMP_ID, "The Champ"),
+            ("TheCollector", THE_COLLECTOR_ID, "The Collector"),
+            ("TorchHead", TORCH_HEAD_ID, "Torch Head"),
+            ("AwakenedOne", AWAKENED_ONE_ID, "Awakened One"),
+            ("Dagger", DAGGER_ID, "Dagger"),
+            ("Deca", DECA_ID, "Deca"),
+            ("Donu", DONU_ID, "Donu"),
+            ("Exploder", EXPLODER_ID, "Exploder"),
+            ("GiantHead", GIANT_HEAD_ID, "Giant Head"),
+            ("Nemesis", NEMESIS_ID, "Nemesis"),
+            ("Reptomancer", REPTOMANCER_ID, "Reptomancer"),
+            ("Repulsor", REPULSOR_ID, "Repulsor"),
+            ("Spiker", SPIKER_ID, "Spiker"),
+            ("SpireGrowth", SPIRE_GROWTH_ID, "Spire Growth"),
+            ("Maw", MAW_ID, "The Maw"),
+            ("TimeEater", TIME_EATER_ID, "Time Eater"),
+            ("Transient", TRANSIENT_ID, "Transient"),
+            ("WrithingMass", WRITHING_MASS_ID, "Writhing Mass"),
+            ("CorruptHeart", CORRUPT_HEART_ID, "Corrupt Heart"),
+            ("SpireShield", SPIRE_SHIELD_ID, "Spire Shield"),
+            ("SpireSpear", SPIRE_SPEAR_ID, "Spire Spear"),
+        ];
+
+        for (game_id, content_id, expected_name) in cases {
+            assert_eq!(content_id_from_game_monster_id(game_id), content_id);
+            let definition = get_monster_definition(content_id).expect("definition");
+            assert_eq!(definition.name, expected_name);
+            assert_ne!(
+                prepare_monster_intent_for_ascension(
+                    &monster_state_for_ascension(definition, MonsterId::new(1), 20),
+                    20,
+                ),
+                MonsterIntent::Attack {
+                    damage: FIXED_SIMPLE_MONSTER.attack_damage
+                }
+            );
+        }
     }
 
     #[test]

@@ -1,7 +1,13 @@
 use crate::{
+    combat::initialize_combat_piles_with_relics,
     content::cards::{
         upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID,
         JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+    },
+    content::monsters::{
+        monster_state_for_ascension, record_target_move, MonsterDefinition, BANDIT_BEAR_A0,
+        BANDIT_LEADER_A0, BANDIT_POINTY_A0, GREMLIN_NOB_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
+        TASKMASTER_A0,
     },
     potion::Potion,
     relic::{Relic, RelicKey},
@@ -17,7 +23,8 @@ use crate::{
         reward::target_card_reward_choices_with_count,
         state::RunRngStream,
     },
-    CardId, CardInstance, EventAction, RewardScreen, RunPhase, RunState, SimError, SimResult,
+    CardId, CardInstance, CombatState, EventAction, MonsterId, RewardScreen, RunPhase, RunState,
+    SimError, SimResult,
 };
 
 pub const SCRAP_OOZE_REACH_HP_LOSS: i32 = 3;
@@ -1775,9 +1782,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == 1 => {
-                return Err(SimError::IllegalAction(
-                    "Masked Bandits fight branch is not implemented",
-                ));
+                enter_event_combat(
+                    &mut next,
+                    &[&BANDIT_POINTY_A0, &BANDIT_BEAR_A0, &BANDIT_LEADER_A0],
+                );
             }
             1 | 2 if choice_index == 0 => {
                 let stage = screen.stage + 1;
@@ -1808,18 +1816,17 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                return Err(SimError::IllegalAction(
-                    "Colosseum Slavers combat branch is not implemented",
-                ));
+                enter_event_combat(
+                    &mut next,
+                    &[&SLAVER_BLUE_A0, &TASKMASTER_A0, &SLAVER_RED_A0],
+                );
             }
             2 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
             2 if choice_index == 1 => {
-                return Err(SimError::IllegalAction(
-                    "Colosseum Nobs combat branch is not implemented",
-                ));
+                enter_event_combat(&mut next, &[&GREMLIN_NOB_A0]);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -1903,6 +1910,40 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
     }
 
     Ok(next)
+}
+
+fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
+    let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
+    let monster_hp_rng = StsRng::with_counter(
+        run.event_rng_seed as i64 + i64::from(run.current_floor),
+        definitions.len() as u32,
+    );
+    let monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
+    let mut card_random_rng = Some(run.card_random_rng());
+    let mut combat = CombatState::initial_fixture();
+    combat.monsters = definitions
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| {
+            monster_state_for_ascension(definition, MonsterId::new(index as u64 + 1), run.ascension)
+        })
+        .collect();
+    for monster in &mut combat.monsters {
+        record_target_move(monster);
+    }
+    combat.piles = initialize_combat_piles_with_relics(
+        &run.deck,
+        &mut shuffle_rng,
+        &mut card_random_rng,
+        &run.relics,
+    );
+    combat.shuffle_rng = Some(shuffle_rng);
+    combat.monster_hp_rng = Some(monster_hp_rng);
+    combat.monster_rng = Some(monster_rng);
+    combat.card_random_rng = card_random_rng;
+    run.phase = RunPhase::Combat;
+    run.event = None;
+    run.combat = Some(run.init_combat_consuming_relics(combat));
 }
 
 #[cfg(test)]
@@ -3181,18 +3222,21 @@ mod tests {
     }
 
     #[test]
-    fn masked_bandits_fight_branch_is_explicitly_unsupported_until_event_combat_exists() {
+    fn masked_bandits_fight_enters_bandit_combat() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::MaskedBandits));
 
-        let err = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
-            .expect_err("fight unsupported");
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("fight");
+        let combat = after.combat.as_ref().expect("combat");
 
-        assert_eq!(
-            err,
-            SimError::IllegalAction("Masked Bandits fight branch is not implemented")
-        );
+        assert_eq!(after.phase, RunPhase::Combat);
+        assert!(after.event.is_none());
+        assert_eq!(combat.monsters.len(), 3);
+        assert_eq!(combat.monsters[0].content_id, BANDIT_POINTY_A0.content_id);
+        assert_eq!(combat.monsters[1].content_id, BANDIT_BEAR_A0.content_id);
+        assert_eq!(combat.monsters[2].content_id, BANDIT_LEADER_A0.content_id);
     }
 
     #[test]
@@ -3212,7 +3256,7 @@ mod tests {
     }
 
     #[test]
-    fn colosseum_slavers_combat_branch_is_explicitly_unsupported() {
+    fn colosseum_slavers_choice_enters_slaver_combat() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
@@ -3222,17 +3266,20 @@ mod tests {
             event_data: 0,
         });
 
-        let err = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
-            .expect_err("combat unsupported");
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("fight");
+        let combat = after.combat.as_ref().expect("combat");
 
-        assert_eq!(
-            err,
-            SimError::IllegalAction("Colosseum Slavers combat branch is not implemented")
-        );
+        assert_eq!(after.phase, RunPhase::Combat);
+        assert!(after.event.is_none());
+        assert_eq!(combat.monsters.len(), 3);
+        assert_eq!(combat.monsters[0].content_id, SLAVER_BLUE_A0.content_id);
+        assert_eq!(combat.monsters[1].content_id, TASKMASTER_A0.content_id);
+        assert_eq!(combat.monsters[2].content_id, SLAVER_RED_A0.content_id);
     }
 
     #[test]
-    fn colosseum_post_combat_choices_are_staged_but_nobs_combat_is_unsupported() {
+    fn colosseum_post_combat_choices_allow_flee_or_nob_combat() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
@@ -3246,12 +3293,13 @@ mod tests {
         assert_eq!(flee.phase, RunPhase::Idle);
         assert!(flee.event.is_none());
 
-        let err = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
-            .expect_err("nobs unsupported");
-        assert_eq!(
-            err,
-            SimError::IllegalAction("Colosseum Nobs combat branch is not implemented")
-        );
+        let fight =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("fight");
+        let combat = fight.combat.as_ref().expect("combat");
+        assert_eq!(fight.phase, RunPhase::Combat);
+        assert!(fight.event.is_none());
+        assert_eq!(combat.monsters.len(), 1);
+        assert_eq!(combat.monsters[0].content_id, GREMLIN_NOB_A0.content_id);
     }
 
     #[test]

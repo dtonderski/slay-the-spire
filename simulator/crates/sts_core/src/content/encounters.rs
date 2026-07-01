@@ -143,6 +143,15 @@ pub fn generate_beyond_normal_encounters(seed: i64) -> Vec<String> {
     normal
 }
 
+#[must_use]
+pub fn generate_beyond_elite_encounters(seed: i64) -> Vec<String> {
+    let mut rng = StsRng::new(seed);
+    advance_exordium_content_generation_rng(&mut rng);
+    let _ = generate_city_encounter_lists_with_rng(&mut rng);
+    let (_, elite) = generate_beyond_encounter_lists_with_rng(&mut rng);
+    elite
+}
+
 pub fn advance_exordium_content_generation_rng(rng: &mut StsRng) {
     let mut normal_encounters = generate_exordium_weak_encounters_with_rng(rng, 3);
     append_exordium_strong_encounters_with_rng(rng, &mut normal_encounters, 12);

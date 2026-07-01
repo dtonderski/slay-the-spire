@@ -16,13 +16,13 @@ Fandom and wiki.gg were attempted first, but both returned anti-bot challenge pa
 ## Summary
 
 - Public baseline entries reviewed: 66.
-- Local monster content definitions found: 37 game-facing definitions, plus `FIXED_SIMPLE_MONSTER` as a non-public fallback fixture.
-- Fully missing ordinary encounter, boss, event, summon, and Ending monsters: 24 public entries have no local `MonsterDefinition`.
+- Local monster content definitions found after implementation: 61 game-facing definitions, plus `FIXED_SIMPLE_MONSTER` as a non-public fallback fixture.
+- Fully missing ordinary encounter, boss, event, summon, and Ending monsters after implementation: 0 among the ordinary public Ironclad route entries reviewed here. The former 24 missing public entries now have partial executable `MonsterDefinition`s with representative intents; exact source-backed AI/history, summon, boss phase, and death/reward behavior remains partial unless called out separately.
 - Special/public-list entry: `APOLOGY_SLIME` is present in the public API and has no local `MonsterDefinition`, but is not part of ordinary Ironclad route generation; it is still listed below.
-- Implementation update: the clear executable mismatches for Orb Walker damage/action, Gremlin Nob A3 damage, Lagavulin A3 damage, Sentry A3 damage wiring, Guardian A4 Fierce Bash/Roll Attack damage, Bronze Automaton A4 Flail/Hyper Beam damage, Bronze Orb Support Beam block, and Mugger Smoke Bomb block have been fixed after this audit was written. Remaining high-confidence rows below are still open unless explicitly marked fixed in the inventory.
+- Implementation update: the clear executable mismatches for Orb Walker damage/action, Gremlin Nob A3 damage, Lagavulin A3 damage, Sentry A3 damage wiring, Guardian A4 Fierce Bash/Roll Attack damage, Bronze Automaton A4 Flail/Hyper Beam damage, Bronze Orb Support Beam block, and Mugger Smoke Bomb block have been fixed after this audit was written. The previously missing public encounterable monsters have also been registered with partial executable definitions and representative public-baseline intent surfaces.
 - Common local pattern: many monsters have correct constants and separate `target_*_next_intent_from_roll` helpers. Run-entry and end-of-turn paths use those helpers for several normal/elite monsters when `monster_rng` is present, but fixtures and unsupported branches still fall back to deterministic representative sequences.
 - Common HP pattern: many local `MonsterDefinition.hp` values are midpoint fixtures. Range helpers exist for several monsters, but direct executable construction still often uses the fixture plus generic scaling.
-- Local run generation caveat: `encounters.rs` names Beyond fights such as Shapes, Spire Growth, Transient, Maw, Giant Head, Nemesis, and Reptomancer, but `target_beyond_encounter_spawn_for_key` only supports `3 Darklings` and `Orb Walker`; unsupported Beyond fights fall back to the initial Cultist fixture when entered through the current run map path.
+- Local run generation caveat update: Beyond normal and elite encounter metadata now covers Shapes, Spire Growth, Transient, Maw, Giant Head, Nemesis, and Reptomancer instead of falling back to the initial Cultist fixture. This is still representative spawn/intent coverage, not exact source-backed AI parity.
 
 ## High-Confidence Gameplay Differences
 
@@ -82,7 +82,7 @@ Status values:
 | SPIKESLIME_M | Spike Slime (M) | Exordium normal | partial | Public Flame Tackle `8/10`, Lick. Local HP-driven wrapper maps medium attack to `8` but A2 `10` is not in the visible default constants. |
 | SPIKESLIME_S | Spike Slime (S) | Exordium normal | executable | Public Tackle `5/6`. Local small Spike Slime attack is `5` and Lick Weak; public small API lists only Tackle, so local extra Weak behavior should be source-checked. |
 | THEGUARDIAN | The Guardian | Exordium boss | partial | Fixed after audit: executable A4 Fierce Bash and Roll Attack damage is wired. Full mode behavior remains not fully wired. Local mode-shift, defensive mode, Close Up, Roll Attack, Twin Slam, Whirlwind, Charge Up, and Vent Steam are present but simplified. |
-| BANDITBEAR | Bear | City event | missing | No local monster definition. Encounterable through Masked Bandits event. |
+| BANDITBEAR | Bear | City event | partial | Registered after audit with public HP/damage baseline, representative Maul/Siphon/Lunge intent cycle, and Masked Bandits event-combat entry. Exact source AI/history and event reward timing are not claimed. |
 | BOOKOFSTABBING | Book of Stabbing | City elite | partial | Public Stab `6/7`, Big Stab `21/24`. Local Painful Stabs and growing stab hits exist; deterministic representative sequence instead of full random/history AI. |
 | BRONZEAUTOMATON | Bronze Automaton | City boss | partial | Public Flail `7/8` x2, Hyper Beam `45/50`, Stunned, Spawn Orbs, Boost. Fixed after audit: executable A4 Flail/Hyper Beam damage is wired. Artifact 3, representative orb spawn, and the `SummonGremlins` action identity mismatch remain. |
 | BYRD | Byrd | City normal | partial | Public Peck 1 x5, Swoop `12/14`, Headbutt 3, Caw, Airborne, Stunned. Local flight and attacks are modeled, but sequence is deterministic and Go Airborne/Stunned loop is simplified. |
@@ -92,36 +92,36 @@ Status values:
 | MUGGER | Mugger | City normal | partial | Public Mug `10/11`, Smoke Bomb block 28. Fixed after audit: executable Smoke Bomb setup block now uses 28. Local theft attacks exist, but exact post-second-swipe branch randomness remains partial. |
 | HEALER | Mystic | City normal | partial | Public Attack `8/9`, Heal, Buff. Local heal/strength/frail attack are modeled; default sequence is deterministic while target helper covers missing HP and roll thresholds. |
 | BRONZEORB | Orb | City boss minion | partial | Public Beam 8, Support Beam block 12, Stasis. Fixed after audit: default and target-helper Support Beam now grant 12 block. |
-| BANDITCHILD | Pointy | City event | missing | No local monster definition. Encounterable through Masked Bandits event. |
-| BANDITLEADER | Romeo | City event | missing | No local monster definition. Encounterable through Masked Bandits event. |
+| BANDITCHILD | Pointy | City event | partial | Registered after audit with public HP and representative multi-hit attack; Masked Bandits event-combat entry is wired. Exact source AI/history and event reward timing are not claimed. |
+| BANDITLEADER | Romeo | City event | partial | Registered after audit with public HP/damage baseline and representative intro/weak/attack cycle; Masked Bandits event-combat entry is wired. Exact source AI/history and event reward timing are not claimed. |
 | SHELLED_PARASITE | Shelled Parasite | City normal | partial | Public Fell `18/21`, Double Strike `6/7` x2, Life Suck `10/12`, Stunned. Local Plated Armor, Fell/Double/Life Suck are modeled; RNG-backed run paths use special first-turn and target-helper logic, while fixture/default behavior is representative. |
 | SNAKEPLANT | Snake Plant | City normal | partial | Public Chompy Chomps `7/8` x3 and Spores. Local Malleable and both moves are modeled; RNG-backed run paths use the target helper, while fixture/default behavior is deterministic. |
 | SNECKO | Snecko | City normal | partial | Public Glare, Bite `15/18`, Tail Whip `8/10`. Local Confusion, Bite, Tail Whip status variants are modeled; fixture/default sequence is representative. |
 | SPHERICGUARDIAN | Spheric Guardian | City normal | partial | Public Big Attack `10/11` x2, Initial Block Gain block 95, Block Attack block 15, Frail Attack. Local starts at 40 block and opens with 25/35 block. Needs source-backed reconciliation. |
 | SLAVERBOSS | Taskmaster | City elite/event | partial | Public Scouring Whip 7. Local Scouring Whip exists, but `taskmaster_intent()` ignores ascension wound-count helper in the default intent. Encounterable with Slavers elite and Colosseum. |
-| CHAMP | The Champ | City boss | missing | No local monster definition. |
-| THECOLLECTOR | The Collector | City boss | missing | No local monster definition. |
-| TORCHHEAD | Torch Head | City boss minion | missing | No local monster definition. Summoned by The Collector. |
-| AWAKENEDONE | Awakened One | Beyond boss | missing | No local monster definition. |
-| DAGGER | Dagger | Beyond elite minion | missing | No local monster definition. Summoned by Reptomancer. |
+| CHAMP | The Champ | City boss | partial | Registered after audit with public HP/damage/block/debuff baseline and representative boss intent surfaces. Exact phase thresholds, AI history, execute timing, and trace parity are not claimed. |
+| THECOLLECTOR | The Collector | City boss | partial | Registered after audit with public HP/damage/block/debuff baseline and representative summon/fireball/buff/debuff surfaces. Exact Torch Head summoning and boss AI parity are not claimed. |
+| TORCHHEAD | Torch Head | City boss minion | partial | Registered after audit with public HP and representative attack. Exact Collector summon lifecycle is not claimed. |
+| AWAKENEDONE | Awakened One | Beyond boss | partial | Registered after audit with public HP/damage/block/debuff baseline and representative phase/rebirth surfaces. Exact phase transition, Cultist summon, and Curiosity power behavior are not claimed. |
+| DAGGER | Dagger | Beyond elite minion | partial | Registered after audit with public HP and representative Wound/explode attacks. Exact Reptomancer summon/death timing is not claimed. |
 | DARKLING | Darkling | Beyond normal | partial | Public Chomp `8/9` x2, Harden, Nip, Count, Reincarnate. Local HP/rolled Nip helpers and RNG-backed move helper exist, but executable phase/death behavior and fixture/default Chomp shape are incomplete. |
-| DECA | Deca | Beyond boss | missing | No local monster definition. |
-| DONU | Donu | Beyond boss | missing | No local monster definition. |
-| EXPLODER | Exploder | Beyond normal/shape | missing | No local monster definition. Appears in Shapes encounters. |
-| GIANTHEAD | Giant Head | Beyond elite | missing | No local monster definition. |
-| NEMESIS | Nemesis | Beyond elite | missing | No local monster definition. |
+| DECA | Deca | Beyond boss | partial | Registered after audit with public HP/damage/block baseline and representative beam/block surfaces. Exact artifact, dazed insertion, and boss pair AI parity are not claimed. |
+| DONU | Donu | Beyond boss | partial | Registered after audit with public HP/damage baseline and representative beam/Strength-all surfaces. Exact boss pair AI parity is not claimed. |
+| EXPLODER | Exploder | Beyond normal/shape | partial | Registered after audit with public HP/damage baseline and included in Beyond Shapes spawn metadata. Exact countdown/explosion lifecycle is not claimed. |
+| GIANTHEAD | Giant Head | Beyond elite | partial | Registered after audit with public HP/damage/debuff baseline and included in Beyond elite spawn metadata. Exact Slow power and It Is Time ramp parity are not claimed. |
+| NEMESIS | Nemesis | Beyond elite | partial | Registered after audit with public HP/damage/burn baseline and included in Beyond elite spawn metadata. Exact Intangible alternation and Burn insertion parity are not claimed. |
 | ORB_WALKER | Orb Walker | Beyond normal | partial | Public Laser `10/11` and Claw `15/16`. Fixed after audit: executable A0/A2 Laser and Claw damage now match public values, and deterministic Claw is a plain attack instead of a Burn insertion path. HP range semantics remain partial. |
-| REPTOMANCER | Reptomancer | Beyond elite | missing | No local monster definition. |
-| REPULSOR | Repulsor | Beyond normal/shape | missing | No local monster definition. Appears in Shapes encounters. |
-| SPIKER | Spiker | Beyond normal/shape | missing | No local monster definition. Appears in Shapes encounters. |
-| SERPENT | Spire Growth | Beyond normal | missing | No local monster definition. |
-| MAW | The Maw | Beyond normal | missing | No local monster definition. |
-| TIMEEATER | Time Eater | Beyond boss | missing | No local monster definition. |
-| TRANSIENT | Transient | Beyond normal | missing | No local monster definition. |
-| WRITHINGMASS | Writhing Mass | Beyond normal | missing | No local monster definition. |
-| CORRUPTHEART | Corrupt Heart | Ending boss | missing | No local monster definition. Encounterable in a keyed Ironclad run. |
-| SPIRESHIELD | Spire Shield | Ending elite | missing | No local monster definition. Encounterable in a keyed Ironclad run. |
-| SPIRESPEAR | Spire Spear | Ending elite | missing | No local monster definition. Encounterable in a keyed Ironclad run. |
+| REPTOMANCER | Reptomancer | Beyond elite | partial | Registered after audit with public HP/damage baseline and included in Beyond elite spawn metadata. Exact dagger summoning, slot behavior, and AI parity are not claimed. |
+| REPULSOR | Repulsor | Beyond normal/shape | partial | Registered after audit with public HP/damage/status baseline and included in Beyond Shapes spawn metadata. Exact Dazed insertion parity is not claimed. |
+| SPIKER | Spiker | Beyond normal/shape | partial | Registered after audit with public HP/damage/thorns baseline and included in Beyond Shapes spawn metadata. Exact thorns buff loop parity is not claimed. |
+| SERPENT | Spire Growth | Beyond normal | partial | Registered after audit with public HP/damage/debuff baseline and included in Beyond spawn metadata. Exact Constricted behavior is not claimed. |
+| MAW | The Maw | Beyond normal | partial | Registered after audit with public HP/damage/debuff/strength baseline and included in Beyond spawn metadata. Exact move RNG/history and ramp parity are not claimed. |
+| TIMEEATER | Time Eater | Beyond boss | partial | Registered after audit with public HP/damage/block/debuff/strength baseline. Exact twelve-card turn-ending, heal/phase threshold, and boss AI parity are not claimed. |
+| TRANSIENT | Transient | Beyond normal | partial | Registered after audit with public HP and representative escalating attack; included in Beyond spawn metadata. Exact turn-count death and attack ramp parity are not claimed. |
+| WRITHINGMASS | Writhing Mass | Beyond normal | partial | Registered after audit with public HP/damage/status/debuff baseline and included in Beyond spawn metadata. Exact reactive intent rerolling is not claimed. |
+| CORRUPTHEART | Corrupt Heart | Ending boss | partial | Registered after audit with public HP/damage/debuff/strength baseline. Exact Beat of Death, Invincible cap, buff cycle, and Act 4 reward/death parity are not claimed. |
+| SPIRESHIELD | Spire Shield | Ending elite | partial | Registered after audit with public HP/damage/block baseline. Exact player-surrounded positioning, artifact/block opening, and pair AI parity are not claimed. |
+| SPIRESPEAR | Spire Spear | Ending elite | partial | Registered after audit with public HP/damage/strength baseline. Exact Burn insertion, player-surrounded positioning, artifact opening, and pair AI parity are not claimed. |
 
 ## Local Surfaces That Need Special Care
 
