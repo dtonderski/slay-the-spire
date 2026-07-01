@@ -3,6 +3,13 @@
 ## What Exists
 
 ### Combat
+- Latest live-trace Looter branch slice: Looter now models the source-backed
+  post-Mug branch with Lunge (`move_id` 4, 12/14 damage by ascension) and Smoke
+  Bomb block/escape move bytes instead of going directly from two Mug attacks
+  to block. Combat turn intent selection now uses the target Looter 50/50
+  branch helper, focused regressions cover Looter lunge/smoke/escape surfaces,
+  and `trace-2026-07-01T20-30-26-163Z.jsonl` again strict-replays to trace
+  exhaustion after the floor-4 Looter mismatch.
 - Latest live-trace Acid Slime M intent slice: Exordium Thugs spawn metadata now
   opens the weak-slot Acid Slime (M) with Wound Tackle
   (`AttackAddSlimedToDiscard`, 7/8 damage by ascension) instead of Normal

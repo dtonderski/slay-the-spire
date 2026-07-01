@@ -159,6 +159,9 @@ pub const LOOTER_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(44, 48);
 pub const LOOTER_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(46, 50);
 const LOOTER_SWIPE_DAMAGE: i32 = 10;
 const LOOTER_A2_SWIPE_DAMAGE: i32 = 11;
+const LOOTER_LUNGE_DAMAGE: i32 = 12;
+const LOOTER_A2_LUNGE_DAMAGE: i32 = 14;
+const LOOTER_SMOKE_BOMB_BLOCK: i32 = 6;
 const LOOTER_THEFT: i32 = 15;
 const LOOTER_A17_THEFT: i32 = 20;
 const MUGGER_SWIPE_DAMAGE: i32 = 10;
@@ -3530,6 +3533,9 @@ fn prepare_monster_intent_for_monster(
             ascension,
         );
     }
+    if definition.content_id == LOOTER_ID {
+        return looter_intent(moves_executed, ascension);
+    }
     if definition.content_id == MUGGER_ID {
         return mugger_intent(moves_executed, ascension);
     }
@@ -3979,8 +3985,54 @@ fn looter_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
             damage: looter_swipe_damage(ascension),
             amount: looter_theft(ascension),
         },
-        2 => MonsterIntent::Block { block: 6 },
+        2 => MonsterIntent::AttackStealGold {
+            damage: looter_lunge_damage(ascension),
+            amount: looter_theft(ascension),
+        },
+        3 => MonsterIntent::Block {
+            block: LOOTER_SMOKE_BOMB_BLOCK,
+        },
         _ => MonsterIntent::Escape,
+    }
+}
+
+#[must_use]
+fn looter_lunge_damage(ascension: u8) -> i32 {
+    if ascension >= 2 {
+        LOOTER_A2_LUNGE_DAMAGE
+    } else {
+        LOOTER_LUNGE_DAMAGE
+    }
+}
+
+#[must_use]
+pub fn target_looter_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    ascension: u8,
+) -> MonsterIntent {
+    if last_two_moves(move_history, 1) {
+        if roll < 50 {
+            MonsterIntent::Block {
+                block: LOOTER_SMOKE_BOMB_BLOCK,
+            }
+        } else {
+            MonsterIntent::AttackStealGold {
+                damage: looter_lunge_damage(ascension),
+                amount: looter_theft(ascension),
+            }
+        }
+    } else if last_move(move_history, 4) {
+        MonsterIntent::Block {
+            block: LOOTER_SMOKE_BOMB_BLOCK,
+        }
+    } else if last_move(move_history, 2) || last_move(move_history, 3) {
+        MonsterIntent::Escape
+    } else {
+        MonsterIntent::AttackStealGold {
+            damage: looter_swipe_damage(ascension),
+            amount: looter_theft(ascension),
+        }
     }
 }
 
@@ -4916,6 +4968,28 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
     if content_id == TRANSIENT_ID {
         return match intent {
             MonsterIntent::Attack { .. } => Some(1),
+            _ => None,
+        };
+    }
+    if content_id == LOOTER_ID {
+        return match intent {
+            MonsterIntent::AttackStealGold { damage, .. } if damage >= LOOTER_LUNGE_DAMAGE => {
+                Some(4)
+            }
+            MonsterIntent::AttackStealGold { .. } => Some(1),
+            MonsterIntent::Block { .. } => Some(2),
+            MonsterIntent::Escape => Some(3),
+            _ => None,
+        };
+    }
+    if content_id == MUGGER_ID {
+        return match intent {
+            MonsterIntent::AttackStealGold { damage, .. } if damage >= MUGGER_BIG_SWIPE_DAMAGE => {
+                Some(4)
+            }
+            MonsterIntent::AttackStealGold { .. } => Some(1),
+            MonsterIntent::Block { .. } => Some(2),
+            MonsterIntent::Escape => Some(3),
             _ => None,
         };
     }
@@ -9567,6 +9641,58 @@ mod tests {
 
         assert_eq!(definition.name, "Mugger");
         assert_eq!(definition.hp, 50);
+    }
+
+    #[test]
+    fn looter_sequence_covers_two_mugs_lunge_smoke_bomb_and_escape() {
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&monster_state(&LOOTER_A0, MonsterId::new(1)), 0),
+            MonsterIntent::AttackStealGold {
+                damage: LOOTER_SWIPE_DAMAGE,
+                amount: LOOTER_THEFT,
+            }
+        );
+        assert_eq!(
+            target_looter_next_intent_from_roll(&[1], 80, 0),
+            MonsterIntent::AttackStealGold {
+                damage: LOOTER_SWIPE_DAMAGE,
+                amount: LOOTER_THEFT,
+            }
+        );
+        assert_eq!(
+            target_looter_next_intent_from_roll(&[1, 1], 80, 0),
+            MonsterIntent::AttackStealGold {
+                damage: LOOTER_LUNGE_DAMAGE,
+                amount: LOOTER_THEFT,
+            }
+        );
+        assert_eq!(
+            target_looter_next_intent_from_roll(&[1, 1], 10, 0),
+            MonsterIntent::Block {
+                block: LOOTER_SMOKE_BOMB_BLOCK,
+            }
+        );
+        assert_eq!(
+            target_looter_next_intent_from_roll(&[1, 1, 4], 80, 0),
+            MonsterIntent::Block {
+                block: LOOTER_SMOKE_BOMB_BLOCK,
+            }
+        );
+        assert_eq!(
+            target_looter_next_intent_from_roll(&[1, 1, 4, 2], 80, 0),
+            MonsterIntent::Escape
+        );
+    }
+
+    #[test]
+    fn looter_ascension_variants_use_source_backed_lunge_and_theft() {
+        assert_eq!(
+            target_looter_next_intent_from_roll(&[1, 1], 80, 17),
+            MonsterIntent::AttackStealGold {
+                damage: LOOTER_A2_LUNGE_DAMAGE,
+                amount: LOOTER_A17_THEFT,
+            }
+        );
     }
 
     #[test]
