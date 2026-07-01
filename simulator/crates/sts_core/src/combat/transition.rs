@@ -742,6 +742,7 @@ fn apply_internal_action(
                 purpose,
                 crate::combat::ExhaustSelectPurpose::BurningPactDraw2
                     | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
+                    | crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand
             ) {
                 Some(remove_card_from_pile(
                     state,
@@ -2202,7 +2203,11 @@ fn confirm_exhume_select(
     }
     state.piles.exhaust_pile.remove(index);
     state.piles.hand.push(card);
-    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+    if let Some(source_card) = exhaust_select.source_card {
+        state.piles.exhaust_pile.push(source_card);
+    } else {
+        move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+    }
     apply_on_exhaust_effects(state, source_card_id);
     Ok(())
 }
@@ -12819,7 +12824,7 @@ mod tests {
         let next = apply_combat_action(&state, exhume_action(&state)).expect("Exhume opens select");
 
         assert_eq!(next.player.energy, 0);
-        assert_eq!(next.piles.hand[0].content_id, EXHUME_ID);
+        assert!(next.piles.hand.is_empty());
         assert_eq!(
             next.exhaust_select.as_ref().map(|select| select.purpose),
             Some(crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand)
@@ -12829,6 +12834,13 @@ mod tests {
                 .as_ref()
                 .and_then(|select| select.source_card_id),
             Some(CardId::new(20))
+        );
+        assert_eq!(
+            next.exhaust_select
+                .as_ref()
+                .and_then(|select| select.source_card)
+                .map(|card| card.content_id),
+            Some(EXHUME_ID)
         );
     }
 

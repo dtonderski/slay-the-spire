@@ -2319,11 +2319,10 @@ mod tests {
         let after_choice =
             apply_run_action(&after_play, RunAction::ChooseExhaustSelect { index: 0 })
                 .expect("choose exhausted Defend");
-        let after_confirm = apply_run_action(&after_choice, RunAction::ConfirmExhaustSelect)
-            .expect("confirm Exhume select");
-        let combat = after_confirm.combat.expect("combat remains active");
+        let combat = after_choice.combat.as_ref().expect("combat remains active");
 
-        assert_eq!(after_confirm.card_random_rng_counter, 1);
+        assert!(combat.exhaust_select.is_none());
+        assert_eq!(after_choice.card_random_rng_counter, 1);
         assert!(combat
             .piles
             .hand

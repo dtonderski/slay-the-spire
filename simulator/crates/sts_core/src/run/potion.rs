@@ -300,8 +300,23 @@ pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
 pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_exhaust_select_choice(run, index)?;
     let mut next = run.clone();
+    let purpose = next
+        .combat
+        .as_ref()
+        .and_then(|combat| combat.exhaust_select.as_ref())
+        .map(|select| select.purpose)
+        .expect("validated exhaust select");
     let combat = next.combat.as_mut().expect("validated combat");
     choose_exhaust_select(combat, index)?;
+    if purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
+        let mut combat = next.combat.take().expect("validated combat");
+        let before = combat.clone();
+        let exhaust_before = combat.piles.exhaust_pile.len();
+        confirm_exhaust_select(&mut combat)?;
+        let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
+        apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+        next.combat = Some(combat);
+    }
     Ok(next)
 }
 
@@ -345,12 +360,15 @@ fn exhaust_count_for_confirmed_select(
         .hand
         .iter()
         .any(|card| card.id == source_card_id);
+    let source_started_in_select = select
+        .source_card
+        .is_some_and(|card| card.id == source_card_id);
     let source_ended_in_exhaust = after
         .piles
         .exhaust_pile
         .iter()
         .any(|card| card.id == source_card_id);
-    usize::from(source_started_in_hand && source_ended_in_exhaust)
+    usize::from((source_started_in_hand || source_started_in_select) && source_ended_in_exhaust)
 }
 
 pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
