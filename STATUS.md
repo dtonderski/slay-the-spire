@@ -2,6 +2,15 @@
 
 ## What Exists
 
+### Tooling
+- Latest simulator developer-loop tooling slice: `simulator/scripts/dev-verify.ps1`
+  now wraps the common local fidelity loop (`cargo fmt`, focused Rust test
+  filters, `uv run cargo clippy`, `uv run maturin develop --release`, and
+  optional strict replay checks), while `simulator/scripts/restart-ui.ps1`
+  restarts only local `sts.ui_service` Python/uv processes and waits for
+  `http://127.0.0.1:8799/`. These scripts are generic command wrappers; they do
+  not bake in trace names, seeds, or simulator behavior.
+
 ### Combat
 - Latest live-trace Gremlin Nob Bellow strength slice: Gremlin Nob's Bellow
   intent now applies Anger without immediate Strength, matching the target
