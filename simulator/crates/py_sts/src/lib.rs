@@ -1660,8 +1660,8 @@ mod tests {
         let second = PyOmniRunEnv::new_ironclad(Some("TEST"), Some(0)).expect("seed starts");
         let other = PyOmniRunEnv::new_ironclad(Some("OTHER"), Some(0)).expect("seed starts");
 
-        assert_eq!(first.phase(), "idle");
-        assert_eq!(first.current_decision(), "map");
+        assert_eq!(first.phase(), "event");
+        assert_eq!(first.current_decision(), "event");
         assert_eq!(
             first.snapshot_hash().expect("first hash"),
             second.snapshot_hash().expect("second hash")
@@ -1673,6 +1673,6 @@ mod tests {
         assert!(first
             .exact_legal_actions()
             .iter()
-            .any(|action| action.family() == "map"));
+            .any(|action| action.family() == "event"));
     }
 }
