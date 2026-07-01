@@ -4772,6 +4772,14 @@ fn shelled_parasite_double_strike_intent(ascension: u8) -> MonsterIntent {
 
 #[must_use]
 pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<u8> {
+    if content_id == GREMLIN_NOB_ID {
+        return match intent {
+            MonsterIntent::Attack { .. } => Some(1),
+            MonsterIntent::AttackApplyPlayerVulnerable { .. } => Some(2),
+            MonsterIntent::StrengthSelf { .. } => Some(3),
+            _ => None,
+        };
+    }
     if content_id == CHOSEN_ID {
         return match intent {
             MonsterIntent::Attack { .. } => Some(1),
@@ -7200,6 +7208,29 @@ fn gremlin_nob_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
 }
 
 #[must_use]
+pub fn target_gremlin_nob_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    ascension: u8,
+) -> MonsterIntent {
+    if roll < 33 && !last_move(move_history, 2) {
+        return MonsterIntent::AttackApplyPlayerVulnerable {
+            damage: gremlin_nob_skull_bash_damage(ascension),
+            vulnerable: 2,
+        };
+    }
+    if !last_two_moves(move_history, 1) {
+        return MonsterIntent::Attack {
+            damage: gremlin_nob_rush_damage(ascension),
+        };
+    }
+    MonsterIntent::AttackApplyPlayerVulnerable {
+        damage: gremlin_nob_skull_bash_damage(ascension),
+        vulnerable: 2,
+    }
+}
+
+#[must_use]
 pub fn gremlin_nob_enrage(ascension: u8) -> i32 {
     if ascension >= 17 {
         GREMLIN_NOB_A17_ENRAGE
@@ -9033,7 +9064,7 @@ mod tests {
     }
 
     #[test]
-    fn gremlin_nob_opens_bellow_then_skull_bash_then_rush() {
+    fn gremlin_nob_representative_sequence_opens_bellow_then_skull_bash_then_rush() {
         let definition = &GREMLIN_NOB_A0;
 
         assert_eq!(
@@ -9059,6 +9090,23 @@ mod tests {
             prepare_monster_intent_for(definition, 3, None),
             MonsterIntent::Attack {
                 damage: GREMLIN_NOB_RUSH_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn gremlin_nob_target_roll_after_bellow_can_rush_or_skull_bash() {
+        assert_eq!(
+            target_gremlin_nob_next_intent_from_roll(&[3], 80, 0),
+            MonsterIntent::Attack {
+                damage: GREMLIN_NOB_RUSH_DAMAGE
+            }
+        );
+        assert_eq!(
+            target_gremlin_nob_next_intent_from_roll(&[3], 10, 0),
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: GREMLIN_NOB_SKULL_BASH_DAMAGE,
+                vulnerable: 2,
             }
         );
     }

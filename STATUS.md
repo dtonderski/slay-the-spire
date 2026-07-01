@@ -3,6 +3,13 @@
 ## What Exists
 
 ### Combat
+- Latest live-trace Gremlin Nob roll slice: Gremlin Nob now records target move
+  bytes for Bellow, Bull Rush, and Skull Bash and uses a source-backed
+  post-Bellow roll helper for next-intent selection. This fixes the floor-6 Nob
+  mismatch where the real game rolled Bull Rush after opening Bellow while the
+  simulator's representative sequence chose Skull Bash. Focused Nob regressions
+  cover the target roll surface, and `trace-2026-07-01T20-30-26-163Z.jsonl`
+  strict-replays to trace exhaustion again.
 - Latest live-trace Looter branch slice: Looter now models the source-backed
   post-Mug branch with Lunge (`move_id` 4, 12/14 damage by ascension) and Smoke
   Bomb block/escape move bytes instead of going directly from two Mug attacks

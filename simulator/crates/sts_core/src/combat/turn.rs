@@ -25,9 +25,10 @@ use crate::{
         target_byrd_next_intent_from_roll, target_centurion_next_intent_from_roll,
         target_chosen_next_intent_from_roll, target_collector_next_intent_from_roll,
         target_fungi_beast_next_intent_from_roll, target_gremlin_leader_next_intent_from_roll,
-        target_healer_next_intent_from_roll, target_jaw_worm_next_intent_from_roll,
-        target_large_acid_slime_next_intent_from_roll, target_looter_next_intent_from_roll,
-        target_louse_next_intent_from_roll, target_medium_acid_slime_next_intent_from_roll,
+        target_gremlin_nob_next_intent_from_roll, target_healer_next_intent_from_roll,
+        target_jaw_worm_next_intent_from_roll, target_large_acid_slime_next_intent_from_roll,
+        target_looter_next_intent_from_roll, target_louse_next_intent_from_roll,
+        target_medium_acid_slime_next_intent_from_roll,
         target_medium_or_large_spike_slime_next_intent_from_roll,
         target_shelled_parasite_next_intent_from_roll, target_slaver_blue_next_intent_from_roll,
         target_slaver_red_next_intent_from_roll, target_small_acid_slime_followup_intent,
@@ -35,11 +36,11 @@ use crate::{
         target_spiker_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
         ACID_SLIME_S_A7_HP_RANGE, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID,
         CHOSEN_ID, DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID,
-        GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID, HEXAGHOST_ID,
-        JAW_WORM_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID,
-        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
-        SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIKE_SLIME_S_A7_HP_RANGE,
-        THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
+        GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_TSUNDERE_ID, HEALER_ID,
+        HEXAGHOST_ID, JAW_WORM_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, RED_LOUSE_BITE_DAMAGE,
+        RED_LOUSE_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID,
+        SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
+        SPIKE_SLIME_S_A7_HP_RANGE, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
     },
     ids::MonsterId,
     rng::{JavaRng, StsRng},
@@ -791,6 +792,16 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
             } else if monster.content_id == LOOTER_ID {
                 if let Some(roll) = roll {
                     target_looter_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == GREMLIN_NOB_ID {
+                if let Some(roll) = roll {
+                    target_gremlin_nob_next_intent_from_roll(
                         &monster.move_history,
                         roll,
                         state.ascension,
