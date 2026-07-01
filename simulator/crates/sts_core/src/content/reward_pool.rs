@@ -469,7 +469,7 @@ pub fn ironclad_truly_random_card_pool() -> Vec<ContentId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::STRIKE_R_ID;
+    use crate::content::cards::{card_type_and_rarity, STRIKE_R_ID};
 
     #[test]
     fn ironclad_reward_pool_has_unique_modeled_cards() {
@@ -500,6 +500,15 @@ mod tests {
         assert_eq!(rarity(SEARING_BLOW_ID), CardRarity::Uncommon);
         assert_eq!(rarity(DOUBLE_TAP_ID), CardRarity::Rare);
         assert_eq!(rarity(IMMOLATE_ID), CardRarity::Rare);
+    }
+
+    #[test]
+    fn modeled_reward_rarity_matches_library_rarity() {
+        for entry in IRONCLAD_REWARD_ENTRIES {
+            let (_, library_rarity) = card_type_and_rarity(entry.content_id)
+                .expect("reward entry has a card library rarity");
+            assert_eq!(entry.rarity, library_rarity);
+        }
     }
 
     #[test]

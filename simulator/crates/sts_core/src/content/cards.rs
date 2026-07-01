@@ -4589,7 +4589,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
             Some((CardType::Power, CardRarity::Uncommon))
         }
         id if id == DARK_EMBRACE_ID || id == DARK_EMBRACE_PLUS_ID => {
-            Some((CardType::Power, CardRarity::Rare))
+            Some((CardType::Power, CardRarity::Uncommon))
         }
         id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == COMBUST_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
@@ -6094,6 +6094,14 @@ mod tests {
         assert_eq!(DARK_EMBRACE.target, TargetRequirement::None);
         assert_eq!(DARK_EMBRACE.card_type, CardType::Power);
         assert_eq!(DARK_EMBRACE_PLUS.cost, 1);
+        assert_eq!(
+            card_type_and_rarity(DARK_EMBRACE_ID),
+            Some((CardType::Power, CardRarity::Uncommon))
+        );
+        assert_eq!(
+            card_type_and_rarity(DARK_EMBRACE_PLUS_ID),
+            Some((CardType::Power, CardRarity::Uncommon))
+        );
         assert_eq!(
             upgrade_content_id(DARK_EMBRACE_ID),
             Some(DARK_EMBRACE_PLUS_ID)
