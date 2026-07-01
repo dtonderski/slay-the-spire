@@ -1659,10 +1659,14 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == 1 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::Ghosts,
+                    choices: ghosts_choices(1, next.player_max_hp),
+                    stage: 2,
+                    event_data: 0,
+                });
             }
-            1 if choice_index == 0 => {
+            1 | 2 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -2978,20 +2982,31 @@ mod tests {
     }
 
     #[test]
-    fn ghosts_leave_exits_without_changes() {
+    fn ghosts_refuse_requires_leave_without_changes() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::Ghosts));
         let max_hp_before = run.player_max_hp;
         let deck_before = run.deck.clone();
 
-        let after =
-            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("leave");
+        let refused =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("refuse");
 
-        assert_eq!(after.player_max_hp, max_hp_before);
-        assert_eq!(after.deck, deck_before);
-        assert_eq!(after.phase, RunPhase::Idle);
-        assert!(after.event.is_none());
+        assert_eq!(refused.player_max_hp, max_hp_before);
+        assert_eq!(refused.deck, deck_before);
+        assert_eq!(refused.phase, RunPhase::Event);
+        assert_eq!(refused.event.as_ref().expect("leave").stage, 2);
+        assert_eq!(
+            refused.event.as_ref().expect("leave").choices[0].label,
+            "Leave"
+        );
+
+        let left =
+            apply_event_action(&refused, EventAction::Choose { choice_index: 0 }).expect("leave");
+        assert_eq!(left.player_max_hp, max_hp_before);
+        assert_eq!(left.deck, deck_before);
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.event.is_none());
     }
 
     #[test]
