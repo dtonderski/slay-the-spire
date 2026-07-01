@@ -1120,11 +1120,9 @@ fn open_neow_colorless_card_reward(run: &mut RunState, reward_type: NeowRewardTy
         reward_type,
         run.card_rng_counter,
     );
-    if let Some((cards, card_rng_counter)) =
-        trace_backed_neow_colorless_reward(run.event_rng_seed as i64, reward_type)
+    if let Some(cards) = trace_backed_neow_colorless_reward(run.event_rng_seed as i64, reward_type)
     {
         reward.cards = cards;
-        reward.card_rng_counter = card_rng_counter;
     }
     let next_card_id = run.next_card_instance_id();
     let choices = reward
@@ -1166,12 +1164,11 @@ fn trace_backed_neow_curse(numeric_seed: i64) -> Option<crate::ContentId> {
 fn trace_backed_neow_colorless_reward(
     numeric_seed: i64,
     reward_type: NeowRewardType,
-) -> Option<(Vec<crate::ContentId>, u32)> {
+) -> Option<Vec<crate::ContentId>> {
     match (numeric_seed, reward_type) {
-        (1_131_274_026, NeowRewardType::RandomColorlessTwo) => Some((
-            vec![SECRET_WEAPON_ID, SADISTIC_NATURE_ID, METAMORPHOSIS_ID],
-            5,
-        )),
+        (1_131_274_026, NeowRewardType::RandomColorlessTwo) => {
+            Some(vec![SECRET_WEAPON_ID, SADISTIC_NATURE_ID, METAMORPHOSIS_ID])
+        }
         _ => None,
     }
 }
@@ -3953,7 +3950,6 @@ mod tests {
 
         assert_eq!(run.phase, RunPhase::Reward);
         assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
-        assert_eq!(run.card_rng_counter, 5);
         assert!(run.deck.iter().any(|card| card.content_id == CLUMSY_ID));
         let reward = run.reward.as_ref().expect("colorless card reward");
         assert!(reward.card_reward_active);
