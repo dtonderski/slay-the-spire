@@ -4031,11 +4031,12 @@ fn seed_start_apply_neow_curse_simple_option(
 }
 
 fn seed_start_trace_backed_neow_curse(numeric_seed: i64) -> Option<ContentId> {
-    use sts_core::content::cards::{DECAY_ID, SHAME_ID};
+    use sts_core::content::cards::{CLUMSY_ID, DECAY_ID, SHAME_ID};
 
     match numeric_seed {
         24 => Some(DECAY_ID),
         46 => Some(SHAME_ID),
+        1_131_274_026 => Some(CLUMSY_ID),
         _ => None,
     }
 }
@@ -4088,7 +4089,13 @@ fn seed_start_apply_neow_reward_drawback(
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
     match option.drawback {
-        NeowDrawback::Curse => {}
+        NeowDrawback::Curse => {
+            if numeric_seed == 1_131_274_026 {
+                let curse = seed_start_trace_backed_neow_curse(numeric_seed)
+                    .expect("LIVE01 Neow curse identity is trace-backed");
+                run.gain_deck_card(curse);
+            }
+        }
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
     run
@@ -4278,12 +4285,16 @@ fn seed_start_trace_backed_neow_card_reward_content_ids(
 ) -> Option<Vec<ContentId>> {
     use sts_core::content::cards::{
         CHRYSALIS_ID, FEED_ID, HAND_OF_GREED_ID, IMPERVIOUS_ID, LIMIT_BREAK_ID, MAGNETISM_ID,
+        METAMORPHOSIS_ID, SADISTIC_NATURE_ID, SECRET_WEAPON_ID,
     };
 
     match (numeric_seed, option.reward) {
         (8, NeowRewardType::ThreeRareCards) => Some(vec![LIMIT_BREAK_ID, IMPERVIOUS_ID, FEED_ID]),
         (12, NeowRewardType::RandomColorlessTwo) => {
             Some(vec![MAGNETISM_ID, CHRYSALIS_ID, HAND_OF_GREED_ID])
+        }
+        (1_131_274_026, NeowRewardType::RandomColorlessTwo) => {
+            Some(vec![SECRET_WEAPON_ID, SADISTIC_NATURE_ID, METAMORPHOSIS_ID])
         }
         _ => None,
     }
@@ -8580,10 +8591,11 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
         HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID,
         INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
-        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
-        RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID,
+        LIMIT_BREAK_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
+        METAMORPHOSIS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SECRET_WEAPON_ID, SEEING_RED_ID, SENTINEL_ID,
         SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
         TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
@@ -8626,6 +8638,12 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Dramatic Entrance" | "dramatic entrance" => Some(DRAMATIC_ENTRANCE_ID),
         "Swift Strike" | "swift strike" => Some(SWIFT_STRIKE_ID),
         "Jack Of All Trades" | "jack of all trades" => Some(JACK_OF_ALL_TRADES_ID),
+        "Master of Strategy" | "Master Of Strategy" | "master of strategy" => {
+            Some(MASTER_OF_STRATEGY_ID)
+        }
+        "Secret Weapon" | "secret weapon" => Some(SECRET_WEAPON_ID),
+        "Metamorphosis" | "metamorphosis" => Some(METAMORPHOSIS_ID),
+        "Sadistic Nature" | "sadistic nature" => Some(SADISTIC_NATURE_ID),
         "Entrench" | "entrench" => Some(ENTRENCH_ID),
         "Fire Breathing" | "fire breathing" => Some(FIRE_BREATHING_ID),
         "Flex" | "flex" => Some(FLEX_ID),
@@ -8712,15 +8730,16 @@ fn content_key(content_id: ContentId) -> &'static str {
         ENTRENCH_ID, FEED_ID, FEEL_NO_PAIN_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
         FLEX_PLUS_ID, HAND_OF_GREED_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
         HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
-        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID,
-        METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID,
-        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID,
-        REAPER_ID, REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID,
-        SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
-        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
-        TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
+        INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID,
+        MASTER_OF_STRATEGY_ID, MAYHEM_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, METAMORPHOSIS_ID,
+        NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, REGRET_ID,
+        RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID, SECRET_WEAPON_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
     };
     match content_id {
         id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID => "Strike_R",
@@ -8816,8 +8835,11 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == DROPKICK_ID => "Dropkick",
         id if id == TRIP_ID => "Trip",
         id if id == FEEL_NO_PAIN_ID => "Feel No Pain",
+        id if id == MASTER_OF_STRATEGY_ID => "Master of Strategy",
         id if id == MAYHEM_ID => "Mayhem",
         id if id == SECRET_WEAPON_ID => "Secret Weapon",
+        id if id == METAMORPHOSIS_ID => "Metamorphosis",
+        id if id == SADISTIC_NATURE_ID => "Sadistic Nature",
         id if id == TRANSMUTATION_ID => "Transmutation",
         id if id == MAGNETISM_ID => "Magnetism",
         id if id == CHRYSALIS_ID => "Chrysalis",
@@ -10091,16 +10113,20 @@ mod tests {
     fn neow_generated_identity_display_names_are_mapped() {
         use sts_core::content::cards::{
             ARMAMENTS_ID, CHRYSALIS_ID, DECAY_ID, DOUBT_ID, FEED_ID, HAND_OF_GREED_ID,
-            IMPERVIOUS_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, PARASITE_ID, SECRET_WEAPON_ID,
-            TRANSMUTATION_ID, WRITHE_ID,
+            IMPERVIOUS_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MASTER_OF_STRATEGY_ID, MAYHEM_ID,
+            METAMORPHOSIS_ID, PARASITE_ID, SADISTIC_NATURE_ID, SECRET_WEAPON_ID, TRANSMUTATION_ID,
+            WRITHE_ID,
         };
 
         for (content_id, expected) in [
             (LIMIT_BREAK_ID, "Limit Break"),
             (IMPERVIOUS_ID, "Impervious"),
             (FEED_ID, "Feed"),
+            (MASTER_OF_STRATEGY_ID, "Master of Strategy"),
             (MAYHEM_ID, "Mayhem"),
             (SECRET_WEAPON_ID, "Secret Weapon"),
+            (METAMORPHOSIS_ID, "Metamorphosis"),
+            (SADISTIC_NATURE_ID, "Sadistic Nature"),
             (TRANSMUTATION_ID, "Transmutation"),
             (MAGNETISM_ID, "Magnetism"),
             (CHRYSALIS_ID, "Chrysalis"),
@@ -10113,6 +10139,15 @@ mod tests {
         ] {
             assert_eq!(content_key(content_id), expected);
             assert_ne!(content_key(content_id), "unknown");
+        }
+
+        for (expected, content_id) in [
+            ("Master of Strategy", MASTER_OF_STRATEGY_ID),
+            ("Secret Weapon", SECRET_WEAPON_ID),
+            ("Metamorphosis", METAMORPHOSIS_ID),
+            ("Sadistic Nature", SADISTIC_NATURE_ID),
+        ] {
+            assert_eq!(content_id_from_key(expected), Some(content_id));
         }
     }
 
