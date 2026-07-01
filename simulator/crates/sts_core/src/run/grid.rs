@@ -2,8 +2,8 @@ use crate::{
     card::{CardInstance, CardType},
     content::{
         cards::{
-            get_card_definition, is_pandoras_box_removed_starter, upgrade_content_id,
-            CURSE_OF_THE_BELL_ID,
+            get_card_definition, is_pandoras_box_removed_starter, upgrade_card_instance,
+            upgrade_content_id, CURSE_OF_THE_BELL_ID,
         },
         reward_pool::{ironclad_transform_card_content_id, ironclad_truly_random_card_pool},
     },
@@ -475,11 +475,11 @@ fn selected_grid_card(grid: &CardGridScreen) -> SimResult<CardInstance> {
 }
 
 fn upgrade_deck_card(run: &mut RunState, card: CardInstance) -> SimResult<()> {
-    let upgraded = upgrade_content_id(card.content_id)
-        .ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
+    let upgraded =
+        upgrade_card_instance(card).ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
     for deck_card in &mut run.deck {
         if deck_card.id == card.id {
-            deck_card.content_id = upgraded;
+            *deck_card = upgraded;
             break;
         }
     }

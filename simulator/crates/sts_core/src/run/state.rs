@@ -5,7 +5,7 @@ use crate::{
     content::ascension::AscensionConfig,
     content::cards::{
         card_type_and_rarity, get_card_definition, is_basic_starter_card, is_curse_content_id,
-        upgrade_content_id,
+        upgrade_card_instance, upgrade_content_id,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
@@ -2883,10 +2883,8 @@ impl RunState {
         JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
 
         for deck_index in upgradeable.into_iter().take(amount) {
-            let content_id = self.deck[deck_index].content_id;
-            let upgraded =
-                upgrade_content_id(content_id).expect("upgradeable card validated before shuffle");
-            self.deck[deck_index].content_id = upgraded;
+            self.deck[deck_index] = upgrade_card_instance(self.deck[deck_index])
+                .expect("upgradeable card validated before shuffle");
         }
     }
 

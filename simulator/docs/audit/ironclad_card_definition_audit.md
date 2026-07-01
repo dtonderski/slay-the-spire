@@ -29,10 +29,9 @@ blocked by anti-bot challenge pages from command-line tooling.
   `play_card_queue`, either by explicit match arms or generic attack/block
   fallbacks.
 - The high-confidence definition mismatches found in this audit have been fixed.
-- The remaining model caveat is `Searing Blow`: the simulator now models its
-  first upgrade correctly as `Searing Blow+`, but the real card can be upgraded
-  repeatedly beyond +1 and the current content-id model does not represent an
-  unbounded upgrade chain.
+- `Searing Blow` now has instance-level repeated-upgrade support: the first
+  upgrade changes the content id to `Searing Blow+`, later upgrades keep that
+  content id and increment `CardInstance.searing_blow_upgrades`.
 
 ## Base Ironclad Coverage
 
@@ -83,9 +82,9 @@ to `ALL_CARDS`, `upgrade_content_id`, and card type/rarity lookup:
 | `Impervious+` | upgraded block |
 
 `Searing Blow` is represented by base `Searing Blow` and first-upgrade
-`Searing Blow+`. The first upgrade now uses the correct 16 damage baseline.
-Further repeated upgrades remain a known modeling limitation because the current
-upgrade mapping is one content id to one content id.
+`Searing Blow+`. The first upgrade uses the correct 16 damage baseline, and
+later upgrades are represented by the card instance upgrade count with the
+target damage sequence 12, 16, 21, 27, ...
 
 ## Existing Ironclad Definition Differences
 
@@ -99,7 +98,7 @@ have been corrected:
 | `Pommel Strike+` | 12 damage | 10 damage and 2-card draw |
 | `Dual Wield` | marked Exhaust | does not Exhaust |
 | `Dual Wield+` | cost 0 and marked Exhaust | cost 1 and does not Exhaust |
-| `Searing Blow+` | 20 damage | first upgrade should be 16 damage |
+| `Searing Blow+` | 20 damage | first upgrade should be 16 damage; later upgrades scale from instance count |
 | `Infernal Blade` / `Infernal Blade+` | not marked Exhaust in definition | Exhausts |
 | `Sword Boomerang+` | 4 damage, apparently per hit | 3 damage, 4 hits |
 
@@ -124,8 +123,9 @@ The prior shorthand, "all Ironclad base cards are modeled; upgraded-card parity
 has rough edges," is now stale. The current statement is:
 
 All Ironclad base cards and first-upgrade variants have local definitions and
-combat dispatch. Repeated-upgrade `Searing Blow` behavior beyond +1 remains an
-architectural limitation.
+combat dispatch. Repeated-upgrade `Searing Blow` behavior is modeled through
+per-card instance upgrade metadata because it cannot be represented by a single
+content-id-to-content-id edge.
 
 One stale caveat from older docs should also be treated carefully: `Seeing Red`
 is currently marked Exhaust in the local definition and routed through
@@ -134,9 +134,7 @@ date.
 
 ## Remaining Follow-Up
 
-1. Decide whether the simulator should grow a richer card-upgrade representation
-   for repeated-upgrade cards such as `Searing Blow`.
-2. If printed card metadata becomes a user-facing API, consider adding an
+1. If printed card metadata becomes a user-facing API, consider adding an
    explicit cost enum so X-cost cards can be surfaced as `X` while retaining the
    existing playability logic.
 

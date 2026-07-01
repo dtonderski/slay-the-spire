@@ -1,5 +1,5 @@
 use crate::{
-    content::cards::upgrade_content_id,
+    content::cards::{upgrade_card_instance, upgrade_content_id},
     relic::{GIRYA_MAX_LIFTS, REGAL_PILLOW_HEAL},
     Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -194,15 +194,15 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             });
         }
         RestAction::Smith { card_id } => {
-            let upgraded_content_id = next
+            let upgraded_card = next
                 .deck
                 .iter()
                 .find(|card| card.id == card_id)
-                .and_then(|card| upgrade_content_id(card.content_id))
+                .and_then(|card| upgrade_card_instance(*card))
                 .expect("smith validated before apply");
             for card in &mut next.deck {
                 if card.id == card_id {
-                    card.content_id = upgraded_content_id;
+                    *card = upgraded_card;
                     break;
                 }
             }
@@ -225,7 +225,9 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
+        content::cards::{
+            searing_blow_card_damage, SEARING_BLOW_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        },
         content::character::IRONCLAD_A0_BASE_HP,
         map::RoomKind,
         run::grid::GridPurpose,
@@ -334,6 +336,25 @@ mod tests {
         assert_eq!(after.deck[0].id, strike_id);
         assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
         assert_eq!(after.count_content_in_deck(STRIKE_R_PLUS_ID), 1);
+        assert_eq!(after.phase, RunPhase::Rest);
+        assert!(after.rest_room_complete);
+    }
+
+    #[test]
+    fn smith_repeatedly_upgrades_searing_blow_plus_instance() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        let card_id = run.deck[0].id;
+        run.deck[0].content_id = SEARING_BLOW_PLUS_ID;
+        run.deck[0].searing_blow_upgrades = 1;
+
+        assert!(legal_rest_actions(&run).contains(&RestAction::Smith { card_id }));
+
+        let after = apply_rest_action(&run, RestAction::Smith { card_id }).expect("smith applies");
+
+        assert_eq!(after.deck[0].content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(after.deck[0].searing_blow_upgrades, 2);
+        assert_eq!(searing_blow_card_damage(&after.deck[0]), Some(21));
         assert_eq!(after.phase, RunPhase::Rest);
         assert!(after.rest_room_complete);
     }

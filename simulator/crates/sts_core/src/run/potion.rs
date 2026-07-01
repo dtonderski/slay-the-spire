@@ -10,7 +10,7 @@ use crate::{
         open_gambling_chip_select, player_draw_cards, top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose},
-    content::cards::{get_card_definition, upgrade_content_id},
+    content::cards::{get_card_definition, upgrade_card_instance},
     content::shop_pool::{
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_generations,
         colorless_discovery_card_choices, discovery_card_choices,
@@ -625,8 +625,8 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     for card in &mut combat.piles.hand {
-                        if let Some(upgraded) = upgrade_content_id(card.content_id) {
-                            card.content_id = upgraded;
+                        if let Some(upgraded) = upgrade_card_instance(*card) {
+                            *card = upgraded;
                         }
                     }
                 }

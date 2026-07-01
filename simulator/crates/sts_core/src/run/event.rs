@@ -1,8 +1,9 @@
 use crate::{
     combat::initialize_combat_piles_with_relics,
     content::cards::{
-        upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID,
-        JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+        upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID,
+        DOUBT_ID, INJURY_ID, JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::monsters::{
         monster_state_for_ascension, record_target_move, MonsterDefinition, BANDIT_BEAR_A0,
@@ -449,17 +450,17 @@ fn upgrade_random_deck_cards(run: &mut RunState, max_count: usize) {
     JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
 
     for index in upgradeable.into_iter().take(max_count) {
-        let upgraded_content_id = upgrade_content_id(run.deck[index].content_id)
+        let upgraded_card = upgrade_card_instance(run.deck[index])
             .expect("upgradeable card validated before shuffle");
-        run.deck[index].content_id = upgraded_content_id;
+        run.deck[index] = upgraded_card;
     }
 }
 
 fn upgrade_starter_strikes_and_defends(run: &mut RunState) {
     for card in &mut run.deck {
         if matches!(card.content_id, STRIKE_R_ID | DEFEND_R_ID) {
-            if let Some(upgraded_content_id) = upgrade_content_id(card.content_id) {
-                card.content_id = upgraded_content_id;
+            if let Some(upgraded) = upgrade_card_instance(*card) {
+                *card = upgraded;
             }
         }
     }

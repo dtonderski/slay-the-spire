@@ -1,7 +1,7 @@
 use crate::{
     card::{
-        CardDefinition, CardKeywords, CardRarity, CardType, CardValues, TargetRequirement,
-        CARD_KEYWORDS_NONE,
+        CardDefinition, CardInstance, CardKeywords, CardRarity, CardType, CardValues,
+        TargetRequirement, CARD_KEYWORDS_NONE,
     },
     ContentId,
 };
@@ -4824,6 +4824,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         WARCRY_ID => Some(WARCRY_PLUS_ID),
         DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
         SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
+        SEARING_BLOW_PLUS_ID => Some(SEARING_BLOW_PLUS_ID),
         COMBUST_ID => Some(COMBUST_PLUS_ID),
         RUPTURE_ID => Some(RUPTURE_PLUS_ID),
         EVOLVE_ID => Some(EVOLVE_PLUS_ID),
@@ -4873,9 +4874,45 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
     }
 }
 
+#[must_use]
+pub fn searing_blow_damage_for_upgrades(upgrades: u8) -> i32 {
+    let upgrades = i32::from(upgrades);
+    SEARING_BLOW.values.damage.unwrap_or(12) + (upgrades * (upgrades + 7)) / 2
+}
+
+#[must_use]
+pub fn searing_blow_card_damage(card: &CardInstance) -> Option<i32> {
+    match card.content_id {
+        SEARING_BLOW_ID => Some(searing_blow_damage_for_upgrades(card.searing_blow_upgrades)),
+        SEARING_BLOW_PLUS_ID => Some(searing_blow_damage_for_upgrades(
+            card.searing_blow_upgrades.max(1),
+        )),
+        _ => None,
+    }
+}
+
+#[must_use]
+pub fn upgrade_card_instance(card: CardInstance) -> Option<CardInstance> {
+    let upgraded_content_id = upgrade_content_id(card.content_id)?;
+    let mut upgraded = card;
+    upgraded.content_id = upgraded_content_id;
+    if matches!(card.content_id, SEARING_BLOW_ID | SEARING_BLOW_PLUS_ID) {
+        upgraded.searing_blow_upgrades =
+            card.searing_blow_upgrades
+                .max(if card.content_id == SEARING_BLOW_PLUS_ID {
+                    1
+                } else {
+                    0
+                })
+                + 1;
+    }
+    Some(upgraded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CardId;
 
     #[test]
     fn strike_r_has_expected_starter_values() {
@@ -6483,6 +6520,47 @@ mod tests {
     fn searing_blow_plus_models_first_upgrade() {
         assert_eq!(SEARING_BLOW.values.damage, Some(12));
         assert_eq!(SEARING_BLOW_PLUS.values.damage, Some(16));
+        assert_eq!(
+            upgrade_content_id(SEARING_BLOW_ID),
+            Some(SEARING_BLOW_PLUS_ID)
+        );
+        assert_eq!(
+            upgrade_content_id(SEARING_BLOW_PLUS_ID),
+            Some(SEARING_BLOW_PLUS_ID)
+        );
+    }
+
+    #[test]
+    fn searing_blow_instance_upgrades_continue_past_plus() {
+        let base = CardInstance::new(CardId::new(1), SEARING_BLOW_ID);
+        assert_eq!(searing_blow_card_damage(&base), Some(12));
+
+        let plus = upgrade_card_instance(base).expect("base Searing Blow upgrades");
+        assert_eq!(plus.content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(plus.searing_blow_upgrades, 1);
+        assert_eq!(searing_blow_card_damage(&plus), Some(16));
+
+        let plus_two = upgrade_card_instance(plus).expect("Searing Blow+ upgrades again");
+        assert_eq!(plus_two.content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(plus_two.searing_blow_upgrades, 2);
+        assert_eq!(searing_blow_card_damage(&plus_two), Some(21));
+        assert_eq!(searing_blow_damage_for_upgrades(3), 27);
+    }
+
+    #[test]
+    fn searing_blow_upgrade_count_round_trips_through_json_and_skips_zero() {
+        let base = CardInstance::new(CardId::new(1), SEARING_BLOW_ID);
+        let value = serde_json::to_value(base).expect("serialize base Searing Blow");
+        assert!(value.get("searing_blow_upgrades").is_none());
+
+        let mut plus_two = CardInstance::new(CardId::new(2), SEARING_BLOW_PLUS_ID);
+        plus_two.searing_blow_upgrades = 2;
+        let json = serde_json::to_string(&plus_two).expect("serialize upgraded Searing Blow");
+        let restored: CardInstance = serde_json::from_str(&json).expect("restore upgraded card");
+
+        assert_eq!(restored.content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(restored.searing_blow_upgrades, 2);
+        assert_eq!(searing_blow_card_damage(&restored), Some(21));
     }
 
     #[test]

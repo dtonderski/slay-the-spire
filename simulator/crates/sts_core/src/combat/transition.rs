@@ -13,19 +13,19 @@ use crate::{
         HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_PLUS_ID,
-        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CARNAGE_ID,
-        CARNAGE_PLUS_ID, CHRYSALIS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-        CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID,
-        DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DROPKICK_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID,
-        FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
-        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID,
-        IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
-        PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
-        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
+        get_card_definition, searing_blow_card_damage, upgrade_card_instance, upgrade_content_id,
+        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_PLUS_ID, BLOOD_FOR_BLOOD_ID,
+        BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CARNAGE_ID, CARNAGE_PLUS_ID,
+        CHRYSALIS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
+        CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID,
+        DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DROPKICK_PLUS_ID, ENLIGHTENMENT_ID,
+        ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
+        HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
+        INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID,
+        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
+        PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID,
+        REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID,
         SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
         SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
@@ -1373,8 +1373,8 @@ fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) 
         if card.id == excluded_card_id {
             continue;
         }
-        if let Some(upgraded) = upgrade_content_id(card.content_id) {
-            card.content_id = upgraded;
+        if let Some(upgraded) = upgrade_card_instance(*card) {
+            *card = upgraded;
         }
     }
 }
@@ -1439,7 +1439,8 @@ fn apply_play_top_draw_card(
                 info: DamageInfo {
                     source: DamageSource::Card(card_id),
                     target,
-                    amount: definition.values.damage.unwrap_or(0),
+                    amount: searing_blow_card_damage(&card)
+                        .unwrap_or_else(|| definition.values.damage.unwrap_or(0)),
                 },
             });
             if definition.id == RECKLESS_CHARGE_ID || definition.id == RECKLESS_CHARGE_PLUS_ID {
@@ -2109,7 +2110,7 @@ fn confirm_armaments_select(
         .find(|card| card.id == source_card_id)
         .and_then(|card| get_card_definition(card.content_id))
         .ok_or(SimError::IllegalAction("Armaments source card missing"))?;
-    let upgraded = upgrade_content_id(selected.content_id)
+    let upgraded = upgrade_card_instance(selected)
         .ok_or(SimError::IllegalAction("selected card cannot be upgraded"))?;
     let upgradeable_count = state
         .piles
@@ -2135,8 +2136,8 @@ fn confirm_armaments_select(
         Vec::new()
     };
     let selected_card_id = selected.id;
-    let mut card = remove_card_from_pile(state, selected_card_id, CardPile::Hand)?;
-    card.content_id = upgraded;
+    let _removed = remove_card_from_pile(state, selected_card_id, CardPile::Hand)?;
+    let card = upgraded;
     let source_destination = delayed_source_card_destination(state, source_definition);
     move_card(state, source_card_id, CardPile::Hand, source_destination)?;
     if source_destination == CardPile::ExhaustPile {
@@ -2892,8 +2893,8 @@ fn upgrade_combat_cards(state: &mut CombatState) {
         .chain(state.piles.discard_pile.iter_mut())
         .chain(state.piles.exhaust_pile.iter_mut())
     {
-        if let Some(upgraded) = upgrade_content_id(card.content_id) {
-            card.content_id = upgraded;
+        if let Some(upgraded) = upgrade_card_instance(*card) {
+            *card = upgraded;
         }
     }
 }
@@ -15976,6 +15977,23 @@ mod tests {
         .expect("Searing Blow applies");
 
         assert_eq!(next.monsters[0].hp, 28);
+    }
+
+    #[test]
+    fn repeated_upgrade_searing_blow_deals_scaled_damage() {
+        let mut state = hand_only(SEARING_BLOW_PLUS_ID);
+        state.piles.hand[0].searing_blow_upgrades = 2;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Searing Blow+2 applies");
+
+        assert_eq!(next.monsters[0].hp, 19);
     }
 
     #[test]

@@ -81,6 +81,10 @@ pub struct CardInstance {
     /// Combat-local Blood for Blood cost reduction for this specific card instance.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub blood_for_blood_cost_reduction: i32,
+    /// Total Searing Blow upgrades on this instance. The first upgrade also changes
+    /// content_id to Searing Blow+; later upgrades keep that content id and raise this count.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub searing_blow_upgrades: u8,
 }
 
 impl CardInstance {
@@ -95,6 +99,7 @@ impl CardInstance {
             combat_only: false,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
+            searing_blow_upgrades: 0,
         }
     }
 
@@ -109,6 +114,7 @@ impl CardInstance {
             combat_only: true,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
+            searing_blow_upgrades: 0,
         }
     }
 }
@@ -118,5 +124,9 @@ fn is_false(value: &bool) -> bool {
 }
 
 fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
+}
+
+fn is_zero_u8(value: &u8) -> bool {
     *value == 0
 }
