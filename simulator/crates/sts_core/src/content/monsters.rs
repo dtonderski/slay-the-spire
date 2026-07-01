@@ -3303,7 +3303,7 @@ pub fn target_louse_next_intent_from_roll(
     fallback_damage: i32,
     non_attack_intent: MonsterIntent,
 ) -> MonsterIntent {
-    if last_move(move_history, LOUSE_NON_ATTACK_MOVE) {
+    if last_two_moves(move_history, LOUSE_NON_ATTACK_MOVE) {
         return MonsterIntent::Attack {
             damage: rolled_attack_damage.unwrap_or(fallback_damage),
         };
@@ -8100,6 +8100,35 @@ mod tests {
         };
 
         assert_eq!(apply_intent(&mut monster), 6);
+    }
+
+    #[test]
+    fn louse_can_repeat_non_attack_once_before_forced_attack() {
+        let curl = MonsterIntent::StrengthAndBlock {
+            strength: LOUSE_CURL_STRENGTH,
+            block: 0,
+        };
+
+        assert_eq!(
+            target_louse_next_intent_from_roll(
+                &[LOUSE_NON_ATTACK_MOVE],
+                0,
+                Some(5),
+                RED_LOUSE_BITE_DAMAGE,
+                curl
+            ),
+            curl
+        );
+        assert_eq!(
+            target_louse_next_intent_from_roll(
+                &[LOUSE_NON_ATTACK_MOVE, LOUSE_NON_ATTACK_MOVE],
+                0,
+                Some(5),
+                RED_LOUSE_BITE_DAMAGE,
+                curl
+            ),
+            MonsterIntent::Attack { damage: 5 }
+        );
     }
 
     #[test]
