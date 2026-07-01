@@ -18,6 +18,7 @@ from sts.self_play import (
     _parse_candidate_names,
     _reward_choose_action,
     _reward_summary_diffs,
+    _summary,
     _trace_candidates_by_name,
     _trace_combat_roots,
     evaluate_self_play_corpus,
@@ -37,6 +38,35 @@ class _FakeAction:
     def kind(self) -> str:
         return self._kind
 
+class SelfPlaySummaryHelperTests(unittest.TestCase):
+    def test_summary_prefers_combat_hp_over_stale_run_hp(self):
+        class FakeEnv:
+            def state_json(self) -> str:
+                return json.dumps(
+                    {
+                        "player_hp": 74,
+                        "player_max_hp": 95,
+                        "combat": {
+                            "player": {"hp": 76, "max_hp": 95},
+                            "piles": {},
+                            "monsters": [],
+                        },
+                    }
+                )
+
+            def current_decision(self) -> str:
+                return "combat"
+
+            def phase(self) -> str:
+                return "combat"
+
+            def unsupported_reason(self):
+                return None
+
+        summary = _summary(FakeEnv())
+
+        self.assertEqual(summary["player_hp"], 76)
+        self.assertEqual(summary["player_max_hp"], 95)
 
 class _FakeCombatRewardEnv:
     def state_json(self) -> str:

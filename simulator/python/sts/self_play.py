@@ -2498,10 +2498,8 @@ def _summary(env: Any) -> dict[str, Any]:
         "phase": phase,
         "decision": decision,
         "unsupported_reason": env.unsupported_reason(),
-        "player_hp": run.get("player_hp") if run.get("player_hp") is not None else player.get("hp"),
-        "player_max_hp": run.get("player_max_hp")
-        if run.get("player_max_hp") is not None
-        else player.get("max_hp"),
+        "player_hp": player.get("hp") if combat else run.get("player_hp"),
+        "player_max_hp": player.get("max_hp") if combat else run.get("player_max_hp"),
         "gold": run.get("gold"),
         "floor": run.get("current_floor"),
         "act": run.get("current_act"),
