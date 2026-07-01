@@ -2944,8 +2944,12 @@ fn target_exordium_thugs_spawn_states(
             _ => {
                 let mut spawn =
                     target_combat_entry_spawn("Acid Slime (M)", acid_hp, neow_lament, Vec::new());
-                spawn.intent = "Attack";
-                spawn.rolled_attack_damage = Some(if ascension >= 2 { 12 } else { 10 });
+                spawn.intent = "AttackAddSlimedToDiscard";
+                spawn.rolled_attack_damage = Some(if ascension >= 2 {
+                    8
+                } else {
+                    ACID_SLIME_ATTACK_DAMAGE
+                });
                 spawn
             }
         },
@@ -8485,14 +8489,14 @@ mod tests {
         );
         assert_eq!(
             spawns.iter().map(|spawn| spawn.intent).collect::<Vec<_>>(),
-            vec!["Attack", "DEBUG"]
+            vec!["AttackAddSlimedToDiscard", "DEBUG"]
         );
         assert_eq!(
             spawns
                 .iter()
                 .map(|spawn| spawn.rolled_attack_damage)
                 .collect::<Vec<_>>(),
-            vec![Some(ACID_SLIME_M_NORMAL_TACKLE_DAMAGE), None]
+            vec![Some(ACID_SLIME_ATTACK_DAMAGE), None]
         );
     }
 

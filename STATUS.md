@@ -3,6 +3,12 @@
 ## What Exists
 
 ### Combat
+- Latest live-trace Acid Slime M intent slice: Exordium Thugs spawn metadata now
+  opens the weak-slot Acid Slime (M) with Wound Tackle
+  (`AttackAddSlimedToDiscard`, 7/8 damage by ascension) instead of Normal
+  Tackle. The existing floor-4 Exordium Thugs regression was updated, and the
+  fresh live trace `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays
+  to trace exhaustion after the Acid Slime intent mismatch.
 - Latest live-trace card reward rarity slice: Ironclad combat card rewards now
   classify Dark Embrace as an uncommon card in the target reward pool, matching
   the source `RarityCardPool` order used by `AbstractDungeon.getRewardCards`.
