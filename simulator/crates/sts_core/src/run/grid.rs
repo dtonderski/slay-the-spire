@@ -363,6 +363,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             let card = selected_grid_card(grid)?;
             upgrade_deck_card(&mut next, card)?;
             next.card_grid = None;
+            finish_neow_grid_reward(&mut next);
         }
         GridPurpose::ShopRemove => {
             let card = selected_grid_card(grid)?;
@@ -406,6 +407,9 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         GridPurpose::NeowRemove { remaining } => {
             let card = selected_grid_card(grid)?;
             remove_grid_card(&mut next, card, GridPurpose::NeowRemove { remaining });
+            if next.card_grid.is_none() {
+                finish_neow_grid_reward(&mut next);
+            }
         }
         GridPurpose::Bottle { .. } => {
             let card = selected_grid_card(grid)?;
@@ -537,6 +541,9 @@ fn confirm_multi_remove_grid(run: &mut RunState, purpose: GridPurpose) -> SimRes
         run.deck.retain(|deck_card| deck_card.id != card.id);
     }
     run.card_grid = None;
+    if matches!(purpose, GridPurpose::NeowRemove { .. }) {
+        finish_neow_grid_reward(run);
+    }
     Ok(())
 }
 
@@ -590,7 +597,13 @@ fn confirm_neow_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
         .collect::<SimResult<Vec<_>>>()?;
     transform_neow_cards(run, &cards);
     run.card_grid = None;
+    finish_neow_grid_reward(run);
     Ok(())
+}
+
+fn finish_neow_grid_reward(run: &mut RunState) {
+    run.phase = RunPhase::Event;
+    run.event = Some(super::event::neow_screen_for_stage(run, 2));
 }
 
 fn confirm_event_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
@@ -867,6 +880,7 @@ mod tests {
         let after = confirm_grid(&selected).expect("confirm");
 
         assert!(after.card_grid.is_none());
+        assert_eq!(after.event.as_ref().map(|screen| screen.stage), Some(2));
         assert_eq!(after.gold, run.gold);
         assert_eq!(after.deck.len(), run.deck.len() - 1);
         assert!(!after.deck.iter().any(|card| card.id == removed.id));
@@ -903,6 +917,7 @@ mod tests {
         let after_second = select_grid_card(&after_first, 1).expect("select second");
 
         assert!(after_second.card_grid.is_none());
+        assert_eq!(after_second.event.as_ref().map(|screen| screen.stage), Some(2));
         assert_eq!(after_second.deck.len(), run.deck.len() - 2);
         assert!(!after_second
             .deck
@@ -933,6 +948,7 @@ mod tests {
 
         assert!(after.card_grid.is_none());
         assert_eq!(after.phase, RunPhase::Event);
+        assert_eq!(after.event.as_ref().map(|screen| screen.stage), Some(2));
         assert!(after.deck.iter().any(|card| {
             card.id == selected_card.id
                 && card.content_id != selected_card.content_id
@@ -980,6 +996,7 @@ mod tests {
         let after_second = select_grid_card(&after_first, 1).expect("select second");
 
         assert!(after_second.card_grid.is_none());
+        assert_eq!(after_second.event.as_ref().map(|screen| screen.stage), Some(2));
         for card in removed {
             assert!(!after_second
                 .deck

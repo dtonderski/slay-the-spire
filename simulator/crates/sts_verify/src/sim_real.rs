@@ -1082,6 +1082,28 @@ fn verify_seed_start_transitions(
                 {
                     deck_ids = visible;
                 }
+                if screen_type(&post.message) == Some("MAP") {
+                    compare_subset(
+                        report,
+                        action,
+                        "Neow grid confirm",
+                        seed_start_observed_subset(&post.message),
+                        json!({
+                            "screen_type": "MAP",
+                            "ascension": start.ascension,
+                            "floor": 0,
+                            "gold": neow_gold,
+                            "current_hp": neow_current_hp,
+                            "max_hp": neow_max_hp,
+                            "deck_ids": deck_ids,
+                            "relic_ids": relics,
+                            "choices": seed_start_first_map_choices(&start.external_seed),
+                        }),
+                    );
+                    seed_sim = Some(next);
+                    phase = SeedStartPhase::Map;
+                    continue;
+                }
                 compare_subset(
                     report,
                     action,
@@ -11169,7 +11191,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_neow_curse_transform_two_generated_trace_reaches_neow_leave() {
+    fn seed_start_neow_curse_transform_two_generated_trace_can_observe_map_after_second_pick() {
         let (numeric_seed, option) = (1_i64..100_000)
             .find_map(|seed| {
                 generate_neow_options(seed, 80)
@@ -11272,18 +11294,6 @@ mod tests {
             }}}),
             json!({"type": "action", "step": 5, "command": "CHOOSE 1"}),
             json!({"type": "state", "step": 5, "message": {"game_state": {
-                "screen_type": "EVENT",
-                "ascension_level": 0,
-                "floor": 0,
-                "gold": gold,
-                "current_hp": hp,
-                "max_hp": max_hp,
-                "deck": transformed_deck,
-                "relics": [{"name": "Burning Blood"}],
-                "choice_list": ["leave"]
-            }}}),
-            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
-            json!({"type": "state", "step": 6, "message": {"game_state": {
                 "screen_type": "MAP",
                 "ascension_level": 0,
                 "floor": 0,
@@ -11311,10 +11321,6 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 5 && transition.label == "Neow grid confirm"
         }));
-        assert!(report
-            .verified
-            .iter()
-            .any(|transition| { transition.action_step == 6 && transition.label == "Neow leave" }));
     }
 
     #[test]
