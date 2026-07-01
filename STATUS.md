@@ -3,17 +3,6 @@
 ## What Exists
 
 ### Combat
-- Latest live Neow replay slice: `trace-2026-07-01T19-44-03-960Z.jsonl`
-  now strict-replays to trace exhaustion through the captured Neow branch and
-  first combat entry. Core event replay supports the curse + rare colorless
-  Neow reward screen for the observed `LIVE01` path, including Clumsy plus the
-  Secret Weapon/Sadistic Nature/Metamorphosis choice order, and the verifier
-  importer now maps those colorless reward card names instead of dropping the
-  observed reward choices. Focused checks run: `cargo test -p sts_core
-  neow_curse_rare_colorless_reward_opens_choice_screen --lib`, `cargo test -p
-  sts_verify neow --lib`, `uv run maturin develop --release`, and strict replay
-  of the live trace. This is a selected-trace identity fix, not a broad
-  colorless reward RNG parity claim.
 - Latest Searing Blow upgrade-model slice: `CardInstance` now carries a compact
   `searing_blow_upgrades` counter so Searing Blow can keep upgrading beyond the
   `Searing Blow+` content id. Combat damage, Havoc/top-draw play, Armaments,

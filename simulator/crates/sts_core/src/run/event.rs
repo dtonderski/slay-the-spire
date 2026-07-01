@@ -1,9 +1,9 @@
 use crate::{
     combat::initialize_combat_piles_with_relics,
     content::cards::{
-        upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID, CLUMSY_ID, DECAY_ID,
-        DEFEND_R_ID, DOUBT_ID, INJURY_ID, JAX_ID, METAMORPHOSIS_ID, REGRET_ID, RITUAL_DAGGER_ID,
-        SADISTIC_NATURE_ID, SECRET_WEAPON_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+        upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID,
+        DOUBT_ID, INJURY_ID, JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::monsters::{
         monster_state_for_ascension, record_target_move, MonsterDefinition, BANDIT_BEAR_A0,
@@ -16,9 +16,8 @@ use crate::{
     run::{
         grid::{open_event_obtain_card_grid, open_event_remove_grid, open_event_transform_grid},
         neow::{
-            apply_neow_boss_swap, apply_neow_curse_drawback, apply_neow_lament_reward,
-            apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
-            generate_neow_card_reward, generate_neow_colorless_reward_with_card_rng_counter,
+            apply_neow_boss_swap, apply_neow_lament_reward, apply_neow_relic_reward,
+            apply_neow_simple_drawback, apply_neow_simple_reward, generate_neow_card_reward,
             generate_neow_options, generate_neow_three_potions, open_neow_reward_grid,
             GeneratedNeowOption, NeowDrawback, NeowRewardType,
         },
@@ -1024,11 +1023,9 @@ pub fn neow_screen_for_stage(run: &RunState, stage: u32) -> EventScreen {
 fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption) -> SimResult<()> {
     match option.drawback {
         NeowDrawback::Curse => {
-            if let Some(curse) = trace_backed_neow_curse(next.event_rng_seed as i64) {
-                next.gain_deck_card(curse);
-            } else {
-                apply_neow_curse_drawback(next);
-            }
+            return Err(SimError::IllegalAction(
+                "Neow curse drawback is not implemented in event replay",
+            ));
         }
         drawback => apply_neow_simple_drawback(next, drawback),
     }
@@ -1074,8 +1071,9 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
             return Ok(());
         }
         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
-            open_neow_colorless_card_reward(next, option.reward);
-            return Ok(());
+            return Err(SimError::IllegalAction(
+                "Neow colorless choice-card reward is not implemented in event replay",
+            ));
         }
     }
 
@@ -1112,65 +1110,6 @@ fn open_neow_card_reward(run: &mut RunState, reward_type: NeowRewardType) {
         card_reward_pending: false,
         pending_card_reward_count: 1,
     });
-}
-
-fn open_neow_colorless_card_reward(run: &mut RunState, reward_type: NeowRewardType) {
-    let mut reward = generate_neow_colorless_reward_with_card_rng_counter(
-        run.event_rng_seed as i64,
-        reward_type,
-        run.card_rng_counter,
-    );
-    if let Some(cards) = trace_backed_neow_colorless_reward(run.event_rng_seed as i64, reward_type)
-    {
-        reward.cards = cards;
-    }
-    let next_card_id = run.next_card_instance_id();
-    let choices = reward
-        .cards
-        .into_iter()
-        .enumerate()
-        .map(|(index, content_id)| {
-            CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
-        })
-        .collect();
-    run.event_rng_counter = reward.neow_rng_counter;
-    run.card_rng_counter = reward.card_rng_counter;
-    run.phase = RunPhase::Reward;
-    run.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
-    run.reward = Some(RewardScreen {
-        choices,
-        gold_offer: 0,
-        stolen_gold_offer: 0,
-        potion_offer: None,
-        relic_offer: None,
-        relic_key_offer: None,
-        pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
-        boss_relic_choices: Vec::new(),
-        card_reward_active: true,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
-    });
-}
-
-fn trace_backed_neow_curse(numeric_seed: i64) -> Option<crate::ContentId> {
-    match numeric_seed {
-        1_131_274_026 => Some(CLUMSY_ID),
-        _ => None,
-    }
-}
-
-fn trace_backed_neow_colorless_reward(
-    numeric_seed: i64,
-    reward_type: NeowRewardType,
-) -> Option<Vec<crate::ContentId>> {
-    match (numeric_seed, reward_type) {
-        (1_131_274_026, NeowRewardType::RandomColorlessTwo) => {
-            Some(vec![SECRET_WEAPON_ID, SADISTIC_NATURE_ID, METAMORPHOSIS_ID])
-        }
-        _ => None,
-    }
 }
 
 #[must_use]
@@ -3939,41 +3878,5 @@ mod tests {
         assert!(run.reward.is_none());
         assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
         assert_eq!(run.deck, starting_deck);
-    }
-
-    #[test]
-    fn neow_curse_rare_colorless_reward_opens_choice_screen() {
-        let mut run = RunState::placeholder_seeded_ironclad(1_131_274_026, 0);
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("talk");
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
-            .expect("choose curse rare colorless reward");
-
-        assert_eq!(run.phase, RunPhase::Reward);
-        assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
-        assert!(run.deck.iter().any(|card| card.content_id == CLUMSY_ID));
-        let reward = run.reward.as_ref().expect("colorless card reward");
-        assert!(reward.card_reward_active);
-        assert_eq!(
-            reward
-                .choices
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
-            vec![SECRET_WEAPON_ID, SADISTIC_NATURE_ID, METAMORPHOSIS_ID]
-        );
-
-        let sadistic_nature = reward.choices[1].id;
-        run = crate::run::apply_run_action(
-            &run,
-            RunAction::TakeCardReward {
-                card_id: sadistic_nature,
-            },
-        )
-        .expect("take Sadistic Nature");
-
-        assert_eq!(run.phase, RunPhase::Event);
-        assert!(run.reward.is_none());
-        assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
-        assert!(run.deck.iter().any(|card| card.id == sadistic_nature));
     }
 }
