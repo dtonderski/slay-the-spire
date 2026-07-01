@@ -3203,6 +3203,35 @@ fn snecko_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
 }
 
 #[must_use]
+pub fn target_snecko_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    ascension: u8,
+) -> MonsterIntent {
+    if move_history.is_empty() {
+        return MonsterIntent::ApplyPlayerConfusion;
+    }
+    if roll < 40 || last_two_moves(move_history, 2) {
+        if ascension >= 17 {
+            MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
+                damage: snecko_tail_damage(ascension),
+                weak: SNECKO_A17_WEAK,
+                vulnerable: SNECKO_VULNERABLE,
+            }
+        } else {
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: snecko_tail_damage(ascension),
+                vulnerable: SNECKO_VULNERABLE,
+            }
+        }
+    } else {
+        MonsterIntent::Attack {
+            damage: snecko_bite_damage(ascension),
+        }
+    }
+}
+
+#[must_use]
 fn centurion_slash_damage(ascension: u8) -> i32 {
     if ascension >= 2 {
         CENTURION_A2_SLASH_DAMAGE
@@ -3536,6 +3565,15 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
         return match intent {
             MonsterIntent::AttackMultiple { .. } => Some(1),
             MonsterIntent::ApplyPlayerFrailAndWeak { .. } => Some(2),
+            _ => None,
+        };
+    }
+    if content_id == SNECKO_ID {
+        return match intent {
+            MonsterIntent::ApplyPlayerConfusion => Some(1),
+            MonsterIntent::Attack { .. } => Some(2),
+            MonsterIntent::AttackApplyPlayerVulnerable { .. }
+            | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. } => Some(3),
             _ => None,
         };
     }
@@ -7367,6 +7405,53 @@ mod tests {
             prepare_monster_intent_for(&SNECKO_A0, 2, None),
             MonsterIntent::Attack {
                 damage: SNECKO_BITE_DAMAGE,
+            }
+        );
+    }
+
+    #[test]
+    fn snecko_roll_based_move_selection_matches_source() {
+        assert_eq!(
+            target_move_byte(SNECKO_ID, MonsterIntent::ApplyPlayerConfusion),
+            Some(1)
+        );
+        assert_eq!(
+            target_move_byte(
+                SNECKO_ID,
+                MonsterIntent::Attack {
+                    damage: SNECKO_BITE_DAMAGE,
+                },
+            ),
+            Some(2)
+        );
+        assert_eq!(
+            target_move_byte(
+                SNECKO_ID,
+                MonsterIntent::AttackApplyPlayerVulnerable {
+                    damage: SNECKO_TAIL_DAMAGE,
+                    vulnerable: SNECKO_VULNERABLE,
+                },
+            ),
+            Some(3)
+        );
+        assert_eq!(
+            target_snecko_next_intent_from_roll(&[1], 39, 0),
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: SNECKO_TAIL_DAMAGE,
+                vulnerable: SNECKO_VULNERABLE,
+            }
+        );
+        assert_eq!(
+            target_snecko_next_intent_from_roll(&[1], 40, 0),
+            MonsterIntent::Attack {
+                damage: SNECKO_BITE_DAMAGE,
+            }
+        );
+        assert_eq!(
+            target_snecko_next_intent_from_roll(&[1, 2, 2], 99, 0),
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: SNECKO_TAIL_DAMAGE,
+                vulnerable: SNECKO_VULNERABLE,
             }
         );
     }
