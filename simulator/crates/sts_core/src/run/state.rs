@@ -1908,6 +1908,7 @@ pub enum RunAction {
     ChooseCombatCardReward {
         index: usize,
     },
+    SkipCombatCardReward,
     ChooseHandSelect {
         index: usize,
     },
@@ -3003,7 +3004,7 @@ impl RunState {
             RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
-            RunAction::ChooseCombatCardReward { .. } => {
+            RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
             RunAction::ChooseHandSelect { .. } | RunAction::ConfirmHandSelect => {

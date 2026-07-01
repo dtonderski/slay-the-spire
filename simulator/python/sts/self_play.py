@@ -3036,6 +3036,7 @@ def _first_action(actions: list[Any], *, kind: str) -> Any | None:
 
 def _screen_exit_action(actions: list[Any]) -> Any | None:
     preferred = [
+        "skip_combat_card_reward",
         "close_card_reward",
         "skip_reward",
         "leave_shop_room",

@@ -2492,6 +2492,9 @@
     if (isEndTurnAction(best)) {
       return bridgeActions.find((action) => String(action.command || "").toUpperCase() === "END") || null;
     }
+    if (isSkipCombatCardRewardAction(best)) {
+      return bridgeActions.find((action) => String(action.command || "").toUpperCase() === "SKIP") || null;
+    }
     const potion = exactRunUsePotion(best);
     if (potion) {
       const targetSlot = observedMonsterSlotForTarget(potion.target);
@@ -2501,6 +2504,14 @@
         if (Number(descriptor.potion_slot) !== Number(potion.slot)) return false;
         if (potion.target === null || potion.target === undefined) return descriptor.target_slot === undefined || descriptor.target_slot === null;
         return Number(descriptor.target_slot) === Number(targetSlot);
+      }) || null;
+    }
+    const choice = exactRunVisibleChoice(best);
+    if (choice) {
+      return bridgeActions.find((action) => {
+        const descriptor = action.descriptor || {};
+        return descriptor.kind === "ChooseVisibleOption"
+          && Number(descriptor.option_slot) === Number(choice.index);
       }) || null;
     }
     const play = exactRunPlayCard(best);
@@ -2591,12 +2602,45 @@
     return null;
   }
 
+  function exactRunVisibleChoice(action) {
+    if (!action) return null;
+    const choiceKinds = [
+      "ChooseCombatCardReward",
+      "ChooseBossRelicReward",
+      "ChooseHandSelect",
+      "ChooseDrawSelect",
+      "ChooseDiscardSelect",
+      "ChooseExhaustSelect",
+      "SelectGridCard",
+    ];
+    for (const container of [action, action.action, (action.descriptor || {}).action]) {
+      if (!container || typeof container !== "object") continue;
+      for (const kind of choiceKinds) {
+        const payload = container[kind];
+        if (payload && typeof payload === "object" && payload.index !== undefined && payload.index !== null) {
+          return { index: payload.index };
+        }
+      }
+    }
+    return null;
+  }
+
   function isEndTurnAction(action) {
     if (!action) return false;
     if (action.kind === "EndTurn" || action.action_kind === "end_turn") return true;
     const descriptor = action.descriptor || {};
     if (descriptor.kind === "EndTurn" || descriptor.action_kind === "end_turn") return true;
     if (descriptor.action === "EndTurn" || action.action === "EndTurn") return true;
+    return false;
+  }
+
+  function isSkipCombatCardRewardAction(action) {
+    if (!action) return false;
+    if (action.action_kind === "skip_combat_card_reward") return true;
+    if (action.action === "SkipCombatCardReward") return true;
+    const descriptor = action.descriptor || {};
+    if (descriptor.action_kind === "skip_combat_card_reward") return true;
+    if (descriptor.action === "SkipCombatCardReward") return true;
     return false;
   }
 

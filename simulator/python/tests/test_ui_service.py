@@ -1305,6 +1305,49 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["command"], "PLAY 1 0")
 
+    def test_bridge_action_for_exact_action_maps_combat_card_reward_to_visible_choice(self):
+        action = {
+            "kind": "ExactRunAction",
+            "action_kind": "choose_combat_card_reward",
+            "action": {"ChooseCombatCardReward": {"index": 0}},
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "CHOOSE 0",
+                    "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 0},
+                },
+                {
+                    "command": "CHOOSE 1",
+                    "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 1},
+                },
+            ],
+            "summary": {"choices": ["Perfected Strike", "Wild Strike"]},
+        }
+
+        result = _bridge_action_for_exact_action(action, bridge_status, {"combat": {}})
+
+        self.assertEqual(result["command"], "CHOOSE 0")
+
+    def test_bridge_action_for_exact_action_maps_combat_card_reward_skip(self):
+        action = {
+            "kind": "ExactRunAction",
+            "action_kind": "skip_combat_card_reward",
+            "action": "SkipCombatCardReward",
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "SKIP",
+                    "descriptor": {"kind": "SkipVisibleReward"},
+                },
+            ],
+        }
+
+        result = _bridge_action_for_exact_action(action, bridge_status, {"combat": {}})
+
+        self.assertEqual(result["command"], "SKIP")
+
     def test_send_live_combat_action_attaches_searches_predicts_and_sends_bridge_command(self):
         manager = SessionManager()
         manager._sessions["live"] = CombatSession(

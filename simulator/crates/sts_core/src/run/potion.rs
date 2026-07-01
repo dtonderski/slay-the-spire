@@ -88,6 +88,7 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
         RunAction::ChooseCombatCardReward { index } => {
             validate_combat_card_reward_choice(run, index)
         }
+        RunAction::SkipCombatCardReward => validate_combat_card_reward_skip(run),
         RunAction::ChooseHandSelect { index } => validate_hand_select_choice(run, index),
         RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
         RunAction::ChooseDrawSelect { index } => validate_draw_select_choice(run, index),
@@ -107,6 +108,19 @@ fn current_room_kind(run: &RunState) -> Option<RoomKind> {
             .node(map_state.current_node)
             .map(|node| node.room_kind)
     })
+}
+
+pub fn validate_combat_card_reward_skip(run: &RunState) -> SimResult<()> {
+    let combat = run.combat.as_ref().ok_or(SimError::IllegalAction(
+        "combat card reward requires combat",
+    ))?;
+    if combat.potion_card_reward.is_some() {
+        Ok(())
+    } else {
+        Err(SimError::IllegalAction(
+            "no skippable combat card reward is open",
+        ))
+    }
 }
 
 pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<()> {
@@ -378,11 +392,9 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     let card_id = CardId::new(combat.piles.max_card_instance_id() + 1);
     if let Some(choices) = combat.potion_card_reward.take() {
         let choice = choices[index];
-        combat.piles.hand.push(CardInstance::combat_generated(
-            card_id,
-            choice.content_id,
-            0,
-        ));
+        let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
+        card.temp_cost_turn_only = true;
+        combat.piles.hand.push(card);
     } else if let Some(choices) = combat.discovery_card_reward.take() {
         let choice = choices[index];
         let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
@@ -399,6 +411,14 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             next.card_random_rng_counter = rng.counter();
         }
     }
+    Ok(next)
+}
+
+pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
+    validate_combat_card_reward_skip(run)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    combat.potion_card_reward = None;
     Ok(next)
 }
 
@@ -2544,13 +2564,39 @@ mod tests {
         let after = apply_combat_card_reward_choice(&after, 0).expect("choose generated card");
 
         let hand = &after.combat.as_ref().expect("combat").piles.hand;
-        assert!(hand.iter().any(|card| card.content_id == expected));
+        let generated = hand
+            .iter()
+            .find(|card| card.content_id == expected)
+            .expect("generated Attack Potion card");
+        assert_eq!(generated.temp_cost, Some(0));
+        assert!(generated.temp_cost_turn_only);
         assert!(after
             .combat
             .as_ref()
             .expect("combat")
             .potion_card_reward
             .is_none());
+    }
+
+    #[test]
+    fn attack_potion_reward_can_be_skipped_without_adding_card() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::Attack);
+        let after = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use attack potion");
+        let before_hand = after.combat.as_ref().expect("combat").piles.hand.clone();
+
+        let after_skip = apply_combat_card_reward_skip(&after).expect("skip generated card reward");
+
+        let combat = after_skip.combat.as_ref().expect("combat");
+        assert!(combat.potion_card_reward.is_none());
+        assert_eq!(combat.piles.hand, before_hand);
     }
 
     #[test]

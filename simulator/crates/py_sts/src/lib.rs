@@ -1166,10 +1166,16 @@ fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) ->
         .or(combat.toolbox_card_reward.as_ref())
         .or(combat.discovery_card_reward.as_ref())
     {
-        return (0..choices.len())
+        let mut actions = (0..choices.len())
             .map(|index| RunAction::ChooseCombatCardReward { index })
             .filter(|action| apply_core_run_action(state, *action).is_ok())
-            .collect();
+            .collect::<Vec<_>>();
+        if combat.potion_card_reward.is_some()
+            && apply_core_run_action(state, RunAction::SkipCombatCardReward).is_ok()
+        {
+            actions.push(RunAction::SkipCombatCardReward);
+        }
+        return actions;
     }
 
     let mut candidates = Vec::new();
@@ -1360,6 +1366,7 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Run(RunAction::ChooseCombatCardReward { .. }) => {
             "choose_combat_card_reward"
         }
+        ExactRunActionKind::Run(RunAction::SkipCombatCardReward) => "skip_combat_card_reward",
         ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. }) => "choose_hand_select",
         ExactRunActionKind::Run(RunAction::ConfirmHandSelect) => "confirm_hand_select",
         ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. }) => "choose_draw_select",

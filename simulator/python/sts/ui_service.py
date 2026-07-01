@@ -927,6 +927,9 @@ def _bridge_action_for_exact_action(
     if _is_end_turn_descriptor(action):
         return _find_bridge_action(bridge_actions, kind="EndTurn")
 
+    if _is_skip_combat_card_reward_descriptor(action):
+        return _find_bridge_action(bridge_actions, kind="SkipVisibleReward")
+
     play = _play_card_payload(action)
     if play is not None:
         hand_slot = _observed_hand_slot_for_card_id(play.get("card_id"), bridge_status, sim_state)
@@ -954,6 +957,14 @@ def _bridge_action_for_exact_action(
             target_required=target is not None,
         )
 
+    choice = _visible_choice_payload(action)
+    if choice is not None:
+        return _find_bridge_action(
+            bridge_actions,
+            kind="ChooseVisibleOption",
+            option_slot=choice.get("index"),
+        )
+
     return None
 
 
@@ -963,6 +974,7 @@ def _find_bridge_action(
     kind: str,
     hand_slot: Any = None,
     potion_slot: Any = None,
+    option_slot: Any = None,
     target_slot: Any = None,
     target_required: bool = False,
 ) -> dict[str, Any] | None:
@@ -975,6 +987,8 @@ def _find_bridge_action(
         if hand_slot is not None and _parse_int_or_none(descriptor.get("hand_slot")) != _parse_int_or_none(hand_slot):
             continue
         if potion_slot is not None and _parse_int_or_none(descriptor.get("potion_slot")) != _parse_int_or_none(potion_slot):
+            continue
+        if option_slot is not None and _parse_int_or_none(descriptor.get("option_slot")) != _parse_int_or_none(option_slot):
             continue
         descriptor_target = descriptor.get("target_slot")
         if target_required:
@@ -1012,6 +1026,30 @@ def _use_potion_payload(action: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _visible_choice_payload(action: dict[str, Any]) -> dict[str, Any] | None:
+    choice_kinds = {
+        "ChooseCombatCardReward",
+        "ChooseBossRelicReward",
+        "ChooseHandSelect",
+        "ChooseDrawSelect",
+        "ChooseDiscardSelect",
+        "ChooseExhaustSelect",
+        "SelectGridCard",
+    }
+    containers: list[Any] = [action, action.get("action")]
+    descriptor = action.get("descriptor")
+    if isinstance(descriptor, dict):
+        containers.append(descriptor.get("action"))
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        for kind in choice_kinds:
+            payload = container.get(kind)
+            if isinstance(payload, dict) and payload.get("index") is not None:
+                return payload
+    return None
+
+
 def _is_end_turn_descriptor(action: dict[str, Any]) -> bool:
     if action.get("kind") == "EndTurn" or action.get("action_kind") == "end_turn":
         return True
@@ -1021,6 +1059,20 @@ def _is_end_turn_descriptor(action: dict[str, Any]) -> bool:
     ):
         return True
     return action.get("action") == "EndTurn"
+
+
+def _is_skip_combat_card_reward_descriptor(action: dict[str, Any]) -> bool:
+    if action.get("action_kind") == "skip_combat_card_reward":
+        return True
+    if action.get("action") == "SkipCombatCardReward":
+        return True
+    descriptor = action.get("descriptor")
+    if isinstance(descriptor, dict) and (
+        descriptor.get("action_kind") == "skip_combat_card_reward"
+        or descriptor.get("action") == "SkipCombatCardReward"
+    ):
+        return True
+    return False
 
 
 def _observed_hand_slot_for_card_id(
