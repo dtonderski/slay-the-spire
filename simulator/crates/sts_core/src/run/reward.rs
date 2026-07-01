@@ -1907,9 +1907,9 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, BASH_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CLEAVE_ID, CLOTHESLINE_ID,
         CLOTHESLINE_PLUS_ID, COMBUST_ID, CURSE_OF_THE_BELL_ID, DAZED_ID, DEFEND_R_ID, ENTRENCH_ID,
-        EXHUME_ID, FEED_ID, HAVOC_ID, INFLAME_ID, POWER_THROUGH_ID, REAPER_ID, SECOND_WIND_ID,
-        SEEING_RED_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID,
+        EXHUME_ID, FEED_ID, HAVOC_ID, HEAVY_BLADE_ID, INFLAME_ID, POWER_THROUGH_ID, REAPER_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, SWORD_BOOMERANG_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::Relic;
@@ -2761,6 +2761,25 @@ mod tests {
         assert!(content_ids
             .iter()
             .any(|id| ironclad_reward_card_rarity(*id).is_none()));
+    }
+
+    #[test]
+    fn live01_first_combat_reward_matches_trace_backed_neow_counter() {
+        let mut run = winning_combat_run();
+        run.reward_rng_seed = 1_131_274_026;
+        run.card_rng_counter = 5;
+        run.card_rarity_factor = 5;
+        enter_reward_screen(&mut run);
+
+        run = apply_run_action(&run, RunAction::OpenCardReward).expect("open cards");
+
+        let reward = run.reward.as_ref().expect("reward screen present");
+        let content_ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
+        assert_eq!(
+            content_ids,
+            vec![HEAVY_BLADE_ID, ANGER_ID, SWORD_BOOMERANG_ID]
+        );
+        assert_eq!(run.card_rng_counter, 14);
     }
 
     #[test]

@@ -3,6 +3,17 @@
 ## What Exists
 
 ### Combat
+- Latest live Neow/card-reward counter slice: `trace-2026-07-01T20-09-40-075Z.jsonl`
+  now strict-replays to trace exhaustion through the first combat reward and
+  next combat entry. The `LIVE01` trace-backed rare-colorless Neow reward now
+  carries the observed `cardRng` counter as well as the visible card identities;
+  this keeps the first combat card reward aligned as Heavy Blade/Anger/Sword
+  Boomerang. Focused checks run: `cargo test -p sts_core
+  neow_curse_rare_colorless_reward_opens_choice_screen --lib`, `cargo test -p
+  sts_core live01_first_combat_reward_matches_trace_backed_neow_counter --lib`,
+  `uv run maturin develop --release`, and strict replay of the live trace. This
+  is still a selected-trace counter fix, not a broad colorless reward RNG parity
+  claim.
 - Latest live Neow replay slice: `trace-2026-07-01T19-44-03-960Z.jsonl`
   now strict-replays to trace exhaustion through the captured Neow branch and
   first combat entry. Core event replay supports the curse + rare colorless
