@@ -17,7 +17,7 @@ use crate::{
         reward::target_card_reward_choices_with_count,
         state::RunRngStream,
     },
-    EventAction, RewardScreen, RunPhase, RunState, SimError, SimResult,
+    CardId, CardInstance, EventAction, RewardScreen, RunPhase, RunState, SimError, SimResult,
 };
 
 pub const SCRAP_OOZE_REACH_HP_LOSS: i32 = 3;
@@ -1058,18 +1058,50 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
             open_neow_reward_grid(next, option.reward);
             return Ok(());
         }
-        NeowRewardType::ThreeCards
-        | NeowRewardType::RandomColorless
-        | NeowRewardType::RandomColorlessTwo
-        | NeowRewardType::ThreeRareCards => {
+        NeowRewardType::ThreeCards | NeowRewardType::ThreeRareCards => {
+            open_neow_card_reward(next, option.reward);
+            return Ok(());
+        }
+        NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
             return Err(SimError::IllegalAction(
-                "Neow choice-card reward is not implemented in event replay",
+                "Neow colorless choice-card reward is not implemented in event replay",
             ));
         }
     }
 
     next.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
     Ok(())
+}
+
+fn open_neow_card_reward(run: &mut RunState, reward_type: NeowRewardType) {
+    let reward = generate_neow_card_reward(run.event_rng_seed as i64, reward_type);
+    let next_card_id = run.next_card_instance_id();
+    let choices = reward
+        .cards
+        .into_iter()
+        .enumerate()
+        .map(|(index, content_id)| {
+            CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
+        })
+        .collect();
+    run.event_rng_counter = reward.neow_rng_counter;
+    run.phase = RunPhase::Reward;
+    run.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
+    run.reward = Some(RewardScreen {
+        choices,
+        gold_offer: 0,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        relic_offer: None,
+        relic_key_offer: None,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
+        queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_active: true,
+        card_reward_pending: false,
+        pending_card_reward_count: 1,
+    });
 }
 
 #[must_use]
@@ -1877,6 +1909,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
 mod tests {
     use super::*;
     use crate::relic::Relic;
+    use crate::RunAction;
 
     #[test]
     fn fixed_event_screen_exposes_golden_shrine_choice() {
@@ -3745,5 +3778,53 @@ mod tests {
         enter_event_screen(&mut run);
         assert_ne!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
         assert_eq!(run.event_rng_counter, first_counter);
+    }
+
+    #[test]
+    fn neow_choose_card_reward_opens_reward_screen_and_returns_to_leave() {
+        use crate::content::cards::{DARK_EMBRACE_ID, DROPKICK_ID, TRUE_GRIT_ID};
+
+        let mut run = RunState::placeholder_seeded_ironclad(1_131_274_029, 0);
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("talk");
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("choose card reward");
+
+        assert_eq!(run.phase, RunPhase::Reward);
+        assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
+        let reward = run.reward.as_ref().expect("card reward");
+        assert!(reward.card_reward_active);
+        assert_eq!(
+            reward
+                .choices
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DROPKICK_ID, DARK_EMBRACE_ID, TRUE_GRIT_ID]
+        );
+
+        let dropkick = reward.choices[0].id;
+        run = crate::run::apply_run_action(&run, RunAction::TakeCardReward { card_id: dropkick })
+            .expect("take Dropkick");
+
+        assert_eq!(run.phase, RunPhase::Event);
+        assert!(run.reward.is_none());
+        assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
+        assert!(run.deck.iter().any(|card| card.content_id == DROPKICK_ID));
+    }
+
+    #[test]
+    fn neow_choose_card_reward_can_be_skipped() {
+        let mut run = RunState::placeholder_seeded_ironclad(1_131_274_029, 0);
+        let starting_deck = run.deck.clone();
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("talk");
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("choose card reward");
+
+        run = crate::run::apply_run_action(&run, RunAction::SkipReward).expect("skip reward");
+
+        assert_eq!(run.phase, RunPhase::Event);
+        assert!(run.reward.is_none());
+        assert_eq!(run.event.as_ref().expect("Neow leave prompt").stage, 2);
+        assert_eq!(run.deck, starting_deck);
     }
 }

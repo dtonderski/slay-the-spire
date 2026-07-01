@@ -1700,6 +1700,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 reward.choices.clear();
                 reward.card_reward_active = false;
                 reward.consume_pending_card_reward();
+                return_to_event_if_reward_empty(&mut next);
             } else if is_boss_room
                 && reward.boss_relic_choices.is_empty()
                 && reward.pending_relic_offer.is_none()
@@ -1730,6 +1731,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.card_reward_active = false;
             reward.consume_pending_card_reward();
             next.add_deck_card(choice);
+            return_to_event_if_reward_empty(&mut next);
         }
         RunAction::TakeSingingBowlReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -1738,6 +1740,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.consume_pending_card_reward();
             next.player_max_hp += SINGING_BOWL_MAX_HP;
             next.player_hp += SINGING_BOWL_MAX_HP;
+            return_to_event_if_reward_empty(&mut next);
         }
         RunAction::TakeGoldReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -1836,6 +1839,33 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
     }
 
     Ok(next)
+}
+
+fn return_to_event_if_reward_empty(run: &mut RunState) {
+    if run.event.is_none() {
+        return;
+    }
+    let Some(reward) = run.reward.as_ref() else {
+        return;
+    };
+    if reward.card_reward_active
+        || reward.card_reward_pending
+        || reward.pending_card_reward_count() > 0
+        || !reward.choices.is_empty()
+        || reward.gold_offer > 0
+        || reward.stolen_gold_offer > 0
+        || reward.potion_offer.is_some()
+        || reward.relic_offer.is_some()
+        || reward.relic_key_offer.is_some()
+        || reward.pending_relic_offer.is_some()
+        || reward.pending_relic_key_offer.is_some()
+        || !reward.queued_relic_key_offers.is_empty()
+        || !reward.boss_relic_choices.is_empty()
+    {
+        return;
+    }
+    run.phase = RunPhase::Event;
+    run.reward = None;
 }
 
 fn advance_pending_relic_offer(run: &mut RunState) {
