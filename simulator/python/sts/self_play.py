@@ -3475,6 +3475,7 @@ _CARD_CHOICE_CONTENT_IDS = {
     "hemokinesis": 114,
     "bloodforblood": 116,
     "pummel": 118,
+    "shockwave": 120,
     "rampage": 121,
     "seversoul": 122,
     "combust": 123,

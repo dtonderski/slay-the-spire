@@ -47,6 +47,9 @@ pub struct CombatState {
     /// In-combat zero-cost card reward from Discovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_card_reward: Option<Vec<CardInstance>>,
+    /// Source Discovery card waiting to move after the generated-card choice closes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discovery_source_card: Option<CardInstance>,
     /// Awaiting player choice for Warcry, Armaments, Forethought, and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
@@ -420,6 +423,7 @@ impl CombatState {
             potion_card_reward: None,
             toolbox_card_reward: None,
             discovery_card_reward: None,
+            discovery_source_card: None,
             hand_select: None,
             draw_select: None,
             discard_select: None,

@@ -3,6 +3,17 @@
 ## What Exists
 
 ### Combat
+- Latest live-trace Discovery fidelity slice: Discovery now keeps the played
+  source card pending while the generated-card reward screen is open, moving it
+  to the normal played-card destination only after the combat reward choice
+  closes. Untyped Discovery generation now uses the source-backed
+  `returnTrulyRandomCardInCombat()` combat pool order instead of concatenating
+  attack/skill/power pools, and Python strict-replay observed reward
+  normalization recognizes Shockwave. Focused regressions cover Discovery
+  source-card timing, target combat-pool order, observed reward normalization,
+  and the fresh `trace-2026-07-01T20-30-26-163Z.jsonl`, which now verifies to
+  trace exhaustion. Broader live-run parity remains evidence-driven by future
+  strict replay traces.
 - Latest live-trace Neow colorless reward slice: Neow's colorless choice-card
   rewards now open the normal run reward screen through `sts_core`, preserving
   the event/Neow RNG counter and the card reward RNG counter before returning

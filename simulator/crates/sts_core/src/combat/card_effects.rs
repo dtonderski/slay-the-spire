@@ -54,7 +54,7 @@ use crate::{
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
-        ironclad_combat_power_discovery_pool, ironclad_combat_skill_discovery_pool,
+        ironclad_combat_discovery_pool, ironclad_combat_skill_discovery_pool,
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{
@@ -1411,7 +1411,7 @@ fn discovery_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    open_discovery_card_reward(state);
+    open_discovery_card_reward(state, card_id);
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -1420,15 +1420,10 @@ fn discovery_queue(
         InternalAction::OpenDiscoveryCardReward {
             source_card_id: card_id,
         },
-        InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: card_move_destination(definition),
-        },
     ]))
 }
 
-fn open_discovery_card_reward(state: &mut CombatState) {
+fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) {
     let pool = discovery_modeled_card_pool();
     let mut content_choices = Vec::with_capacity(3);
     match state.card_random_rng.as_mut() {
@@ -1477,10 +1472,9 @@ fn burn_discovery_random_picks(rng: &mut crate::rng::StsRng, pool_len: usize, co
 }
 
 pub(crate) fn discovery_modeled_card_pool() -> Vec<ContentId> {
-    ironclad_combat_attack_discovery_pool()
-        .into_iter()
-        .chain(ironclad_combat_skill_discovery_pool())
-        .chain(ironclad_combat_power_discovery_pool().iter().copied())
+    ironclad_combat_discovery_pool()
+        .iter()
+        .copied()
         .filter(|content_id| get_card_definition(*content_id).is_some())
         .collect()
 }

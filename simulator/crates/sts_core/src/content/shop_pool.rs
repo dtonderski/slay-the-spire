@@ -464,6 +464,100 @@ pub fn ironclad_combat_attack_discovery_pool() -> Vec<ContentId> {
 }
 
 #[must_use]
+pub fn ironclad_combat_discovery_pool() -> &'static [ContentId] {
+    // Target `AbstractDungeon.returnTrulyRandomCardInCombat()` appends
+    // srcCommonCardPool, srcUncommonCardPool, then srcRareCardPool, filtering
+    // HEALING-tagged cards. This matches `sts_lightspeed` CombatCardPool.
+    use crate::content::cards::{
+        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
+        BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
+        CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
+        DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID,
+        EVOLVE_ID, EXHUME_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID,
+        FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID,
+        IMMOLATE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, OFFERING_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, RECKLESS_CHARGE_ID,
+        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
+        TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+    };
+    const POOL: &[ContentId] = &[
+        SWORD_BOOMERANG_ID,
+        PERFECTED_STRIKE_ID,
+        HEAVY_BLADE_ID,
+        WILD_STRIKE_ID,
+        HEADBUTT_ID,
+        HAVOC_ID,
+        ARMAMENTS_ID,
+        CLOTHESLINE_ID,
+        TWIN_STRIKE_ID,
+        POMMEL_STRIKE_ID,
+        THUNDERCLAP_ID,
+        CLASH_ID,
+        SHRUG_IT_OFF_ID,
+        TRUE_GRIT_ID,
+        BODY_SLAM_ID,
+        IRON_WAVE_ID,
+        FLEX_ID,
+        WARCRY_ID,
+        CLEAVE_ID,
+        ANGER_ID,
+        EVOLVE_ID,
+        UPPERCUT_ID,
+        GHOSTLY_ARMOR_ID,
+        FIRE_BREATHING_ID,
+        DROPKICK_ID,
+        CARNAGE_ID,
+        BLOODLETTING_ID,
+        RUPTURE_ID,
+        SECOND_WIND_ID,
+        SEARING_BLOW_ID,
+        BATTLE_TRANCE_ID,
+        SENTINEL_ID,
+        ENTRENCH_ID,
+        RAGE_ID,
+        FEEL_NO_PAIN_ID,
+        DISARM_ID,
+        SEEING_RED_ID,
+        DARK_EMBRACE_ID,
+        COMBUST_ID,
+        WHIRLWIND_ID,
+        SEVER_SOUL_ID,
+        RAMPAGE_ID,
+        SHOCKWAVE_ID,
+        METALLICIZE_ID,
+        BURNING_PACT_ID,
+        PUMMEL_ID,
+        FLAME_BARRIER_ID,
+        BLOOD_FOR_BLOOD_ID,
+        INTIMIDATE_ID,
+        HEMOKINESIS_ID,
+        RECKLESS_CHARGE_ID,
+        INFERNAL_BLADE_ID,
+        DUAL_WIELD_ID,
+        POWER_THROUGH_ID,
+        INFLAME_ID,
+        SPOT_WEAKNESS_ID,
+        DOUBLE_TAP_ID,
+        DEMON_FORM_ID,
+        BLUDGEON_ID,
+        LIMIT_BREAK_ID,
+        CORRUPTION_ID,
+        BARRICADE_ID,
+        FIEND_FIRE_ID,
+        BERSERK_ID,
+        IMPERVIOUS_ID,
+        JUGGERNAUT_ID,
+        BRUTALITY_ID,
+        EXHUME_ID,
+        OFFERING_ID,
+        IMMOLATE_ID,
+    ];
+    POOL
+}
+
+#[must_use]
 pub fn ironclad_combat_skill_discovery_pool() -> Vec<ContentId> {
     IRONCLAD_SKILL_COMMON
         .iter()
@@ -704,6 +798,21 @@ mod tests {
         assert_eq!(pool[1], shop_card_content_id("PERFECTED_STRIKE"));
         assert_eq!(pool[16], shop_card_content_id("CARNAGE"));
         assert_eq!(pool[25], shop_card_content_id("BLUDGEON"));
+        assert!(!pool.contains(&shop_card_content_id("FEED")));
+        assert!(!pool.contains(&shop_card_content_id("REAPER")));
+    }
+
+    #[test]
+    fn ironclad_untyped_discovery_pool_matches_target_combat_pool_order() {
+        let pool = ironclad_combat_discovery_pool();
+        assert_eq!(pool.len(), 70);
+        assert_eq!(pool[0], shop_card_content_id("SWORD_BOOMERANG"));
+        assert_eq!(pool[5], shop_card_content_id("HAVOC"));
+        assert_eq!(pool[12], shop_card_content_id("SHRUG_IT_OFF"));
+        assert_eq!(pool[20], shop_card_content_id("EVOLVE"));
+        assert_eq!(pool[42], shop_card_content_id("SHOCKWAVE"));
+        assert_eq!(pool[47], shop_card_content_id("BLOOD_FOR_BLOOD"));
+        assert_eq!(pool[58], shop_card_content_id("BLUDGEON"));
         assert!(!pool.contains(&shop_card_content_id("FEED")));
         assert!(!pool.contains(&shop_card_content_id("REAPER")));
     }

@@ -6606,6 +6606,7 @@ fn run_from_observed_combat_impl(
         card_random_rng: None,
         potion_card_reward: None,
         discovery_card_reward: None,
+        discovery_source_card: None,
         toolbox_card_reward: None,
         hand_select: None,
         draw_select: None,

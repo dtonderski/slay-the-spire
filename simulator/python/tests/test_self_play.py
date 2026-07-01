@@ -1200,14 +1200,14 @@ class SelfPlayTests(unittest.TestCase):
         observed = {
             "screen_type": "CARD_REWARD",
             "room_phase": "COMBAT",
-            "choice_list": ["corruption", "demonform", "barricade"],
+            "choice_list": ["corruption", "shockwave", "barricade"],
             "combat_state": {"player": {}, "monsters": []},
         }
 
         diffs = _observed_summary_diffs(_FakeCombatRewardEnv(), observed)
 
         choice_diffs = [diff for diff in diffs if diff["field"] == "combat.card_reward_choices"]
-        self.assertEqual(choice_diffs[0]["observed"], [142, 138, 143])
+        self.assertEqual(choice_diffs[0]["observed"], [142, 120, 143])
 
     def test_observed_defend_intent_wildcards_hidden_block_amount_only(self):
         self.assertTrue(

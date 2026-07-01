@@ -825,7 +825,15 @@ fn apply_internal_action(
             });
             Ok(Vec::new())
         }
-        InternalAction::OpenDiscoveryCardReward { .. } => Ok(Vec::new()),
+        InternalAction::OpenDiscoveryCardReward { source_card_id } => {
+            state.discovery_source_card = state
+                .piles
+                .hand
+                .iter()
+                .position(|card| card.id == source_card_id)
+                .map(|index| state.piles.hand.remove(index));
+            Ok(Vec::new())
+        }
     }
 }
 
@@ -2059,6 +2067,26 @@ fn move_delayed_played_source_with_strange_spoon(
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
         apply_on_exhaust_effects(state, source_card_id);
+    }
+    Ok(())
+}
+
+pub fn close_discovery_card_reward_source(state: &mut CombatState) -> SimResult<()> {
+    let Some(source) = state.discovery_source_card.take() else {
+        return Ok(());
+    };
+    let source_card_id = source.id;
+    let definition = get_card_definition(source.content_id)
+        .ok_or(SimError::UnknownContent(source.content_id))?;
+    let destination = delayed_source_card_destination(state, definition);
+    match destination {
+        CardPile::ExhaustPile => {
+            state.piles.exhaust_pile.push(source);
+            apply_on_exhaust_effects(state, source_card_id);
+        }
+        CardPile::DiscardPile => state.piles.discard_pile.push(source),
+        CardPile::Hand => state.piles.hand.push(source),
+        CardPile::DrawPile => state.piles.draw_pile.push(source),
     }
     Ok(())
 }
@@ -4931,7 +4959,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_opens_three_card_reward_and_exhausts_source() {
+    fn discovery_opens_three_card_reward_without_exhausting_source_yet() {
         let mut state = hand_only(DISCOVERY_ID);
         state.card_random_rng = Some(crate::rng::StsRng::new(123));
         let pool = discovery_modeled_card_pool();
@@ -4955,11 +4983,14 @@ mod tests {
             next.card_random_rng.as_ref().expect("card rng").counter(),
             expected_rng.counter()
         );
-        assert!(next
-            .piles
-            .exhaust_pile
-            .iter()
-            .any(|card| card.content_id == DISCOVERY_ID));
+        assert!(next.piles.exhaust_pile.is_empty());
+        assert_eq!(
+            next.discovery_source_card
+                .as_ref()
+                .expect("pending Discovery")
+                .id,
+            CardId::new(20)
+        );
         let choices = next
             .discovery_card_reward
             .as_ref()
@@ -4998,7 +5029,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_event_log_records_choice_open_before_source_exhaust() {
+    fn discovery_event_log_records_choice_open_without_source_exhaust() {
         let state = hand_only(DISCOVERY_ID);
         let card_id = hand_card_id(&state, DISCOVERY_ID);
 
@@ -5013,12 +5044,6 @@ mod tests {
                 InternalAction::OpenDiscoveryCardReward {
                     source_card_id: card_id,
                 },
-                InternalAction::MoveCard {
-                    card_id,
-                    from: CardPile::Hand,
-                    to: CardPile::ExhaustPile,
-                },
-                InternalAction::CardExhausted { card_id },
             ]
         );
     }

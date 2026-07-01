@@ -3,11 +3,12 @@ use crate::{
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_play_top_draw_card_action, choose_discard_select, choose_draw_select,
-        choose_exhaust_select, choose_hand_select, confirm_discard_select, confirm_draw_select,
-        confirm_exhaust_select, confirm_hand_select, discard_select_ui_to_discard_index,
-        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
-        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
-        open_gambling_chip_select, player_draw_cards, top_draw_card_definition,
+        choose_exhaust_select, choose_hand_select, close_discovery_card_reward_source,
+        confirm_discard_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
+        discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
+        exhaust_select_ui_to_hand_index, hand_select_ui_to_hand_index,
+        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
+        player_draw_cards, top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose},
     content::cards::{get_card_definition, upgrade_card_instance},
@@ -400,6 +401,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
         card.temp_cost_turn_only = true;
         combat.piles.hand.push(card);
+        close_discovery_card_reward_source(combat)?;
     } else {
         let choices = combat.toolbox_card_reward.take().expect("validated reward");
         let choice = choices[index];
@@ -418,7 +420,11 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
     validate_combat_card_reward_skip(run)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
-    combat.potion_card_reward = None;
+    if combat.discovery_card_reward.take().is_some() {
+        close_discovery_card_reward_source(combat)?;
+    } else {
+        combat.potion_card_reward = None;
+    }
     Ok(next)
 }
 
@@ -2614,6 +2620,15 @@ mod tests {
         )
         .expect("Discovery applies");
         let expected = after_play.discovery_card_reward.as_ref().expect("choices")[0].content_id;
+        assert!(after_play.piles.exhaust_pile.is_empty());
+        assert_eq!(
+            after_play
+                .discovery_source_card
+                .as_ref()
+                .expect("pending Discovery")
+                .id,
+            CardId::new(20)
+        );
         assert!(crate::combat::legal_combat_actions(&after_play).is_empty());
         run.combat = Some(after_play);
 
@@ -2621,6 +2636,12 @@ mod tests {
 
         let combat = after_choice.combat.as_ref().expect("combat");
         assert!(combat.discovery_card_reward.is_none());
+        assert_eq!(combat.discovery_source_card, None);
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
         let generated = combat
             .piles
             .hand
