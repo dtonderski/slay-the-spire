@@ -7813,7 +7813,30 @@ fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
     sts_core::content::cards::upgrade_content_id(base)
 }
 
+fn normalized_observed_card_key(key: &str) -> String {
+    let mut normalized = String::new();
+    for ch in key.chars() {
+        if ch == '+' {
+            normalized.push_str("plus");
+        } else if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+        }
+    }
+    normalized
+}
+
 fn content_id_from_key(key: &str) -> Option<ContentId> {
+    let normalized = normalized_observed_card_key(key);
+    if let Some(definition) = sts_core::content::cards::ALL_CARDS
+        .iter()
+        .find(|definition| {
+            normalized_observed_card_key(definition.key) == normalized
+                || normalized_observed_card_key(definition.name) == normalized
+        })
+    {
+        return Some(definition.id);
+    }
+
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
@@ -7950,6 +7973,10 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 }
 
 fn content_key(content_id: ContentId) -> &'static str {
+    if let Some(definition) = sts_core::content::cards::get_card_definition(content_id) {
+        return definition.name;
+    }
+
     use sts_core::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
         BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
@@ -8584,6 +8611,61 @@ mod tests {
             assert_eq!(content_id_from_card_value(&card), Some(expected));
             assert_eq!(content_key(expected), key);
         }
+    }
+
+    #[test]
+    fn observed_card_json_maps_every_modeled_card_definition() {
+        let mut failures = Vec::new();
+        for definition in sts_core::content::cards::ALL_CARDS {
+            let card = json!({
+                "id": definition.key,
+                "name": definition.name,
+                "upgrades": 0,
+            });
+
+            let mapped = content_id_from_card_value(&card);
+            if mapped != Some(definition.id) {
+                failures.push(format!(
+                    "{} mapped to {:?}, expected {:?}",
+                    definition.key, mapped, definition.id
+                ));
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "missing or mismapped observed card keys:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn observed_reward_import_preserves_every_modeled_card_choice() {
+        let cards: Vec<_> = sts_core::content::cards::ALL_CARDS
+            .iter()
+            .map(|definition| {
+                json!({
+                    "id": definition.key,
+                    "name": definition.name,
+                    "upgrades": 0,
+                })
+            })
+            .collect();
+        let game = json!({
+            "screen_type": "CARD_REWARD",
+            "screen_state": {
+                "cards": cards,
+            }
+        });
+
+        let choices = reward_choices_from_observed(&game);
+        let ids: Vec<_> = choices.iter().map(|card| card.content_id).collect();
+        let expected: Vec<_> = sts_core::content::cards::ALL_CARDS
+            .iter()
+            .map(|definition| definition.id)
+            .collect();
+
+        assert_eq!(ids, expected);
     }
 
     #[test]
