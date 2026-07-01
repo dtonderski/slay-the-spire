@@ -24,6 +24,34 @@ Fandom and wiki.gg were attempted first, but both returned anti-bot challenge pa
 - Common HP pattern: many local `MonsterDefinition.hp` values are midpoint fixtures. Range helpers exist for several monsters, but direct executable construction still often uses the fixture plus generic scaling.
 - Local run generation caveat update: Beyond normal and elite encounter metadata now covers Shapes, Spire Growth, Transient, Maw, Giant Head, Nemesis, and Reptomancer instead of falling back to the initial Cultist fixture. This is still representative spawn/intent coverage, not exact source-backed AI parity.
 
+## Current Implementation Expectations
+
+The former "missing local definition" backlog from this audit is now implemented as partial, representative coverage. The following groups have local `MonsterDefinition`s and can be materialized into executable combat states:
+
+- Masked Bandits event monsters: Bear, Pointy, and Romeo.
+- City boss/minion backlog monsters: The Champ, The Collector, and Torch Head.
+- Beyond normal, elite, boss, and minion backlog monsters: Awakened One, Dagger, Deca, Donu, Exploder, Giant Head, Nemesis, Reptomancer, Repulsor, Spiker, Spire Growth, The Maw, Time Eater, Transient, and Writhing Mass.
+- Ending/keyed-run monsters: Corrupt Heart, Spire Shield, and Spire Spear.
+
+What should now work:
+
+- Content-id lookup and definition lookup for the former missing public monster ids and common game ids.
+- Representative A0/A2/A3/A4/A17/A18/A19/A20 damage, block, status, and debuff surfaces where those public-baseline values were available.
+- Representative deterministic intents for these monsters, so they no longer collapse to the generic fixed-simple monster behavior.
+- Beyond normal and elite spawn metadata for the generated Beyond keys covered by `encounters.rs`.
+- Masked Bandits and Colosseum fight choices entering representative combat instead of returning explicit unsupported-branch errors.
+
+What is still expected to be broken, approximate, or unclaimed:
+
+- Exact Java `aiRng` move selection, move-history constraints, per-turn random choices, and special-case reroll logic.
+- Exact HP rolling/range semantics for many monsters; midpoint fixture HP plus generic ascension scaling is still common.
+- Boss phase machinery for The Champ, The Collector, Awakened One, Deca/Donu, Time Eater, Corrupt Heart, Guardian, Hexaghost, Slime Boss, Bronze Automaton, and related minions.
+- Summon lifecycles and slot behavior for Collector/Torch Heads, Reptomancer/Daggers, Awakened One/Cultists, Bronze Automaton/Bronze Orbs, and Gremlin Leader minions where only representative behavior exists.
+- Death, revive, escape, reincarnation, and reward timing for Darklings, Exploder, Transient, Corrupt Heart, Act 4 elites, event fights, and boss transitions.
+- Special powers that require broader combat hooks, including Corrupt Heart Beat of Death and Invincible, Time Eater's twelve-card turn ending and heal threshold, Awakened One Curiosity/rebirth details, Giant Head Slow, Spiker thorns growth, Writhing Mass reactive intent rerolls, Nemesis Intangible alternation, and Act 4 surrounding/positioning behavior.
+- Exact status-card insertion counts, destinations, ordering, and RNG for Burn, Dazed, Wound, Slimed, and other monster-created cards unless a row explicitly says it is source-backed.
+- Trace parity for Act 2, Act 3, event fights, bosses, and Act 4. The current implementation is intended to avoid missing-definition/fallback failures and expose representative combat surfaces, not to certify full real-game parity.
+
 ## High-Confidence Gameplay Differences
 
 These are not merely "coverage missing" rows; they are implemented local behavior that conflicts with the public baseline or is materially narrower than the encounterable monster's behavior.
