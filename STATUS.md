@@ -3,6 +3,12 @@
 ## What Exists
 
 ### Combat
+- Latest live-trace Gremlin Nob Bellow strength slice: Gremlin Nob's Bellow
+  intent now applies Anger without immediate Strength, matching the target
+  `AngerPower` source behavior; subsequent player Skill plays convert that
+  Anger into Strength. Focused Nob regressions cover Bellow not increasing
+  attack damage before Skills, and `trace-2026-07-01T20-30-26-163Z.jsonl`
+  strict-replays to trace exhaustion after the floor-6 HP mismatch.
 - Latest live-trace Gremlin Nob roll slice: Gremlin Nob now records target move
   bytes for Bellow, Bull Rush, and Skull Bash and uses a source-backed
   post-Bellow roll helper for next-intent selection. This fixes the floor-6 Nob

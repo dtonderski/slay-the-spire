@@ -7555,9 +7555,10 @@ pub fn apply_monster_intent_with_card_rng(
             (0, 0)
         }
         MonsterIntent::StrengthSelf { amount } => {
-            monster.powers.strength += amount;
             if monster.content_id == GREMLIN_NOB_ID {
-                monster.powers.anger += gremlin_nob_enrage(ascension);
+                monster.powers.anger += amount;
+            } else {
+                monster.powers.strength += amount;
             }
             (0, 0)
         }
@@ -9136,6 +9137,18 @@ mod tests {
     #[test]
     fn gremlin_nob_enrages_on_skill() {
         assert_eq!(GREMLIN_NOB_A0.enrage_weak_on_skill, GREMLIN_NOB_A0_ENRAGE);
+    }
+
+    #[test]
+    fn gremlin_nob_bellow_adds_anger_without_immediate_strength() {
+        let mut monster = monster_state(&GREMLIN_NOB_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::StrengthSelf {
+            amount: GREMLIN_NOB_A0_ENRAGE,
+        };
+
+        assert_eq!(apply_intent(&mut monster), 0);
+        assert_eq!(monster.powers.anger, GREMLIN_NOB_A0_ENRAGE);
+        assert_eq!(monster.powers.strength, 0);
     }
 
     #[test]
