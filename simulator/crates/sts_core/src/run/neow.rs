@@ -674,9 +674,8 @@ pub fn known_neow_colorless_reward_for_seed(seed: &str) -> Option<KnownNeowColor
 mod tests {
     use super::*;
     use crate::content::cards::{
-        is_curse_content_id, CLASH_ID, CORRUPTION_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID,
-        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, RAMPAGE_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        STRIKE_R_ID, SWIFT_STRIKE_ID,
+        is_curse_content_id, CLASH_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID,
+        JUGGERNAUT_ID, RAMPAGE_ID, SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
