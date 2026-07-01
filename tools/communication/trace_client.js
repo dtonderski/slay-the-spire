@@ -54,6 +54,7 @@ let controlServer = null;
 let controlAddress = null;
 let stateSeq = 0;
 let controlOwner = null;
+let commandInFlight = null;
 
 function writeRecord(record) {
   logStream.write(`${JSON.stringify(record)}\n`);
@@ -186,6 +187,9 @@ function summarize(message) {
 function publishState(message) {
   const summary = summarize(message);
   stateSeq += 1;
+  if (commandInFlight && stateSeq > commandInFlight.accepted_state_seq) {
+    commandInFlight = null;
+  }
   const stateId = stateIdFor(message, summary);
   latestState = {
     step,
@@ -346,6 +350,9 @@ function validateProtocolCommand(payload) {
   if (command.length > 200) return "command is too long";
   if (!latestSummary) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
+  if (commandInFlight && stateSeq <= commandInFlight.accepted_state_seq) {
+    return "a command is already in flight";
+  }
   const verb = command.split(/\s+/)[0].toLowerCase();
   if (verb !== "state" && !payload.expected_state_id) {
     return "expected_state_id is required";
@@ -483,6 +490,13 @@ async function handleControlMessage(payload) {
     }
     const acceptedStateSeq = stateSeq;
     const acceptedStateId = latestSummary?.state_id ?? null;
+    commandInFlight = {
+      command_id: commandId,
+      command: commandMeta.command,
+      accepted_state_id: acceptedStateId,
+      accepted_state_seq: acceptedStateSeq,
+      accepted_at: new Date().toISOString(),
+    };
     writeRecord({
       type: "command_accept",
       step,
