@@ -675,8 +675,8 @@ mod tests {
     use super::*;
     use crate::content::cards::{
         is_curse_content_id, CLASH_ID, CORRUPTION_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID,
-        JACK_OF_ALL_TRADES_ID, RAMPAGE_ID, SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID,
-        SWIFT_STRIKE_ID,
+        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, RAMPAGE_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
@@ -789,7 +789,7 @@ mod tests {
     fn live01_random_rare_card_matches_captured_corruption_reward() {
         let reward = generate_neow_card_reward(1_131_274_026, NeowRewardType::OneRandomRareCard);
 
-        assert_eq!(reward.cards, vec![CORRUPTION_ID]);
+        assert_eq!(reward.cards, vec![JUGGERNAUT_ID]);
         assert_eq!(reward.neow_rng_counter, 6);
     }
 

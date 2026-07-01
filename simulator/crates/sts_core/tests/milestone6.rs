@@ -256,7 +256,7 @@ fn green_louse_fixture_has_expected_hp_spikes_and_opening_intent() {
     assert_eq!(state.monsters[0].powers.spikes, 3);
     assert_eq!(
         state.monsters[0].intent,
-        MonsterIntent::ApplyPlayerWeak { amount: 1 }
+        MonsterIntent::ApplyPlayerWeak { amount: 2 }
     );
 }
 
@@ -285,7 +285,7 @@ fn green_louse_combat_executes_weak_bite_cycle() {
 
     let after_weak = end_player_turn(&state);
     assert_eq!(after_weak.player.hp, 100);
-    assert_eq!(after_weak.player.powers.weak, 1);
+    assert_eq!(after_weak.player.powers.weak, 2);
     assert_eq!(after_weak.monsters[0].block, 0);
     assert_eq!(
         after_weak.monsters[0].intent,
@@ -497,10 +497,7 @@ fn hexaghost_fixture_has_expected_hp_and_divider_intent() {
     let state = CombatState::hexaghost_fixture();
 
     assert_eq!(state.monsters[0].hp, HEXAGHOST_A0.hp);
-    assert_eq!(
-        state.monsters[0].intent,
-        MonsterIntent::AttackMultiple { damage: 6, hits: 2 }
-    );
+    assert_eq!(state.monsters[0].intent, MonsterIntent::Stun);
 }
 
 #[test]
@@ -510,24 +507,24 @@ fn hexaghost_combat_executes_divider_tackle_inferno_cycle() {
     state.piles.draw_pile.clear();
 
     let after_divider = end_player_turn(&state);
-    assert_eq!(after_divider.player.hp, 88);
+    assert_eq!(after_divider.player.hp, 100);
     assert_eq!(
         after_divider.monsters[0].intent,
-        MonsterIntent::AttackMultiple { damage: 5, hits: 6 }
+        MonsterIntent::AttackMultiple { damage: 9, hits: 6 }
     );
 
     let after_tackle = end_player_turn(&after_divider);
-    assert_eq!(after_tackle.player.hp, 58);
+    assert_eq!(after_tackle.player.hp, 46);
     assert_eq!(
         after_tackle.monsters[0].intent,
         MonsterIntent::AddBurnToDiscard {
-            count: 3,
-            damage: 2,
+            count: 1,
+            damage: 6,
         }
     );
 
     let after_inferno = end_player_turn(&after_tackle);
-    assert_eq!(after_inferno.player.hp, 56);
+    assert_eq!(after_inferno.player.hp, 40);
     assert_eq!(
         after_inferno
             .piles
@@ -535,11 +532,11 @@ fn hexaghost_combat_executes_divider_tackle_inferno_cycle() {
             .iter()
             .filter(|card| card.content_id == BURN_ID)
             .count(),
-        3
+        1
     );
     assert_eq!(
         after_inferno.monsters[0].intent,
-        MonsterIntent::AttackMultiple { damage: 6, hits: 2 }
+        MonsterIntent::AttackMultiple { damage: 5, hits: 2 }
     );
 }
 

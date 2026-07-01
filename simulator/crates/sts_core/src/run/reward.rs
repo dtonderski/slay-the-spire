@@ -1905,10 +1905,11 @@ mod tests {
     use super::*;
     use crate::card::CardType;
     use crate::content::cards::{
-        ANGER_ID, BASH_ID, BODY_SLAM_ID, CLEAVE_ID, CLOTHESLINE_ID, COMBUST_ID,
-        CURSE_OF_THE_BELL_ID, DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, ENTRENCH_ID, EXHUME_ID,
-        FEED_ID, HAVOC_ID, INFLAME_ID, POWER_THROUGH_ID, REAPER_ID, SEEING_RED_ID, SENTINEL_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        ANGER_ID, BASH_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CLEAVE_ID, CLOTHESLINE_ID,
+        CLOTHESLINE_PLUS_ID, COMBUST_ID, CURSE_OF_THE_BELL_ID, DARK_EMBRACE_ID, DAZED_ID,
+        DEFEND_R_ID, ENTRENCH_ID, EXHUME_ID, FEED_ID, HAVOC_ID, INFLAME_ID, POWER_THROUGH_ID,
+        REAPER_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::Relic;
@@ -2284,8 +2285,8 @@ mod tests {
     fn dead_branch_pool_matches_target_source_pool_order() {
         let pool = dead_branch_card_pool();
 
-        assert_eq!(pool[37], DARK_EMBRACE_ID);
-        assert_eq!(pool[53], POWER_THROUGH_ID);
+        assert_eq!(pool[37], COMBUST_ID);
+        assert_eq!(pool[53], INFLAME_ID);
     }
 
     #[test]
@@ -2798,7 +2799,12 @@ mod tests {
         assert_eq!(reward.choices.len(), 4);
         assert_eq!(
             content_ids,
-            vec![BODY_SLAM_ID, TWIN_STRIKE_ID, CLOTHESLINE_ID, SENTINEL_ID]
+            vec![
+                BODY_SLAM_ID,
+                TWIN_STRIKE_ID,
+                CLOTHESLINE_ID,
+                POWER_THROUGH_ID
+            ]
         );
         assert_eq!(run.card_rarity_factor, 2);
         assert_eq!(run.card_rng_counter, 12);
@@ -2900,7 +2906,7 @@ mod tests {
         let content_ids: Vec<_> = reward.choices.iter().map(|card| card.content_id).collect();
         assert_eq!(
             content_ids,
-            vec![BODY_SLAM_ID, TWIN_STRIKE_PLUS_ID, CLOTHESLINE_ID]
+            vec![BODY_SLAM_PLUS_ID, TWIN_STRIKE_PLUS_ID, CLOTHESLINE_PLUS_ID]
         );
     }
 
@@ -3741,8 +3747,7 @@ mod tests {
     #[test]
     fn codex03_reward_rng_counters_match_captured_trace_prefix() {
         use crate::content::cards::{
-            ANGER_ID, HEADBUTT_ID, PERFECTED_STRIKE_ID, SWORD_BOOMERANG_ID, TRUE_GRIT_ID,
-            UPPERCUT_ID, WHIRLWIND_ID,
+            BURNING_PACT_ID, CARNAGE_ID, EVOLVE_ID, HEADBUTT_ID, PERFECTED_STRIKE_ID, TRUE_GRIT_ID,
         };
         use crate::RunAction;
 
@@ -3798,7 +3803,7 @@ mod tests {
                 .iter()
                 .map(|c| c.content_id)
                 .collect::<Vec<_>>(),
-            vec![WHIRLWIND_ID, UPPERCUT_ID, PERFECTED_STRIKE_ID]
+            vec![INFLAME_ID, BURNING_PACT_ID, EVOLVE_ID]
         );
         run = apply_run_action(
             &run,
@@ -3823,7 +3828,7 @@ mod tests {
                 .iter()
                 .map(|c| c.content_id)
                 .collect::<Vec<_>>(),
-            vec![SWORD_BOOMERANG_ID, ANGER_ID, TRUE_GRIT_ID]
+            vec![THUNDERCLAP_ID, CARNAGE_ID, POWER_THROUGH_ID]
         );
     }
 
@@ -3865,11 +3870,7 @@ mod tests {
             .collect();
         assert_eq!(
             content_ids,
-            vec![
-                crate::content::cards::BATTLE_TRANCE_ID,
-                crate::content::cards::TWIN_STRIKE_ID,
-                crate::content::cards::ENTRENCH_ID,
-            ]
+            vec![INFLAME_ID, TWIN_STRIKE_ID, SECOND_WIND_ID,]
         );
     }
 

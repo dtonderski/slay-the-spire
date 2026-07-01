@@ -215,7 +215,7 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
     },
     RewardCardEntry {
         content_id: DARK_EMBRACE_ID,
-        rarity: CardRarity::Uncommon,
+        rarity: CardRarity::Rare,
     },
     RewardCardEntry {
         content_id: SEEING_RED_ID,

@@ -15,8 +15,22 @@ fn reach_shop_via_left_branch() -> RunState {
     let mut run = RunState::map_fixture();
     for node_id in [MapNodeId::new(1), MapNodeId::new(3), MapNodeId::new(4)] {
         run = apply_map_action_on_run(&run, MapAction::ChooseNode { node_id }).expect("reach shop");
+        if run.phase == RunPhase::Combat {
+            run.phase = RunPhase::Idle;
+            run.combat = None;
+        } else if run.phase == RunPhase::Event {
+            run.phase = RunPhase::Idle;
+            run.event = None;
+        } else if run.phase == RunPhase::Treasure {
+            run.phase = RunPhase::Idle;
+            run.treasure_room = None;
+        }
     }
     apply_run_action(&run, RunAction::EnterShop).expect("open merchant")
+}
+
+fn proceed_rest(run: &RunState) -> RunState {
+    apply_rest_action(run, RestAction::Proceed).expect("proceed from rest")
 }
 
 fn leave_shop_merchant_and_room(mut run: RunState) -> RunState {
@@ -33,6 +47,7 @@ fn rest_heal_restores_thirty_percent_max_hp_floored() {
     run.player_max_hp = 80;
 
     let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
+    let after = proceed_rest(&after);
 
     assert_eq!(rest_heal_amount(80), 24);
     assert_eq!(after.player_hp, 54);
@@ -103,6 +118,7 @@ fn heal_then_map_traversal_continues() {
     )
     .expect("enter rest");
     run = apply_rest_action(&run, RestAction::Heal).expect("heal");
+    run = proceed_rest(&run);
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.player_hp, 64);
@@ -139,6 +155,7 @@ fn smith_upgrades_strike_r_to_strike_r_plus() {
 
     let after =
         apply_rest_action(&run, RestAction::Smith { card_id: strike_id }).expect("smith applies");
+    let after = proceed_rest(&after);
 
     assert_eq!(after.count_content_in_deck(STRIKE_R_PLUS_ID), 1);
     assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
@@ -158,6 +175,7 @@ fn smith_then_map_traversal_continues() {
     let strike_id = run.deck[0].id;
 
     run = apply_rest_action(&run, RestAction::Smith { card_id: strike_id }).expect("smith");
+    run = proceed_rest(&run);
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.deck[0].content_id, STRIKE_R_PLUS_ID);
@@ -427,6 +445,7 @@ fn remove_card_at_rest_drops_strike_from_deck() {
 
     let after = apply_rest_action(&run, RestAction::RemoveCard { card_id: strike_id })
         .expect("remove applies");
+    let after = proceed_rest(&after);
 
     assert_eq!(after.deck.len(), deck_len_before - 1);
     assert!(!after.deck.iter().any(|card| card.id == strike_id));

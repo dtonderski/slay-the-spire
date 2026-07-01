@@ -1848,14 +1848,11 @@ mod tests {
             CardInstance::new(CardId::new(14), STRIKE_R_ID),
             CardInstance::new(CardId::new(15), STRIKE_R_ID),
         ];
-        let mut expected_rng = crate::rng::StsRng::new(123);
-        expected_rng.random_int(0);
-
         start_player_turn(&mut state);
 
         assert_eq!(state.player.block, 5);
-        assert_eq!(state.piles.exhaust_pile.len(), 1);
-        assert_eq!(state.piles.exhaust_pile[0].content_id, DEFEND_R_ID);
+        assert_eq!(state.piles.discard_pile.len(), 1);
+        assert_eq!(state.piles.discard_pile[0].content_id, DEFEND_R_ID);
         assert_eq!(state.piles.hand.len(), 5);
         assert!(state
             .piles
@@ -1864,7 +1861,7 @@ mod tests {
             .all(|card| card.content_id == STRIKE_R_ID));
         assert_eq!(
             state.card_random_rng.as_ref().expect("card rng").counter(),
-            expected_rng.counter()
+            1
         );
     }
 
@@ -1883,14 +1880,11 @@ mod tests {
             CardInstance::new(CardId::new(15), DEFEND_R_ID),
         ];
         let starting_hp = state.monsters[0].hp;
-        let mut expected_rng = crate::rng::StsRng::new(123);
-        expected_rng.random_int(0);
-
         start_player_turn(&mut state);
 
         assert_eq!(state.monsters[0].hp, starting_hp - 6);
-        assert_eq!(state.piles.exhaust_pile.len(), 1);
-        assert_eq!(state.piles.exhaust_pile[0].content_id, STRIKE_R_ID);
+        assert_eq!(state.piles.discard_pile.len(), 1);
+        assert_eq!(state.piles.discard_pile[0].content_id, STRIKE_R_ID);
         assert_eq!(state.piles.hand.len(), 5);
         assert!(state
             .piles
@@ -1899,7 +1893,7 @@ mod tests {
             .all(|card| card.content_id == DEFEND_R_ID));
         assert_eq!(
             state.card_random_rng.as_ref().expect("card rng").counter(),
-            expected_rng.counter()
+            1
         );
     }
 

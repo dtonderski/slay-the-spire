@@ -157,6 +157,7 @@ pub enum ExhaustSelectPurpose {
     PurityExhaustUpTo3,
     BurningPactDraw2,
     BurningPactDraw3,
+    TrueGritExhaustOne,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

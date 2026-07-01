@@ -38,10 +38,13 @@ pub const TWIN_STRIKE_PLUS_ID: ContentId = ContentId::new(15);
 pub const SHRUG_IT_OFF_ID: ContentId = ContentId::new(16);
 pub const SHRUG_IT_OFF_PLUS_ID: ContentId = ContentId::new(10_016);
 pub const TRUE_GRIT_ID: ContentId = ContentId::new(17);
+pub const TRUE_GRIT_PLUS_ID: ContentId = ContentId::new(10_017);
 pub const BURNING_PACT_ID: ContentId = ContentId::new(18);
 pub const BURNING_PACT_PLUS_ID: ContentId = ContentId::new(18_000_001);
 pub const FEEL_NO_PAIN_ID: ContentId = ContentId::new(19);
+pub const FEEL_NO_PAIN_PLUS_ID: ContentId = ContentId::new(19_000_001);
 pub const DARK_EMBRACE_ID: ContentId = ContentId::new(20);
+pub const DARK_EMBRACE_PLUS_ID: ContentId = ContentId::new(20_000_001);
 pub const POMMEL_STRIKE_ID: ContentId = ContentId::new(21);
 pub const BATTLE_TRANCE_ID: ContentId = ContentId::new(22);
 pub const SEEING_RED_ID: ContentId = ContentId::new(23);
@@ -141,33 +144,43 @@ pub const METAMORPHOSIS_ID: ContentId = ContentId::new(7_133_622_309_229_402_345
 pub const METAMORPHOSIS_PLUS_ID: ContentId = ContentId::new(7_133_622_309_229_402_346);
 
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
+pub const IRON_WAVE_PLUS_ID: ContentId = ContentId::new(10_100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
+pub const BODY_SLAM_PLUS_ID: ContentId = ContentId::new(10_101);
 pub const CLASH_ID: ContentId = ContentId::new(102);
 pub const CLASH_PLUS_ID: ContentId = ContentId::new(10_102);
 pub const THUNDERCLAP_ID: ContentId = ContentId::new(103);
 pub const THUNDERCLAP_PLUS_ID: ContentId = ContentId::new(10_103);
 pub const CLOTHESLINE_ID: ContentId = ContentId::new(104);
+pub const CLOTHESLINE_PLUS_ID: ContentId = ContentId::new(10_104);
 pub const ARMAMENTS_ID: ContentId = ContentId::new(105);
 pub const ARMAMENTS_PLUS_ID: ContentId = ContentId::new(10_105);
 pub const HEADBUTT_ID: ContentId = ContentId::new(106);
 pub const HEADBUTT_PLUS_ID: ContentId = ContentId::new(10_106);
 pub const WILD_STRIKE_ID: ContentId = ContentId::new(107);
+pub const WILD_STRIKE_PLUS_ID: ContentId = ContentId::new(10_107);
 pub const HEAVY_BLADE_ID: ContentId = ContentId::new(108);
 pub const HEAVY_BLADE_PLUS_ID: ContentId = ContentId::new(10_108);
 pub const PERFECTED_STRIKE_ID: ContentId = ContentId::new(109);
+pub const PERFECTED_STRIKE_PLUS_ID: ContentId = ContentId::new(10_109);
 pub const SWORD_BOOMERANG_ID: ContentId = ContentId::new(110);
 pub const SWORD_BOOMERANG_PLUS_ID: ContentId = ContentId::new(10_110);
 pub const POWER_THROUGH_ID: ContentId = ContentId::new(111);
+pub const POWER_THROUGH_PLUS_ID: ContentId = ContentId::new(10_111);
 pub const INFERNAL_BLADE_ID: ContentId = ContentId::new(112);
 pub const INFERNAL_BLADE_PLUS_ID: ContentId = ContentId::new(10_112);
 pub const RECKLESS_CHARGE_ID: ContentId = ContentId::new(113);
+pub const RECKLESS_CHARGE_PLUS_ID: ContentId = ContentId::new(10_113);
 pub const HEMOKINESIS_ID: ContentId = ContentId::new(114);
+pub const HEMOKINESIS_PLUS_ID: ContentId = ContentId::new(10_114);
 pub const INTIMIDATE_ID: ContentId = ContentId::new(115);
+pub const INTIMIDATE_PLUS_ID: ContentId = ContentId::new(10_115);
 pub const BLOOD_FOR_BLOOD_ID: ContentId = ContentId::new(116);
 pub const BLOOD_FOR_BLOOD_PLUS_ID: ContentId = ContentId::new(10_116);
 pub const FLAME_BARRIER_ID: ContentId = ContentId::new(117);
 pub const FLAME_BARRIER_PLUS_ID: ContentId = ContentId::new(10_117);
 pub const PUMMEL_ID: ContentId = ContentId::new(118);
+pub const PUMMEL_PLUS_ID: ContentId = ContentId::new(10_118);
 pub const METALLICIZE_ID: ContentId = ContentId::new(119);
 pub const METALLICIZE_PLUS_ID: ContentId = ContentId::new(10_119);
 pub const SHOCKWAVE_ID: ContentId = ContentId::new(120);
@@ -175,22 +188,31 @@ pub const SHOCKWAVE_PLUS_ID: ContentId = ContentId::new(10_120);
 pub const RAMPAGE_ID: ContentId = ContentId::new(121);
 pub const RAMPAGE_PLUS_ID: ContentId = ContentId::new(10_121);
 pub const SEVER_SOUL_ID: ContentId = ContentId::new(122);
+pub const SEVER_SOUL_PLUS_ID: ContentId = ContentId::new(10_122);
 pub const COMBUST_ID: ContentId = ContentId::new(123);
 pub const COMBUST_PLUS_ID: ContentId = ContentId::new(123_000_001);
 pub const DISARM_ID: ContentId = ContentId::new(124);
+pub const DISARM_PLUS_ID: ContentId = ContentId::new(10_124);
 pub const RAGE_ID: ContentId = ContentId::new(125);
+pub const RAGE_PLUS_ID: ContentId = ContentId::new(10_125);
 pub const ENTRENCH_ID: ContentId = ContentId::new(126);
+pub const ENTRENCH_PLUS_ID: ContentId = ContentId::new(10_126);
 pub const SENTINEL_ID: ContentId = ContentId::new(127);
+pub const SENTINEL_PLUS_ID: ContentId = ContentId::new(10_127);
 pub const SECOND_WIND_ID: ContentId = ContentId::new(128);
 pub const SECOND_WIND_PLUS_ID: ContentId = ContentId::new(10_128);
 pub const RUPTURE_ID: ContentId = ContentId::new(129);
 pub const RUPTURE_PLUS_ID: ContentId = ContentId::new(129_000_001);
 pub const BLOODLETTING_ID: ContentId = ContentId::new(130);
+pub const BLOODLETTING_PLUS_ID: ContentId = ContentId::new(10_130);
 pub const CARNAGE_ID: ContentId = ContentId::new(131);
+pub const CARNAGE_PLUS_ID: ContentId = ContentId::new(10_131);
 pub const DROPKICK_ID: ContentId = ContentId::new(132);
 pub const DROPKICK_PLUS_ID: ContentId = ContentId::new(10_132);
 pub const FIRE_BREATHING_ID: ContentId = ContentId::new(133);
+pub const FIRE_BREATHING_PLUS_ID: ContentId = ContentId::new(133_000_001);
 pub const GHOSTLY_ARMOR_ID: ContentId = ContentId::new(134);
+pub const GHOSTLY_ARMOR_PLUS_ID: ContentId = ContentId::new(10_134);
 pub const UPPERCUT_ID: ContentId = ContentId::new(135);
 pub const UPPERCUT_PLUS_ID: ContentId = ContentId::new(10_135);
 pub const EVOLVE_ID: ContentId = ContentId::new(136);
@@ -214,6 +236,7 @@ pub const FIEND_FIRE_PLUS_ID: ContentId = ContentId::new(144_000_001);
 pub const BERSERK_ID: ContentId = ContentId::new(145);
 pub const BERSERK_PLUS_ID: ContentId = ContentId::new(145_000_001);
 pub const IMPERVIOUS_ID: ContentId = ContentId::new(146);
+pub const IMPERVIOUS_PLUS_ID: ContentId = ContentId::new(10_146);
 pub const JUGGERNAUT_ID: ContentId = ContentId::new(147);
 pub const JUGGERNAUT_PLUS_ID: ContentId = ContentId::new(147_000_001);
 pub const BRUTALITY_ID: ContentId = ContentId::new(148);
@@ -660,7 +683,7 @@ pub const TWIN_STRIKE_PLUS: CardDefinition = CardDefinition {
     card_type: CardType::Attack,
     target: TargetRequirement::Enemy,
     values: CardValues {
-        damage: Some(6),
+        damage: Some(7),
         block: None,
         vulnerable: None,
     },
@@ -712,6 +735,21 @@ pub const TRUE_GRIT: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const TRUE_GRIT_PLUS: CardDefinition = CardDefinition {
+    id: TRUE_GRIT_PLUS_ID,
+    key: "True Grit+",
+    name: "True Grit+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(9),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BURNING_PACT: CardDefinition = CardDefinition {
     id: BURNING_PACT_ID,
     key: "Burning Pact",
@@ -757,10 +795,40 @@ pub const FEEL_NO_PAIN: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const FEEL_NO_PAIN_PLUS: CardDefinition = CardDefinition {
+    id: FEEL_NO_PAIN_PLUS_ID,
+    key: "Feel No Pain+",
+    name: "Feel No Pain+",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const DARK_EMBRACE: CardDefinition = CardDefinition {
     id: DARK_EMBRACE_ID,
     key: "Dark Embrace",
     name: "Dark Embrace",
+    cost: 2,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const DARK_EMBRACE_PLUS: CardDefinition = CardDefinition {
+    id: DARK_EMBRACE_PLUS_ID,
+    key: "Dark Embrace+",
+    name: "Dark Embrace+",
     cost: 1,
     card_type: CardType::Power,
     target: TargetRequirement::None,
@@ -1081,6 +1149,21 @@ pub const FIRE_BREATHING: CardDefinition = CardDefinition {
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const FIRE_BREATHING_PLUS: CardDefinition = CardDefinition {
+    id: FIRE_BREATHING_PLUS_ID,
+    key: "FIRE_BREATHING+",
+    name: "Fire Breathing+",
+    cost: 1,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(10),
         block: None,
         vulnerable: None,
     },
@@ -1510,20 +1593,14 @@ pub const DUAL_WIELD: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
-    keywords: CardKeywords {
-        innate: false,
-        ethereal: false,
-        exhaust: true,
-        retain: false,
-        unplayable: false,
-    },
+    keywords: CARD_KEYWORDS_NONE,
 };
 
 pub const DUAL_WIELD_PLUS: CardDefinition = CardDefinition {
     id: DUAL_WIELD_PLUS_ID,
     key: "Dual Wield+",
     name: "Dual Wield+",
-    cost: 0,
+    cost: 1,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
     values: CardValues {
@@ -1531,13 +1608,7 @@ pub const DUAL_WIELD_PLUS: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
-    keywords: CardKeywords {
-        innate: false,
-        ethereal: false,
-        exhaust: true,
-        retain: false,
-        unplayable: false,
-    },
+    keywords: CARD_KEYWORDS_NONE,
 };
 
 pub const SEARING_BLOW: CardDefinition = CardDefinition {
@@ -1563,7 +1634,7 @@ pub const SEARING_BLOW_PLUS: CardDefinition = CardDefinition {
     card_type: CardType::Attack,
     target: TargetRequirement::Enemy,
     values: CardValues {
-        damage: Some(20),
+        damage: Some(16),
         block: None,
         vulnerable: None,
     },
@@ -2887,6 +2958,21 @@ pub const IRON_WAVE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const IRON_WAVE_PLUS: CardDefinition = CardDefinition {
+    id: IRON_WAVE_PLUS_ID,
+    key: "IRON_WAVE+",
+    name: "Iron Wave+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: Some(7),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BODY_SLAM: CardDefinition = CardDefinition {
     id: BODY_SLAM_ID,
     key: "BODY_SLAM",
@@ -2899,6 +2985,17 @@ pub const BODY_SLAM: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BODY_SLAM_PLUS: CardDefinition = CardDefinition {
+    id: BODY_SLAM_PLUS_ID,
+    key: "BODY_SLAM+",
+    name: "Body Slam+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: BODY_SLAM.values,
     keywords: CARD_KEYWORDS_NONE,
 };
 
@@ -2947,6 +3044,21 @@ pub const WILD_STRIKE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const WILD_STRIKE_PLUS: CardDefinition = CardDefinition {
+    id: WILD_STRIKE_PLUS_ID,
+    key: "WILD_STRIKE+",
+    name: "Wild Strike+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(17),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const HEAVY_BLADE: CardDefinition = CardDefinition {
     id: HEAVY_BLADE_ID,
     key: "HEAVY_BLADE",
@@ -2969,11 +3081,7 @@ pub const HEAVY_BLADE_PLUS: CardDefinition = CardDefinition {
     cost: 2,
     card_type: CardType::Attack,
     target: TargetRequirement::Enemy,
-    values: CardValues {
-        damage: Some(14),
-        block: None,
-        vulnerable: None,
-    },
+    values: HEAVY_BLADE.values,
     keywords: CARD_KEYWORDS_NONE,
 };
 
@@ -2989,6 +3097,17 @@ pub const PERFECTED_STRIKE: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const PERFECTED_STRIKE_PLUS: CardDefinition = CardDefinition {
+    id: PERFECTED_STRIKE_PLUS_ID,
+    key: "PERFECTED_STRIKE+",
+    name: "Perfected Strike+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: PERFECTED_STRIKE.values,
     keywords: CARD_KEYWORDS_NONE,
 };
 
@@ -3037,6 +3156,21 @@ pub const POWER_THROUGH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const POWER_THROUGH_PLUS: CardDefinition = CardDefinition {
+    id: POWER_THROUGH_PLUS_ID,
+    key: "POWER_THROUGH+",
+    name: "Power Through+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(20),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const INFERNAL_BLADE: CardDefinition = CardDefinition {
     id: INFERNAL_BLADE_ID,
     key: "INFERNAL_BLADE",
@@ -3049,7 +3183,10 @@ pub const INFERNAL_BLADE: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
-    keywords: CARD_KEYWORDS_NONE,
+    keywords: CardKeywords {
+        exhaust: true,
+        ..CARD_KEYWORDS_NONE
+    },
 };
 
 pub const INFERNAL_BLADE_PLUS: CardDefinition = CardDefinition {
@@ -3078,6 +3215,17 @@ pub const ENTRENCH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const ENTRENCH_PLUS: CardDefinition = CardDefinition {
+    id: ENTRENCH_PLUS_ID,
+    key: "ENTRENCH+",
+    name: "Entrench+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: ENTRENCH.values,
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const GHOSTLY_ARMOR: CardDefinition = CardDefinition {
     id: GHOSTLY_ARMOR_ID,
     key: "GHOSTLY_ARMOR",
@@ -3097,6 +3245,21 @@ pub const GHOSTLY_ARMOR: CardDefinition = CardDefinition {
         retain: false,
         unplayable: false,
     },
+};
+
+pub const GHOSTLY_ARMOR_PLUS: CardDefinition = CardDefinition {
+    id: GHOSTLY_ARMOR_PLUS_ID,
+    key: "GHOSTLY_ARMOR+",
+    name: "Ghostly Armor+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(13),
+        vulnerable: None,
+    },
+    keywords: GHOSTLY_ARMOR.keywords,
 };
 
 pub const FLAME_BARRIER: CardDefinition = CardDefinition {
@@ -3144,6 +3307,21 @@ pub const RECKLESS_CHARGE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const RECKLESS_CHARGE_PLUS: CardDefinition = CardDefinition {
+    id: RECKLESS_CHARGE_PLUS_ID,
+    key: "RECKLESS_CHARGE+",
+    name: "Reckless Charge+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(10),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const PUMMEL: CardDefinition = CardDefinition {
     id: PUMMEL_ID,
     key: "PUMMEL",
@@ -3165,6 +3343,17 @@ pub const PUMMEL: CardDefinition = CardDefinition {
     },
 };
 
+pub const PUMMEL_PLUS: CardDefinition = CardDefinition {
+    id: PUMMEL_PLUS_ID,
+    key: "PUMMEL+",
+    name: "Pummel+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: PUMMEL.values,
+    keywords: PUMMEL.keywords,
+};
+
 pub const CLOTHESLINE: CardDefinition = CardDefinition {
     id: CLOTHESLINE_ID,
     key: "CLOTHESLINE",
@@ -3174,6 +3363,21 @@ pub const CLOTHESLINE: CardDefinition = CardDefinition {
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(12),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const CLOTHESLINE_PLUS: CardDefinition = CardDefinition {
+    id: CLOTHESLINE_PLUS_ID,
+    key: "CLOTHESLINE+",
+    name: "Clothesline+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(14),
         block: None,
         vulnerable: None,
     },
@@ -3199,6 +3403,17 @@ pub const INTIMIDATE: CardDefinition = CardDefinition {
         retain: false,
         unplayable: false,
     },
+};
+
+pub const INTIMIDATE_PLUS: CardDefinition = CardDefinition {
+    id: INTIMIDATE_PLUS_ID,
+    key: "INTIMIDATE+",
+    name: "Intimidate+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: INTIMIDATE.values,
+    keywords: INTIMIDATE.keywords,
 };
 
 pub const SHOCKWAVE: CardDefinition = CardDefinition {
@@ -3264,6 +3479,17 @@ pub const DISARM: CardDefinition = CardDefinition {
     },
 };
 
+pub const DISARM_PLUS: CardDefinition = CardDefinition {
+    id: DISARM_PLUS_ID,
+    key: "DISARM+",
+    name: "Disarm+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::Enemy,
+    values: DISARM.values,
+    keywords: DISARM.keywords,
+};
+
 pub const RAGE: CardDefinition = CardDefinition {
     id: RAGE_ID,
     key: "RAGE",
@@ -3279,6 +3505,17 @@ pub const RAGE: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const RAGE_PLUS: CardDefinition = CardDefinition {
+    id: RAGE_PLUS_ID,
+    key: "RAGE+",
+    name: "Rage+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: RAGE.values,
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SEVER_SOUL: CardDefinition = CardDefinition {
     id: SEVER_SOUL_ID,
     key: "Sever Soul",
@@ -3288,6 +3525,21 @@ pub const SEVER_SOUL: CardDefinition = CardDefinition {
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(16),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const SEVER_SOUL_PLUS: CardDefinition = CardDefinition {
+    id: SEVER_SOUL_PLUS_ID,
+    key: "Sever Soul+",
+    name: "Sever Soul+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(22),
         block: None,
         vulnerable: None,
     },
@@ -3345,6 +3597,21 @@ pub const SENTINEL: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const SENTINEL_PLUS: CardDefinition = CardDefinition {
+    id: SENTINEL_PLUS_ID,
+    key: "Sentinel+",
+    name: "Sentinel+",
+    cost: 1,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(8),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const BLOODLETTING: CardDefinition = CardDefinition {
     id: BLOODLETTING_ID,
     key: "Bloodletting",
@@ -3357,6 +3624,17 @@ pub const BLOODLETTING: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const BLOODLETTING_PLUS: CardDefinition = CardDefinition {
+    id: BLOODLETTING_PLUS_ID,
+    key: "Bloodletting+",
+    name: "Bloodletting+",
+    cost: 0,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: BLOODLETTING.values,
     keywords: CARD_KEYWORDS_NONE,
 };
 
@@ -3379,6 +3657,21 @@ pub const CARNAGE: CardDefinition = CardDefinition {
         retain: false,
         unplayable: false,
     },
+};
+
+pub const CARNAGE_PLUS: CardDefinition = CardDefinition {
+    id: CARNAGE_PLUS_ID,
+    key: "CARNAGE+",
+    name: "Carnage+",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(28),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARNAGE.keywords,
 };
 
 pub const DROPKICK: CardDefinition = CardDefinition {
@@ -3434,7 +3727,7 @@ pub const SWORD_BOOMERANG_PLUS: CardDefinition = CardDefinition {
     card_type: CardType::Attack,
     target: TargetRequirement::None,
     values: CardValues {
-        damage: Some(4),
+        damage: Some(3),
         block: None,
         vulnerable: None,
     },
@@ -3450,6 +3743,21 @@ pub const HEMOKINESIS: CardDefinition = CardDefinition {
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(15),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const HEMOKINESIS_PLUS: CardDefinition = CardDefinition {
+    id: HEMOKINESIS_PLUS_ID,
+    key: "Hemokinesis+",
+    name: "Hemokinesis+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(20),
         block: None,
         vulnerable: None,
     },
@@ -3619,6 +3927,21 @@ pub const IMPERVIOUS: CardDefinition = CardDefinition {
         retain: false,
         unplayable: false,
     },
+};
+
+pub const IMPERVIOUS_PLUS: CardDefinition = CardDefinition {
+    id: IMPERVIOUS_PLUS_ID,
+    key: "IMPERVIOUS+",
+    name: "Impervious+",
+    cost: 2,
+    card_type: CardType::Skill,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(40),
+        vulnerable: None,
+    },
+    keywords: IMPERVIOUS.keywords,
 };
 
 pub const FIEND_FIRE: CardDefinition = CardDefinition {
@@ -3794,11 +4117,11 @@ pub const THUNDERCLAP: CardDefinition = CardDefinition {
 
 pub const THUNDERCLAP_PLUS: CardDefinition = CardDefinition {
     id: THUNDERCLAP_PLUS_ID,
-    key: "Thunderclap+",
+    key: "THUNDERCLAP+",
     name: "Thunderclap+",
     cost: 1,
     card_type: CardType::Attack,
-    target: TargetRequirement::None,
+    target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(7),
         block: None,
@@ -3879,7 +4202,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 219] = [
+pub const ALL_CARDS: [CardDefinition; 242] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -3913,10 +4236,13 @@ pub const ALL_CARDS: [CardDefinition; 219] = [
     SHRUG_IT_OFF,
     SHRUG_IT_OFF_PLUS,
     TRUE_GRIT,
+    TRUE_GRIT_PLUS,
     BURNING_PACT,
     BURNING_PACT_PLUS,
     FEEL_NO_PAIN,
+    FEEL_NO_PAIN_PLUS,
     DARK_EMBRACE,
+    DARK_EMBRACE_PLUS,
     COMBUST,
     COMBUST_PLUS,
     DEMON_FORM,
@@ -3939,6 +4265,7 @@ pub const ALL_CARDS: [CardDefinition; 219] = [
     DOUBLE_TAP,
     DOUBLE_TAP_PLUS,
     FIRE_BREATHING,
+    FIRE_BREATHING_PLUS,
     LIMIT_BREAK,
     LIMIT_BREAK_PLUS,
     OFFERING,
@@ -4043,41 +4370,59 @@ pub const ALL_CARDS: [CardDefinition; 219] = [
     METAMORPHOSIS,
     METAMORPHOSIS_PLUS,
     IRON_WAVE,
+    IRON_WAVE_PLUS,
     BODY_SLAM,
+    BODY_SLAM_PLUS,
     CLASH,
     CLASH_PLUS,
     WILD_STRIKE,
+    WILD_STRIKE_PLUS,
     HEAVY_BLADE,
     HEAVY_BLADE_PLUS,
     PERFECTED_STRIKE,
+    PERFECTED_STRIKE_PLUS,
     RAMPAGE,
     RAMPAGE_PLUS,
     POWER_THROUGH,
+    POWER_THROUGH_PLUS,
     INFERNAL_BLADE,
     INFERNAL_BLADE_PLUS,
     ENTRENCH,
+    ENTRENCH_PLUS,
     GHOSTLY_ARMOR,
+    GHOSTLY_ARMOR_PLUS,
     FLAME_BARRIER,
     FLAME_BARRIER_PLUS,
     RECKLESS_CHARGE,
+    RECKLESS_CHARGE_PLUS,
     PUMMEL,
+    PUMMEL_PLUS,
     CLOTHESLINE,
+    CLOTHESLINE_PLUS,
     INTIMIDATE,
+    INTIMIDATE_PLUS,
     SHOCKWAVE,
     SHOCKWAVE_PLUS,
     DISARM,
+    DISARM_PLUS,
     RAGE,
+    RAGE_PLUS,
     SEVER_SOUL,
+    SEVER_SOUL_PLUS,
     SECOND_WIND,
     SECOND_WIND_PLUS,
     SENTINEL,
+    SENTINEL_PLUS,
     BLOODLETTING,
+    BLOODLETTING_PLUS,
     CARNAGE,
+    CARNAGE_PLUS,
     DROPKICK,
     DROPKICK_PLUS,
     SWORD_BOOMERANG,
     SWORD_BOOMERANG_PLUS,
     HEMOKINESIS,
+    HEMOKINESIS_PLUS,
     BLOOD_FOR_BLOOD,
     BLOOD_FOR_BLOOD_PLUS,
     IMMOLATE,
@@ -4087,6 +4432,7 @@ pub const ALL_CARDS: [CardDefinition; 219] = [
     FEED,
     FEED_PLUS,
     IMPERVIOUS,
+    IMPERVIOUS_PLUS,
     FIEND_FIRE,
     FIEND_FIRE_PLUS,
     REAPER,
@@ -4152,8 +4498,12 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DISCOVERY_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == ENLIGHTENMENT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == ENLIGHTENMENT_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == IRON_WAVE_ID || id == IRON_WAVE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
+        id if id == BODY_SLAM_ID || id == BODY_SLAM_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
         id if id == CLASH_ID || id == CLASH_PLUS_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ARMAMENTS_ID || id == ARMAMENTS_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Common))
@@ -4161,35 +4511,57 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == HEADBUTT_ID || id == HEADBUTT_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Common))
         }
-        id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == WILD_STRIKE_ID || id == WILD_STRIKE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
         id if id == HEAVY_BLADE_ID || id == HEAVY_BLADE_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Common))
         }
-        id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == PERFECTED_STRIKE_ID || id == PERFECTED_STRIKE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
         id if id == RAMPAGE_ID || id == RAMPAGE_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Uncommon))
         }
-        id if id == POWER_THROUGH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == POWER_THROUGH_ID || id == POWER_THROUGH_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == INFERNAL_BLADE_ID || id == INFERNAL_BLADE_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Uncommon))
         }
-        id if id == ENTRENCH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == GHOSTLY_ARMOR_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == ENTRENCH_ID || id == ENTRENCH_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == GHOSTLY_ARMOR_ID || id == GHOSTLY_ARMOR_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == FLAME_BARRIER_ID || id == FLAME_BARRIER_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Uncommon))
         }
-        id if id == RECKLESS_CHARGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == CARNAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == RECKLESS_CHARGE_ID || id == RECKLESS_CHARGE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
+        id if id == PUMMEL_ID || id == PUMMEL_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
+        id if id == BLOODLETTING_ID || id == BLOODLETTING_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == CARNAGE_ID || id == CARNAGE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == DROPKICK_ID || id == DROPKICK_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Uncommon))
         }
-        id if id == HEMOKINESIS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == HEMOKINESIS_ID || id == HEMOKINESIS_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == BLOOD_FOR_BLOOD_ID || id == BLOOD_FOR_BLOOD_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Uncommon))
         }
-        id if id == CLOTHESLINE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == CLOTHESLINE_ID || id == CLOTHESLINE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
         id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
@@ -4198,15 +4570,27 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         }
         id if id == SHRUG_IT_OFF_ID => Some((CardType::Skill, CardRarity::Common)),
         id if id == SHRUG_IT_OFF_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == TRUE_GRIT_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == POMMEL_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == BATTLE_TRANCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == SEEING_RED_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == TRUE_GRIT_ID || id == TRUE_GRIT_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Common))
+        }
+        id if id == POMMEL_STRIKE_ID || id == POMMEL_STRIKE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
+        id if id == BATTLE_TRANCE_ID || id == BATTLE_TRANCE_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == SEEING_RED_ID || id == SEEING_RED_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == BURNING_PACT_ID || id == BURNING_PACT_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Uncommon))
         }
-        id if id == FEEL_NO_PAIN_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == DARK_EMBRACE_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == FEEL_NO_PAIN_ID || id == FEEL_NO_PAIN_PLUS_ID => {
+            Some((CardType::Power, CardRarity::Uncommon))
+        }
+        id if id == DARK_EMBRACE_ID || id == DARK_EMBRACE_PLUS_ID => {
+            Some((CardType::Power, CardRarity::Rare))
+        }
         id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == COMBUST_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
         id if id == DEMON_FORM_ID || id == DEMON_FORM_PLUS_ID => {
@@ -4230,37 +4614,63 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == DOUBLE_TAP_ID || id == DOUBLE_TAP_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Rare))
         }
-        id if id == FIRE_BREATHING_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == FIRE_BREATHING_ID || id == FIRE_BREATHING_PLUS_ID => {
+            Some((CardType::Power, CardRarity::Uncommon))
+        }
         id if id == LIMIT_BREAK_ID || id == LIMIT_BREAK_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Rare))
         }
         id if id == OFFERING_ID || id == OFFERING_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Rare))
         }
-        id if id == INFLAME_ID => Some((CardType::Power, CardRarity::Uncommon)),
+        id if id == INFLAME_ID || id == INFLAME_PLUS_ID => {
+            Some((CardType::Power, CardRarity::Uncommon))
+        }
         id if id == METALLICIZE_ID || id == METALLICIZE_PLUS_ID => {
             Some((CardType::Power, CardRarity::Uncommon))
         }
-        id if id == FLEX_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == SPOT_WEAKNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == WHIRLWIND_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == HAVOC_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == WARCRY_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == DUAL_WIELD_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == SEARING_BLOW_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == FLEX_ID || id == FLEX_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == SPOT_WEAKNESS_ID || id == SPOT_WEAKNESS_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == THUNDERCLAP_ID || id == THUNDERCLAP_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
+        id if id == WHIRLWIND_ID || id == WHIRLWIND_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
+        id if id == HAVOC_ID || id == HAVOC_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
+        id if id == WARCRY_ID || id == WARCRY_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Common))
+        }
+        id if id == DUAL_WIELD_ID || id == DUAL_WIELD_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == SEARING_BLOW_ID || id == SEARING_BLOW_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == SECOND_WIND_ID || id == SECOND_WIND_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Uncommon))
         }
-        id if id == SENTINEL_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SENTINEL_ID || id == SENTINEL_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == INTIMIDATE_ID || id == INTIMIDATE_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
         id if id == SHOCKWAVE_ID || id == SHOCKWAVE_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Uncommon))
         }
         id if id == THUNDERCLAP_ID || id == THUNDERCLAP_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Common))
         }
-        id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == RAGE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == DISARM_ID || id == DISARM_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == RAGE_ID || id == RAGE_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
+        id if id == SEVER_SOUL_ID || id == SEVER_SOUL_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == IMMOLATE_ID || id == IMMOLATE_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Rare))
         }
@@ -4271,7 +4681,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == UPPERCUT_ID || id == UPPERCUT_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Uncommon))
         }
-        id if id == IMPERVIOUS_ID => Some((CardType::Skill, CardRarity::Rare)),
+        id if id == IMPERVIOUS_ID || id == IMPERVIOUS_PLUS_ID => {
+            Some((CardType::Skill, CardRarity::Rare))
+        }
         id if id == FIEND_FIRE_ID || id == FIEND_FIRE_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Rare))
         }
@@ -4355,6 +4767,32 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         FLAME_BARRIER_ID => Some(FLAME_BARRIER_PLUS_ID),
         SECOND_WIND_ID => Some(SECOND_WIND_PLUS_ID),
         INFERNAL_BLADE_ID => Some(INFERNAL_BLADE_PLUS_ID),
+        IRON_WAVE_ID => Some(IRON_WAVE_PLUS_ID),
+        BODY_SLAM_ID => Some(BODY_SLAM_PLUS_ID),
+        CLASH_ID => Some(CLASH_PLUS_ID),
+        THUNDERCLAP_ID => Some(THUNDERCLAP_PLUS_ID),
+        CLOTHESLINE_ID => Some(CLOTHESLINE_PLUS_ID),
+        WILD_STRIKE_ID => Some(WILD_STRIKE_PLUS_ID),
+        HEAVY_BLADE_ID => Some(HEAVY_BLADE_PLUS_ID),
+        PERFECTED_STRIKE_ID => Some(PERFECTED_STRIKE_PLUS_ID),
+        POWER_THROUGH_ID => Some(POWER_THROUGH_PLUS_ID),
+        RECKLESS_CHARGE_ID => Some(RECKLESS_CHARGE_PLUS_ID),
+        HEMOKINESIS_ID => Some(HEMOKINESIS_PLUS_ID),
+        INTIMIDATE_ID => Some(INTIMIDATE_PLUS_ID),
+        PUMMEL_ID => Some(PUMMEL_PLUS_ID),
+        DISARM_ID => Some(DISARM_PLUS_ID),
+        RAGE_ID => Some(RAGE_PLUS_ID),
+        ENTRENCH_ID => Some(ENTRENCH_PLUS_ID),
+        SENTINEL_ID => Some(SENTINEL_PLUS_ID),
+        BLOODLETTING_ID => Some(BLOODLETTING_PLUS_ID),
+        CARNAGE_ID => Some(CARNAGE_PLUS_ID),
+        DROPKICK_ID => Some(DROPKICK_PLUS_ID),
+        FIRE_BREATHING_ID => Some(FIRE_BREATHING_PLUS_ID),
+        GHOSTLY_ARMOR_ID => Some(GHOSTLY_ARMOR_PLUS_ID),
+        SEVER_SOUL_ID => Some(SEVER_SOUL_PLUS_ID),
+        FEEL_NO_PAIN_ID => Some(FEEL_NO_PAIN_PLUS_ID),
+        DARK_EMBRACE_ID => Some(DARK_EMBRACE_PLUS_ID),
+        IMPERVIOUS_ID => Some(IMPERVIOUS_PLUS_ID),
         SHOCKWAVE_ID => Some(SHOCKWAVE_PLUS_ID),
         RAMPAGE_ID => Some(RAMPAGE_PLUS_ID),
         LIMIT_BREAK_ID => Some(LIMIT_BREAK_PLUS_ID),
@@ -5535,12 +5973,12 @@ mod tests {
 
     #[test]
     fn cleave_plus_deals_one_more_damage() {
-        assert_eq!(CLEAVE_PLUS.values.damage, Some(9));
+        assert_eq!(CLEAVE_PLUS.values.damage, Some(11));
     }
 
     #[test]
-    fn twin_strike_plus_deals_one_more_damage() {
-        assert_eq!(TWIN_STRIKE_PLUS.values.damage, Some(6));
+    fn twin_strike_plus_deals_two_more_damage() {
+        assert_eq!(TWIN_STRIKE_PLUS.values.damage, Some(7));
     }
 
     #[test]
@@ -5619,9 +6057,14 @@ mod tests {
 
     #[test]
     fn dark_embrace_has_expected_values() {
-        assert_eq!(DARK_EMBRACE.cost, 1);
+        assert_eq!(DARK_EMBRACE.cost, 2);
         assert_eq!(DARK_EMBRACE.target, TargetRequirement::None);
         assert_eq!(DARK_EMBRACE.card_type, CardType::Power);
+        assert_eq!(DARK_EMBRACE_PLUS.cost, 1);
+        assert_eq!(
+            upgrade_content_id(DARK_EMBRACE_ID),
+            Some(DARK_EMBRACE_PLUS_ID)
+        );
     }
 
     #[test]
@@ -6034,15 +6477,16 @@ mod tests {
     }
 
     #[test]
-    fn dual_wield_exhausts_and_plus_costs_zero() {
-        assert!(DUAL_WIELD.keywords.exhaust);
-        assert_eq!(DUAL_WIELD_PLUS.cost, 0);
+    fn dual_wield_does_not_exhaust_and_plus_keeps_base_cost() {
+        assert!(!DUAL_WIELD.keywords.exhaust);
+        assert_eq!(DUAL_WIELD_PLUS.cost, 1);
+        assert!(!DUAL_WIELD_PLUS.keywords.exhaust);
     }
 
     #[test]
-    fn searing_blow_plus_deals_eight_more_damage() {
+    fn searing_blow_plus_models_first_upgrade() {
         assert_eq!(SEARING_BLOW.values.damage, Some(12));
-        assert_eq!(SEARING_BLOW_PLUS.values.damage, Some(20));
+        assert_eq!(SEARING_BLOW_PLUS.values.damage, Some(16));
     }
 
     #[test]

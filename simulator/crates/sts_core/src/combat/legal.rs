@@ -7,7 +7,7 @@ use crate::{
         DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FORETHOUGHT_ID,
         FORETHOUGHT_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID,
         SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
-        TRANSMUTATION_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -56,9 +56,7 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         }
 
-        if (definition.id == CLASH_ID || definition.id == CLASH_PLUS_ID)
-            && !hand_contains_only_attacks(state)
-        {
+        if is_clash(definition) && !hand_contains_only_attacks(state) {
             continue;
         }
 
@@ -246,9 +244,7 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 return Err(SimError::IllegalAction("player is entangled"));
             }
 
-            if (definition.id == CLASH_ID || definition.id == CLASH_PLUS_ID)
-                && !hand_contains_only_attacks(state)
-            {
+            if is_clash(definition) && !hand_contains_only_attacks(state) {
                 return Err(SimError::IllegalAction(
                     "Clash requires only attacks in hand",
                 ));
@@ -342,6 +338,11 @@ fn is_x_cost(definition: &CardDefinition) -> bool {
     definition.id == WHIRLWIND_ID
         || definition.id == WHIRLWIND_PLUS_ID
         || definition.id == TRANSMUTATION_ID
+        || definition.id == TRANSMUTATION_PLUS_ID
+}
+
+fn is_clash(definition: &CardDefinition) -> bool {
+    definition.id == CLASH_ID || definition.id == CLASH_PLUS_ID
 }
 
 fn living_monster_ids(state: &CombatState) -> impl Iterator<Item = MonsterId> + '_ {

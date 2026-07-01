@@ -2023,14 +2023,14 @@ mod tests {
     }
 
     #[test]
-    fn event_screen_selection_uses_temporary_event_rng_counter() {
+    fn event_screen_selection_advances_event_rng_counter() {
         let mut run = RunState::map_fixture();
         run.event_rng_seed = 7;
         run.event_rng_counter = 4;
 
         enter_event_screen(&mut run);
 
-        assert_eq!(run.event_rng_counter, 4);
+        assert_eq!(run.event_rng_counter, 6);
         assert!(
             run.act1_event_list.len() < ACT1_EVENTS.len()
                 || run.act1_shrine_list.len() < ACT1_SHRINES.len()
@@ -3556,7 +3556,10 @@ mod tests {
 
         assert_eq!(run.event.as_ref().unwrap().event, Event::GoldenShrine);
         assert!(run.act1_shrine_list.is_empty());
-        assert_eq!(run.event_rng_counter, selected_counter.expect("counter"));
+        assert_eq!(
+            run.event_rng_counter,
+            selected_counter.expect("counter") + 2
+        );
         assert_eq!(run.event.as_ref().unwrap().choices[0].label, "Pray");
 
         let after =
@@ -3798,7 +3801,7 @@ mod tests {
     }
 
     #[test]
-    fn test_seed_event_selection_removes_events_without_advancing_counter() {
+    fn test_seed_event_selection_removes_events_and_advances_counter() {
         let mut run = RunState::map_fixture();
         run.event_rng_seed = 1_218_623;
         run.misc_rng_seed = 1_218_623;
@@ -3819,13 +3822,13 @@ mod tests {
 
         enter_event_screen(&mut run);
         assert_eq!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
-        assert_eq!(run.event_rng_counter, first_counter);
+        assert_eq!(run.event_rng_counter, first_counter + 2);
 
         run.phase = RunPhase::Idle;
         run.event = None;
         enter_event_screen(&mut run);
         assert_ne!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
-        assert_eq!(run.event_rng_counter, first_counter);
+        assert_eq!(run.event_rng_counter, first_counter + 4);
     }
 
     #[test]

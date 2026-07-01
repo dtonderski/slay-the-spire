@@ -1340,7 +1340,7 @@ mod tests {
         assert!(run.treasure_room.is_some());
         assert_eq!(run.tiny_chest_counter, 0);
         assert_eq!(run.current_room_kind(), Some(RoomKind::Treasure));
-        assert_eq!(run.event_rng_counter, 4);
+        assert_eq!(run.event_rng_counter, 10);
     }
 
     #[test]
@@ -1360,7 +1360,7 @@ mod tests {
         assert!(run.treasure_room.is_none());
         assert_eq!(run.tiny_chest_counter, 0);
         assert_eq!(run.current_room_kind(), Some(RoomKind::Event));
-        assert_eq!(run.event_rng_counter, 1);
+        assert_eq!(run.event_rng_counter, 3);
     }
 
     #[test]

@@ -14,14 +14,23 @@ use crate::{
     },
     content::cards::{
         get_card_definition, upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BLIND_PLUS_ID,
-        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CHRYSALIS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-        DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DRAMATIC_ENTRANCE_ID,
-        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FINESSE_ID,
-        FLASH_OF_STEEL_ID, IMPATIENCE_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
-        PANACEA_ID, PANIC_BUTTON_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, PURITY_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WOUND_ID,
+        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CARNAGE_ID,
+        CARNAGE_PLUS_ID, CHRYSALIS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID,
+        DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
+        DROPKICK_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID,
+        FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
+        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID,
+        IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
+        PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
+        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SENTINEL_ID,
+        SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
+        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID,
+        WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
@@ -1129,11 +1138,13 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
 }
 
 pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) {
-    if exhausted_card_content_id(state, card_id) == Some(SENTINEL_ID) {
-        state.player.energy += 2;
+    match exhausted_card_content_id(state, card_id) {
+        Some(SENTINEL_PLUS_ID) => state.player.energy += 3,
+        Some(SENTINEL_ID) => state.player.energy += 2,
+        _ => {}
     }
     if state.player.powers.feel_no_pain > 0 {
-        let gained = 3 * state.player.powers.feel_no_pain;
+        let gained = state.player.powers.feel_no_pain;
         apply_player_direct_block_gain(state, gained);
     }
     if state.player.powers.dark_embrace > 0 {
@@ -1406,7 +1417,69 @@ fn apply_play_top_draw_card(
         | SEARING_BLOW_ID
         | SEARING_BLOW_PLUS_ID
         | BASH_ID
-        | RECKLESS_CHARGE_ID => {
+        | CLASH_ID
+        | CLASH_PLUS_ID
+        | CARNAGE_ID
+        | CARNAGE_PLUS_ID
+        | DROPKICK_ID
+        | DROPKICK_PLUS_ID
+        | HEMOKINESIS_ID
+        | HEMOKINESIS_PLUS_ID
+        | RECKLESS_CHARGE_ID
+        | RECKLESS_CHARGE_PLUS_ID
+        | WILD_STRIKE_ID
+        | WILD_STRIKE_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            if definition.id == HEMOKINESIS_ID || definition.id == HEMOKINESIS_PLUS_ID {
+                follow_ups.push(InternalAction::LoseHp {
+                    amount: 2,
+                    source: HpLossSource::Card(card_id),
+                });
+            }
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: definition.values.damage.unwrap_or(0),
+                },
+            });
+            if definition.id == RECKLESS_CHARGE_ID || definition.id == RECKLESS_CHARGE_PLUS_ID {
+                follow_ups.push(InternalAction::AddCardToPile {
+                    content_id: DAZED_ID,
+                    to: CardPile::DrawPile,
+                });
+            }
+            if definition.id == WILD_STRIKE_ID || definition.id == WILD_STRIKE_PLUS_ID {
+                follow_ups.push(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                    content_id: WOUND_ID,
+                });
+            }
+            if definition.id == FLASH_OF_STEEL_ID {
+                follow_ups.push(InternalAction::DrawCards { count: 1 });
+            }
+            if definition.id == POMMEL_STRIKE_ID || definition.id == POMMEL_STRIKE_PLUS_ID {
+                follow_ups.push(InternalAction::DrawCards {
+                    count: if definition.id == POMMEL_STRIKE_PLUS_ID {
+                        2
+                    } else {
+                        1
+                    },
+                });
+            }
+            if definition.id == DROPKICK_ID || definition.id == DROPKICK_PLUS_ID {
+                let target_has_vulnerable = state
+                    .monsters
+                    .iter()
+                    .find(|monster| monster.id == target)
+                    .map(|monster| monster.powers.vulnerable > 0)
+                    .unwrap_or(false);
+                if target_has_vulnerable {
+                    follow_ups.push(InternalAction::GainEnergy { amount: 1 });
+                    follow_ups.push(InternalAction::DrawCards { count: 1 });
+                }
+            }
+        }
+        IRON_WAVE_ID | IRON_WAVE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
             follow_ups.push(InternalAction::DealDamage {
                 info: DamageInfo {
@@ -1415,26 +1488,84 @@ fn apply_play_top_draw_card(
                     amount: definition.values.damage.unwrap_or(0),
                 },
             });
-            if definition.id == RECKLESS_CHARGE_ID {
-                follow_ups.push(InternalAction::AddCardToPile {
-                    content_id: DAZED_ID,
-                    to: CardPile::DrawPile,
-                });
-            }
-            if definition.id == FLASH_OF_STEEL_ID {
-                follow_ups.push(InternalAction::DrawCards { count: 1 });
-            }
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
         }
-        PUMMEL_ID => {
+        BODY_SLAM_ID | BODY_SLAM_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: state.player.block,
+                },
+            });
+        }
+        HEAVY_BLADE_ID | HEAVY_BLADE_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            let multiplier = if definition.id == HEAVY_BLADE_PLUS_ID {
+                5
+            } else {
+                3
+            };
+            let extra_strength =
+                (multiplier - 1) * (state.player.powers.strength + state.player.temp_strength);
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: (definition.values.damage.unwrap_or(0) + extra_strength).max(0),
+                },
+            });
+        }
+        PERFECTED_STRIKE_ID | PERFECTED_STRIKE_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            let strike_count =
+                card_effects::combat_strike_named_card_count_with_extra(state, Some(definition))
+                    as i32;
+            let strike_bonus = if definition.id == PERFECTED_STRIKE_PLUS_ID {
+                3
+            } else {
+                2
+            };
+            let damage = definition.values.damage.unwrap_or(0) + (strike_bonus * strike_count);
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: crate::relic::strike_damage_with_relics(&state.relics, damage),
+                },
+            });
+        }
+        PUMMEL_ID | PUMMEL_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
             let damage = definition.values.damage.unwrap_or(0);
-            for _ in 0..4 {
+            let hits = if definition.id == PUMMEL_PLUS_ID {
+                5
+            } else {
+                4
+            };
+            for _ in 0..hits {
                 follow_ups.push(InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(card_id),
                         target,
                         amount: damage,
                     },
+                });
+            }
+        }
+        SWORD_BOOMERANG_ID | SWORD_BOOMERANG_PLUS_ID => {
+            let hits = if definition.id == SWORD_BOOMERANG_PLUS_ID {
+                4
+            } else {
+                3
+            };
+            for _ in 0..hits {
+                follow_ups.push(InternalAction::DealDamageRandomEnemy {
+                    source: card_id,
+                    amount: definition.values.damage.unwrap_or(0),
                 });
             }
         }
@@ -1475,6 +1606,18 @@ fn apply_play_top_draw_card(
                 amount: definition.values.damage.unwrap_or(0),
             });
         }
+        THUNDERCLAP_ID | THUNDERCLAP_PLUS_ID => {
+            follow_ups.push(InternalAction::DealDamageAll {
+                source: card_id,
+                amount: definition.values.damage.unwrap_or(0),
+            });
+            for monster in state.monsters.iter().filter(|monster| monster.alive) {
+                follow_ups.push(InternalAction::ApplyVulnerable {
+                    target: monster.id,
+                    amount: definition.values.vulnerable.unwrap_or(0),
+                });
+            }
+        }
         REAPER_ID | REAPER_PLUS_ID => {
             follow_ups.push(InternalAction::DealDamageAllAndHealUnblocked {
                 source: card_id,
@@ -1508,6 +1651,79 @@ fn apply_play_top_draw_card(
                 amount: definition.values.block.unwrap_or(0),
             });
             follow_ups.push(InternalAction::PreventBlockGain { turns: 2 });
+        }
+        CLOTHESLINE_ID | CLOTHESLINE_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: definition.values.damage.unwrap_or(0),
+                },
+            });
+            follow_ups.push(InternalAction::ApplyWeak {
+                target,
+                amount: if definition.id == CLOTHESLINE_PLUS_ID {
+                    3
+                } else {
+                    2
+                },
+            });
+        }
+        INTIMIDATE_ID | INTIMIDATE_PLUS_ID => {
+            for monster in state.monsters.iter().filter(|monster| monster.alive) {
+                follow_ups.push(InternalAction::ApplyWeak {
+                    target: monster.id,
+                    amount: if definition.id == INTIMIDATE_PLUS_ID {
+                        2
+                    } else {
+                        1
+                    },
+                });
+            }
+        }
+        DISARM_ID | DISARM_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::ReduceMonsterStrength {
+                target,
+                amount: if definition.id == DISARM_PLUS_ID {
+                    3
+                } else {
+                    2
+                },
+            });
+        }
+        RAGE_ID | RAGE_PLUS_ID => {
+            follow_ups.push(InternalAction::GainRage {
+                amount: if definition.id == RAGE_PLUS_ID { 5 } else { 3 },
+            });
+        }
+        SEVER_SOUL_ID | SEVER_SOUL_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            let exhausted = state
+                .piles
+                .hand
+                .iter()
+                .filter_map(|card| {
+                    get_card_definition(card.content_id)
+                        .filter(|definition| definition.card_type != CardType::Attack)
+                        .map(|_| card.id)
+                })
+                .collect::<Vec<_>>();
+            for card_id in exhausted {
+                follow_ups.push(InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                });
+            }
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: definition.values.damage.unwrap_or(0),
+                },
+            });
         }
         FINESSE_ID => {
             follow_ups.push(InternalAction::GainBlock {
@@ -1557,8 +1773,10 @@ fn apply_play_top_draw_card(
         PANACEA_ID => {
             follow_ups.push(InternalAction::GainArtifact { amount: 1 });
         }
-        POWER_THROUGH_ID => {
-            follow_ups.push(InternalAction::GainBlock { amount: 15 });
+        POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => {
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
             follow_ups.push(InternalAction::AddCardToPile {
                 content_id: WOUND_ID,
                 to: CardPile::Hand,
@@ -2203,6 +2421,11 @@ pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimRes
         exhaust_select.selected_hand_indices.push(pile_index);
         return Ok(());
     }
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne {
+        exhaust_select.selected_hand_indices.clear();
+        exhaust_select.selected_hand_indices.push(pile_index);
+        return Ok(());
+    }
     if let Some(position) = exhaust_select
         .selected_hand_indices
         .iter()
@@ -2242,6 +2465,20 @@ pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> 
             .nth(ui_index)
             .ok_or(SimError::IllegalAction("exhaust select index out of range"));
     }
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne {
+        let source_card_id = exhaust_select
+            .source_card_id
+            .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+        return state
+            .piles
+            .hand
+            .iter()
+            .enumerate()
+            .filter(|(_, card)| card.id != source_card_id)
+            .map(|(index, _)| index)
+            .nth(ui_index)
+            .ok_or(SimError::IllegalAction("exhaust select index out of range"));
+    }
     if ui_index >= state.piles.hand.len() {
         return Err(SimError::IllegalAction("exhaust select index out of range"));
     }
@@ -2268,6 +2505,9 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::BurningPactDraw3 {
         return confirm_burning_pact_select(state, exhaust_select, 3);
     }
+    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne {
+        return confirm_true_grit_select(state, exhaust_select);
+    }
     let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
     let mut removal_order = selected.clone();
     removal_order.sort_unstable();
@@ -2288,6 +2528,46 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
         state.piles.exhaust_pile.push(card);
         apply_on_exhaust_effects(state, card_id);
     }
+    Ok(())
+}
+
+fn confirm_true_grit_select(
+    state: &mut CombatState,
+    exhaust_select: crate::combat::ExhaustSelectState,
+) -> SimResult<()> {
+    let source_card_id = exhaust_select
+        .source_card_id
+        .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
+    let target_index = selected.first().copied().ok_or(SimError::IllegalAction(
+        "True Grit requires a selected card",
+    ))?;
+    if target_index >= state.piles.hand.len() {
+        return Err(SimError::IllegalAction("exhaust select index out of range"));
+    }
+    let target_card_id = state.piles.hand[target_index].id;
+    if target_card_id == source_card_id {
+        return Err(SimError::IllegalAction("True Grit cannot exhaust itself"));
+    }
+
+    let target_position = state
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == target_card_id)
+        .ok_or(SimError::UnknownCard(target_card_id))?;
+    let target_card = state.piles.hand.remove(target_position);
+    state.piles.exhaust_pile.push(target_card);
+    apply_on_exhaust_effects(state, target_card_id);
+
+    let source_position = state
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == source_card_id)
+        .ok_or(SimError::UnknownCard(source_card_id))?;
+    let source_card = state.piles.hand.remove(source_position);
+    state.piles.discard_pile.push(source_card);
     Ok(())
 }
 
@@ -2650,16 +2930,17 @@ mod tests {
         MAGNETISM_ID, MASTER_OF_STRATEGY_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, METAMORPHOSIS_ID,
         MIND_BLAST_ID, OFFERING_ID, OFFERING_PLUS_ID, PANACEA_ID, PANACHE_ID, PANIC_BUTTON_ID,
         PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, PUMMEL_ID,
-        PURITY_ID, RAGE_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID,
+        PUMMEL_PLUS_ID, PURITY_ID, RAGE_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID,
         RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SADISTIC_NATURE_ID, SEARING_BLOW_ID,
         SECOND_WIND_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
         SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SEVER_SOUL_ID,
         SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
         SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
         SWORD_BOOMERANG_ID, THINKING_AHEAD_ID, THUNDERCLAP_ID, TRANSMUTATION_ID,
-        TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WOUND_ID,
+        TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID,
+        VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WOUND_ID,
     };
     use crate::content::monsters::{
         monster_state, FIXED_SIMPLE_MONSTER, FUNGI_BEAST_A0, GREMLIN_LEADER_A0, GREMLIN_THIEF_A0,
@@ -3262,7 +3543,7 @@ mod tests {
             transition.event_log,
             vec![
                 InternalAction::PlayCard { card_id: clash_id },
-                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::SpendCardEnergy { card_id: clash_id },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(clash_id),
@@ -4662,6 +4943,9 @@ mod tests {
                 expected.push(content_id);
             }
         }
+        for _ in 0..9 {
+            let _ = expected_rng.random_int((pool.len() - 1) as i32);
+        }
 
         let next =
             apply_combat_action(&state, discovery_action(&state)).expect("Discovery applies");
@@ -5342,6 +5626,29 @@ mod tests {
     }
 
     #[test]
+    fn havoc_plays_top_pummel_plus_for_five_hits_and_exhausts_it() {
+        let mut state = hand_only(HAVOC_ID);
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(30), PUMMEL_PLUS_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Havoc applies");
+
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 10);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == PUMMEL_PLUS_ID));
+    }
+
+    #[test]
     fn bludgeon_deals_thirty_two_damage_and_spends_three_energy() {
         let state = hand_only(BLUDGEON_ID);
 
@@ -5400,7 +5707,9 @@ mod tests {
                 InternalAction::PlayCard {
                     card_id: bludgeon_id
                 },
-                InternalAction::SpendEnergy { amount: 3 },
+                InternalAction::SpendCardEnergy {
+                    card_id: bludgeon_id,
+                },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(bludgeon_id),
@@ -5713,7 +6022,9 @@ mod tests {
                 InternalAction::PlayCard {
                     card_id: carnage_id
                 },
-                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::SpendCardEnergy {
+                    card_id: carnage_id,
+                },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(carnage_id),
@@ -8120,7 +8431,9 @@ mod tests {
                 InternalAction::PlayCard {
                     card_id: swift_strike_id
                 },
-                InternalAction::SpendEnergy { amount: 0 },
+                InternalAction::SpendCardEnergy {
+                    card_id: swift_strike_id,
+                },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(swift_strike_id),
@@ -8186,7 +8499,9 @@ mod tests {
                 InternalAction::PlayCard {
                     card_id: hand_of_greed_id
                 },
-                InternalAction::SpendEnergy { amount: 2 },
+                InternalAction::SpendCardEnergy {
+                    card_id: hand_of_greed_id,
+                },
                 InternalAction::DealDamage {
                     info: DamageInfo {
                         source: DamageSource::Card(hand_of_greed_id),
@@ -9464,7 +9779,7 @@ mod tests {
     }
 
     #[test]
-    fn cleave_plus_deals_nine_to_all_enemies() {
+    fn cleave_plus_deals_eleven_to_all_enemies() {
         let state = two_monster_hand(CLEAVE_PLUS_ID);
 
         let next = apply_combat_action(
@@ -9476,8 +9791,8 @@ mod tests {
         )
         .expect("Cleave+ applies");
 
-        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 9);
-        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 9);
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 11);
+        assert_eq!(next.monsters[1].hp, state.monsters[1].hp - 11);
     }
 
     #[test]
@@ -9831,7 +10146,7 @@ mod tests {
     }
 
     #[test]
-    fn twin_strike_plus_deals_six_damage_twice() {
+    fn twin_strike_plus_deals_seven_damage_twice() {
         let state = hand_only(TWIN_STRIKE_PLUS_ID);
 
         let next = apply_combat_action(
@@ -9843,7 +10158,7 @@ mod tests {
         )
         .expect("Twin Strike+ applies");
 
-        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 12);
+        assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 14);
     }
 
     #[test]
@@ -10281,6 +10596,50 @@ mod tests {
     }
 
     #[test]
+    fn true_grit_plus_exhausts_selected_card() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(25), TRUE_GRIT_PLUS_ID),
+            CardInstance::new(CardId::new(20), STRIKE_R_ID),
+            CardInstance::new(CardId::new(21), DEFEND_R_ID),
+        ];
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(25),
+                target: None,
+            },
+        )
+        .expect("True Grit+ opens exhaust select");
+
+        assert_eq!(
+            next.exhaust_select.as_ref().map(|select| select.purpose),
+            Some(crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne)
+        );
+        choose_exhaust_select(&mut next, 1).expect("chooses Defend");
+        confirm_exhaust_select(&mut next).expect("confirms True Grit+ select");
+
+        assert_eq!(next.player.block, 9);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(21)));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(25)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+    }
+
+    #[test]
     fn burning_pact_exhausting_non_sentinel_does_not_grant_energy() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 1;
@@ -10313,7 +10672,7 @@ mod tests {
     fn sentinel_exhaust_still_triggers_feel_no_pain() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 1;
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(25), BURNING_PACT_ID),
             CardInstance::new(CardId::new(20), SENTINEL_ID),
@@ -10374,7 +10733,7 @@ mod tests {
         .expect("Feel No Pain applies");
 
         assert_eq!(next.player.energy, state.player.energy - 1);
-        assert_eq!(next.player.powers.feel_no_pain, 1);
+        assert_eq!(next.player.powers.feel_no_pain, 3);
         assert!(!next
             .piles
             .hand
@@ -10395,7 +10754,7 @@ mod tests {
     #[test]
     fn feel_no_pain_grants_block_when_card_exhausted() {
         let mut state = CombatState::initial_fixture();
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(25), BURNING_PACT_ID),
             CardInstance::new(CardId::new(20), DEFEND_R_ID),
@@ -10435,7 +10794,7 @@ mod tests {
         )
         .expect("Dark Embrace applies");
 
-        assert_eq!(next.player.energy, state.player.energy - 1);
+        assert_eq!(next.player.energy, state.player.energy - 2);
         assert_eq!(next.player.powers.dark_embrace, 1);
         assert!(!next
             .piles
@@ -11387,7 +11746,7 @@ mod tests {
         let mut state = hand_only(DEFEND_R_ID);
         state.player.energy = 0;
         state.player.powers.corruption = 1;
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
 
         let transition = apply_combat_action_with_events(&state, defend_action(&state))
             .expect("Defend applies under Corruption");
@@ -13258,7 +13617,7 @@ mod tests {
     #[test]
     fn exhume_source_exhaust_uses_existing_on_exhaust_hooks() {
         let mut state = hand_only(EXHUME_ID);
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
         state
             .piles
             .exhaust_pile
@@ -13400,7 +13759,7 @@ mod tests {
     #[test]
     fn purity_exhaust_hooks_apply_to_selected_cards_and_source() {
         let mut state = hand_only(PURITY_ID);
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(20), PURITY_ID),
             CardInstance::new(CardId::new(21), SENTINEL_ID),
@@ -13420,7 +13779,7 @@ mod tests {
         let mut state = hand_only(PURITY_ID);
         state.relics = vec![Relic::StrangeSpoon];
         state.card_random_rng = Some(crate::rng::StsRng::new(123));
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(20), PURITY_ID),
             CardInstance::new(CardId::new(21), DEFEND_R_ID),
@@ -15834,7 +16193,7 @@ mod tests {
     fn second_wind_exhausting_sentinel_uses_existing_exhaust_hooks() {
         let mut state = hand_only(SECOND_WIND_ID);
         state.player.energy = 1;
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(20), SECOND_WIND_ID),
             CardInstance::new(CardId::new(21), SENTINEL_ID),
@@ -16003,7 +16362,7 @@ mod tests {
     fn fiend_fire_exhausting_sentinel_uses_existing_exhaust_hooks() {
         let mut state = hand_only(FIEND_FIRE_ID);
         state.player.energy = 2;
-        state.player.powers.feel_no_pain = 1;
+        state.player.powers.feel_no_pain = 3;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(20), FIEND_FIRE_ID),
             CardInstance::new(CardId::new(21), SENTINEL_ID),

@@ -962,19 +962,24 @@ mod tests {
     }
 
     #[test]
-    fn neow_upgrade_grid_displays_full_deck_even_with_unupgradable_cards() {
+    fn neow_upgrade_grid_displays_only_upgradeable_cards() {
         let mut run = RunState::map_fixture();
         run.gain_deck_card(WOUND_ID);
-        let full_deck = run.deck.clone();
+        let upgradeable_cards = run
+            .deck
+            .iter()
+            .copied()
+            .filter(|card| upgrade_content_id(card.content_id).is_some())
+            .collect::<Vec<_>>();
 
         open_neow_upgrade_grid(&mut run);
 
         let grid = run.card_grid.as_ref().expect("upgrade grid");
-        assert_eq!(grid.cards, full_deck);
+        assert_eq!(grid.cards, upgradeable_cards);
         assert!(grid
             .cards
             .iter()
-            .any(|card| upgrade_content_id(card.content_id).is_none()));
+            .all(|card| upgrade_content_id(card.content_id).is_some()));
     }
 
     #[test]

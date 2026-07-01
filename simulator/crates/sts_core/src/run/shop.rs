@@ -796,6 +796,16 @@ mod tests {
         for node_id in [MapNodeId::new(1), MapNodeId::new(3), MapNodeId::new(4)] {
             run = crate::apply_map_action_on_run(&run, MapAction::ChooseNode { node_id })
                 .expect("reach shop");
+            if run.phase == RunPhase::Combat {
+                run.phase = RunPhase::Idle;
+                run.combat = None;
+            } else if run.phase == RunPhase::Event {
+                run.phase = RunPhase::Idle;
+                run.event = None;
+            } else if run.phase == RunPhase::Treasure {
+                run.phase = RunPhase::Idle;
+                run.treasure_room = None;
+            }
         }
         open_shop_merchant(&mut run);
         run
@@ -1392,15 +1402,12 @@ mod tests {
         run.event_rng_counter = 24;
         run.current_floor = 3;
         enter_event_screen(&mut run);
-        assert_eq!(run.event.as_ref().unwrap().event, Event::ScrapOoze);
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+        assert_eq!(run.event.as_ref().unwrap().event, Event::ShiningLight);
+        run = apply_event_action(&run, EventAction::Choose { choice_index: 1 }).unwrap();
 
         run.current_floor = 4;
         enter_event_screen(&mut run);
-        assert_eq!(run.event.as_ref().unwrap().event, Event::BigFish);
-        run = apply_event_action(&run, EventAction::Choose { choice_index: 2 }).unwrap();
+        assert_eq!(run.event.as_ref().unwrap().event, Event::TheCleric);
         run = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
 
         let combats: [(i32, bool); 8] = [
