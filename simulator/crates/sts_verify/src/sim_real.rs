@@ -7827,12 +7827,12 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID,
         JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
         NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID,
-        REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID,
-        SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
-        SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID,
-        THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
+        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID,
+        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+        SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
+        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -7888,6 +7888,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Clothesline" | "clothesline" => Some(CLOTHESLINE_ID),
         "Shockwave" | "shockwave" => Some(SHOCKWAVE_ID),
         "Rampage" | "rampage" => Some(RAMPAGE_ID),
+        "Rage" | "rage" => Some(RAGE_ID),
         "Whirlwind" | "whirlwind" => Some(WHIRLWIND_ID),
         "Pommel Strike" | "pommel strike" => Some(POMMEL_STRIKE_ID),
         "Pummel" | "pummel" => Some(PUMMEL_ID),
@@ -7962,9 +7963,9 @@ fn content_key(content_id: ContentId) -> &'static str {
         INFLAME_ID, INFLAME_PLUS_ID, INJURY_ID, INTIMIDATE_ID, JACK_OF_ALL_TRADES_ID,
         LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID,
         OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID,
-        RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID,
-        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        POMMEL_STRIKE_PLUS_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, REGRET_ID,
+        RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID,
+        SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
         THUNDERCLAP_ID, TRANSMUTATION_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID,
         WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
@@ -8033,6 +8034,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == CLOTHESLINE_ID => "Clothesline",
         id if id == SHOCKWAVE_ID => "Shockwave",
         id if id == RAMPAGE_ID => "Rampage",
+        id if id == RAGE_ID => "Rage",
         id if id == WHIRLWIND_ID => "Whirlwind",
         id if id == POMMEL_STRIKE_ID => "Pommel Strike",
         id if id == POMMEL_STRIKE_PLUS_ID => "Pommel Strike+",
@@ -8561,7 +8563,7 @@ mod tests {
     fn long_trace_observed_cards_map_from_card_json() {
         use sts_core::content::cards::{
             BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BURNING_PACT_ID, COMBUST_ID, DARK_EMBRACE_ID,
-            DAZED_ID, DOUBLE_TAP_ID, REAPER_ID, RUPTURE_ID, WOUND_ID,
+            DAZED_ID, DOUBLE_TAP_ID, RAGE_ID, REAPER_ID, RUPTURE_ID, WOUND_ID,
         };
 
         for (id, expected, key) in [
@@ -8575,6 +8577,7 @@ mod tests {
             ("Dark Embrace", DARK_EMBRACE_ID, "Dark Embrace"),
             ("Bludgeon", BLUDGEON_ID, "Bludgeon"),
             ("Double Tap", DOUBLE_TAP_ID, "Double Tap"),
+            ("Rage", RAGE_ID, "Rage"),
         ] {
             let card = json!({"id": id, "name": id});
 
