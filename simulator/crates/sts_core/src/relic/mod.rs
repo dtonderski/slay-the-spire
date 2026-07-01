@@ -2097,7 +2097,9 @@ pub fn apply_on_card_play_relics(
         state.relic_counters.shuriken_attacks_this_turn += 1;
         if state.relic_counters.shuriken_attacks_this_turn >= SHURIKEN_THRESHOLD {
             state.relic_counters.shuriken_attacks_this_turn = 0;
-            state.player.powers.strength += SHURIKEN_STRENGTH;
+            follow_ups.push(InternalAction::GainStrength {
+                amount: SHURIKEN_STRENGTH,
+            });
         }
     }
 
@@ -2105,7 +2107,9 @@ pub fn apply_on_card_play_relics(
         state.relic_counters.kunai_attacks_this_turn += 1;
         if state.relic_counters.kunai_attacks_this_turn >= KUNAI_THRESHOLD {
             state.relic_counters.kunai_attacks_this_turn = 0;
-            state.player.powers.dexterity += KUNAI_DEXTERITY;
+            follow_ups.push(InternalAction::GainDexterity {
+                amount: KUNAI_DEXTERITY,
+            });
         }
     }
 
@@ -3375,8 +3379,15 @@ mod tests {
         let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
         assert_eq!(combat.player.powers.strength, 0);
 
-        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
-        assert_eq!(combat.player.powers.strength, SHURIKEN_STRENGTH);
+        let follow_ups = apply_on_card_play_relics(&mut combat, CardType::Attack);
+
+        assert_eq!(
+            follow_ups,
+            vec![InternalAction::GainStrength {
+                amount: SHURIKEN_STRENGTH
+            }]
+        );
+        assert_eq!(combat.player.powers.strength, 0);
         assert_eq!(combat.relic_counters.shuriken_attacks_this_turn, 0);
     }
 
@@ -3387,9 +3398,15 @@ mod tests {
 
         let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
         let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
-        let _ = apply_on_card_play_relics(&mut combat, CardType::Attack);
+        let follow_ups = apply_on_card_play_relics(&mut combat, CardType::Attack);
 
-        assert_eq!(combat.player.powers.dexterity, KUNAI_DEXTERITY);
+        assert_eq!(
+            follow_ups,
+            vec![InternalAction::GainDexterity {
+                amount: KUNAI_DEXTERITY
+            }]
+        );
+        assert_eq!(combat.player.powers.dexterity, 0);
         assert_eq!(combat.relic_counters.kunai_attacks_this_turn, 0);
     }
 

@@ -634,6 +634,10 @@ fn apply_internal_action(
             state.player.powers.strength += amount;
             Ok(Vec::new())
         }
+        InternalAction::GainDexterity { amount } => {
+            state.player.powers.dexterity += amount;
+            Ok(Vec::new())
+        }
         InternalAction::GainTempStrength { amount } => {
             state.player.temp_strength += amount;
             Ok(Vec::new())

@@ -212,6 +212,9 @@ pub enum InternalAction {
     GainStrength {
         amount: i32,
     },
+    GainDexterity {
+        amount: i32,
+    },
     GainTempStrength {
         amount: i32,
     },
