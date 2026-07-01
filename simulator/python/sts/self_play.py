@@ -5,10 +5,12 @@ from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from functools import cache
 import argparse
 import hashlib
 import json
 import random
+import re
 import sys
 from pathlib import Path
 from typing import Any, Iterable, TextIO
@@ -839,6 +841,7 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
     blocker: dict[str, Any] | None = None
     stop_reason = "trace_exhausted"
     start_info: dict[str, Any] | None = None
+    ignore_next_reward_potion_lag = False
 
     for record_index, record in enumerate(records):
         if record.get("type") == "state":
@@ -878,6 +881,13 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
         has_fresh_observed_state = not last_state_consumed
         if has_fresh_observed_state:
             diffs = _observed_summary_diffs(env, observed_game_state)
+            if ignore_next_reward_potion_lag and observed_game_state.get("screen_type") == "COMBAT_REWARD":
+                diffs = [
+                    diff
+                    for diff in diffs
+                    if diff.get("field") not in {"potions", "potion_count"}
+                ]
+                ignore_next_reward_potion_lag = False
             if diffs:
                 blocker = _blocker(
                     record,
@@ -891,6 +901,7 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
                 stop_reason = "observed_state_diff"
                 break
             last_state_consumed = True
+            env = _restore_observed_event_screen(env, observed_game_state)
 
         if _next_trace_record_is_error(records, record_index):
             continue
@@ -924,6 +935,12 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
             stop_reason = "step_error"
             break
         replayed_steps += 1
+        if (
+            command.upper().startswith("POTION USE")
+            and isinstance(observed_game_state, dict)
+            and observed_game_state.get("screen_type") == "COMBAT_REWARD"
+        ):
+            ignore_next_reward_potion_lag = True
 
     latest_observed_summary = None
     if blocker is None and env is not None and last_state is not None and not last_state_consumed:
@@ -955,6 +972,28 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
         final_phase=env.phase() if env is not None else None,
         latest_observed_summary=latest_observed_summary,
     )
+
+
+def _restore_observed_event_screen(env: Any, observed: dict[str, Any] | None) -> Any:
+    if not isinstance(observed, dict):
+        return env
+    if observed.get("screen_type") != "EVENT" or env.phase() != "event":
+        return env
+    try:
+        observed_env = omni.OmniRunEnv.from_communication_mod_state_json(json.dumps(observed))
+        snapshot = json.loads(env.snapshot_json())
+        observed_snapshot = json.loads(observed_env.snapshot_json())
+        observed_event = (observed_snapshot.get("state") or {}).get("event")
+        if not observed_event:
+            return env
+        state = snapshot.get("state")
+        if not isinstance(state, dict):
+            return env
+        state["phase"] = "Event"
+        state["event"] = observed_event
+        return omni.OmniRunEnv.from_snapshot_json(json.dumps(snapshot))
+    except Exception:
+        return env
 
 
 def _is_ignored_invalid_combat_command(
@@ -2572,13 +2611,133 @@ def _visible_combat_hand(combat: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(index, int)
         )
     hand_select = combat.get("hand_select")
+    source_card_id = None
+    hand_select_purpose = None
     if isinstance(hand_select, dict):
+        source_card_id = hand_select.get("source_card_id")
+        hand_select_purpose = hand_select.get("purpose")
         index = hand_select.get("selected_hand_index")
         if isinstance(index, int):
             selected_indices.add(index)
-    if not selected_indices:
+    if not selected_indices and source_card_id is None:
         return hand
-    return [card for index, card in enumerate(hand) if index not in selected_indices]
+    return [
+        card
+        for index, card in enumerate(hand)
+        if index not in selected_indices
+        and card.get("id") != source_card_id
+        and _hand_select_shows_card(hand_select_purpose, card)
+    ]
+
+
+def _hand_select_shows_card(purpose: Any, card: dict[str, Any]) -> bool:
+    if purpose == "DualWieldCopy":
+        content_id = card.get("content_id")
+        return _card_type_for_content_id(content_id) in {"Attack", "Power"}
+    if purpose != "ArmamentsUpgrade":
+        return True
+    content_id = card.get("content_id")
+    if not isinstance(content_id, int):
+        return True
+    upgradeable = _upgradeable_card_content_ids()
+    if upgradeable:
+        return content_id in upgradeable
+    return content_id not in _NON_UPGRADEABLE_CARD_CONTENT_IDS
+
+
+@cache
+def _card_type_by_content_id() -> dict[int, str]:
+    cards_rs = (
+        Path(__file__).resolve().parents[2]
+        / "crates"
+        / "sts_core"
+        / "src"
+        / "content"
+        / "cards.rs"
+    )
+    try:
+        text = cards_rs.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    ids = {
+        name: int(value.replace("_", ""))
+        for name, value in re.findall(
+            r"pub const ([A-Z0-9_]+): ContentId = ContentId::new\(([\d_]+)\);",
+            text,
+        )
+    }
+    card_types: dict[int, str] = {}
+    for id_name, card_type in re.findall(
+        r"CardDefinition\s*\{.*?id:\s*([A-Z0-9_]+).*?card_type:\s*CardType::(\w+)",
+        text,
+        flags=re.DOTALL,
+    ):
+        content_id = ids.get(id_name)
+        if content_id is not None:
+            card_types[content_id] = card_type
+    return card_types
+
+
+def _card_type_for_content_id(content_id: Any) -> str | None:
+    if not isinstance(content_id, int):
+        return None
+    return _card_type_by_content_id().get(content_id)
+
+
+@cache
+def _upgradeable_card_content_ids() -> set[int]:
+    cards_rs = (
+        Path(__file__).resolve().parents[2]
+        / "crates"
+        / "sts_core"
+        / "src"
+        / "content"
+        / "cards.rs"
+    )
+    try:
+        text = cards_rs.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    ids = {
+        name: int(value.replace("_", ""))
+        for name, value in re.findall(
+            r"pub const ([A-Z0-9_]+): ContentId = ContentId::new\(([\d_]+)\);",
+            text,
+        )
+    }
+    upgradeable: set[int] = set()
+    upgrade_fn = re.search(
+        r"pub fn upgrade_content_id\(.*?\) -> Option<ContentId> \{(.*?)\n\}",
+        text,
+        flags=re.DOTALL,
+    )
+    if upgrade_fn is None:
+        return set()
+    for source_name in re.findall(r"\b([A-Z0-9_]+)\s*=>\s*Some\(", upgrade_fn.group(1)):
+        content_id = ids.get(source_name)
+        if content_id is not None:
+            upgradeable.add(content_id)
+    return upgradeable
+
+
+_NON_UPGRADEABLE_CARD_CONTENT_IDS = {
+    4,  # Wound
+    5,  # Dazed
+    6,  # Burn
+    7,  # Slimed
+    61,  # Ascender's Bane
+    62,  # Regret
+    63,  # Doubt
+    64,  # Curse of the Bell
+    65,  # Clumsy
+    66,  # Decay
+    67,  # Injury
+    68,  # Normality
+    69,  # Pain
+    70,  # Parasite
+    71,  # Shame
+    72,  # Writhe
+}
 
 
 def _write_jsonl(path: Path, records: Iterable[dict[str, Any]]) -> None:
@@ -2777,12 +2936,17 @@ def _exhaust_select_original_index(env: Any, visible_index: int) -> int | None:
     except Exception:
         return visible_index
     combat = state.get("combat") if isinstance(state.get("combat"), dict) else {}
-    hand = ((combat.get("piles") or {}).get("hand") or [])
     select = combat.get("exhaust_select") if isinstance(combat.get("exhaust_select"), dict) else {}
+    pile_name = (
+        "exhaust_pile"
+        if select.get("purpose") == "ExhumeReturnToHand"
+        else "hand"
+    )
+    choice_pile = ((combat.get("piles") or {}).get(pile_name) or [])
     selected = set(select.get("selected_hand_indices") or [])
     visible_to_original = [
         original_index
-        for original_index in range(len(hand))
+        for original_index in range(len(choice_pile))
         if original_index not in selected
     ]
     if visible_index < 0 or visible_index >= len(visible_to_original):
@@ -3111,6 +3275,13 @@ def _reward_field_matches(
             and simulator_reward.get(key) is not None
             and _observed_reward_has_choice(observed, "relic")
         )
+    if key == "potion_offer":
+        return (
+            observed_reward.get(key) is None
+            and simulator_reward.get(key) is not None
+            and not _observed_reward_has_choice(observed, "potion")
+            and len(_observed_real_potions(observed)) >= _observed_potion_capacity(observed)
+        )
     return False
 
 
@@ -3123,6 +3294,13 @@ def _observed_reward_has_choice(observed: dict[str, Any], choice: str) -> bool:
     if not isinstance(choices, list):
         return False
     return any(str(item).lower() == choice for item in choices)
+
+
+def _observed_potion_capacity(observed: dict[str, Any]) -> int:
+    capacity = 3
+    if "PotionBelt" in _observed_snapshot_relics(observed):
+        capacity += 2
+    return capacity
 
 
 def _observed_import_summary(observed: dict[str, Any]) -> dict[str, Any] | None:
@@ -3278,6 +3456,7 @@ _CARD_CHOICE_CONTENT_IDS = {
     "anger": 10,
     "cleave": 11,
     "twinstrike": 12,
+    "flex": 17,
     "pommelstrike": 21,
     "whirlwind": 33,
     "searingblow": 42,
@@ -3297,13 +3476,35 @@ _CARD_CHOICE_CONTENT_IDS = {
     "pummel": 118,
     "rampage": 121,
     "seversoul": 122,
+    "combust": 123,
+    "disarm": 124,
+    "rage": 125,
+    "entrench": 126,
+    "sentinel": 127,
+    "secondwind": 128,
+    "rupture": 129,
+    "bloodletting": 130,
     "carnage": 131,
     "dropkick": 132,
+    "firebreathing": 133,
+    "ghostlyarmor": 134,
     "uppercut": 135,
+    "evolve": 136,
+    "doubletap": 137,
+    "demonform": 138,
     "bludgeon": 139,
     "feed": 140,
+    "limitbreak": 141,
+    "corruption": 142,
+    "barricade": 143,
     "fiendfire": 144,
+    "berserk": 145,
+    "impervious": 146,
+    "juggernaut": 147,
+    "brutality": 148,
     "reaper": 149,
+    "exhume": 150,
+    "offering": 151,
     "immolate": 152,
 }
 

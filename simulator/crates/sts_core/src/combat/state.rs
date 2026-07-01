@@ -94,6 +94,7 @@ pub enum HandSelectPurpose {
     ArmamentsUpgrade,
     ForethoughtPutOnDraw,
     ThinkingAheadPutOnDraw,
+    DualWieldCopy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,6 +188,8 @@ pub struct PlayerState {
 pub struct MonsterState {
     pub id: MonsterId,
     pub hp: i32,
+    #[serde(default)]
+    pub max_hp: i32,
     pub block: i32,
     pub alive: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -219,6 +222,8 @@ pub struct MonsterState {
     pub gremlin_leader_slot: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stasis_card: Option<CardInstance>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub initial_intent_locked: bool,
     pub intent: MonsterIntent,
 }
 
@@ -292,6 +297,11 @@ pub enum MonsterIntent {
         frail: i32,
         weak: i32,
     },
+    ApplyPlayerFrailWeakVulnerable {
+        frail: i32,
+        weak: i32,
+        vulnerable: i32,
+    },
     ApplyPlayerWeakStrengthSelf {
         weak: i32,
         strength: i32,
@@ -316,12 +326,18 @@ pub enum MonsterIntent {
     SummonGremlins {
         count: i32,
     },
+    SummonCollectorTorchHeads {
+        count: i32,
+    },
     AttackAddWoundsToDiscard {
         damage: i32,
         count: i32,
     },
     AttackAddSlimedToDiscard {
         damage: i32,
+        count: i32,
+    },
+    AddSlimedToDiscard {
         count: i32,
     },
     AttackStealGold {
@@ -336,6 +352,9 @@ pub enum MonsterIntent {
         dexterity: i32,
     },
     AddDazedToDiscard {
+        count: i32,
+    },
+    AddDazedToDraw {
         count: i32,
     },
     AddBurnToDiscard {

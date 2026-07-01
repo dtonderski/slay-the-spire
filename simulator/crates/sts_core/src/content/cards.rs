@@ -143,7 +143,9 @@ pub const METAMORPHOSIS_PLUS_ID: ContentId = ContentId::new(7_133_622_309_229_40
 pub const IRON_WAVE_ID: ContentId = ContentId::new(100);
 pub const BODY_SLAM_ID: ContentId = ContentId::new(101);
 pub const CLASH_ID: ContentId = ContentId::new(102);
+pub const CLASH_PLUS_ID: ContentId = ContentId::new(10_102);
 pub const THUNDERCLAP_ID: ContentId = ContentId::new(103);
+pub const THUNDERCLAP_PLUS_ID: ContentId = ContentId::new(10_103);
 pub const CLOTHESLINE_ID: ContentId = ContentId::new(104);
 pub const ARMAMENTS_ID: ContentId = ContentId::new(105);
 pub const ARMAMENTS_PLUS_ID: ContentId = ContentId::new(10_105);
@@ -151,6 +153,7 @@ pub const HEADBUTT_ID: ContentId = ContentId::new(106);
 pub const HEADBUTT_PLUS_ID: ContentId = ContentId::new(10_106);
 pub const WILD_STRIKE_ID: ContentId = ContentId::new(107);
 pub const HEAVY_BLADE_ID: ContentId = ContentId::new(108);
+pub const HEAVY_BLADE_PLUS_ID: ContentId = ContentId::new(10_108);
 pub const PERFECTED_STRIKE_ID: ContentId = ContentId::new(109);
 pub const SWORD_BOOMERANG_ID: ContentId = ContentId::new(110);
 pub const SWORD_BOOMERANG_PLUS_ID: ContentId = ContentId::new(10_110);
@@ -185,6 +188,7 @@ pub const RUPTURE_PLUS_ID: ContentId = ContentId::new(129_000_001);
 pub const BLOODLETTING_ID: ContentId = ContentId::new(130);
 pub const CARNAGE_ID: ContentId = ContentId::new(131);
 pub const DROPKICK_ID: ContentId = ContentId::new(132);
+pub const DROPKICK_PLUS_ID: ContentId = ContentId::new(10_132);
 pub const FIRE_BREATHING_ID: ContentId = ContentId::new(133);
 pub const GHOSTLY_ARMOR_ID: ContentId = ContentId::new(134);
 pub const UPPERCUT_ID: ContentId = ContentId::new(135);
@@ -2913,6 +2917,21 @@ pub const CLASH: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const CLASH_PLUS: CardDefinition = CardDefinition {
+    id: CLASH_PLUS_ID,
+    key: "CLASH+",
+    name: "Clash+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(18),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const WILD_STRIKE: CardDefinition = CardDefinition {
     id: WILD_STRIKE_ID,
     key: "WILD_STRIKE",
@@ -2932,6 +2951,21 @@ pub const HEAVY_BLADE: CardDefinition = CardDefinition {
     id: HEAVY_BLADE_ID,
     key: "HEAVY_BLADE",
     name: "Heavy Blade",
+    cost: 2,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(14),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const HEAVY_BLADE_PLUS: CardDefinition = CardDefinition {
+    id: HEAVY_BLADE_PLUS_ID,
+    key: "HEAVY_BLADE+",
+    name: "Heavy Blade+",
     cost: 2,
     card_type: CardType::Attack,
     target: TargetRequirement::Enemy,
@@ -3362,6 +3396,21 @@ pub const DROPKICK: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const DROPKICK_PLUS: CardDefinition = CardDefinition {
+    id: DROPKICK_PLUS_ID,
+    key: "DROPKICK+",
+    name: "Dropkick+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const SWORD_BOOMERANG: CardDefinition = CardDefinition {
     id: SWORD_BOOMERANG_ID,
     key: "Sword Boomerang",
@@ -3743,6 +3792,21 @@ pub const THUNDERCLAP: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub const THUNDERCLAP_PLUS: CardDefinition = CardDefinition {
+    id: THUNDERCLAP_PLUS_ID,
+    key: "Thunderclap+",
+    name: "Thunderclap+",
+    cost: 1,
+    card_type: CardType::Attack,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: Some(1),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub const UPPERCUT: CardDefinition = CardDefinition {
     id: UPPERCUT_ID,
     key: "Uppercut",
@@ -3815,7 +3879,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 215] = [
+pub const ALL_CARDS: [CardDefinition; 219] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -3981,8 +4045,10 @@ pub const ALL_CARDS: [CardDefinition; 215] = [
     IRON_WAVE,
     BODY_SLAM,
     CLASH,
+    CLASH_PLUS,
     WILD_STRIKE,
     HEAVY_BLADE,
+    HEAVY_BLADE_PLUS,
     PERFECTED_STRIKE,
     RAMPAGE,
     RAMPAGE_PLUS,
@@ -4008,6 +4074,7 @@ pub const ALL_CARDS: [CardDefinition; 215] = [
     BLOODLETTING,
     CARNAGE,
     DROPKICK,
+    DROPKICK_PLUS,
     SWORD_BOOMERANG,
     SWORD_BOOMERANG_PLUS,
     HEMOKINESIS,
@@ -4029,6 +4096,7 @@ pub const ALL_CARDS: [CardDefinition; 215] = [
     METALLICIZE,
     METALLICIZE_PLUS,
     THUNDERCLAP,
+    THUNDERCLAP_PLUS,
     UPPERCUT,
     UPPERCUT_PLUS,
 ];
@@ -4086,7 +4154,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == ENLIGHTENMENT_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == IRON_WAVE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == BODY_SLAM_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == CLASH_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == CLASH_ID || id == CLASH_PLUS_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == ARMAMENTS_ID || id == ARMAMENTS_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Common))
         }
@@ -4094,7 +4162,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
             Some((CardType::Attack, CardRarity::Common))
         }
         id if id == WILD_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == HEAVY_BLADE_ID => Some((CardType::Attack, CardRarity::Common)),
+        id if id == HEAVY_BLADE_ID || id == HEAVY_BLADE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
+        }
         id if id == PERFECTED_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
         id if id == RAMPAGE_ID || id == RAMPAGE_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Uncommon))
@@ -4112,7 +4182,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == PUMMEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == BLOODLETTING_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == CARNAGE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == DROPKICK_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == DROPKICK_ID || id == DROPKICK_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == HEMOKINESIS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
         id if id == BLOOD_FOR_BLOOD_ID || id == BLOOD_FOR_BLOOD_PLUS_ID => {
             Some((CardType::Attack, CardRarity::Uncommon))
@@ -4183,6 +4255,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == INTIMIDATE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == SHOCKWAVE_ID || id == SHOCKWAVE_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Uncommon))
+        }
+        id if id == THUNDERCLAP_ID || id == THUNDERCLAP_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Common))
         }
         id if id == DISARM_ID => Some((CardType::Skill, CardRarity::Uncommon)),
         id if id == RAGE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
@@ -4291,6 +4366,9 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         FIEND_FIRE_ID => Some(FIEND_FIRE_PLUS_ID),
         DEFEND_R_ID => Some(DEFEND_R_PLUS_ID),
         BASH_ID => Some(BASH_PLUS_ID),
+        CLASH_ID => Some(CLASH_PLUS_ID),
+        HEAVY_BLADE_ID => Some(HEAVY_BLADE_PLUS_ID),
+        THUNDERCLAP_ID => Some(THUNDERCLAP_PLUS_ID),
         IMMOLATE_ID => Some(IMMOLATE_PLUS_ID),
         STRIKE_R_ID => Some(STRIKE_R_PLUS_ID),
         ANGER_ID => Some(ANGER_PLUS_ID),
@@ -4309,6 +4387,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         WHIRLWIND_ID => Some(WHIRLWIND_PLUS_ID),
         HAVOC_ID => Some(HAVOC_PLUS_ID),
         WARCRY_ID => Some(WARCRY_PLUS_ID),
+        DROPKICK_ID => Some(DROPKICK_PLUS_ID),
         DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
         SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
         COMBUST_ID => Some(COMBUST_PLUS_ID),
@@ -5117,10 +5196,16 @@ mod tests {
         assert_eq!(CLASH.target, TargetRequirement::Enemy);
         assert_eq!(CLASH.card_type, CardType::Attack);
         assert_eq!(CLASH.values.damage, Some(14));
+        assert_eq!(CLASH_PLUS.values.damage, Some(18));
         assert_eq!(
             card_type_and_rarity(CLASH_ID),
             Some((CardType::Attack, CardRarity::Common))
         );
+        assert_eq!(
+            card_type_and_rarity(CLASH_PLUS_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+        assert_eq!(upgrade_content_id(CLASH_ID), Some(CLASH_PLUS_ID));
     }
 
     #[test]
@@ -5141,9 +5226,36 @@ mod tests {
         assert_eq!(HEAVY_BLADE.target, TargetRequirement::Enemy);
         assert_eq!(HEAVY_BLADE.card_type, CardType::Attack);
         assert_eq!(HEAVY_BLADE.values.damage, Some(14));
+        assert_eq!(HEAVY_BLADE_PLUS.values.damage, Some(14));
         assert_eq!(
             card_type_and_rarity(HEAVY_BLADE_ID),
             Some((CardType::Attack, CardRarity::Common))
+        );
+        assert_eq!(
+            card_type_and_rarity(HEAVY_BLADE_PLUS_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+        assert_eq!(
+            upgrade_content_id(HEAVY_BLADE_ID),
+            Some(HEAVY_BLADE_PLUS_ID)
+        );
+    }
+
+    #[test]
+    fn thunderclap_has_expected_values() {
+        assert_eq!(THUNDERCLAP.cost, 1);
+        assert_eq!(THUNDERCLAP.card_type, CardType::Attack);
+        assert_eq!(THUNDERCLAP.values.damage, Some(4));
+        assert_eq!(THUNDERCLAP.values.vulnerable, Some(1));
+        assert_eq!(THUNDERCLAP_PLUS.values.damage, Some(7));
+        assert_eq!(THUNDERCLAP_PLUS.values.vulnerable, Some(1));
+        assert_eq!(
+            card_type_and_rarity(THUNDERCLAP_PLUS_ID),
+            Some((CardType::Attack, CardRarity::Common))
+        );
+        assert_eq!(
+            upgrade_content_id(THUNDERCLAP_ID),
+            Some(THUNDERCLAP_PLUS_ID)
         );
     }
 
@@ -5786,10 +5898,19 @@ mod tests {
         assert_eq!(DROPKICK.target, TargetRequirement::Enemy);
         assert_eq!(DROPKICK.card_type, CardType::Attack);
         assert_eq!(DROPKICK.values.damage, Some(5));
+        assert_eq!(DROPKICK_PLUS.cost, 1);
+        assert_eq!(DROPKICK_PLUS.target, TargetRequirement::Enemy);
+        assert_eq!(DROPKICK_PLUS.card_type, CardType::Attack);
+        assert_eq!(DROPKICK_PLUS.values.damage, Some(8));
         assert_eq!(
             card_type_and_rarity(DROPKICK_ID),
             Some((CardType::Attack, CardRarity::Uncommon))
         );
+        assert_eq!(
+            card_type_and_rarity(DROPKICK_PLUS_ID),
+            Some((CardType::Attack, CardRarity::Uncommon))
+        );
+        assert_eq!(upgrade_content_id(DROPKICK_ID), Some(DROPKICK_PLUS_ID));
     }
 
     #[test]

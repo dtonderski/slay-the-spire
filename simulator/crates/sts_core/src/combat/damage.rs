@@ -1,6 +1,8 @@
 use crate::{
     combat::{MonsterState, PlayerState},
-    content::monsters::{large_acid_slime_on_hp_damage, DARKLING_ID},
+    content::monsters::{
+        large_acid_slime_on_hp_damage, DARKLING_ID, GREMLIN_WARRIOR_ID, TRANSIENT_ID,
+    },
     ids::{CardId, MonsterId},
     power::PlayerPowers,
     relic::Relic,
@@ -23,12 +25,13 @@ pub enum DamageSource {
 pub struct AttackDamageResult {
     pub hp_damage: i32,
     pub broke_block: bool,
+    pub malleable_block: Option<i32>,
 }
 
 pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
-    let hp_damage = amount - blocked;
+    let hp_damage = monster.hp.max(0).min(amount - blocked);
     monster.hp -= hp_damage;
 
     if monster.hp <= 0 {
@@ -45,6 +48,7 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
         monster.powers.curl_up = 0;
     }
     large_acid_slime_on_hp_damage(monster, hp_damage);
+    transient_shifting_on_hp_damage(monster, hp_damage);
 
     hp_damage
 }
@@ -62,8 +66,9 @@ fn deal_attack_damage_to_monster(
     let block_before = monster.block;
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
-    let hp_damage =
+    let unblocked =
         crate::relic::apply_attack_damage_relics_to_unblocked_damage(relics, amount - blocked);
+    let hp_damage = monster.hp.max(0).min(unblocked);
     monster.hp -= hp_damage;
 
     if monster.hp <= 0 {
@@ -79,9 +84,19 @@ fn deal_attack_damage_to_monster(
         monster.block += monster.powers.curl_up;
         monster.powers.curl_up = 0;
     }
-    if monster.alive && hp_damage > 0 && monster.powers.malleable > 0 {
-        monster.block += monster.powers.malleable;
+    let malleable_block = if monster.alive && hp_damage > 0 && monster.powers.malleable > 0 {
+        let amount = monster.powers.malleable;
         monster.powers.malleable += 1;
+        Some(amount)
+    } else {
+        None
+    };
+    if monster.alive
+        && hp_damage > 0
+        && monster.content_id == GREMLIN_WARRIOR_ID
+        && monster.powers.anger > 0
+    {
+        monster.powers.strength += monster.powers.anger;
     }
     if monster.alive && hp_damage > 0 && monster.powers.flight > 0 {
         monster.powers.flight -= 1;
@@ -91,10 +106,12 @@ fn deal_attack_damage_to_monster(
     }
     reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
     large_acid_slime_on_hp_damage(monster, hp_damage);
+    transient_shifting_on_hp_damage(monster, hp_damage);
 
     AttackDamageResult {
         hp_damage,
         broke_block: block_before > 0 && blocked == block_before,
+        malleable_block,
     }
 }
 
@@ -107,6 +124,15 @@ fn reduce_monster_plated_armor_after_hp_damage(monster: &mut MonsterState, hp_da
     if monster.powers.plated_armor == 0 {
         monster.intent = crate::MonsterIntent::Stun;
     }
+}
+
+fn transient_shifting_on_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
+    if !monster.alive || hp_damage <= 0 || monster.content_id != TRANSIENT_ID {
+        return;
+    }
+
+    monster.powers.strength -= hp_damage;
+    monster.temp_strength_down += hp_damage;
 }
 
 pub fn deal_damage_info_to_monster(
@@ -126,18 +152,35 @@ pub fn deal_damage_info_to_monster_with_result(
     temp_strength: i32,
     relics: &[Relic],
 ) -> AttackDamageResult {
-    let with_strength = (info.amount + player.strength + temp_strength).max(0);
-    let with_weak = if player.weak > 0 {
-        with_strength * 3 / 4
-    } else {
-        with_strength
-    };
-    let amount = crate::relic::attack_damage_with_vulnerable_relics(
-        with_weak,
+    let amount = calculate_player_attack_damage(
+        info.amount,
+        player,
+        temp_strength,
         monster.powers.vulnerable,
         relics,
     );
     deal_attack_damage_to_monster(monster, relics, amount)
+}
+
+fn calculate_player_attack_damage(
+    base: i32,
+    player: PlayerPowers,
+    temp_strength: i32,
+    target_vulnerable: i32,
+    relics: &[Relic],
+) -> i32 {
+    let mut amount = (base + player.strength + temp_strength).max(0) as f64;
+    if player.weak > 0 {
+        amount *= 0.75;
+    }
+    if target_vulnerable > 0 {
+        amount *= if relics.contains(&Relic::PaperPhrog) {
+            1.75
+        } else {
+            1.5
+        };
+    }
+    amount.floor().max(0.0) as i32
 }
 
 /// Reflects thorns-style spikes damage to the player after an attack hits the monster.
@@ -158,13 +201,20 @@ pub fn reflect_spikes_to_player(player: &mut PlayerState, relics: &[Relic], spik
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{content::monsters::FIXED_SIMPLE_MONSTER_ID, MonsterId};
+    use crate::{
+        combat::turn_powers::monster_attack_damage,
+        content::monsters::{
+            monster_state, FIXED_SIMPLE_MONSTER_ID, GREMLIN_WARRIOR_A0, TRANSIENT_A0,
+        },
+        MonsterId,
+    };
 
     #[test]
     fn curl_up_does_not_leave_block_on_lethal_damage() {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 1,
+            max_hp: 1,
             block: 0,
             alive: true,
             escaped: false,
@@ -186,6 +236,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -201,6 +252,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 2,
+            max_hp: 2,
             block: 0,
             alive: true,
             escaped: false,
@@ -219,6 +271,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -234,6 +287,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 10,
+            max_hp: 10,
             block: 4,
             alive: true,
             escaped: false,
@@ -252,6 +306,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -267,6 +322,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 10,
+            max_hp: 10,
             block: 6,
             alive: true,
             escaped: false,
@@ -288,6 +344,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -299,10 +356,11 @@ mod tests {
     }
 
     #[test]
-    fn attack_hp_damage_triggers_malleable_block_and_increment() {
+    fn attack_hp_damage_queues_malleable_block_and_increment() {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -325,6 +383,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -341,9 +400,89 @@ mod tests {
         );
 
         assert_eq!(result.hp_damage, 5);
+        assert_eq!(result.malleable_block, Some(3));
         assert_eq!(monster.hp, 15);
-        assert_eq!(monster.block, 3);
+        assert_eq!(monster.block, 0);
         assert_eq!(monster.powers.malleable, 4);
+    }
+
+    #[test]
+    fn weak_and_vulnerable_round_after_all_attack_modifiers() {
+        let amount = calculate_player_attack_damage(
+            3,
+            PlayerPowers {
+                strength: 6,
+                weak: 1,
+                ..Default::default()
+            },
+            0,
+            1,
+            &[],
+        );
+
+        assert_eq!(amount, 10);
+    }
+
+    #[test]
+    fn attack_hp_damage_triggers_gremlin_warrior_anger_strength() {
+        let mut monster = monster_state(&GREMLIN_WARRIOR_A0, MonsterId::new(1));
+        assert_eq!(monster.powers.anger, 1);
+        assert_eq!(monster_attack_damage(&monster, 4), 4);
+
+        let result = deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 5,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(result.hp_damage, 5);
+        assert_eq!(monster.powers.strength, 1);
+        assert_eq!(monster_attack_damage(&monster, 4), 5);
+
+        let result = deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(2)),
+                target: MonsterId::new(1),
+                amount: 5,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(result.hp_damage, 5);
+        assert_eq!(monster.powers.strength, 2);
+        assert_eq!(monster_attack_damage(&monster, 4), 6);
+    }
+
+    #[test]
+    fn transient_shifting_reduces_strength_until_monster_turn_cleanup() {
+        let mut monster = monster_state(&TRANSIENT_A0, MonsterId::new(1));
+
+        let result = deal_damage_info_to_monster_with_result(
+            &mut monster,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 16,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+
+        assert_eq!(result.hp_damage, 16);
+        assert_eq!(monster.hp, 983);
+        assert_eq!(monster.powers.strength, -16);
+        assert_eq!(monster.temp_strength_down, 16);
+        assert_eq!(monster_attack_damage(&monster, 30), 14);
     }
 
     #[test]
@@ -351,6 +490,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -372,6 +512,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -398,6 +539,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -419,6 +561,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -443,6 +586,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 3,
+            max_hp: 3,
             block: 0,
             alive: true,
             escaped: false,
@@ -464,6 +608,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -489,6 +634,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 2,
+            max_hp: 2,
             block: 0,
             alive: true,
             escaped: false,
@@ -507,6 +653,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -532,6 +679,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -553,6 +701,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -568,6 +717,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -589,6 +739,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -604,6 +755,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -625,6 +777,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -649,6 +802,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 6,
+            max_hp: 6,
             block: 0,
             alive: true,
             escaped: false,
@@ -670,6 +824,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -695,6 +850,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 5,
+            max_hp: 5,
             block: 0,
             alive: true,
             escaped: false,
@@ -717,6 +873,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -742,6 +899,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 10,
+            max_hp: 10,
             block: 4,
             alive: true,
             escaped: false,
@@ -760,6 +918,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -779,6 +938,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 4,
             alive: true,
             escaped: false,
@@ -797,6 +957,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -822,6 +983,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 4,
             alive: true,
             escaped: false,
@@ -840,6 +1002,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -853,6 +1016,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -871,6 +1035,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -898,6 +1063,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 20,
+            max_hp: 20,
             block: 0,
             alive: true,
             escaped: false,
@@ -916,6 +1082,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -943,6 +1110,7 @@ mod tests {
         let mut monster = MonsterState {
             id: MonsterId::new(1),
             hp: 30,
+            max_hp: 30,
             block: 0,
             alive: true,
             escaped: false,
@@ -964,6 +1132,7 @@ mod tests {
             move_history: Vec::new(),
             gremlin_leader_slot: None,
             stasis_card: None,
+            initial_intent_locked: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {

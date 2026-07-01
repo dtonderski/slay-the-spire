@@ -3,6 +3,7 @@ use crate::{
         upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID,
         JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
+    potion::Potion,
     relic::{Relic, RelicKey},
     rng::{JavaRng, StsRng},
     run::{
@@ -24,6 +25,7 @@ pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
+pub const GOLDEN_SHRINE_DESECRATE_GOLD: i32 = 275;
 pub const WORLD_OF_GOOP_DAMAGE: i32 = 11;
 pub const WORLD_OF_GOOP_GOLD: i32 = 75;
 pub const WORLD_OF_GOOP_MIN_GOLD_LOSS: i32 = 20;
@@ -504,6 +506,17 @@ pub const ACT2_SHRINES: [Event; 6] = [
     Event::UpgradeShrine,
 ];
 
+pub const ACT3_EVENTS: [Event; 1] = [Event::Lab];
+
+pub const ACT3_SHRINES: [Event; 6] = [
+    Event::MatchAndKeep,
+    Event::WheelOfChange,
+    Event::GoldenShrine,
+    Event::Transmorgrifier,
+    Event::Purifier,
+    Event::UpgradeShrine,
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     Neow,
@@ -537,6 +550,7 @@ pub enum Event {
     TheLibrary,
     TheMausoleum,
     Vampires,
+    Lab,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -709,19 +723,27 @@ fn initialize_act2_event_pools(run: &mut RunState) {
     run.act2_shrine_list = ACT2_SHRINES.to_vec();
 }
 
+fn initialize_act3_event_pools(run: &mut RunState) {
+    if !run.act3_event_list.is_empty() {
+        return;
+    }
+    run.act3_event_list = ACT3_EVENTS.to_vec();
+    run.act3_shrine_list = ACT3_SHRINES.to_vec();
+}
+
 fn event_lists_mut(run: &mut RunState) -> (&mut Vec<Event>, &mut Vec<Event>) {
-    if run.current_act == 2 {
-        (&mut run.act2_event_list, &mut run.act2_shrine_list)
-    } else {
-        (&mut run.act1_event_list, &mut run.act1_shrine_list)
+    match run.current_act {
+        2 => (&mut run.act2_event_list, &mut run.act2_shrine_list),
+        3 => (&mut run.act3_event_list, &mut run.act3_shrine_list),
+        _ => (&mut run.act1_event_list, &mut run.act1_shrine_list),
     }
 }
 
 fn ensure_event_lists(run: &mut RunState) {
-    if run.current_act == 2 {
-        initialize_act2_event_pools(run);
-    } else {
-        initialize_act1_event_pools(run);
+    match run.current_act {
+        2 => initialize_act2_event_pools(run),
+        3 => initialize_act3_event_pools(run),
+        _ => initialize_act1_event_pools(run),
     }
 }
 
@@ -832,6 +854,13 @@ pub fn legacy_fixed_event_screen() -> EventScreen {
     )
 }
 
+fn golden_shrine_choices(stage: u32) -> Vec<EventChoice> {
+    match stage {
+        0 => labeled_choices(&["Pray", "Desecrate", "Leave"]),
+        _ => labeled_choices(&["Leave"]),
+    }
+}
+
 /// Compatibility wrapper for [`legacy_fixed_event_screen`].
 ///
 /// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. This is an early
@@ -929,6 +958,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::MaskedBandits => make_event_screen(event, masked_bandits_choices(0), 0),
         Event::Colosseum => make_event_screen(event, colosseum_choices(0), 0),
         Event::DrugDealer => make_event_screen(event, drug_dealer_choices(0, false), 0),
+        Event::Lab => make_event_screen(event, labeled_choices(&["Search"]), 0),
         _ => make_event_screen(
             event,
             vec![EventChoice {
@@ -943,6 +973,7 @@ pub fn event_screen(event: Event) -> EventScreen {
 pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
     match event {
         Event::Neow => make_event_screen(event, neow_option_choices(run), 1),
+        Event::GoldenShrine => make_event_screen(event, golden_shrine_choices(0), 0),
         Event::Vampires => make_event_screen(
             event,
             vampires_choices(run.relics.contains(&Relic::BloodVial)),
@@ -1122,11 +1153,35 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
         },
-        Event::GoldenShrine if choice_index == 0 => {
-            next.gain_gold(GOLDEN_SHRINE_GOLD);
-            next.phase = RunPhase::Idle;
-            next.event = None;
-        }
+        Event::GoldenShrine => match screen.stage {
+            0 if choice_index == 0 => {
+                next.gain_gold(GOLDEN_SHRINE_GOLD);
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            0 if choice_index == 1 => {
+                next.gain_gold(GOLDEN_SHRINE_DESECRATE_GOLD);
+                next.gain_deck_card(REGRET_ID);
+                next.event = Some(make_event_screen(
+                    Event::GoldenShrine,
+                    golden_shrine_choices(1),
+                    1,
+                ));
+            }
+            0 if choice_index == 2 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            1 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Golden Shrine",
+                ));
+            }
+        },
         Event::GoldenIdol => match screen.stage {
             0 if choice_index == 0 => {
                 if has_relic_key(&next, RelicKey::GoldenIdol) {
@@ -1785,6 +1840,25 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
         },
+        Event::Lab if choice_index == 0 => {
+            next.phase = RunPhase::Reward;
+            next.event = None;
+            next.reward = Some(RewardScreen {
+                choices: Vec::new(),
+                gold_offer: 0,
+                stolen_gold_offer: 0,
+                potion_offer: Some(Potion::Power),
+                relic_offer: None,
+                relic_key_offer: None,
+                pending_relic_offer: None,
+                pending_relic_key_offer: None,
+                queued_relic_key_offers: Vec::new(),
+                boss_relic_choices: Vec::new(),
+                card_reward_active: false,
+                card_reward_pending: false,
+                pending_card_reward_count: 0,
+            });
+        }
         _ if choice_index == 0 => {
             next.phase = RunPhase::Idle;
             next.event = None;
@@ -1811,6 +1885,23 @@ mod tests {
         assert_eq!(event.event, Event::GoldenShrine);
         assert_eq!(event.choices.len(), 1);
         assert_eq!(event.choices[0].label, "Pray");
+    }
+
+    #[test]
+    fn lab_search_opens_potion_reward_screen() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::Lab));
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("search lab");
+
+        assert_eq!(after.phase, RunPhase::Reward);
+        assert!(after.event.is_none());
+        assert_eq!(
+            after.reward.as_ref().expect("reward").potion_offer,
+            Some(Potion::Power)
+        );
     }
 
     #[test]
@@ -3244,6 +3335,49 @@ mod tests {
         assert_eq!(after.phase, RunPhase::Idle);
         assert!(after.event.is_none());
         assert_eq!(after.gold, gold_before + GOLDEN_SHRINE_GOLD);
+    }
+
+    #[test]
+    fn generated_golden_shrine_exposes_desecrate_and_leave_choices() {
+        let run = RunState::map_fixture();
+        let screen = event_screen_for_run(&run, Event::GoldenShrine);
+
+        assert_eq!(screen.stage, 0);
+        assert_eq!(
+            screen
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Pray", "Desecrate", "Leave"]
+        );
+    }
+
+    #[test]
+    fn golden_shrine_desecrate_gains_gold_adds_regret_then_requires_leave() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::GoldenShrine));
+        let gold_before = run.gold;
+        let deck_len_before = run.deck.len();
+
+        let desecrated =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("desecrate");
+
+        assert_eq!(desecrated.phase, RunPhase::Event);
+        assert_eq!(desecrated.gold, gold_before + GOLDEN_SHRINE_DESECRATE_GOLD);
+        assert_eq!(desecrated.deck.len(), deck_len_before + 1);
+        assert_eq!(desecrated.deck.last().unwrap().content_id, REGRET_ID);
+        let screen = desecrated.event.as_ref().expect("leave screen");
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices.len(), 1);
+        assert_eq!(screen.choices[0].label, "Leave");
+
+        let left = apply_event_action(&desecrated, EventAction::Choose { choice_index: 0 })
+            .expect("leave");
+
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.event.is_none());
     }
 
     #[test]

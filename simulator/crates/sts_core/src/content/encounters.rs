@@ -1,4 +1,7 @@
-use crate::{map::TargetMapAct, rng::StsRng};
+use crate::{
+    map::TargetMapAct,
+    rng::{JavaRng, StsRng},
+};
 
 pub const EXORDIUM_WEAK_ENCOUNTERS: [(&str, f32); 4] = [
     ("Cultist", 2.0),
@@ -88,6 +91,28 @@ pub fn generate_exordium_elite_encounters(seed: i64) -> Vec<String> {
 }
 
 #[must_use]
+pub fn target_exordium_act_one_boss(seed: i64) -> String {
+    let mut rng = StsRng::new(seed);
+    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
+    append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
+    let _elite_encounters = generate_exordium_elite_encounters_with_rng(&mut rng, 10);
+    let mut bosses = ["The Guardian", "Hexaghost", "Slime Boss"];
+    JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
+    bosses[0].to_owned()
+}
+
+#[must_use]
+pub fn target_city_act_two_boss(seed: i64) -> String {
+    let mut rng = StsRng::new(seed);
+    let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2);
+    append_city_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
+    let _elite_encounters = generate_city_elite_encounters_with_rng(&mut rng, 10);
+    let mut bosses = ["Automaton", "Collector", "Champ"];
+    JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
+    bosses[0].to_owned()
+}
+
+#[must_use]
 pub fn generate_city_weak_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
     generate_city_weak_encounters_with_rng(&mut rng, 2)
@@ -129,7 +154,6 @@ pub fn generate_city_encounter_lists_with_rng(rng: &mut StsRng) -> (Vec<String>,
     let mut normal_encounters = generate_city_weak_encounters_with_rng(rng, 2);
     append_city_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
     let elite_encounters = generate_city_elite_encounters_with_rng(rng, 10);
-    let _boss_shuffle_seed = rng.random_long();
     (normal_encounters, elite_encounters)
 }
 
@@ -438,6 +462,17 @@ mod tests {
     }
 
     #[test]
+    fn exordium_act_one_boss_matches_captured_live_seeds() {
+        assert_eq!(target_exordium_act_one_boss(1_131_274_026), "Slime Boss");
+        assert_eq!(target_exordium_act_one_boss(1_131_274_027), "Hexaghost");
+    }
+
+    #[test]
+    fn city_act_two_boss_matches_captured_live_seeds() {
+        assert_eq!(target_city_act_two_boss(1_131_274_027), "Collector");
+    }
+
+    #[test]
     fn exordium_normal_encounters_preserve_captured_weak_prefixes() {
         let verify01 = generate_exordium_normal_encounters(1_957_307_888_551);
         assert_eq!(verify01.len(), 16);
@@ -534,6 +569,13 @@ mod tests {
                 .as_deref(),
             Some(encounters[1].as_str())
         );
+    }
+
+    #[test]
+    fn beyond_first_encounter_matches_collector_trace_unlock_gated_city_boss() {
+        let encounters = generate_beyond_normal_encounters(1_131_274_027);
+
+        assert_eq!(encounters.first().map(String::as_str), Some("3 Shapes"));
     }
 
     #[test]

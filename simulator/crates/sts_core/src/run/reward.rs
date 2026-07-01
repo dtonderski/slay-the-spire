@@ -1384,12 +1384,14 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     } else {
         DeadBranchPlacement::BackOfHand
     };
-    apply_dead_branch_for_exhaust_log(
-        &mut next,
-        &mut next_combat,
-        &transition.event_log,
-        dead_branch_placement,
-    );
+    if matches!(action, CombatAction::EndTurn) {
+        apply_dead_branch_for_exhaust_log(
+            &mut next,
+            &mut next_combat,
+            &transition.event_log,
+            dead_branch_placement,
+        );
+    }
     if next_combat.card_random_rng.is_some() {
         next_combat.card_random_rng = Some(next.card_random_rng());
     }
@@ -2263,7 +2265,9 @@ mod tests {
         let mut expected_rng = run.card_random_rng();
         let pool = dead_branch_card_pool();
         let expected = pool[expected_rng.random_int((pool.len() - 1) as i32) as usize];
+        let combat_card_random_rng = run.card_random_rng();
         let combat = run.combat.as_mut().expect("combat fixture");
+        combat.card_random_rng = Some(combat_card_random_rng);
         combat.piles.hand = vec![
             CardInstance::new(CardId::new(25), TRUE_GRIT_ID),
             CardInstance::new(CardId::new(20), DEFEND_R_ID),

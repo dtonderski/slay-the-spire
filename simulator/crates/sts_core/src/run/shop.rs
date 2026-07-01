@@ -524,6 +524,9 @@ pub fn enter_shop_room(run: &mut RunState) {
     run.phase = RunPhase::Shop;
     run.shop = None;
     run.card_grid = None;
+    if run.relics.contains(&Relic::MealTicket) {
+        run.player_hp = (run.player_hp + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp);
+    }
 }
 
 pub fn open_shop_merchant(run: &mut RunState) {
@@ -533,9 +536,6 @@ pub fn open_shop_merchant(run: &mut RunState) {
     } else {
         generate_shop_screen(run)
     });
-    if run.relics.contains(&Relic::MealTicket) {
-        run.player_hp = (run.player_hp + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp);
-    }
 }
 
 pub fn enter_shop_screen(run: &mut RunState) {
@@ -1323,18 +1323,20 @@ mod tests {
     }
 
     #[test]
-    fn meal_ticket_heals_when_shop_merchant_opens() {
+    fn meal_ticket_heals_on_shop_room_entry_not_merchant_open() {
         let mut run = RunState::map_fixture();
-        run.phase = RunPhase::Shop;
         run.player_hp = 40;
         run.relics.push(Relic::MealTicket);
 
+        enter_shop_room(&mut run);
+
+        let healed_hp = (40 + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp);
+        assert_eq!(run.player_hp, healed_hp);
+        assert!(run.shop.is_none());
+
         open_shop_merchant(&mut run);
 
-        assert_eq!(
-            run.player_hp,
-            (40 + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp)
-        );
+        assert_eq!(run.player_hp, healed_hp);
         assert!(run.shop.is_some());
     }
 

@@ -1192,10 +1192,13 @@ fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) ->
         );
         candidates.push(RunAction::ConfirmDiscardSelect);
     }
-    if combat.exhaust_select.is_some() {
-        candidates.extend(
-            (0..combat.piles.hand.len()).map(|index| RunAction::ChooseExhaustSelect { index }),
-        );
+    if let Some(select) = combat.exhaust_select.as_ref() {
+        let choice_count = if select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
+            combat.piles.exhaust_pile.len()
+        } else {
+            combat.piles.hand.len()
+        };
+        candidates.extend((0..choice_count).map(|index| RunAction::ChooseExhaustSelect { index }));
         candidates.push(RunAction::ConfirmExhaustSelect);
     }
     candidates

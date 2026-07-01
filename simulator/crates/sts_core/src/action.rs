@@ -75,6 +75,10 @@ pub enum InternalAction {
     GainBlock {
         amount: i32,
     },
+    GainMonsterBlock {
+        target: MonsterId,
+        amount: i32,
+    },
     PreventBlockGain {
         turns: i32,
     },
@@ -118,6 +122,9 @@ pub enum InternalAction {
         card_id: CardId,
         from: CardPile,
         to: CardPile,
+    },
+    ExhaustRandomHandCardExcept {
+        excluded_card_id: CardId,
     },
     RemoveCard {
         card_id: CardId,

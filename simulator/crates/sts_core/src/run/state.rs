@@ -88,6 +88,18 @@ mod tests {
     }
 
     #[test]
+    fn starter_upgrade_relic_replaces_starter_relic() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood, Relic::BronzeScales];
+        run.relic_keys = vec![RelicKey::BurningBlood];
+
+        run.gain_relic_key(RelicKey::BlackBlood);
+
+        assert_eq!(run.relics, vec![Relic::BronzeScales, Relic::BlackBlood]);
+        assert!(!run.relic_keys.contains(&RelicKey::BurningBlood));
+    }
+
+    #[test]
     fn rng_stream_accessors_preserve_flat_run_state_fields() {
         let mut run = RunState::map_fixture();
         run.reward_rng_seed = 100;
@@ -1686,6 +1698,8 @@ pub struct RunState {
     pub current_floor: i32,
     #[serde(default)]
     pub current_act: i32,
+    #[serde(default, skip_serializing_if = "Act1Boss::is_default")]
+    pub act1_boss: Act1Boss,
     #[serde(default)]
     pub shop_remove_count: u32,
     #[serde(default)]
@@ -1697,11 +1711,39 @@ pub struct RunState {
     #[serde(default)]
     pub act2_shrine_list: Vec<super::event::Event>,
     #[serde(default)]
+    pub act3_event_list: Vec<super::event::Event>,
+    #[serde(default)]
+    pub act3_shrine_list: Vec<super::event::Event>,
+    #[serde(default)]
     pub ascension: u8,
     #[serde(default)]
     pub treasure_room: Option<super::reward::TreasureRoomState>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub rest_room_complete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Act1Boss {
+    #[default]
+    Hexaghost,
+    SlimeBoss,
+    Guardian,
+}
+
+impl Act1Boss {
+    #[must_use]
+    pub fn from_trace_name(name: &str) -> Option<Self> {
+        match name {
+            "Hexaghost" => Some(Self::Hexaghost),
+            "Slime Boss" | "SlimeBoss" => Some(Self::SlimeBoss),
+            "The Guardian" | "TheGuardian" | "Guardian" => Some(Self::Guardian),
+            _ => None,
+        }
+    }
+
+    fn is_default(value: &Self) -> bool {
+        *value == Self::Hexaghost
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2165,11 +2207,14 @@ impl RunState {
             elite_encounter_list: Vec::new(),
             current_floor: 0,
             current_act: 1,
+            act1_boss: Act1Boss::default(),
             shop_remove_count: 0,
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
             act2_event_list: Vec::new(),
             act2_shrine_list: Vec::new(),
+            act3_event_list: Vec::new(),
+            act3_shrine_list: Vec::new(),
             ascension,
             treasure_room: None,
             rest_room_complete: false,
@@ -2240,11 +2285,14 @@ impl RunState {
             elite_encounter_list: Vec::new(),
             current_floor: 0,
             current_act: 1,
+            act1_boss: Act1Boss::default(),
             shop_remove_count: 0,
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
             act2_event_list: Vec::new(),
             act2_shrine_list: Vec::new(),
+            act3_event_list: Vec::new(),
+            act3_shrine_list: Vec::new(),
             ascension: 0,
             treasure_room: None,
             rest_room_complete: false,
@@ -2263,6 +2311,10 @@ impl RunState {
             seed as i64,
             TargetMapAct::Exordium,
         ));
+        run.act1_boss = Act1Boss::from_trace_name(
+            &crate::content::encounters::target_exordium_act_one_boss(seed as i64),
+        )
+        .unwrap_or_default();
         run.relics = vec![Relic::BurningBlood];
         run.phase = RunPhase::Event;
         run.event = Some(super::event::neow_talk_screen());
@@ -2534,6 +2586,7 @@ impl RunState {
         if let Some(pools) = self.relic_pools.as_mut() {
             pools.remove_relic(relic.key());
         }
+        self.remove_replaced_starter_relic(relic);
         self.relics.push(relic);
         match relic {
             Relic::Strawberry => {
@@ -2757,6 +2810,21 @@ impl RunState {
             | Relic::NilrysCodex
             | Relic::MutagenicStrength => {}
         }
+    }
+
+    fn remove_replaced_starter_relic(&mut self, relic: Relic) {
+        let replaced = match relic {
+            Relic::BlackBlood => Some((Relic::BurningBlood, RelicKey::BurningBlood)),
+            Relic::FrozenCore => Some((Relic::CrackedCore, RelicKey::CrackedCore)),
+            Relic::HolyWater => Some((Relic::PureWater, RelicKey::PureWater)),
+            Relic::RingOfTheSerpent => Some((Relic::RingOfTheSnake, RelicKey::RingOfTheSnake)),
+            _ => None,
+        };
+        let Some((starter_relic, starter_key)) = replaced else {
+            return;
+        };
+        self.relics.retain(|owned| *owned != starter_relic);
+        self.relic_keys.retain(|owned| *owned != starter_key);
     }
 
     fn fill_potions_from_cauldron(&mut self) {

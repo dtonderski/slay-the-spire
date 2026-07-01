@@ -21,6 +21,7 @@ from sts.self_play import (
     _summary,
     _trace_candidates_by_name,
     _trace_combat_roots,
+    _visible_combat_hand,
     evaluate_self_play_corpus,
     real_trace_root_report,
     replay_real_trace_guided,
@@ -37,6 +38,7 @@ class _FakeAction:
 
     def kind(self) -> str:
         return self._kind
+
 
 class SelfPlaySummaryHelperTests(unittest.TestCase):
     def test_summary_prefers_combat_hp_over_stale_run_hp(self):
@@ -67,6 +69,83 @@ class SelfPlaySummaryHelperTests(unittest.TestCase):
 
         self.assertEqual(summary["player_hp"], 76)
         self.assertEqual(summary["player_max_hp"], 95)
+
+    def test_visible_combat_hand_excludes_hand_select_source_card(self):
+        combat = {
+            "piles": {
+                "hand": [
+                    {"id": 1, "content_id": 1},
+                    {"id": 2, "content_id": 2},
+                    {"id": 3, "content_id": 105},
+                ]
+            },
+            "hand_select": {"source_card_id": 3, "selected_hand_index": None},
+        }
+
+        self.assertEqual(
+            [card["content_id"] for card in _visible_combat_hand(combat)],
+            [1, 2],
+        )
+
+    def test_visible_combat_hand_excludes_armaments_unupgradeable_cards(self):
+        combat = {
+            "piles": {
+                "hand": [
+                    {"id": 1, "content_id": 62},
+                    {"id": 2, "content_id": 2},
+                    {"id": 3, "content_id": 1},
+                    {"id": 4, "content_id": 102},
+                    {"id": 5, "content_id": 105},
+                    {"id": 6, "content_id": 10108},
+                ]
+            },
+            "hand_select": {
+                "purpose": "ArmamentsUpgrade",
+                "source_card_id": 5,
+                "selected_hand_index": 2,
+            },
+        }
+
+        self.assertEqual(
+            [card["content_id"] for card in _visible_combat_hand(combat)],
+            [2, 102],
+        )
+
+    def test_reward_diff_ignores_hidden_full_belt_potion_offer(self):
+        simulator_reward = {"potion_offer": "Fear"}
+        observed_reward = {"potion_offer": None}
+        observed = {
+            "choice_list": ["gold", "card"],
+            "potions": [
+                {"name": "Colorless Potion"},
+                {"name": "Fear Potion"},
+                {"name": "Fear Potion"},
+                {"name": "Snecko Oil"},
+                {"name": "Fear Potion"},
+            ],
+            "relics": [{"name": "Potion Belt"}],
+        }
+
+        diffs = _reward_summary_diffs(simulator_reward, observed_reward, observed)
+
+        self.assertNotIn("reward.potion_offer", {diff["field"] for diff in diffs})
+
+    def test_reward_diff_keeps_missing_potion_offer_when_slots_are_open(self):
+        simulator_reward = {"potion_offer": "Fear"}
+        observed_reward = {"potion_offer": None}
+        observed = {
+            "choice_list": ["gold", "card"],
+            "potions": [
+                {"name": "Colorless Potion"},
+                {"name": "Fear Potion"},
+            ],
+            "relics": [{"name": "Potion Belt"}],
+        }
+
+        diffs = _reward_summary_diffs(simulator_reward, observed_reward, observed)
+
+        self.assertIn("reward.potion_offer", {diff["field"] for diff in diffs})
+
 
 class _FakeCombatRewardEnv:
     def state_json(self) -> str:
@@ -1116,6 +1195,19 @@ class SelfPlayTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_observed_combat_card_reward_choices_normalize_ironclad_powers(self):
+        observed = {
+            "screen_type": "CARD_REWARD",
+            "room_phase": "COMBAT",
+            "choice_list": ["corruption", "demonform", "barricade"],
+            "combat_state": {"player": {}, "monsters": []},
+        }
+
+        diffs = _observed_summary_diffs(_FakeCombatRewardEnv(), observed)
+
+        choice_diffs = [diff for diff in diffs if diff["field"] == "combat.card_reward_choices"]
+        self.assertEqual(choice_diffs[0]["observed"], [142, 138, 143])
 
     def test_observed_defend_intent_wildcards_hidden_block_amount_only(self):
         self.assertTrue(

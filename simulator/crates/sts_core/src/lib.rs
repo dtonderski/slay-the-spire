@@ -85,7 +85,7 @@ pub use run::{
     source_backed_card_reward_choices, target_card_reward_choices, target_elite_relic_tier,
     target_normal_combat_gold, target_potion_reward_offer, target_random_combat_potion,
     target_random_potion, target_relic_tier, validate_event_action, validate_potion_action,
-    validate_rest_action, validate_shop_action, CardGridScreen, CombatRewardKind, Event,
+    validate_rest_action, validate_shop_action, Act1Boss, CardGridScreen, CombatRewardKind, Event,
     EventChoice, EventScreen, GeneratedNeowOption, GridPurpose, KnownNeowBranch,
     KnownNeowColorlessReward, KnownNeowScreen, NeowBossSwapReward, NeowCardReward,
     NeowColorlessReward, NeowDrawback, NeowPotionReward, NeowRelicReward, NeowRewardType,

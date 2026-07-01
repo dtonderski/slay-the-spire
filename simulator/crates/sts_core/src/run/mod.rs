@@ -58,4 +58,6 @@ pub use shop::{
     ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, SHOP_ANGER_PRICE,
     SHOP_BASE_REMOVE_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
 };
-pub use state::{RewardScreen, RunAction, RunPhase, RunState, REWARD_GOLD_AMOUNT, STARTING_GOLD};
+pub use state::{
+    Act1Boss, RewardScreen, RunAction, RunPhase, RunState, REWARD_GOLD_AMOUNT, STARTING_GOLD,
+};

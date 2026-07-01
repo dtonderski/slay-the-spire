@@ -6,18 +6,19 @@ use crate::{
         content_id_from_game_monster_id, get_monster_definition, living_monster_missing_hp,
         monster_state_for_ascension, prepare_monster_intent_for_ascension, record_target_move,
         target_acid_slime_entry_intent_from_roll, target_beyond_encounter_spawn_for_key,
-        target_centurion_next_intent_from_roll, target_chosen_next_intent_from_roll,
-        target_city_normal_encounter_spawn_at_combat_index,
+        target_byrd_next_intent_from_roll, target_centurion_next_intent_from_roll,
+        target_chosen_next_intent_from_roll, target_city_normal_encounter_spawn_at_combat_index,
         target_elite_encounter_spawn_at_combat_index, target_fungi_beast_next_intent_from_roll,
         target_gremlin_leader_next_intent_from_roll, target_healer_next_intent_from_roll,
         target_jaw_worm_next_intent_from_roll, target_large_acid_slime_next_intent_from_roll,
         target_louse_entry_intent_from_roll, target_normal_encounter_spawn_at_combat_index,
-        target_shelled_parasite_next_intent_from_roll, target_snake_plant_next_intent_from_roll,
+        target_shelled_parasite_next_intent_from_roll, target_slaver_blue_next_intent_from_roll,
+        target_small_acid_slime_entry_intent_from_bool, target_snake_plant_next_intent_from_roll,
         target_spike_slime_entry_intent_from_roll, TargetEncounterSpawn, ACID_SLIME_ID,
-        ACID_SLIME_M_A7_HP_RANGE, BRONZE_AUTOMATON_A0, CENTURION_ID, CHOSEN_ID, DARKLING_ID,
-        FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, BYRD_ID, CENTURION_ID, CHOSEN_ID,
+        DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
         GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, RED_LOUSE_BITE_DAMAGE,
-        RED_LOUSE_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SPIKE_SLIME_ID,
+        RED_LOUSE_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SNAKE_PLANT_ID, SPIKE_SLIME_ID,
         SPIKE_SLIME_M_A7_HP_RANGE,
     },
     ids::CardId,
@@ -189,6 +190,7 @@ fn record_initial_monster_moves(combat: &mut CombatState) {
         if monster.alive {
             record_target_move(monster);
         }
+        monster.initial_intent_locked = false;
     }
 }
 
@@ -223,8 +225,19 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
         if !monster.alive {
             continue;
         }
+        if monster.initial_intent_locked {
+            let _ = rng.random_int(99);
+            continue;
+        }
         let roll = rng.random_int(99);
-        if monster.content_id == ACID_SLIME_ID && monster.hp <= ACID_SLIME_M_A7_HP_RANGE.max {
+        if monster.content_id == ACID_SLIME_ID && monster.hp <= ACID_SLIME_S_A7_HP_RANGE.max {
+            monster.intent =
+                target_small_acid_slime_entry_intent_from_bool(rng.random_bool(), combat.ascension);
+            if matches!(monster.intent, crate::MonsterIntent::Attack { .. }) {
+                monster.moves_executed = 1;
+            }
+        } else if monster.content_id == ACID_SLIME_ID && monster.hp <= ACID_SLIME_M_A7_HP_RANGE.max
+        {
             monster.intent = target_acid_slime_entry_intent_from_roll(monster.hp, roll);
             if matches!(monster.intent, crate::MonsterIntent::Attack { .. }) {
                 monster.moves_executed = 1;
@@ -264,6 +277,13 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
         } else if monster.content_id == CHOSEN_ID {
             monster.intent =
                 target_chosen_next_intent_from_roll(&monster.move_history, roll, combat.ascension);
+        } else if monster.content_id == BYRD_ID && monster.moves_executed == 0 {
+            monster.intent = target_byrd_next_intent_from_roll(
+                &monster.move_history,
+                roll,
+                rng,
+                combat.ascension,
+            );
         } else if monster.content_id == CENTURION_ID {
             monster.intent = target_centurion_next_intent_from_roll(
                 &monster.move_history,
@@ -280,6 +300,12 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
             );
         } else if monster.content_id == FUNGI_BEAST_ID {
             monster.intent = target_fungi_beast_next_intent_from_roll(
+                &monster.move_history,
+                roll,
+                combat.ascension,
+            );
+        } else if monster.content_id == SLAVER_BLUE_ID {
+            monster.intent = target_slaver_blue_next_intent_from_roll(
                 &monster.move_history,
                 roll,
                 combat.ascension,
@@ -488,12 +514,23 @@ fn target_city_encounter_spawn_for_run(
 
 fn boss_combat_state_for_run(run: &RunState) -> CombatState {
     if run.current_act == 1 {
-        return CombatState::hexaghost_fixture();
+        return match run.act1_boss {
+            crate::run::Act1Boss::Hexaghost => CombatState::hexaghost_fixture(),
+            crate::run::Act1Boss::SlimeBoss => CombatState::slime_boss_fixture(),
+            crate::run::Act1Boss::Guardian => CombatState::guardian_fixture(),
+        };
     }
     if run.current_act == 2 {
         let mut combat = CombatState::initial_fixture();
+        let boss_key =
+            crate::content::encounters::target_city_act_two_boss(run.monster_rng_seed as i64);
+        let definition = get_monster_definition(content_id_from_game_monster_id(&boss_key))
+            .unwrap_or_else(|| {
+                get_monster_definition(crate::content::monsters::BRONZE_AUTOMATON_ID)
+                    .expect("Bronze Automaton definition is registered")
+            });
         combat.monsters = vec![monster_state_for_ascension(
-            &BRONZE_AUTOMATON_A0,
+            definition,
             crate::MonsterId::new(1),
             run.ascension,
         )];
@@ -531,6 +568,7 @@ fn target_spawn_monster_state(
         });
 
     monster.hp = spawn.current_hp;
+    monster.max_hp = spawn.max_hp;
     monster.block = spawn.block;
     monster.alive = spawn.current_hp > 0;
     monster.powers = spawn_monster_powers(spawn);
@@ -541,10 +579,36 @@ fn target_spawn_monster_state(
                 damage,
                 count: if spawn.name.ends_with("(L)") { 2 } else { 1 },
             };
+            monster.initial_intent_locked = true;
         }
+    } else if spawn.intent == "ApplyPlayerFrailAndWeak" {
+        monster.intent = crate::MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 };
+        monster.initial_intent_locked = true;
+    } else if spawn.intent == "AddDazedToDiscard" {
+        monster.intent = crate::MonsterIntent::AddDazedToDiscard { count: 2 };
+        monster.initial_intent_locked = true;
+    } else if spawn.intent == "AddDazedToDraw" {
+        monster.intent = crate::MonsterIntent::AddDazedToDraw { count: 2 };
+        monster.initial_intent_locked = true;
+    } else if spawn.intent == "AddBurnToDiscardAndDraw" {
+        monster.intent = crate::MonsterIntent::AddBurnToDiscardAndDraw {
+            count: 1,
+            damage: spawn.rolled_attack_damage.unwrap_or(10),
+        };
+        monster.rolled_attack_damage = None;
+        monster.initial_intent_locked = true;
+    } else if spawn.intent == "StrengthAndBlock" {
+        let (strength, block) = if spawn.name == "Spiker" {
+            (0, 0)
+        } else {
+            (3, 6)
+        };
+        monster.intent = crate::MonsterIntent::StrengthAndBlock { strength, block };
+        monster.initial_intent_locked = true;
     } else if spawn.intent == "Attack" {
         if let Some(damage) = spawn.rolled_attack_damage {
             monster.intent = crate::MonsterIntent::Attack { damage };
+            monster.initial_intent_locked = true;
         }
         if spawn.name == "Sentry" {
             monster.moves_executed = 1;
@@ -562,7 +626,9 @@ fn spawn_monster_powers(spawn: &TargetEncounterSpawn) -> MonsterPowers {
             "Ritual" => powers.ritual = power.amount,
             "Metallicize" => powers.metallicize = power.amount,
             "Artifact" => powers.artifact = power.amount,
+            "Flight" => powers.flight = power.amount,
             "Plated Armor" => powers.plated_armor = power.amount,
+            "Thorns" => powers.spikes = power.amount,
             "Painful Stabs" => powers.painful_stabs = power.amount,
             "Malleable" => {
                 powers.malleable = power.amount;
@@ -817,6 +883,142 @@ mod tests {
     }
 
     #[test]
+    fn locked_initial_intents_still_consume_ai_rolls() {
+        let spawns = crate::content::monsters::target_encounter_spawn_for_key(
+            1_131_274_027,
+            4,
+            "Exordium Thugs",
+            0,
+            false,
+        );
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| target_spawn_monster_state(spawn, index, 0))
+            .collect();
+        let mut rng = StsRng::new(1_131_274_027 + 4);
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+
+        assert_eq!(rng.counter(), 2);
+        assert_eq!(rng.random_int(99), 16);
+    }
+
+    #[test]
+    fn lots_of_slimes_initial_intents_match_fresh_trace() {
+        let spawns = crate::content::monsters::target_encounter_spawn_for_key(
+            1_131_274_027,
+            8,
+            "Lots of Slimes",
+            0,
+            false,
+        );
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| target_spawn_monster_state(spawn, index, 0))
+            .collect();
+        let mut rng = StsRng::new(1_131_274_027 + 8);
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+
+        assert_eq!(
+            combat
+                .monsters
+                .iter()
+                .map(|monster| monster.intent)
+                .collect::<Vec<_>>(),
+            vec![
+                crate::MonsterIntent::Attack { damage: 3 },
+                crate::MonsterIntent::Attack { damage: 5 },
+                crate::MonsterIntent::ApplyPlayerWeak { amount: 1 },
+                crate::MonsterIntent::Attack { damage: 5 },
+                crate::MonsterIntent::Attack { damage: 5 },
+            ]
+        );
+        assert_eq!(rng.counter(), 7);
+    }
+
+    #[test]
+    fn small_slimes_initial_intents_match_fresh_floor_three_trace() {
+        let spawns = crate::content::monsters::target_encounter_spawn_for_key(
+            1_131_274_027,
+            3,
+            "Small Slimes",
+            0,
+            false,
+        );
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| target_spawn_monster_state(spawn, index, 0))
+            .collect();
+        let mut rng = StsRng::new(1_131_274_027 + 3);
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+
+        assert_eq!(
+            combat
+                .monsters
+                .iter()
+                .map(|monster| monster.intent)
+                .collect::<Vec<_>>(),
+            vec![
+                crate::MonsterIntent::Attack { damage: 3 },
+                crate::MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 },
+            ]
+        );
+        assert_eq!(rng.counter(), 3);
+    }
+
+    #[test]
+    fn byrd_initial_intents_use_source_first_move_caw_roll() {
+        let spawns = crate::content::monsters::target_city_encounter_spawn_for_key(
+            1_131_274_027,
+            18,
+            "3 Byrds",
+            0,
+            false,
+        )
+        .expect("3 Byrds spawn");
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| target_spawn_monster_state(spawn, index, 0))
+            .collect();
+        let mut rng = StsRng::new(1_131_274_027 + 18);
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        record_initial_monster_moves(&mut combat);
+
+        assert_eq!(
+            combat
+                .monsters
+                .iter()
+                .map(|monster| monster.intent)
+                .collect::<Vec<_>>(),
+            vec![
+                crate::MonsterIntent::StrengthSelf { amount: 1 },
+                crate::MonsterIntent::StrengthSelf { amount: 1 },
+                crate::MonsterIntent::StrengthSelf { amount: 1 },
+            ]
+        );
+        assert!(combat
+            .monsters
+            .iter()
+            .all(|monster| monster.move_history == vec![6]));
+        assert!(combat
+            .monsters
+            .iter()
+            .all(|monster| monster.powers.flight == 3));
+        assert_eq!(rng.counter(), 6);
+    }
+
+    #[test]
     fn map_actions_require_idle_phase() {
         let run = RunState::combat_fixture();
 
@@ -933,6 +1135,59 @@ mod tests {
             combat.monsters[0].content_id,
             crate::content::monsters::HEXAGHOST_ID
         );
+    }
+
+    #[test]
+    fn entering_boss_node_uses_persisted_act_one_boss() {
+        let cases = [
+            (
+                crate::run::Act1Boss::SlimeBoss,
+                crate::content::monsters::SLIME_BOSS_ID,
+                140,
+            ),
+            (
+                crate::run::Act1Boss::Guardian,
+                crate::content::monsters::GUARDIAN_ID,
+                240,
+            ),
+        ];
+
+        for (boss, expected_content_id, expected_hp) in cases {
+            let mut run = RunState::map_fixture();
+            run.act1_boss = boss;
+            let map = run.map.as_mut().expect("map fixture");
+            map.current_node = MapNodeId::new(5);
+            map.floor = 5;
+
+            let next = apply_map_action_on_run(
+                &run,
+                MapAction::ChooseNode {
+                    node_id: MapNodeId::new(6),
+                },
+            )
+            .expect("choose boss node");
+
+            let combat = next.combat.expect("boss combat");
+            assert_eq!(combat.monsters.len(), 1);
+            assert_eq!(combat.monsters[0].content_id, expected_content_id);
+            assert_eq!(combat.monsters[0].hp, expected_hp);
+        }
+    }
+
+    #[test]
+    fn act_two_boss_combat_uses_seeded_city_boss() {
+        let mut run = RunState::map_fixture();
+        run.current_act = 2;
+        run.monster_rng_seed = 1_131_274_027;
+
+        let combat = boss_combat_state_for_run(&run);
+
+        assert_eq!(combat.monsters.len(), 1);
+        assert_eq!(
+            combat.monsters[0].content_id,
+            crate::content::monsters::THE_COLLECTOR_ID
+        );
+        assert_eq!(combat.monsters[0].hp, 282);
     }
 
     #[test]

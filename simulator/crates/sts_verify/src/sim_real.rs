@@ -12,7 +12,8 @@ use sts_core::content::monsters::{
     looter_theft, target_beyond_encounter_spawn_for_key,
     target_city_normal_encounter_spawn_at_combat_index, target_move_byte,
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
-    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID,
+    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID, SLAVER_BLUE_ID,
+    SLAVER_RED_ID, TASKMASTER_ID,
 };
 use sts_core::potion::Potion;
 use sts_core::run::neow::{
@@ -20,24 +21,25 @@ use sts_core::run::neow::{
     generate_neow_colorless_reward_with_card_rng_counter,
 };
 use sts_core::{
-    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_neow_boss_swap,
-    apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
-    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, city_room_kinds_on_path,
-    confirm_grid, enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
-    enter_elite_combat_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
-    enter_shop_room, event_screen, exordium_room_kinds_on_path,
+    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_map_action_on_run,
+    apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
+    apply_neow_simple_reward, apply_rest_action, apply_run_action, apply_shop_action, cancel_grid,
+    city_room_kinds_on_path, confirm_grid, enter_boss_relic_reward_screen,
+    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
+    enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
     generate_neow_three_potions, generate_neow_transform_reward,
     initialize_combat_piles_with_relics, known_neow_colorless_reward_for_seed,
-    known_neow_screen_for_seed, leave_shop_merchant, leave_shop_room, open_neow_reward_grid,
-    select_grid_card, shop_action_for_choice_index, starter_only_deck, target_room_kinds_on_path,
-    CardId, CardInstance, CardPiles, CombatAction, CombatPhase, CombatState, ContentId, Event,
-    EventAction, EventChoice, EventScreen, FixedMap, GeneratedNeowOption, GridPurpose,
-    KnownNeowBranch, MapNode, MapNodeId, MapRunState, MonsterId, MonsterIntent, MonsterPowers,
-    MonsterState, NeowDrawback, NeowRewardType, PlayerPowers, PlayerState, Relic, RelicCounters,
-    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopCardSlot,
-    ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, StsRng, TargetMapAct,
+    known_neow_screen_for_seed, leave_shop_merchant, leave_shop_room, legal_map_actions_on_run,
+    open_neow_reward_grid, select_grid_card, shop_action_for_choice_index, starter_only_deck,
+    target_room_kinds_on_path, Act1Boss, CardId, CardInstance, CardPiles, CombatAction,
+    CombatPhase, CombatState, ContentId, Event, EventAction, EventChoice, EventScreen, FixedMap,
+    GeneratedNeowOption, GridPurpose, KnownNeowBranch, MapNode, MapNodeId, MapRunState, MonsterId,
+    MonsterIntent, MonsterPowers, MonsterState, NeowDrawback, NeowRewardType, PlayerPowers,
+    PlayerState, Relic, RelicCounters, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
+    RunPhase, RunState, ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, StsRng,
+    TargetMapAct,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1542,6 +1544,128 @@ fn verify_seed_start_transitions(
                 let choice_x =
                     seed_start_map_pick_x(&start.external_seed, &map_path_xs, &action.command);
                 map_path_xs.push(choice_x);
+                if let Some(sim) = seed_sim.as_ref() {
+                    let legal_actions = legal_map_actions_on_run(sim);
+                    if let Some(choice_index) = choose_index(&action.command) {
+                        if let Some(map_action) = legal_actions.get(choice_index).copied() {
+                            let Ok(next) = apply_map_action_on_run(sim, map_action) else {
+                                let boundary = SeedStartBoundary {
+                                    path: format!("$.actions[step={}].command", action.step),
+                                    category: "unsupported_map_path".to_owned(),
+                                    reason: "core map simulation rejected transition".to_owned(),
+                                };
+                                report.unsupported.push(UnsupportedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    reason: boundary.reason.clone(),
+                                });
+                                return boundary;
+                            };
+                            map_pick_index += 1;
+                            match next.phase {
+                                RunPhase::Event => {
+                                    let label = format!("map event node {}", event_room_index + 1);
+                                    compare_subset(
+                                        report,
+                                        action,
+                                        &label,
+                                        seed_start_event_observed_subset(&post.message),
+                                        seed_start_event_simulated_subset(&next, &relics),
+                                    );
+                                    event_room_index += 1;
+                                    seed_sim = Some(next);
+                                    phase = SeedStartPhase::Event;
+                                }
+                                RunPhase::Combat => {
+                                    let label = seed_start_map_label(combat_index);
+                                    compare_subset(
+                                        report,
+                                        action,
+                                        &label,
+                                        seed_start_encounter_observed_subset(&post.message),
+                                        seed_start_simulated_combat_subset(
+                                            &next,
+                                            &post.message,
+                                            false,
+                                        ),
+                                    );
+                                    seed_sim = Some(next);
+                                    phase = SeedStartPhase::Combat;
+                                    combat_step = 0;
+                                }
+                                RunPhase::Rest => {
+                                    let label = format!("map rest node {}", map_path_xs.len());
+                                    compare_subset(
+                                        report,
+                                        action,
+                                        &label,
+                                        seed_start_rest_observed_subset(&post.message),
+                                        seed_start_rest_simulated_subset(&next, &relics),
+                                    );
+                                    seed_sim = Some(next);
+                                    phase = SeedStartPhase::Rest;
+                                }
+                                RunPhase::Treasure => {
+                                    let label = format!("map treasure node {}", map_path_xs.len());
+                                    compare_subset(
+                                        report,
+                                        action,
+                                        &label,
+                                        seed_start_treasure_observed_subset(&post.message),
+                                        seed_start_treasure_simulated_subset(&next),
+                                    );
+                                    seed_sim = Some(next);
+                                    phase = SeedStartPhase::Treasure;
+                                }
+                                RunPhase::Shop => {
+                                    let label = format!("map shop node {}", map_path_xs.len());
+                                    compare_subset(
+                                        report,
+                                        action,
+                                        &label,
+                                        seed_start_shop_observed_subset(&post.message),
+                                        seed_start_shop_room_simulated_subset(&next, &relics),
+                                    );
+                                    seed_sim = Some(next);
+                                    phase = SeedStartPhase::Shop;
+                                }
+                                RunPhase::Idle => {
+                                    compare_subset(
+                                        report,
+                                        action,
+                                        "map return",
+                                        seed_start_map_return_observed_subset(&post.message),
+                                        seed_start_map_return_observed_subset(&post.message),
+                                    );
+                                    seed_sim = Some(next);
+                                    phase = SeedStartPhase::Map;
+                                }
+                                RunPhase::Reward => {
+                                    compare_subset(
+                                        report,
+                                        action,
+                                        "map reward",
+                                        seed_start_reward_observed_subset(&post.message),
+                                        seed_start_reward_simulated_subset(
+                                            &next,
+                                            &post.message,
+                                            &relics,
+                                            None,
+                                        ),
+                                    );
+                                    seed_sim = Some(next);
+                                    phase = SeedStartPhase::Reward;
+                                }
+                            }
+                            seed_start_sync_carry_from_run(
+                                seed_sim.as_ref().expect("map transition stored run"),
+                                &mut relics,
+                                &mut deck_ids,
+                            );
+                            continue;
+                        }
+                    }
+                }
                 let room_kind = if start.external_seed == "TEST" {
                     seed_start_test_room_kind_for_pick(map_pick_index)
                 } else if start.external_seed == "M290001" {
@@ -1951,6 +2075,13 @@ fn verify_seed_start_transitions(
                             .to_owned(),
                     };
                 };
+                if let Some(game) = pre.message.get("game_state") {
+                    let event_rng_seed = game.get("seed").and_then(Value::as_u64).unwrap_or(0);
+                    if let Some(event) = observed_event_screen(game, event_rng_seed) {
+                        sim.phase = RunPhase::Event;
+                        sim.event = Some(event);
+                    }
+                }
                 let Ok(next) = apply_event_action(
                     sim,
                     EventAction::Choose {
@@ -1999,28 +2130,34 @@ fn verify_seed_start_transitions(
                     report,
                     action,
                     "event choice",
-                    if screen_type(&post.message) == Some("MAP") {
-                        seed_start_map_return_observed_subset(&post.message)
-                    } else {
-                        seed_start_event_observed_subset(&post.message)
+                    match screen_type(&post.message) {
+                        Some("MAP") => seed_start_map_return_observed_subset(&post.message),
+                        Some("COMBAT_REWARD") | Some("CARD_REWARD") | Some("BOSS_REWARD") => {
+                            seed_start_reward_observed_subset(&post.message)
+                        }
+                        _ => seed_start_event_observed_subset(&post.message),
                     },
-                    if next.phase == RunPhase::Idle && next.event.is_none() {
-                        seed_start_simulated_map_return(
+                    match next.phase {
+                        RunPhase::Idle if next.event.is_none() => seed_start_simulated_map_return(
                             start.numeric_seed,
                             &map_path_xs,
                             Some(&next),
                             &relics,
                             &deck_ids,
                             &deck_ids,
-                        )
-                    } else {
-                        seed_start_event_simulated_subset(&next, &relics)
+                        ),
+                        RunPhase::Reward => {
+                            seed_start_reward_simulated_subset(&next, &post.message, &relics, None)
+                        }
+                        _ => seed_start_event_simulated_subset(&next, &relics),
                     },
                 );
                 seed_start_sync_carry_from_run(&next, &mut relics, &mut deck_ids);
                 *sim = next.clone();
                 if next.phase == RunPhase::Idle {
                     phase = SeedStartPhase::Map;
+                } else if next.phase == RunPhase::Reward {
+                    phase = SeedStartPhase::Reward;
                 }
             }
             SeedStartPhase::Map => {
@@ -2179,6 +2316,23 @@ fn verify_seed_start_transitions(
                             reason: "seed-start combat potion simulation failed".to_owned(),
                         };
                     };
+                    let mut next = next;
+                    if matches!(
+                        screen_type(&post.message),
+                        Some("COMBAT_REWARD" | "CARD_REWARD")
+                    ) {
+                        seed_start_sync_run_from_observed(&mut next, &post.message);
+                        seed_start_sync_reward_offers_from_observed(&mut next, &post.message);
+                        seed_start_sync_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        *sim = next;
+                        phase = SeedStartPhase::Reward;
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "reward-screen potion use".to_owned(),
+                        });
+                        continue;
+                    }
                     seed_start_compare_combat_subset(
                         report,
                         action,
@@ -2590,6 +2744,40 @@ fn verify_seed_start_transitions(
                     });
                     return boundary;
                 };
+
+                if let Some(potion_use) = parse_potion_use(&action.command) {
+                    let next = apply_run_action(
+                        sim,
+                        RunAction::UsePotion {
+                            slot: potion_use.slot,
+                            target: potion_use.target,
+                        },
+                    )
+                    .map_err(|err| err.to_string());
+                    let Ok(mut next) = next else {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_reward_path".to_owned(),
+                            reason: next.err().unwrap_or_default(),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return boundary;
+                    };
+                    seed_start_sync_run_from_observed(&mut next, &post.message);
+                    seed_start_sync_reward_offers_from_observed(&mut next, &post.message);
+                    seed_start_sync_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    *sim = next;
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "reward-screen potion use".to_owned(),
+                    });
+                    continue;
+                }
 
                 match seed_start_apply_reward_choose(
                     sim,
@@ -4498,7 +4686,7 @@ fn seed_start_sync_reward_offers_from_observed(run: &mut RunState, message: &Val
                 reward.gold_offer = offer.get("gold").and_then(Value::as_i64).unwrap_or(0) as i32;
             }
             Some("POTION") => {
-                reward.potion_offer = Some(Potion::Energy);
+                reward.potion_offer = observed_reward_potion_offer(game);
             }
             Some("RELIC") => {
                 reward.relic_key_offer =
@@ -5365,7 +5553,7 @@ fn potion_from_trace_name(name: &str) -> Option<Potion> {
         "Fire Potion" => Some(Potion::Fire),
         "Flex Potion" => Some(Potion::Flex),
         "Fruit Juice" => Some(Potion::FruitJuice),
-        "Gamblers Brew" => Some(Potion::GamblersBrew),
+        "Gamblers Brew" | "Gambler's Brew" | "GamblersBrew" => Some(Potion::GamblersBrew),
         "Heart of Iron" => Some(Potion::HeartOfIron),
         "Liquid Bronze" => Some(Potion::LiquidBronze),
         "Liquid Memories" => Some(Potion::LiquidMemories),
@@ -5926,22 +6114,7 @@ fn seed_start_run_from_combat_entry(
     run.event_rng_seed = numeric_seed as u64;
     run.misc_rng_seed = numeric_seed as u64;
     if let Some(prev) = carry {
-        run.relic_keys = prev.relic_keys.clone();
-        if matches!(external_seed, "CODEX03" | "TEST" | "M290001" | "M290008") {
-            run.card_rng_counter = prev.card_rng_counter;
-            run.card_rarity_factor = prev.card_rarity_factor;
-            run.treasure_rng_counter = prev.treasure_rng_counter;
-            run.potion_rng_counter = prev.potion_rng_counter;
-            run.potion_chance = prev.potion_chance;
-            run.relic_rng_counter = prev.relic_rng_counter;
-            run.merchant_rng_counter = prev.merchant_rng_counter;
-            run.relic_pools = prev.relic_pools.clone();
-            run.misc_rng_counter = prev.misc_rng_counter;
-            run.event_rng_counter = prev.event_rng_counter;
-            run.act1_event_list = prev.act1_event_list.clone();
-            run.act1_shrine_list = prev.act1_shrine_list.clone();
-            run.neow_lament_combats_remaining = prev.neow_lament_combats_remaining;
-        }
+        seed_start_carry_persistent_run_state(&mut run, prev);
     } else {
         seed_start_apply_reward_rng_snapshot(&mut run, numeric_seed, external_seed, combat_index);
     }
@@ -5978,6 +6151,48 @@ fn seed_start_run_from_combat_entry(
         }
     }
     Some(run)
+}
+
+fn seed_start_carry_persistent_run_state(run: &mut RunState, prev: &RunState) {
+    run.card_rng_counter = prev.card_rng_counter;
+    run.card_rarity_factor = prev.card_rarity_factor;
+    run.treasure_rng_counter = prev.treasure_rng_counter;
+    run.potion_rng_counter = prev.potion_rng_counter;
+    run.potion_chance = prev.potion_chance;
+    run.relic_rng_counter = prev.relic_rng_counter;
+    run.relic_pools = prev.relic_pools.clone();
+    run.relic_keys = prev.relic_keys.clone();
+    run.omamori_charges_used = prev.omamori_charges_used;
+    run.maw_bank_broken = prev.maw_bank_broken;
+    run.ancient_tea_set_armed = prev.ancient_tea_set_armed;
+    run.lizard_tail_used = prev.lizard_tail_used;
+    run.girya_lifts = prev.girya_lifts;
+    run.matryoshka_chests_opened = prev.matryoshka_chests_opened;
+    run.incense_burner_counter = prev.incense_burner_counter;
+    run.tiny_chest_counter = prev.tiny_chest_counter;
+    run.event_room_monster_chance = prev.event_room_monster_chance;
+    run.event_room_shop_chance = prev.event_room_shop_chance;
+    run.event_room_treasure_chance = prev.event_room_treasure_chance;
+    run.wing_boots_charges = prev.wing_boots_charges;
+    run.neow_lament_combats_remaining = prev.neow_lament_combats_remaining;
+    run.normal_combat_count = prev.normal_combat_count;
+    run.elite_combat_count = prev.elite_combat_count;
+    run.merchant_rng_counter = prev.merchant_rng_counter;
+    run.event_rng_counter = prev.event_rng_counter;
+    run.misc_rng_counter = prev.misc_rng_counter;
+    run.monster_rng_counter = prev.monster_rng_counter;
+    run.normal_encounter_list = prev.normal_encounter_list.clone();
+    run.elite_encounter_list = prev.elite_encounter_list.clone();
+    run.current_floor = prev.current_floor;
+    run.current_act = prev.current_act;
+    run.act1_boss = prev.act1_boss;
+    run.shop_remove_count = prev.shop_remove_count;
+    run.act1_event_list = prev.act1_event_list.clone();
+    run.act1_shrine_list = prev.act1_shrine_list.clone();
+    run.act2_event_list = prev.act2_event_list.clone();
+    run.act2_shrine_list = prev.act2_shrine_list.clone();
+    run.act3_event_list = prev.act3_event_list.clone();
+    run.act3_shrine_list = prev.act3_shrine_list.clone();
 }
 
 fn seed_start_opening_piles_match(simulated: &CardPiles, message: &Value) -> bool {
@@ -6689,11 +6904,14 @@ fn run_from_observed_noncombat(message: &Value) -> Option<RunState> {
         elite_encounter_list: Vec::new(),
         current_floor: int(game, "floor"),
         current_act: int(game, "act"),
+        act1_boss: observed_act1_boss(game),
         shop_remove_count: 0,
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
         act2_event_list: Vec::new(),
         act2_shrine_list: Vec::new(),
+        act3_event_list: Vec::new(),
+        act3_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         treasure_room: None,
         rest_room_complete: false,
@@ -6717,6 +6935,9 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
         .and_then(|state| state.get("event_name"))
         .and_then(Value::as_str)
         .unwrap_or("");
+    if event_id == "Lab" || event_name == "Lab" {
+        return Some(event_screen(Event::Lab));
+    }
     if event_id != "Neow Event" && event_name != "Neow" {
         return None;
     }
@@ -7196,11 +7417,14 @@ fn run_from_observed_combat_impl(
         elite_encounter_list: Vec::new(),
         current_floor: int(game, "floor"),
         current_act: 1,
+        act1_boss: observed_act1_boss(game),
         shop_remove_count: 0,
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
         act2_event_list: Vec::new(),
         act2_shrine_list: Vec::new(),
+        act3_event_list: Vec::new(),
+        act3_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         lizard_tail_used: false,
         girya_lifts: 0,
@@ -7307,11 +7531,14 @@ fn reward_run_from_observed(message: &Value) -> Option<RunState> {
         elite_encounter_list: Vec::new(),
         current_floor: int(game, "floor"),
         current_act: 1,
+        act1_boss: observed_act1_boss(game),
         shop_remove_count: 0,
         act1_event_list: Vec::new(),
         act1_shrine_list: Vec::new(),
         act2_event_list: Vec::new(),
         act2_shrine_list: Vec::new(),
+        act3_event_list: Vec::new(),
+        act3_shrine_list: Vec::new(),
         ascension: int(game, "ascension_level") as u8,
         lizard_tail_used: false,
         girya_lifts: 0,
@@ -7649,6 +7876,7 @@ fn monsters_from_observed(
             MonsterState {
                 id: MonsterId::new(index as u64 + 1),
                 hp: int(monster, "current_hp"),
+                max_hp: int(monster, "max_hp"),
                 block: int(monster, "block"),
                 alive: int(monster, "current_hp") > 0,
                 escaped: false,
@@ -7667,6 +7895,7 @@ fn monsters_from_observed(
                 move_history,
                 gremlin_leader_slot: None,
                 stasis_card: None,
+                initial_intent_locked: false,
                 intent: replay.intent,
             }
         })
@@ -7812,12 +8041,14 @@ fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Op
 
 fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> MonsterIntent {
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, CENTURION_ID, CHOSEN_ID, CULTIST_ID,
-        DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_FAT_ID,
-        GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID,
-        ORB_WALKER_ID, RED_LOUSE_ID, SENTRY_ID, SHELLED_PARASITE_ID, SNAKE_PLANT_ID, SNECKO_ID,
-        SPHERIC_GUARDIAN_ACTIVATE_BLOCK, SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK,
-        SPHERIC_GUARDIAN_ID, SPIKE_SLIME_ID,
+        gremlin_nob_enrage, ACID_SLIME_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
+        CENTURION_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID,
+        GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID,
+        HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPULSOR_ID, SENTRY_ID,
+        SHELLED_PARASITE_ID, SLIME_BOSS_A19_SLIMED_COUNT, SLIME_BOSS_ID, SLIME_BOSS_SLIMED_COUNT,
+        SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK, SPHERIC_GUARDIAN_FRAIL,
+        SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
+        THE_COLLECTOR_ID,
     };
 
     let damage = int(monster, "move_base_damage");
@@ -7844,15 +8075,38 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             damage: damage.max(0),
         },
         "DEBUFF" if content_id == SENTRY_ID => MonsterIntent::AddDazedToDiscard { count: 2 },
+        "DEBUFF" if content_id == REPULSOR_ID => MonsterIntent::AddDazedToDraw { count: 2 },
         "DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerWeakStrengthSelf {
             weak: 3,
             strength: 3,
         },
+        "BUFF" if content_id == SPIKER_ID => MonsterIntent::StrengthAndBlock {
+            strength: 0,
+            block: 0,
+        },
+        "BUFF" | "DEBUG" if content_id == GREMLIN_NOB_ID => MonsterIntent::StrengthSelf {
+            amount: gremlin_nob_enrage(ascension),
+        },
+        "BUFF" if content_id == BYRD_ID => MonsterIntent::StrengthSelf { amount: 1 },
         "STRONG_DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerHex { amount: 1 },
         "STRONG_DEBUFF" if content_id == SNAKE_PLANT_ID => {
             MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 }
         }
+        "STRONG_DEBUFF" if content_id == THE_COLLECTOR_ID => {
+            MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                frail: 3,
+                weak: 3,
+                vulnerable: 3,
+            }
+        }
         "STRONG_DEBUFF" if content_id == SNECKO_ID => MonsterIntent::ApplyPlayerConfusion,
+        "STRONG_DEBUFF" if content_id == SLIME_BOSS_ID => MonsterIntent::AddSlimedToDiscard {
+            count: if ascension >= 19 {
+                SLIME_BOSS_A19_SLIMED_COUNT
+            } else {
+                SLIME_BOSS_SLIMED_COUNT
+            },
+        },
         "DEBUFF"
             if content_id == SPIKE_SLIME_ID
                 && int(monster, "max_hp")
@@ -7895,9 +8149,39 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             damage: damage.max(0),
             weak: 1,
         },
+        "ATTACK_DEBUFF" if content_id == GREMLIN_NOB_ID => {
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: damage.max(0),
+                vulnerable: 2,
+            }
+        }
+        "ATTACK_DEBUFF" if content_id == SLAVER_BLUE_ID => MonsterIntent::AttackApplyPlayerWeak {
+            damage: damage.max(0),
+            weak: if ascension >= 17 { 2 } else { 1 },
+        },
+        "ATTACK_DEBUFF" if content_id == SLAVER_RED_ID => {
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: damage.max(0),
+                vulnerable: if ascension >= 17 { 2 } else { 1 },
+            }
+        }
+        "ATTACK_DEBUFF" if content_id == TASKMASTER_ID => MonsterIntent::AttackAddWoundsToDiscard {
+            damage: damage.max(0),
+            count: if ascension >= 18 {
+                3
+            } else if ascension >= 3 {
+                2
+            } else {
+                1
+            },
+        },
         "ATTACK_DEFEND" if content_id == SPHERIC_GUARDIAN_ID => MonsterIntent::AttackAndBlock {
             damage: damage.max(0),
             block: SPHERIC_GUARDIAN_HARDEN_BLOCK,
+        },
+        "ATTACK_DEFEND" if content_id == JAW_WORM_ID => MonsterIntent::AttackAndBlock {
+            damage: damage.max(0),
+            block: 5,
         },
         "ATTACK_DEBUFF" => MonsterIntent::Attack {
             damage: damage.max(0),
@@ -8706,7 +8990,7 @@ fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
 }
 
 fn intent_key(monster: &MonsterState) -> String {
-    use sts_core::content::monsters::{ACID_SLIME_ID, SPIKE_SLIME_ID};
+    use sts_core::content::monsters::{ACID_SLIME_ID, SLIME_BOSS_ID, SPIKE_SLIME_ID};
 
     match monster.intent {
         MonsterIntent::Attack { .. }
@@ -8745,25 +9029,38 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::AttackApplyPlayerVulnerable { .. }
         | MonsterIntent::AttackAddWoundsToDiscard { .. }
         | MonsterIntent::ApplyPlayerHex { .. }
-        | MonsterIntent::ApplyPlayerFrailAndWeak { .. }
         | MonsterIntent::ApplyPlayerWeakStrengthSelf { .. }
         | MonsterIntent::ApplyPlayerConfusion
         | MonsterIntent::AddDazedToDiscard { .. }
+        | MonsterIntent::AddDazedToDraw { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
         | MonsterIntent::AddBurnToDiscardAndDraw { .. }
         | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
-        MonsterIntent::ApplyPlayerEntangled { .. } => "STRONG_DEBUFF".to_owned(),
+        MonsterIntent::ApplyPlayerFrailAndWeak { .. }
+        | MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. }
+        | MonsterIntent::ApplyPlayerEntangled { .. } => "STRONG_DEBUFF".to_owned(),
+        MonsterIntent::AddSlimedToDiscard { .. } if monster.content_id == SLIME_BOSS_ID => {
+            "STRONG_DEBUFF".to_owned()
+        }
+        MonsterIntent::AddSlimedToDiscard { .. } => "DEBUFF".to_owned(),
         MonsterIntent::Sleep => "SLEEP".to_owned(),
         MonsterIntent::Stun => "STUN".to_owned(),
         MonsterIntent::Escape => "ESCAPE".to_owned(),
-        MonsterIntent::DefensiveCharge { .. } | MonsterIntent::SummonGremlins { .. } => {
-            "UNKNOWN".to_owned()
-        }
+        MonsterIntent::DefensiveCharge { .. }
+        | MonsterIntent::SummonGremlins { .. }
+        | MonsterIntent::SummonCollectorTorchHeads { .. } => "UNKNOWN".to_owned(),
     }
 }
 
 fn int(value: &Value, key: &str) -> i32 {
     value.get(key).and_then(Value::as_i64).unwrap_or(0) as i32
+}
+
+fn observed_act1_boss(game: &Value) -> Act1Boss {
+    game.get("act_boss")
+        .and_then(Value::as_str)
+        .and_then(Act1Boss::from_trace_name)
+        .unwrap_or_default()
 }
 
 fn power_id(power: &Value) -> Option<String> {
@@ -8822,6 +9119,29 @@ mod tests {
 
         assert_eq!(choices.len(), 1);
         assert_eq!(choices[0].content_id, CORRUPTION_PLUS_ID);
+    }
+
+    #[test]
+    fn observed_reward_imports_communication_mod_gamblers_brew_id() {
+        let game = json!({
+            "screen_type": "COMBAT_REWARD",
+            "screen_state": {
+                "rewards": [
+                    {
+                        "reward_type": "POTION",
+                        "potion": {
+                            "id": "GamblersBrew",
+                            "name": "Gambler's Brew"
+                        }
+                    }
+                ]
+            }
+        });
+
+        assert_eq!(
+            observed_reward_potion_offer(&game),
+            Some(Potion::GamblersBrew)
+        );
     }
 
     #[test]
@@ -9220,6 +9540,27 @@ mod tests {
     }
 
     #[test]
+    fn jaw_worm_attack_defend_observed_intent_imports_thrash() {
+        use sts_core::content::monsters::JAW_WORM_ID;
+
+        let monster = json!({
+            "id": "JawWorm",
+            "intent": "ATTACK_DEFEND",
+            "move_base_damage": 7,
+            "move_hits": 1,
+            "move_id": 3
+        });
+
+        assert_eq!(
+            observed_intent(&monster, JAW_WORM_ID, 0),
+            MonsterIntent::AttackAndBlock {
+                damage: 7,
+                block: 5
+            }
+        );
+    }
+
+    #[test]
     fn gremlin_leader_defend_buff_observed_intent_imports_encourage() {
         use sts_core::content::monsters::GREMLIN_LEADER_ID;
 
@@ -9258,7 +9599,7 @@ mod tests {
 
     #[test]
     fn gremlin_fat_attack_debuff_observed_intent_imports_weak() {
-        use sts_core::content::monsters::GREMLIN_FAT_ID;
+        use sts_core::content::monsters::{GREMLIN_FAT_ID, SLAVER_BLUE_ID, TASKMASTER_ID};
 
         let monster = json!({
             "id": "GremlinFat",
@@ -9270,6 +9611,89 @@ mod tests {
         assert_eq!(
             observed_intent(&monster, GREMLIN_FAT_ID, 0),
             MonsterIntent::AttackApplyPlayerWeak { damage: 4, weak: 1 }
+        );
+
+        let slaver = json!({
+            "id": "SlaverBlue",
+            "intent": "ATTACK_DEBUFF",
+            "move_id": 4,
+            "move_base_damage": 7
+        });
+
+        assert_eq!(
+            observed_intent(&slaver, SLAVER_BLUE_ID, 0),
+            MonsterIntent::AttackApplyPlayerWeak { damage: 7, weak: 1 }
+        );
+
+        let taskmaster = json!({
+            "id": "SlaverBoss",
+            "intent": "ATTACK_DEBUFF",
+            "move_id": 2,
+            "move_base_damage": 7
+        });
+
+        assert_eq!(
+            observed_intent(&taskmaster, TASKMASTER_ID, 0),
+            MonsterIntent::AttackAddWoundsToDiscard {
+                damage: 7,
+                count: 1
+            }
+        );
+    }
+
+    #[test]
+    fn gremlin_nob_buff_observed_intent_imports_bellow() {
+        use sts_core::content::monsters::{gremlin_nob_enrage, GREMLIN_NOB_ID};
+
+        let monster = json!({
+            "id": "GremlinNob",
+            "intent": "BUFF",
+            "move_id": 3,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GREMLIN_NOB_ID, 0),
+            MonsterIntent::StrengthSelf {
+                amount: gremlin_nob_enrage(0)
+            }
+        );
+    }
+
+    #[test]
+    fn byrd_buff_observed_intent_imports_caw() {
+        use sts_core::content::monsters::BYRD_ID;
+
+        let monster = json!({
+            "id": "Byrd",
+            "intent": "BUFF",
+            "move_id": 6,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, BYRD_ID, 0),
+            MonsterIntent::StrengthSelf { amount: 1 }
+        );
+    }
+
+    #[test]
+    fn gremlin_nob_attack_debuff_observed_intent_imports_skull_bash() {
+        use sts_core::content::monsters::GREMLIN_NOB_ID;
+
+        let monster = json!({
+            "id": "GremlinNob",
+            "intent": "ATTACK_DEBUFF",
+            "move_id": 2,
+            "move_base_damage": 6
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GREMLIN_NOB_ID, 0),
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: 6,
+                vulnerable: 2
+            }
         );
     }
 
@@ -9287,6 +9711,46 @@ mod tests {
         assert_eq!(
             observed_intent(&monster, HEALER_ID, 0),
             MonsterIntent::StrengthAllMonsters { amount: 2 }
+        );
+    }
+
+    #[test]
+    fn slime_boss_strong_debuff_observed_intent_imports_sticky() {
+        use sts_core::content::monsters::{SLIME_BOSS_ID, SLIME_BOSS_SLIMED_COUNT};
+
+        let monster = json!({
+            "id": "SlimeBoss",
+            "intent": "STRONG_DEBUFF",
+            "move_id": 4,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SLIME_BOSS_ID, 0),
+            MonsterIntent::AddSlimedToDiscard {
+                count: SLIME_BOSS_SLIMED_COUNT
+            }
+        );
+    }
+
+    #[test]
+    fn collector_strong_debuff_observed_intent_imports_mega_debuff() {
+        use sts_core::content::monsters::THE_COLLECTOR_ID;
+
+        let monster = json!({
+            "id": "TheCollector",
+            "intent": "STRONG_DEBUFF",
+            "move_id": 4,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, THE_COLLECTOR_ID, 0),
+            MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                frail: 3,
+                weak: 3,
+                vulnerable: 3
+            }
         );
     }
 
@@ -9356,6 +9820,57 @@ mod tests {
         assert_eq!(
             observed_intent(&monster, SENTRY_ID, 0),
             MonsterIntent::AddDazedToDiscard { count: 2 }
+        );
+    }
+
+    #[test]
+    fn repulsor_debuff_observed_intent_imports_draw_dazes() {
+        use sts_core::content::monsters::REPULSOR_ID;
+
+        let monster = json!({
+            "id": "Repulsor",
+            "intent": "DEBUFF",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, REPULSOR_ID, 0),
+            MonsterIntent::AddDazedToDraw { count: 2 }
+        );
+    }
+
+    #[test]
+    fn observed_event_screen_imports_lab() {
+        let game = json!({
+            "screen_type": "EVENT",
+            "screen_state": {
+                "event_id": "Lab",
+                "event_name": "Lab"
+            }
+        });
+
+        assert_eq!(
+            observed_event_screen(&game, 0).map(|screen| screen.event),
+            Some(Event::Lab)
+        );
+    }
+
+    #[test]
+    fn spiker_buff_observed_intent_imports_non_damage_buff() {
+        use sts_core::content::monsters::SPIKER_ID;
+
+        let monster = json!({
+            "id": "Spiker",
+            "intent": "BUFF",
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SPIKER_ID, 0),
+            MonsterIntent::StrengthAndBlock {
+                strength: 0,
+                block: 0
+            }
         );
     }
 
@@ -10594,6 +11109,55 @@ mod tests {
     }
 
     #[test]
+    fn seed_start_combat_entry_carries_persistent_run_streams_for_live_seeds() {
+        let mut prev = RunState::map_fixture();
+        prev.card_rng_counter = 7;
+        prev.card_rarity_factor = -3;
+        prev.treasure_rng_counter = 11;
+        prev.potion_rng_counter = 13;
+        prev.potion_chance = 40;
+        prev.relic_rng_counter = 17;
+        prev.relic_keys = vec![RelicKey::BurningBlood];
+        prev.tiny_chest_counter = 2;
+        prev.event_room_monster_chance = 20;
+        prev.event_room_shop_chance = 6;
+        prev.event_room_treasure_chance = 4;
+        prev.normal_combat_count = 5;
+        prev.elite_combat_count = 1;
+        prev.merchant_rng_counter = 19;
+        prev.event_rng_counter = 23;
+        prev.misc_rng_counter = 29;
+        prev.monster_rng_counter = 31;
+        prev.current_floor = 24;
+        prev.current_act = 2;
+        prev.shop_remove_count = 1;
+
+        let mut entered = RunState::map_fixture();
+        seed_start_carry_persistent_run_state(&mut entered, &prev);
+
+        assert_eq!(entered.card_rng_counter, 7);
+        assert_eq!(entered.card_rarity_factor, -3);
+        assert_eq!(entered.treasure_rng_counter, 11);
+        assert_eq!(entered.potion_rng_counter, 13);
+        assert_eq!(entered.potion_chance, 40);
+        assert_eq!(entered.relic_rng_counter, 17);
+        assert_eq!(entered.relic_keys, vec![RelicKey::BurningBlood]);
+        assert_eq!(entered.tiny_chest_counter, 2);
+        assert_eq!(entered.event_room_monster_chance, 20);
+        assert_eq!(entered.event_room_shop_chance, 6);
+        assert_eq!(entered.event_room_treasure_chance, 4);
+        assert_eq!(entered.normal_combat_count, 5);
+        assert_eq!(entered.elite_combat_count, 1);
+        assert_eq!(entered.merchant_rng_counter, 19);
+        assert_eq!(entered.event_rng_counter, 23);
+        assert_eq!(entered.misc_rng_counter, 29);
+        assert_eq!(entered.monster_rng_counter, 31);
+        assert_eq!(entered.current_floor, 24);
+        assert_eq!(entered.current_act, 2);
+        assert_eq!(entered.shop_remove_count, 1);
+    }
+
+    #[test]
     fn seed_start_neow_lament_uses_core_run_counter_on_combat_entry() {
         let Some(content) =
             crate::load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
@@ -11318,6 +11882,9 @@ mod tests {
             transition.action_step == 3 && transition.label == "Neow curse transform two grid"
         }));
         assert_eq!(initial_run.card_rng_counter, 0);
+        assert!(report.verified.iter().any(|transition| {
+            transition.action_step == 5 && transition.label == "Neow grid confirm"
+        }));
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 5 && transition.label == "Neow grid confirm"
         }));

@@ -3,11 +3,11 @@ use crate::{
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
-        get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, DUAL_WIELD_ID,
-        DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID,
-        HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
+        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FORETHOUGHT_ID,
+        FORETHOUGHT_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
+        TRANSMUTATION_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -56,7 +56,9 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
             continue;
         }
 
-        if definition.id == CLASH_ID && !hand_contains_only_attacks(state) {
+        if (definition.id == CLASH_ID || definition.id == CLASH_PLUS_ID)
+            && !hand_contains_only_attacks(state)
+        {
             continue;
         }
 
@@ -244,7 +246,9 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 return Err(SimError::IllegalAction("player is entangled"));
             }
 
-            if definition.id == CLASH_ID && !hand_contains_only_attacks(state) {
+            if (definition.id == CLASH_ID || definition.id == CLASH_PLUS_ID)
+                && !hand_contains_only_attacks(state)
+            {
                 return Err(SimError::IllegalAction(
                     "Clash requires only attacks in hand",
                 ));

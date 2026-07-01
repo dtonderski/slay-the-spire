@@ -307,6 +307,9 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     let mut next = run.clone();
     let grid = next.card_grid.as_mut().expect("grid present");
     grid.selected = Some(index);
+    if matches!(grid.purpose, GridPurpose::Bottle { .. }) {
+        return confirm_grid(&next);
+    }
     Ok(next)
 }
 
@@ -836,8 +839,7 @@ mod tests {
         assert_eq!(grid.cards.len(), 1);
         assert_eq!(grid.cards[0].content_id, FEEL_NO_PAIN_ID);
 
-        let selected = select_grid_card(&run, 0).expect("select");
-        let after = confirm_grid(&selected).expect("confirm");
+        let after = select_grid_card(&run, 0).expect("select");
 
         assert!(after.card_grid.is_none());
         assert!(after
@@ -917,7 +919,10 @@ mod tests {
         let after_second = select_grid_card(&after_first, 1).expect("select second");
 
         assert!(after_second.card_grid.is_none());
-        assert_eq!(after_second.event.as_ref().map(|screen| screen.stage), Some(2));
+        assert_eq!(
+            after_second.event.as_ref().map(|screen| screen.stage),
+            Some(2)
+        );
         assert_eq!(after_second.deck.len(), run.deck.len() - 2);
         assert!(!after_second
             .deck
@@ -996,7 +1001,10 @@ mod tests {
         let after_second = select_grid_card(&after_first, 1).expect("select second");
 
         assert!(after_second.card_grid.is_none());
-        assert_eq!(after_second.event.as_ref().map(|screen| screen.stage), Some(2));
+        assert_eq!(
+            after_second.event.as_ref().map(|screen| screen.stage),
+            Some(2)
+        );
         for card in removed {
             assert!(!after_second
                 .deck
