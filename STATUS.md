@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Latest card-fidelity audit follow-up: fixed a generic Sword Boomerang
+  definition mismatch found by comparing local targets against decompiled
+  constructors. Decompiled `SwordBoomerang.java` uses `CardTarget.ALL_ENEMY`,
+  `baseDamage=3`, and queues `AttackDamageRandomEnemyAction` 3 times, with
+  Sword Boomerang+ upgrading the hit count to 4; local base and upgraded
+  definitions now use `TargetRequirement::AllEnemies` while retaining the
+  random-living-enemy effect path. The audit artifact records the source,
+  database, local facts, and fixed verdict for both forms. Checks:
+  `cargo fmt --check` passed; `cargo test -p sts_core --test card_fidelity`
+  passed; `cargo clippy` passed with existing warnings after setting
+  `PYO3_PYTHON` to the bundled Python; active live-regression manifest replay
+  passed via `uv run python -m unittest python.tests.test_live_regression_traces`.
+  Full `cargo test` still fails only in the pre-existing stale `milestone6`
+  monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Latest card-fidelity audit follow-up: fixed a generic Slimed mismatch found
   by comparing local card definitions/effects against decompiled constructors.
   Decompiled `Slimed.java` is cost 1 Status, `CardTarget.SELF`, `exhaust=true`,

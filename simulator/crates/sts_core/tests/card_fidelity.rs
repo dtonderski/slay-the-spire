@@ -5,8 +5,42 @@ use sts_core::{
         cards,
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
     },
-    CardId, CardInstance, CombatAction, CombatState, MonsterId,
+    legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
 };
+
+#[test]
+fn sword_boomerang_definitions_target_all_enemies_without_selection() {
+    for definition in [cards::SWORD_BOOMERANG, cards::SWORD_BOOMERANG_PLUS] {
+        assert_eq!(definition.target, TargetRequirement::AllEnemies);
+        assert_eq!(definition.values.damage, Some(3));
+    }
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::SWORD_BOOMERANG_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    assert!(
+        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        })
+    );
+
+    let err = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect_err("Sword Boomerang should not accept a selected target");
+
+    assert_eq!(
+        err,
+        sts_core::SimError::IllegalAction("all-enemies card cannot have a target")
+    );
+}
 
 #[test]
 fn slimed_plays_without_monster_target_and_exhausts_itself() {

@@ -3710,7 +3710,7 @@ pub const SWORD_BOOMERANG: CardDefinition = CardDefinition {
     name: "Sword Boomerang",
     cost: 1,
     card_type: CardType::Attack,
-    target: TargetRequirement::None,
+    target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(3),
         block: None,
@@ -3725,7 +3725,7 @@ pub const SWORD_BOOMERANG_PLUS: CardDefinition = CardDefinition {
     name: "Sword Boomerang+",
     cost: 1,
     card_type: CardType::Attack,
-    target: TargetRequirement::None,
+    target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(3),
         block: None,
