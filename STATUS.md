@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- Latest representation-boundary slice: CommunicationMod combat pile order now
+  has an explicit design note and named verifier/replay helpers for observed
+  pile import, simulator-to-visible projection, and bridge `PLAY n` hand-slot
+  mapping. This is behavior-preserving groundwork for removing pile-order
+  leakage from `sts_core`. Checks: `cargo fmt`,
+  `cargo check -p sts_verify --lib`, `uv run maturin develop --release`, and
+  strict replay of `trace-2026-07-02T20-50-14-856Z.jsonl`
+  (`verified=True`, `steps=12`).
 - Latest live trace replay follow-up: the extended
   `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays to exhaustion
   (`verified=True`, `steps=12`, `final_phase=combat`). Generic fix: end-turn

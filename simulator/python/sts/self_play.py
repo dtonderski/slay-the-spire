@@ -2575,7 +2575,7 @@ def _summary(env: Any) -> dict[str, Any]:
     run = state.get("state", state)
     combat = run.get("combat") or {}
     player = combat.get("player") or {}
-    visible_hand = _visible_combat_hand(combat)
+    visible_hand = _hand_to_comm_mod_visible_order(combat)
     piles = combat.get("piles") or {}
     combat_card_reward_choices = _combat_card_reward_choices(combat)
     reward = run.get("reward") or {}
@@ -2625,12 +2625,17 @@ def _summary(env: Any) -> dict[str, Any]:
             "energy": player.get("energy"),
             "hand": [card.get("content_id") for card in visible_hand],
             "hand_count": len(visible_hand),
-            "draw_pile": [card.get("content_id") for card in piles.get("draw_pile") or []],
+            "draw_pile": [
+                card.get("content_id")
+                for card in _draw_pile_to_comm_mod_visible_order(combat)
+            ],
             "discard_pile": [
-                card.get("content_id") for card in piles.get("discard_pile") or []
+                card.get("content_id")
+                for card in _discard_pile_to_comm_mod_visible_order(combat)
             ],
             "exhaust_pile": [
-                card.get("content_id") for card in piles.get("exhaust_pile") or []
+                card.get("content_id")
+                for card in _exhaust_pile_to_comm_mod_visible_order(combat)
             ],
             "card_reward_choices": combat_card_reward_choices,
             "card_reward_choice_count": len(combat_card_reward_choices),
@@ -2651,7 +2656,7 @@ def _summary(env: Any) -> dict[str, Any]:
     }
 
 
-def _visible_combat_hand(combat: dict[str, Any]) -> list[dict[str, Any]]:
+def _hand_to_comm_mod_visible_order(combat: dict[str, Any]) -> list[dict[str, Any]]:
     hand = list(((combat.get("piles") or {}).get("hand") or []))
     selected_indices: set[int] = set()
     exhaust_select = combat.get("exhaust_select")
@@ -2679,6 +2684,18 @@ def _visible_combat_hand(combat: dict[str, Any]) -> list[dict[str, Any]]:
         and card.get("id") != source_card_id
         and _hand_select_shows_card(hand_select_purpose, card)
     ]
+
+
+def _draw_pile_to_comm_mod_visible_order(combat: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(((combat.get("piles") or {}).get("draw_pile") or []))
+
+
+def _discard_pile_to_comm_mod_visible_order(combat: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(((combat.get("piles") or {}).get("discard_pile") or []))
+
+
+def _exhaust_pile_to_comm_mod_visible_order(combat: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(((combat.get("piles") or {}).get("exhaust_pile") or []))
 
 
 def _hand_select_shows_card(purpose: Any, card: dict[str, Any]) -> bool:
@@ -3014,11 +3031,9 @@ def _play_action_for_indices(
     state = json.loads(env.state_json())
     run = state.get("state", state)
     combat = run.get("combat") or {}
-    hand = ((combat.get("piles") or {}).get("hand") or [])
-    hand_index = hand_index - 1
-    if hand_index < 0 or hand_index >= len(hand):
+    card_id = _hand_card_id_from_bridge_slot(combat, hand_index)
+    if card_id is None:
         return None
-    card_id = hand[hand_index].get("id")
     target_id = None
     if target_index is not None:
         target_id = _monster_id_for_visible_index(combat, target_index)
@@ -3037,6 +3052,15 @@ def _play_action_for_indices(
         if play.get("target") == target_id or play.get("target") is None:
             return action
     return None
+
+
+def _hand_card_id_from_bridge_slot(combat: dict[str, Any], hand_slot: int) -> int | None:
+    visible_hand = _hand_to_comm_mod_visible_order(combat)
+    index = hand_slot - 1
+    if index < 0 or index >= len(visible_hand):
+        return None
+    card_id = visible_hand[index].get("id")
+    return card_id if isinstance(card_id, int) else None
 
 
 def _potion_action_for_indices(

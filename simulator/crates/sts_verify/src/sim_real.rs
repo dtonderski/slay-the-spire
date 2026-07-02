@@ -3394,6 +3394,27 @@ fn combat_card_ids(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
+fn cards_to_comm_mod_visible_order<'a>(
+    cards: impl IntoIterator<Item = &'a CardInstance>,
+) -> Vec<String> {
+    cards
+        .into_iter()
+        .map(|card| deck_content_key(card.content_id).to_owned())
+        .collect()
+}
+
+fn hand_to_comm_mod_visible_order(cards: &[CardInstance]) -> Vec<String> {
+    cards_to_comm_mod_visible_order(cards.iter())
+}
+
+fn draw_pile_to_comm_mod_visible_order(cards: &[CardInstance]) -> Vec<String> {
+    cards_to_comm_mod_visible_order(cards.iter())
+}
+
+fn discard_pile_to_comm_mod_visible_order(cards: &[CardInstance]) -> Vec<String> {
+    cards_to_comm_mod_visible_order(cards.iter())
+}
+
 fn power_amount(value: Option<&Value>, id: &str) -> i32 {
     let Some(powers) = value.and_then(Value::as_array) else {
         return 0;
@@ -5601,16 +5622,8 @@ fn seed_start_opening_piles_match(simulated: &CardPiles, message: &Value) -> boo
     };
     let observed_hand = combat_card_ids(combat.get("hand"));
     let observed_draw = combat_card_ids(combat.get("draw_pile"));
-    let simulated_hand = simulated
-        .hand
-        .iter()
-        .map(|card| deck_content_key(card.content_id).to_owned())
-        .collect::<Vec<_>>();
-    let simulated_draw = simulated
-        .draw_pile
-        .iter()
-        .map(|card| deck_content_key(card.content_id).to_owned())
-        .collect::<Vec<_>>();
+    let simulated_hand = hand_to_comm_mod_visible_order(&simulated.hand);
+    let simulated_draw = draw_pile_to_comm_mod_visible_order(&simulated.draw_pile);
     observed_hand == simulated_hand && observed_draw == simulated_draw
 }
 
@@ -5642,31 +5655,22 @@ fn seed_start_simulated_combat_subset(
         "combat_player_hp": combat.player.hp,
         "combat_player_block": combat.player.block,
         "combat_player_energy": combat.player.energy,
-        "hand_ids": combat
-            .piles
-            .hand
-            .iter()
-            .enumerate()
-            .filter(|(index, card)| {
-                combat.hand_select.as_ref().is_none_or(|hand_select| {
-                    card.id != hand_select.source_card_id
-                        && hand_select.selected_hand_index != Some(*index)
+        "hand_ids": cards_to_comm_mod_visible_order(
+            combat
+                .piles
+                .hand
+                .iter()
+                .enumerate()
+                .filter(|(index, card)| {
+                    combat.hand_select.as_ref().is_none_or(|hand_select| {
+                        card.id != hand_select.source_card_id
+                            && hand_select.selected_hand_index != Some(*index)
+                    })
                 })
-            })
-            .map(|(_, card)| deck_content_key(card.content_id).to_owned())
-            .collect::<Vec<_>>(),
-        "draw_ids": combat
-            .piles
-            .draw_pile
-            .iter()
-            .map(|card| deck_content_key(card.content_id).to_owned())
-            .collect::<Vec<_>>(),
-        "discard_ids": combat
-            .piles
-            .discard_pile
-            .iter()
-            .map(|card| deck_content_key(card.content_id).to_owned())
-            .collect::<Vec<_>>(),
+                .map(|(_, card)| card),
+        ),
+        "draw_ids": draw_pile_to_comm_mod_visible_order(&combat.piles.draw_pile),
+        "discard_ids": discard_pile_to_comm_mod_visible_order(&combat.piles.discard_pile),
         "monsters": seed_start_monsters_from_sim(combat, observed_monsters, end_turn_snapshot),
     });
     if let Some(choices) = combat.potion_card_reward.as_ref() {
@@ -6057,13 +6061,13 @@ fn sync_combat_from_observed(run: &mut RunState, message: &Value, sync_piles: bo
     }
     combat.monsters = monsters;
     if sync_piles {
-        combat.piles.hand = combat_card_instances_from_array(combat_value.get("hand"), 100);
+        combat.piles.hand = hand_from_comm_mod_visible_order(combat_value.get("hand"), 100);
         combat.piles.draw_pile =
-            combat_card_instances_from_array(combat_value.get("draw_pile"), 200);
+            draw_pile_from_comm_mod_visible_order(combat_value.get("draw_pile"), 200);
         combat.piles.discard_pile =
-            combat_card_instances_from_array(combat_value.get("discard_pile"), 300);
+            discard_pile_from_comm_mod_visible_order(combat_value.get("discard_pile"), 300);
         combat.piles.exhaust_pile =
-            combat_card_instances_from_array(combat_value.get("exhaust_pile"), 400);
+            exhaust_pile_from_comm_mod_visible_order(combat_value.get("exhaust_pile"), 400);
     }
     combat.phase = CombatPhase::WaitingForPlayer;
     run.player_hp = int(game, "current_hp");
@@ -6911,33 +6915,33 @@ fn run_from_observed_combat_impl(
         ),
         piles: CardPiles {
             hand: if use_observed_shrug_plus {
-                combat_card_instances_from_array_with_observed_shrug_plus(combat.get("hand"), 100)
+                hand_from_comm_mod_visible_order_with_observed_shrug_plus(combat.get("hand"), 100)
             } else {
-                combat_card_instances_from_array(combat.get("hand"), 100)
+                hand_from_comm_mod_visible_order(combat.get("hand"), 100)
             },
             draw_pile: if use_observed_shrug_plus {
-                combat_card_instances_from_array_with_observed_shrug_plus(
+                draw_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
                     combat.get("draw_pile"),
                     200,
                 )
             } else {
-                combat_card_instances_from_array(combat.get("draw_pile"), 200)
+                draw_pile_from_comm_mod_visible_order(combat.get("draw_pile"), 200)
             },
             discard_pile: if use_observed_shrug_plus {
-                combat_card_instances_from_array_with_observed_shrug_plus(
+                discard_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
                     combat.get("discard_pile"),
                     300,
                 )
             } else {
-                combat_card_instances_from_array(combat.get("discard_pile"), 300)
+                discard_pile_from_comm_mod_visible_order(combat.get("discard_pile"), 300)
             },
             exhaust_pile: if use_observed_shrug_plus {
-                combat_card_instances_from_array_with_observed_shrug_plus(
+                exhaust_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
                     combat.get("exhaust_pile"),
                     400,
                 )
             } else {
-                combat_card_instances_from_array(combat.get("exhaust_pile"), 400)
+                exhaust_pile_from_comm_mod_visible_order(combat.get("exhaust_pile"), 400)
             },
         },
         phase: CombatPhase::WaitingForPlayer,
@@ -7156,11 +7160,11 @@ fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<Com
     match parts.as_slice() {
         [cmd] if cmd.eq_ignore_ascii_case("END") => Some(CombatAction::EndTurn),
         [cmd, hand_index] if cmd.eq_ignore_ascii_case("PLAY") => Some(CombatAction::PlayCard {
-            card_id: hand_card_id(combat, hand_index)?,
+            card_id: hand_card_id_from_bridge_slot(combat, hand_index)?,
             target: None,
         }),
         [cmd, hand_index, target_index] if cmd.eq_ignore_ascii_case("PLAY") => {
-            let card_id = hand_card_id(combat, hand_index)?;
+            let card_id = hand_card_id_from_bridge_slot(combat, hand_index)?;
             let mut target = Some(MonsterId::new(target_index.parse::<u64>().ok()? + 1));
             if let Some(definition) = combat
                 .piles
@@ -7179,7 +7183,7 @@ fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<Com
     }
 }
 
-fn hand_card_id(combat: &CombatState, hand_index: &str) -> Option<CardId> {
+fn hand_card_id_from_bridge_slot(combat: &CombatState, hand_index: &str) -> Option<CardId> {
     let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
     Some(combat.piles.hand.get(index)?.id)
 }
@@ -8183,6 +8187,28 @@ fn combat_card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<
     card_instances_from_array_impl(value, base_id, false, true)
 }
 
+fn hand_from_comm_mod_visible_order(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
+    combat_card_instances_from_array(value, base_id)
+}
+
+fn draw_pile_from_comm_mod_visible_order(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
+    combat_card_instances_from_array(value, base_id)
+}
+
+fn discard_pile_from_comm_mod_visible_order(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    combat_card_instances_from_array(value, base_id)
+}
+
+fn exhaust_pile_from_comm_mod_visible_order(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    combat_card_instances_from_array(value, base_id)
+}
+
 fn card_instances_from_array_impl(
     value: Option<&Value>,
     base_id: u64,
@@ -8223,6 +8249,34 @@ fn combat_card_instances_from_array_with_observed_shrug_plus(
     base_id: u64,
 ) -> Vec<CardInstance> {
     card_instances_from_array_impl(value, base_id, true, true)
+}
+
+fn hand_from_comm_mod_visible_order_with_observed_shrug_plus(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
+}
+
+fn draw_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
+}
+
+fn discard_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
+}
+
+fn exhaust_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
 }
 
 fn card_instances_from_array_with_observed_shrug_plus(
