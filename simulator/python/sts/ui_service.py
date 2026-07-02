@@ -1100,15 +1100,17 @@ def _observed_monster_slot_for_target(
     if target is None:
         return None
     monsters = _bridge_combat_list(bridge_status, "monsters")
-    direct = _find_by_any_id(monsters, target, ("id", "monster_id", "monsterId", "index"))
-    if direct is not None:
-        return _slot_from_entry(direct, ("index", "slot", "target_slot", "targetSlot"))
-
     sim_monsters = ((_run_state(sim_state).get("combat") or {}).get("monsters") or [])
     sim_index = _index_by_any_id(sim_monsters, target, ("id", "monster_id", "monsterId"))
-    if sim_index is None or sim_index >= len(monsters):
-        return None
-    return _slot_from_entry(monsters[sim_index], ("index", "slot", "target_slot", "targetSlot"))
+    if sim_index is not None:
+        if sim_index >= len(monsters):
+            return None
+        return _slot_from_entry(monsters[sim_index], ("index", "slot", "target_slot", "targetSlot"))
+
+    direct = _find_by_any_id(monsters, target, ("id", "monster_id", "monsterId"))
+    if direct is not None:
+        return _slot_from_entry(direct, ("index", "slot", "target_slot", "targetSlot"))
+    return None
 
 
 def _bridge_combat_list(bridge_status: dict[str, Any], name: str) -> list[Any]:

@@ -1305,6 +1305,35 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["command"], "PLAY 1 0")
 
+    def test_bridge_action_for_exact_action_prefers_sim_monster_order_over_visible_index(self):
+        action = {
+            "kind": "ExactRunAction",
+            "action_kind": "play_card",
+            "action": {"PlayCard": {"card_id": 101, "target": 1}},
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "PLAY 2 0",
+                    "descriptor": {"kind": "PlayHandSlot", "hand_slot": 2, "target_slot": 0},
+                }
+            ],
+            "summary": {
+                "combat": {
+                    "hand": [{"index": 2, "id": 101}],
+                    "monsters": [
+                        {"index": 0, "id": "AcidSlime_S", "gone": False},
+                        {"index": 1, "id": "SpikeSlime_M", "gone": True},
+                    ],
+                }
+            },
+        }
+        sim_state = {"combat": {"monsters": [{"id": 1}, {"id": 2}]}}
+
+        result = _bridge_action_for_exact_action(action, bridge_status, sim_state)
+
+        self.assertEqual(result["command"], "PLAY 2 0")
+
     def test_bridge_action_for_exact_action_maps_combat_card_reward_to_visible_choice(self):
         action = {
             "kind": "ExactRunAction",
