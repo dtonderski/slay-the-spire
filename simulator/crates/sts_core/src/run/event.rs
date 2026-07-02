@@ -22,6 +22,7 @@ use crate::{
         grid::{
             open_event_obtain_card_grid, open_event_remove_grid,
             open_event_remove_return_to_event_grid, open_event_transform_grid,
+            open_event_transform_return_to_event_grid, open_event_upgrade_return_to_event_grid,
         },
         neow::{
             apply_neow_boss_swap, apply_neow_curse_drawback, apply_neow_lament_reward,
@@ -1080,6 +1081,9 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::WorldOfGoop => make_event_screen(event, world_of_goop_choices(0, 0), 0),
         Event::DeadAdventurer => make_event_screen(event, dead_adventurer_choices(0), 0),
         Event::TheSsssserpent => make_event_screen(event, sssssserpent_choices(0), 0),
+        Event::LivingWall => {
+            make_event_screen(event, labeled_choices(&["Forget", "Change", "Grow"]), 0)
+        }
         Event::BackToBasics => {
             make_event_screen(event, labeled_choices(&["Elegance", "Simplicity"]), 0)
         }
@@ -1663,6 +1667,31 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::BackToBasics if choice_index == 0 => {
             open_event_remove_grid(&mut next);
+            if next.card_grid.is_none() {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+        }
+        Event::LivingWall if screen.stage > 0 && choice_index == 0 => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        Event::LivingWall if screen.stage == 0 && choice_index == 0 => {
+            open_event_remove_return_to_event_grid(&mut next, Event::LivingWall);
+            if next.card_grid.is_none() {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+        }
+        Event::LivingWall if screen.stage == 0 && choice_index == 1 => {
+            open_event_transform_return_to_event_grid(&mut next, Event::LivingWall, 1);
+            if next.card_grid.is_none() {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+        }
+        Event::LivingWall if screen.stage == 0 && choice_index == 2 => {
+            open_event_upgrade_return_to_event_grid(&mut next, Event::LivingWall);
             if next.card_grid.is_none() {
                 next.phase = RunPhase::Idle;
                 next.event = None;

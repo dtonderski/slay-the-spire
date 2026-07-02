@@ -3,6 +3,21 @@
 ## What Exists
 
 ### Tooling
+- Latest live trace replay slice: newest trace
+  `trace-2026-07-02T19-54-35-294Z.jsonl` now advances past the floor-5 Blue
+  Slaver AI mismatch, floor-7 Colorless Potion reward mismatch, and floor-12
+  Living Wall grid flow. Generic fixes: Blue Slaver encounter spawns no longer
+  pre-lock opening Stab and instead consume source `aiRng`; combat entry now
+  preserves post-opening monster AI RNG; Colorless Potion/Discovery combat
+  colorless choices use the source-shaped non-healing `srcColorlessCardPool`
+  order reconstructed from decompiled `CardLibrary`/`AbstractDungeon`; observed
+  combat card reward comparison maps implemented colorless names to content
+  ids; and Living Wall supports Forget/Change/Grow grids plus the target leave
+  screen. Checks: `cargo fmt`, `cargo check -p sts_core --lib`,
+  `cargo check -p sts_verify --lib`, `uv run maturin develop --release`, and
+  active strict replay. Current next blocker is floor 13 at trace step 237:
+  simulator spawned/advanced an Acid Slime M intent where observed has Spike
+  Slime M `DEBUFF` alongside Looter.
 - Latest live trace fidelity slice: potion kills now enter the same
   room-kind-aware combat victory rewards as card/end-turn kills and apply
   Burning Blood/Black Blood victory healing before opening rewards, so boss

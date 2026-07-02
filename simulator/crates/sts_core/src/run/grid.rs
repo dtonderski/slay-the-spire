@@ -19,6 +19,8 @@ pub enum GridPurpose {
     EventRemove,
     EventRemoveReturnToEvent { event: Event },
     EventObtainCard,
+    EventUpgrade,
+    EventUpgradeReturnToEvent { event: Event },
     EmptyCage { remaining: u8 },
     NeowRemove { remaining: u8 },
     NeowUpgrade,
@@ -29,6 +31,7 @@ pub enum GridPurpose {
     Astrolabe,
     NeowTransform { count: u8 },
     EventTransform { count: u8 },
+    EventTransformReturnToEvent { event: Event, count: u8 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -134,6 +137,63 @@ pub fn open_event_transform_grid(run: &mut RunState, count: u8) {
     run.card_grid = Some(CardGridScreen {
         cards,
         purpose: GridPurpose::EventTransform { count },
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_transform_return_to_event_grid(run: &mut RunState, event: Event, count: u8) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| !card.bottled)
+        .collect::<Vec<_>>();
+    if cards.is_empty() || count == 0 {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventTransformReturnToEvent { event, count },
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_upgrade_grid(run: &mut RunState) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| upgrade_content_id(card.content_id).is_some())
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventUpgrade,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_upgrade_return_to_event_grid(run: &mut RunState, event: Event) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| upgrade_content_id(card.content_id).is_some())
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventUpgradeReturnToEvent { event },
         selected: None,
         selected_indices: Vec::new(),
     });
@@ -379,6 +439,10 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         GridPurpose::EventTransform { count } => {
             confirm_event_transform_grid(&mut next, count)?;
         }
+        GridPurpose::EventTransformReturnToEvent { event, count } => {
+            confirm_event_transform_grid(&mut next, count)?;
+            return_to_event_leave_screen(&mut next, event);
+        }
         GridPurpose::RestSmith => {
             let card = selected_grid_card(grid)?;
             upgrade_deck_card(&mut next, card)?;
@@ -391,6 +455,19 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             upgrade_deck_card(&mut next, card)?;
             next.card_grid = None;
             finish_neow_grid_reward(&mut next);
+        }
+        GridPurpose::EventUpgrade => {
+            let card = selected_grid_card(grid)?;
+            upgrade_deck_card(&mut next, card)?;
+            next.card_grid = None;
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        GridPurpose::EventUpgradeReturnToEvent { event } => {
+            let card = selected_grid_card(grid)?;
+            upgrade_deck_card(&mut next, card)?;
+            next.card_grid = None;
+            return_to_event_leave_screen(&mut next, event);
         }
         GridPurpose::ShopRemove => {
             let card = selected_grid_card(grid)?;
@@ -481,6 +558,7 @@ fn grid_multi_select_count(purpose: GridPurpose) -> Option<usize> {
         GridPurpose::NeowRemove { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowTransform { count } => Some(usize::from(count)),
         GridPurpose::EventTransform { count } => Some(usize::from(count)),
+        GridPurpose::EventTransformReturnToEvent { count, .. } => Some(usize::from(count)),
         _ => None,
     }
 }
@@ -498,6 +576,11 @@ fn confirm_multi_select_grid(run: &mut RunState) -> SimResult<()> {
         }
         GridPurpose::NeowTransform { count } => confirm_neow_transform_grid(run, count),
         GridPurpose::EventTransform { count } => confirm_event_transform_grid(run, count),
+        GridPurpose::EventTransformReturnToEvent { event, count } => {
+            confirm_event_transform_grid(run, count)?;
+            return_to_event_leave_screen(run, event);
+            Ok(())
+        }
         _ => Err(SimError::IllegalAction("grid is not multi-select")),
     }
 }
@@ -522,6 +605,18 @@ fn upgrade_deck_card(run: &mut RunState, card: CardInstance) -> SimResult<()> {
         }
     }
     Ok(())
+}
+
+fn return_to_event_leave_screen(run: &mut RunState, event: Event) {
+    run.phase = RunPhase::Event;
+    run.event = Some(EventScreen {
+        event,
+        choices: vec![EventChoice {
+            label: "Leave".to_owned(),
+        }],
+        stage: 1,
+        event_data: 0,
+    });
 }
 
 fn remove_grid_card(run: &mut RunState, card: CardInstance, purpose: GridPurpose) {

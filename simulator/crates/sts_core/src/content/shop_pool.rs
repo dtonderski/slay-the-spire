@@ -6,7 +6,7 @@ use crate::content::cards::{
     COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DEEP_BREATH_ID, DEMON_FORM_ID,
     DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
     ENLIGHTENMENT_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-    FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FORETHOUGHT_ID,
+    FINESSE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLASH_OF_STEEL_ID, FLEX_ID, FORETHOUGHT_ID,
     GHOSTLY_ARMOR_ID, GOOD_INSTINCTS_ID, HAND_OF_GREED_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
     HEMOKINESIS_ID, IMMOLATE_ID, IMPATIENCE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
     INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, MADNESS_ID,
@@ -569,11 +569,42 @@ pub fn ironclad_combat_skill_discovery_pool() -> Vec<ContentId> {
 
 #[must_use]
 pub fn colorless_discovery_pool() -> Vec<ContentId> {
-    COLORLESS_UNCOMMON
-        .iter()
-        .chain(COLORLESS_RARE)
-        .map(|name| shop_card_content_id(name))
-        .collect()
+    vec![
+        MADNESS_ID,
+        THINKING_AHEAD_ID,
+        MIND_BLAST_ID,
+        METAMORPHOSIS_ID,
+        JACK_OF_ALL_TRADES_ID,
+        SWIFT_STRIKE_ID,
+        GOOD_INSTINCTS_ID,
+        MASTER_OF_STRATEGY_ID,
+        MAGNETISM_ID,
+        FINESSE_ID,
+        DISCOVERY_ID,
+        CHRYSALIS_ID,
+        TRANSMUTATION_ID,
+        PANACEA_ID,
+        PURITY_ID,
+        ENLIGHTENMENT_ID,
+        FORETHOUGHT_ID,
+        FLASH_OF_STEEL_ID,
+        HAND_OF_GREED_ID,
+        MAYHEM_ID,
+        APOTHEOSIS_ID,
+        SECRET_WEAPON_ID,
+        PANACHE_ID,
+        VIOLENCE_ID,
+        DEEP_BREATH_ID,
+        SECRET_TECHNIQUE_ID,
+        BLIND_ID,
+        THE_BOMB_ID,
+        IMPATIENCE_ID,
+        DRAMATIC_ENTRANCE_ID,
+        TRIP_ID,
+        PANIC_BUTTON_ID,
+        SADISTIC_NATURE_ID,
+        DARK_SHACKLES_ID,
+    ]
 }
 
 /// Target `sts::generateDiscoveryCards` / `DiscoveryAction.generateCardChoices`.

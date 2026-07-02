@@ -2894,15 +2894,12 @@ pub fn target_encounter_spawn_for_key(
         "Blue Slaver" => {
             let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
             let max_hp = target_slaver_hp_range(ascension).roll(&mut hp_rng);
-            let mut spawn =
-                target_combat_entry_spawn("SlaverBlue", max_hp, neow_lament, Vec::new());
-            spawn.intent = "Attack";
-            spawn.rolled_attack_damage = Some(if ascension >= 2 {
-                SLAVER_BLUE_A2_STAB_DAMAGE
-            } else {
-                SLAVER_BLUE_STAB_DAMAGE
-            });
-            vec![spawn]
+            vec![target_combat_entry_spawn(
+                "SlaverBlue",
+                max_hp,
+                neow_lament,
+                Vec::new(),
+            )]
         }
         "Red Slaver" => {
             let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
@@ -3050,13 +3047,6 @@ fn target_exordium_thugs_spawn_states(
                         SLAVER_RED_A2_STAB_DAMAGE
                     } else {
                         SLAVER_RED_STAB_DAMAGE
-                    });
-                } else {
-                    spawn.intent = "Attack";
-                    spawn.rolled_attack_damage = Some(if ascension >= 2 {
-                        SLAVER_BLUE_A2_STAB_DAMAGE
-                    } else {
-                        SLAVER_BLUE_STAB_DAMAGE
                     });
                 }
                 spawn

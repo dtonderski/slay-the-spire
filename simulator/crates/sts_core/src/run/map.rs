@@ -184,10 +184,11 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
     base.monster_hp_rng = Some(monster_hp_rng);
     apply_initial_monster_ai_rolls(base, &mut monster_rng);
     record_initial_monster_moves(base);
-    base.monster_rng = Some(monster_rng);
+    base.monster_rng = Some(monster_rng.clone());
     base.card_random_rng = card_random_rng;
     run.phase = RunPhase::Combat;
     let mut combat = run.init_combat_consuming_relics(base.clone());
+    combat.monster_rng = Some(monster_rng);
     add_mark_of_pain_wounds_to_draw_pile(run, &mut combat);
     run.combat = Some(combat);
 }
