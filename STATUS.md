@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- Latest live trace replay slice: `trace-2026-07-02T20-50-14-856Z.jsonl`
+  now strict-replays to exhaustion (`verified=True`, `steps=11`,
+  `final_phase=combat`). Generic fix: end-turn hand discard now preserves the
+  simulator's bridge-facing hand order before discard-pile reshuffles, matching
+  the source `DiscardAction`/`EmptyDeckShuffleAction` behavior for observed hand
+  ordering. Checks: `cargo fmt`, `cargo check -p sts_core --lib`,
+  `cargo check -p sts_verify --lib`, `uv run maturin develop --release`, and
+  strict replay of the trace.
 - Latest live trace replay slice: newest trace
   `trace-2026-07-02T19-54-35-294Z.jsonl` now advances past the floor-5 Blue
   Slaver AI mismatch, floor-7 Colorless Potion reward mismatch, and floor-12

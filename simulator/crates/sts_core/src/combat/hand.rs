@@ -135,7 +135,6 @@ fn discard_non_retain_hand(state: &mut CombatState) {
         }
     }
 
-    discarded.reverse();
     state.piles.hand = retained;
     state.piles.discard_pile.extend(discarded);
 }
