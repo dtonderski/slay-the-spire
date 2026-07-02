@@ -627,6 +627,7 @@ def replay_real_trace_guided(
                 restoration_count += 1
         if has_fresh_observed_state:
             last_state_consumed = True
+            env = _restore_observed_combat_card_costs(env, observed_game_state)
 
         if _next_trace_record_is_error(records, record_index):
             continue
@@ -902,6 +903,7 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
                 break
             last_state_consumed = True
             env = _restore_observed_event_screen(env, observed_game_state)
+            env = _restore_observed_combat_card_costs(env, observed_game_state)
 
         if _next_trace_record_is_error(records, record_index):
             continue
@@ -991,6 +993,42 @@ def _restore_observed_event_screen(env: Any, observed: dict[str, Any] | None) ->
             return env
         state["phase"] = "Event"
         state["event"] = observed_event
+        return omni.OmniRunEnv.from_snapshot_json(json.dumps(snapshot))
+    except Exception:
+        return env
+
+
+def _restore_observed_combat_card_costs(env: Any, observed: dict[str, Any] | None) -> Any:
+    if not isinstance(observed, dict) or not isinstance(observed.get("combat_state"), dict):
+        return env
+    if env.phase() != "combat":
+        return env
+    try:
+        observed_env = omni.OmniRunEnv.from_communication_mod_state_json(json.dumps(observed))
+        snapshot = json.loads(env.snapshot_json())
+        observed_snapshot = json.loads(observed_env.snapshot_json())
+        combat = (snapshot.get("state") or {}).get("combat")
+        observed_combat = (observed_snapshot.get("state") or {}).get("combat")
+        if not isinstance(combat, dict) or not isinstance(observed_combat, dict):
+            return env
+        piles = combat.get("piles")
+        observed_piles = observed_combat.get("piles")
+        if not isinstance(piles, dict) or not isinstance(observed_piles, dict):
+            return env
+        for pile_name in ("hand", "draw_pile", "discard_pile", "exhaust_pile"):
+            pile = piles.get(pile_name)
+            observed_pile = observed_piles.get(pile_name)
+            if not isinstance(pile, list) or not isinstance(observed_pile, list):
+                continue
+            if len(pile) != len(observed_pile):
+                continue
+            for card, observed_card in zip(pile, observed_pile):
+                if not isinstance(card, dict) or not isinstance(observed_card, dict):
+                    continue
+                if card.get("content_id") != observed_card.get("content_id"):
+                    continue
+                card["temp_cost"] = observed_card.get("temp_cost")
+                card["temp_cost_turn_only"] = observed_card.get("temp_cost_turn_only", False)
         return omni.OmniRunEnv.from_snapshot_json(json.dumps(snapshot))
     except Exception:
         return env

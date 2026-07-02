@@ -6047,12 +6047,13 @@ fn sync_combat_from_observed(run: &mut RunState, message: &Value, sync_piles: bo
     }
     combat.monsters = monsters;
     if sync_piles {
-        combat.piles.hand = card_instances_from_array(combat_value.get("hand"), 100);
-        combat.piles.draw_pile = card_instances_from_array(combat_value.get("draw_pile"), 200);
+        combat.piles.hand = combat_card_instances_from_array(combat_value.get("hand"), 100);
+        combat.piles.draw_pile =
+            combat_card_instances_from_array(combat_value.get("draw_pile"), 200);
         combat.piles.discard_pile =
-            card_instances_from_array(combat_value.get("discard_pile"), 300);
+            combat_card_instances_from_array(combat_value.get("discard_pile"), 300);
         combat.piles.exhaust_pile =
-            card_instances_from_array(combat_value.get("exhaust_pile"), 400);
+            combat_card_instances_from_array(combat_value.get("exhaust_pile"), 400);
     }
     combat.phase = CombatPhase::WaitingForPlayer;
     run.player_hp = int(game, "current_hp");
@@ -6768,24 +6769,33 @@ fn run_from_observed_combat_impl(
         ),
         piles: CardPiles {
             hand: if use_observed_shrug_plus {
-                card_instances_from_array_with_observed_shrug_plus(combat.get("hand"), 100)
+                combat_card_instances_from_array_with_observed_shrug_plus(combat.get("hand"), 100)
             } else {
-                card_instances_from_array(combat.get("hand"), 100)
+                combat_card_instances_from_array(combat.get("hand"), 100)
             },
             draw_pile: if use_observed_shrug_plus {
-                card_instances_from_array_with_observed_shrug_plus(combat.get("draw_pile"), 200)
+                combat_card_instances_from_array_with_observed_shrug_plus(
+                    combat.get("draw_pile"),
+                    200,
+                )
             } else {
-                card_instances_from_array(combat.get("draw_pile"), 200)
+                combat_card_instances_from_array(combat.get("draw_pile"), 200)
             },
             discard_pile: if use_observed_shrug_plus {
-                card_instances_from_array_with_observed_shrug_plus(combat.get("discard_pile"), 300)
+                combat_card_instances_from_array_with_observed_shrug_plus(
+                    combat.get("discard_pile"),
+                    300,
+                )
             } else {
-                card_instances_from_array(combat.get("discard_pile"), 300)
+                combat_card_instances_from_array(combat.get("discard_pile"), 300)
             },
             exhaust_pile: if use_observed_shrug_plus {
-                card_instances_from_array_with_observed_shrug_plus(combat.get("exhaust_pile"), 400)
+                combat_card_instances_from_array_with_observed_shrug_plus(
+                    combat.get("exhaust_pile"),
+                    400,
+                )
             } else {
-                card_instances_from_array(combat.get("exhaust_pile"), 400)
+                combat_card_instances_from_array(combat.get("exhaust_pile"), 400)
             },
         },
         phase: CombatPhase::WaitingForPlayer,
@@ -7984,6 +7994,19 @@ fn observed_reward_choice<'a>(message: &'a Value, choice_index: usize) -> Option
 }
 
 fn card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
+    card_instances_from_array_impl(value, base_id, false, false)
+}
+
+fn combat_card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
+    card_instances_from_array_impl(value, base_id, false, true)
+}
+
+fn card_instances_from_array_impl(
+    value: Option<&Value>,
+    base_id: u64,
+    use_observed_shrug_plus: bool,
+    use_observed_cost: bool,
+) -> Vec<CardInstance> {
     let Some(cards) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -7992,11 +8015,31 @@ fn card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardIns
         .iter()
         .enumerate()
         .filter_map(|(index, card)| {
-            content_id_from_card_value(card).map(|content_id| {
-                CardInstance::new(CardId::new(base_id + index as u64), content_id)
-            })
+            let content_id = if use_observed_shrug_plus {
+                content_id_from_card_value_with_observed_shrug_plus(card)
+            } else {
+                content_id_from_card_value(card)
+            }?;
+            let mut instance = CardInstance::new(CardId::new(base_id + index as u64), content_id);
+            if use_observed_cost {
+                if let Some(cost) = card
+                    .get("cost")
+                    .and_then(Value::as_i64)
+                    .and_then(|cost| u8::try_from(cost).ok())
+                {
+                    instance.temp_cost = Some(cost);
+                }
+            }
+            Some(instance)
         })
         .collect()
+}
+
+fn combat_card_instances_from_array_with_observed_shrug_plus(
+    value: Option<&Value>,
+    base_id: u64,
+) -> Vec<CardInstance> {
+    card_instances_from_array_impl(value, base_id, true, true)
 }
 
 fn card_instances_from_array_with_observed_shrug_plus(
@@ -12877,6 +12920,74 @@ mod tests {
             combat.monsters.push(monster);
         }
         combat
+    }
+
+    #[test]
+    fn observed_combat_import_preserves_visible_card_costs_without_polluting_deck() {
+        let message = json!({
+            "game_state": {
+                "screen_type": "NONE",
+                "current_hp": 67,
+                "max_hp": 80,
+                "gold": 383,
+                "floor": 21,
+                "act": 2,
+                "ascension_level": 0,
+                "class": "IRONCLAD",
+                "deck": [
+                    {"id": "Shrug It Off", "name": "Shrug It Off", "upgrades": 0, "cost": 1},
+                    {"id": "Headbutt", "name": "Headbutt", "upgrades": 0, "cost": 1}
+                ],
+                "relics": [],
+                "potions": [],
+                "combat_state": {
+                    "player": {
+                        "current_hp": 67,
+                        "max_hp": 80,
+                        "block": 0,
+                        "energy": 5,
+                        "powers": [{"id": "Confusion", "name": "Confusion", "amount": -1}]
+                    },
+                    "monsters": [
+                        {
+                            "id": "Snecko",
+                            "name": "Snecko",
+                            "current_hp": 82,
+                            "max_hp": 116,
+                            "block": 0,
+                            "move_id": 3,
+                            "move_base_damage": 8,
+                            "move_adjusted_damage": 8,
+                            "move_hits": 1,
+                            "intent": "ATTACK_DEBUFF"
+                        }
+                    ],
+                    "hand": [
+                        {"id": "Shrug It Off", "name": "Shrug It Off", "upgrades": 0, "cost": 1},
+                        {"id": "Headbutt", "name": "Headbutt", "upgrades": 0, "cost": 0}
+                    ],
+                    "draw_pile": [
+                        {"id": "Strike_R", "name": "Strike", "upgrades": 0, "cost": 2}
+                    ],
+                    "discard_pile": [],
+                    "exhaust_pile": []
+                }
+            }
+        });
+
+        let run = run_state_from_observed_message(&message).expect("observed combat imports");
+        let combat = run.combat.expect("combat state");
+
+        assert_eq!(combat.piles.hand[0].temp_cost, Some(1));
+        assert_eq!(combat.piles.hand[1].temp_cost, Some(0));
+        assert_eq!(combat.piles.draw_pile[0].temp_cost, Some(2));
+        assert_eq!(
+            run.deck
+                .iter()
+                .map(|card| card.temp_cost)
+                .collect::<Vec<_>>(),
+            vec![None, None]
+        );
     }
 
     struct SelectedNeowTraceCase {

@@ -20,6 +20,7 @@ from sts.self_play import (
     _parse_candidate_names,
     _reward_choose_action,
     _reward_summary_diffs,
+    _restore_observed_combat_card_costs,
     _summary,
     _trace_candidates_by_name,
     _trace_combat_roots,
@@ -43,6 +44,64 @@ class _FakeAction:
 
 
 class SelfPlaySummaryHelperTests(unittest.TestCase):
+    def test_restore_observed_combat_card_costs_copies_visible_matching_costs(self):
+        observed = {
+            "screen_type": "NONE",
+            "current_hp": 67,
+            "max_hp": 80,
+            "gold": 383,
+            "floor": 21,
+            "act": 2,
+            "ascension_level": 0,
+            "class": "IRONCLAD",
+            "deck": [
+                {"id": "Shrug It Off", "name": "Shrug It Off", "upgrades": 0, "cost": 1},
+                {"id": "Headbutt", "name": "Headbutt", "upgrades": 0, "cost": 1},
+            ],
+            "relics": [],
+            "potions": [],
+            "combat_state": {
+                "player": {
+                    "current_hp": 67,
+                    "max_hp": 80,
+                    "block": 0,
+                    "energy": 5,
+                    "powers": [{"id": "Confusion", "name": "Confusion", "amount": -1}],
+                },
+                "monsters": [
+                    {
+                        "id": "Snecko",
+                        "name": "Snecko",
+                        "current_hp": 82,
+                        "max_hp": 116,
+                        "block": 0,
+                        "move_id": 3,
+                        "move_base_damage": 8,
+                        "move_adjusted_damage": 8,
+                        "move_hits": 1,
+                        "intent": "ATTACK_DEBUFF",
+                    }
+                ],
+                "hand": [
+                    {"id": "Shrug It Off", "name": "Shrug It Off", "upgrades": 0, "cost": 1},
+                    {"id": "Headbutt", "name": "Headbutt", "upgrades": 0, "cost": 0},
+                ],
+                "draw_pile": [],
+                "discard_pile": [],
+                "exhaust_pile": [],
+            },
+        }
+        env = omni.OmniRunEnv.from_communication_mod_state_json(json.dumps(observed))
+        snapshot = json.loads(env.snapshot_json())
+        snapshot["state"]["combat"]["piles"]["hand"][0]["temp_cost"] = 3
+        snapshot["state"]["combat"]["piles"]["hand"][1]["temp_cost"] = 2
+        env = omni.OmniRunEnv.from_snapshot_json(json.dumps(snapshot))
+
+        restored = _restore_observed_combat_card_costs(env, observed)
+        restored_hand = json.loads(restored.snapshot_json())["state"]["combat"]["piles"]["hand"]
+
+        self.assertEqual([card["temp_cost"] for card in restored_hand], [1, 0])
+
     def test_summary_prefers_combat_hp_over_stale_run_hp(self):
         class FakeEnv:
             def state_json(self) -> str:
