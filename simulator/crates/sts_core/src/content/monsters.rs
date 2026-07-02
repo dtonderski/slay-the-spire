@@ -81,6 +81,8 @@ pub const GREEN_LOUSE_WEAK: i32 = 2;
 const GREEN_LOUSE_SPIKES: i32 = 3;
 
 const SPIKE_SLIME_LICK_WEAK: i32 = 1;
+const SPIKE_SLIME_L_FRAIL: i32 = 2;
+const SPIKE_SLIME_L_A17_FRAIL: i32 = 3;
 const SPIKE_SLIME_S_SPIT_DAMAGE: i32 = 5;
 const SPIKE_SLIME_M_SPIT_DAMAGE: i32 = 8;
 const SPIKE_SLIME_L_SPIT_DAMAGE: i32 = 16;
@@ -6393,7 +6395,7 @@ pub fn apply_bronze_automaton_orb_spawn(monsters: &mut Vec<MonsterState>, automa
 pub fn apply_large_acid_slime_split(
     monsters: &mut Vec<MonsterState>,
     slime_id: MonsterId,
-    rng: Option<&mut StsRng>,
+    mut rng: Option<&mut StsRng>,
     ascension: u8,
 ) {
     let Some(slime_index) = monsters
@@ -6417,15 +6419,7 @@ pub fn apply_large_acid_slime_split(
     let mut right = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id + 1));
     left.hp = split_hp;
     right.hp = split_hp;
-    if let Some(rng) = rng {
-        let right_roll = rng.random_int(99);
-        right.intent = target_medium_acid_slime_next_intent_from_roll(
-            &right.move_history,
-            right_roll,
-            rng,
-            ascension,
-        );
-        record_target_move(&mut right);
+    if let Some(rng) = rng.as_deref_mut() {
         let left_roll = rng.random_int(99);
         left.intent = target_medium_acid_slime_next_intent_from_roll(
             &left.move_history,
@@ -6434,6 +6428,14 @@ pub fn apply_large_acid_slime_split(
             ascension,
         );
         record_target_move(&mut left);
+        let right_roll = rng.random_int(99);
+        right.intent = target_medium_acid_slime_next_intent_from_roll(
+            &right.move_history,
+            right_roll,
+            rng,
+            ascension,
+        );
+        record_target_move(&mut right);
     } else {
         left.intent = MonsterIntent::Attack {
             damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE,
@@ -6447,6 +6449,15 @@ pub fn apply_large_acid_slime_split(
     monsters[slime_index].hp = 0;
     monsters[slime_index].alive = false;
     monsters[slime_index].block = 0;
+    if let Some(rng) = rng.as_deref_mut() {
+        let parent_roll = rng.random_int(99);
+        monsters[slime_index].intent = target_large_acid_slime_next_intent_from_roll(
+            monsters[slime_index].intent,
+            parent_roll,
+            rng,
+            ascension,
+        );
+    }
     monsters.insert(slime_index, left);
     monsters.insert(slime_index + 2, right);
 }
@@ -6454,7 +6465,7 @@ pub fn apply_large_acid_slime_split(
 pub fn apply_large_spike_slime_split(
     monsters: &mut Vec<MonsterState>,
     slime_id: MonsterId,
-    rng: Option<&mut StsRng>,
+    mut rng: Option<&mut StsRng>,
     ascension: u8,
 ) {
     let Some(slime_index) = monsters
@@ -6478,15 +6489,7 @@ pub fn apply_large_spike_slime_split(
     let mut right = monster_state(&SPIKE_SLIME_A0, MonsterId::new(next_id + 1));
     left.hp = split_hp;
     right.hp = split_hp;
-    if let Some(rng) = rng {
-        let right_roll = rng.random_int(99);
-        right.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-            right.hp,
-            &right.move_history,
-            right_roll,
-            ascension,
-        );
-        record_target_move(&mut right);
+    if let Some(rng) = rng.as_deref_mut() {
         let left_roll = rng.random_int(99);
         left.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
             left.hp,
@@ -6495,6 +6498,14 @@ pub fn apply_large_spike_slime_split(
             ascension,
         );
         record_target_move(&mut left);
+        let right_roll = rng.random_int(99);
+        right.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
+            right.hp,
+            &right.move_history,
+            right_roll,
+            ascension,
+        );
+        record_target_move(&mut right);
     } else {
         left.intent = MonsterIntent::AttackAddSlimedToDiscard {
             damage: SPIKE_SLIME_M_SPIT_DAMAGE,
@@ -6509,6 +6520,15 @@ pub fn apply_large_spike_slime_split(
     monsters[slime_index].hp = 0;
     monsters[slime_index].alive = false;
     monsters[slime_index].block = 0;
+    if let Some(rng) = rng.as_deref_mut() {
+        let parent_roll = rng.random_int(99);
+        monsters[slime_index].intent = target_medium_or_large_spike_slime_next_intent_from_roll(
+            monsters[slime_index].max_hp,
+            &monsters[slime_index].move_history,
+            parent_roll,
+            ascension,
+        );
+    }
     monsters.insert(slime_index, left);
     monsters.insert(slime_index + 2, right);
 }
@@ -6867,7 +6887,10 @@ pub fn target_spike_slime_entry_intent_from_roll(hp: i32, roll: i32) -> MonsterI
     }
 
     if roll >= 30 {
-        return MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 };
+        return MonsterIntent::ApplyPlayerFrailAndWeak {
+            frail: SPIKE_SLIME_LICK_WEAK,
+            weak: 0,
+        };
     }
 
     let damage = if hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
@@ -6903,7 +6926,10 @@ pub fn target_medium_or_large_spike_slime_next_intent_from_roll(
         1
     };
     let attack = MonsterIntent::AttackAddSlimedToDiscard { damage, count };
-    let debuff = MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 };
+    let debuff = MonsterIntent::ApplyPlayerFrailAndWeak {
+        frail: SPIKE_SLIME_LICK_WEAK,
+        weak: 0,
+    };
 
     if ascension >= 17 {
         if roll < 30 {
@@ -6927,6 +6953,18 @@ pub fn target_medium_or_large_spike_slime_next_intent_from_roll(
         attack
     } else {
         debuff
+    }
+}
+
+fn spike_slime_frail_amount(hp: i32, ascension: u8) -> i32 {
+    if hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
+        if ascension >= 17 {
+            SPIKE_SLIME_L_A17_FRAIL
+        } else {
+            SPIKE_SLIME_L_FRAIL
+        }
+    } else {
+        SPIKE_SLIME_LICK_WEAK
     }
 }
 
@@ -7727,7 +7765,14 @@ pub fn apply_monster_intent_with_card_rng(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerFrailAndWeak { frail, weak } => {
-            apply_player_frail(&mut player.powers, frail);
+            let applied_frail = if monster.content_id == SPIKE_SLIME_ID
+                && monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max
+            {
+                spike_slime_frail_amount(monster.max_hp, ascension)
+            } else {
+                frail
+            };
+            apply_player_frail(&mut player.powers, applied_frail);
             crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
             (0, 0)
         }

@@ -19,7 +19,6 @@ use crate::{
         DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
         GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, RED_LOUSE_BITE_DAMAGE,
         RED_LOUSE_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SNAKE_PLANT_ID, SPIKE_SLIME_ID,
-        SPIKE_SLIME_M_A7_HP_RANGE,
     },
     ids::CardId,
     map::{
@@ -242,9 +241,7 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
             if matches!(monster.intent, crate::MonsterIntent::Attack { .. }) {
                 monster.moves_executed = 1;
             }
-        } else if monster.content_id == SPIKE_SLIME_ID
-            && monster.hp <= SPIKE_SLIME_M_A7_HP_RANGE.max
-        {
+        } else if monster.content_id == SPIKE_SLIME_ID {
             monster.intent = target_spike_slime_entry_intent_from_roll(monster.hp, roll);
         } else if monster.content_id == ACID_SLIME_ID && monster.hp > ACID_SLIME_M_A7_HP_RANGE.max {
             monster.intent = target_large_acid_slime_next_intent_from_roll(

@@ -3,6 +3,18 @@
 ## What Exists
 
 ### Tooling
+- Latest active trace replay slice: `trace-2026-07-02T09-19-40-178Z.jsonl`
+  now advances from the floor-10 Bottled Lightning opening-hand mismatch and
+  the floor-11 large Spike Slime/split blockers to a later floor-13 encounter
+  mismatch. Generic fixes: bottle relic grids now mirror STS
+  `getCardsOfType()` ordering; large Spike Slime receives entry AI rolls like
+  small/medium Spike Slimes; large slime split spawn RNG follows queued action
+  order (left child, right child, dead parent roll); and large Spike Slime Lick
+  applies its source-backed larger Frail amount while preserving the visible
+  generic debuff intent. Checks: `cargo fmt`, `cargo check -p sts_core --lib`,
+  `uv run maturin develop --release`, and active strict replay. Current next
+  blocker is floor 13 at trace step 165, where simulator encounter state has
+  one monster but observed has two.
 - Latest broad unit-test cleanup slice: broad inline `sts_core` mechanics unit
   tests have been removed in favor of trace-driven fidelity. Remaining
   `sts_core` unit tests are limited to small infrastructure/determinism surfaces

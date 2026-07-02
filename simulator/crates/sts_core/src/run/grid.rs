@@ -198,7 +198,7 @@ pub fn open_neow_transform_grid(run: &mut RunState, count: u8) {
 }
 
 pub fn open_bottle_grid(run: &mut RunState, card_type: CardType) {
-    let cards = run
+    let mut cards = run
         .deck
         .iter()
         .copied()
@@ -209,6 +209,9 @@ pub fn open_bottle_grid(run: &mut RunState, card_type: CardType) {
                     .unwrap_or(false)
         })
         .collect::<Vec<_>>();
+    // STS uses CardGroup.getCardsOfType() for bottle relics, which appends with
+    // addToBottom and therefore reverses the filtered master-deck order.
+    cards.reverse();
     if cards.is_empty() {
         return;
     }
