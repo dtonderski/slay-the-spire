@@ -351,14 +351,18 @@ fn run_monster_turn(state: &mut CombatState) {
                 } else {
                     apply_gremlin_leader_rally_representative(&mut state.monsters, count);
                 }
+                let mut summoner_alive = false;
                 if let Some(monster) = state
                     .monsters
                     .iter_mut()
                     .find(|monster| monster.id == summoner_id)
                 {
                     monster.moves_executed += 1;
+                    summoner_alive = monster.alive;
                 }
-                prepare_next_intent_for_actor(state, actor_id);
+                if summoner_alive {
+                    prepare_next_intent_for_actor(state, actor_id);
+                }
                 continue;
             }
             crate::MonsterIntent::SummonCollectorTorchHeads { count } => {
@@ -761,10 +765,6 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 };
                 record_target_move(monster);
                 continue;
-            }
-            if monster.pending_extra_roll_before_next_move {
-                monster.pending_extra_roll_before_next_move = false;
-                let _ = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
             }
             let roll = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
             monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
@@ -1525,6 +1525,31 @@ mod tests {
             .find(|monster| monster.content_id == GREMLIN_LEADER_ID)
             .expect("leader remains present");
         assert_eq!(leader.moves_executed, 1);
+    }
+
+    #[test]
+    fn large_slime_split_does_not_roll_dead_parent_next_intent() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::ACID_SLIME_A0,
+            MonsterId::new(1),
+        )];
+        state.monsters[0].hp = 34;
+        state.monsters[0].max_hp = 68;
+        state.monsters[0].intent = MonsterIntent::SummonGremlins { count: 2 };
+        state.monster_rng = Some(StsRng::new(123));
+        state.player.hp = 40;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.monsters.len(), 3);
+        assert_eq!(next.monster_rng.as_ref().expect("monster rng").counter(), 2);
+        assert!(!next.monsters[1].alive);
+        assert_eq!(
+            next.monsters[1].intent,
+            MonsterIntent::SummonGremlins { count: 2 }
+        );
     }
 
     #[test]
