@@ -13,6 +13,27 @@
   `uv run maturin develop --release` passed; strict replay of
   `verification/corpus/communication_mod/trace-2026-07-02T22-41-59-925Z.jsonl`
   passed to trace exhaustion (`verified True`, 43 steps, final phase reward).
+- Card-fidelity audit follow-up: corrected the Dramatic Entrance audit row
+  after source/local re-check showed the simulator's implemented base form
+  matched decompiled `DramaticEntrance.java`. Source Dramatic Entrance is cost
+  0, all-enemy Attack, `baseDamage=8`, `isMultiDamage=true`, Innate, Exhaust,
+  and queues `DamageAllEnemiesAction`; the artifact now records that exact
+  source/local base behavior instead of a broad shared-path note about Reaper
+  and Immolate. The row also records the remaining blocker that source has an
+  upgraded +4 damage form while the local implemented-card list has no separate
+  Dramatic Entrance+ content id. Checks: `cargo fmt --check` passed; active
+  live-regression manifest replay passed via
+  `uv run python -m unittest python.tests.test_live_regression_traces`;
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled Python. Full `cargo test` still fails only in the pre-existing
+  stale `milestone6` monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Latest live trace fidelity fix: implemented generic Face Trader support after
   `trace-2026-07-02T22-41-59-925Z.jsonl` showed the simulator entering Scrap
   Ooze while the real game entered Face Trader. Face Trader is now an Act 1/2
