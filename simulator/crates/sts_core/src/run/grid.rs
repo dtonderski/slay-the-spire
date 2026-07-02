@@ -1,3 +1,4 @@
+use super::event::{Event, EventChoice, EventScreen};
 use crate::{
     card::{CardInstance, CardType},
     content::{
@@ -16,6 +17,7 @@ pub enum GridPurpose {
     RestSmith,
     ShopRemove,
     EventRemove,
+    EventRemoveReturnToEvent { event: Event },
     EventObtainCard,
     EmptyCage { remaining: u8 },
     NeowRemove { remaining: u8 },
@@ -81,6 +83,25 @@ pub fn open_event_remove_grid(run: &mut RunState) {
     run.card_grid = Some(CardGridScreen {
         cards,
         purpose: GridPurpose::EventRemove,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_remove_return_to_event_grid(run: &mut RunState, event: Event) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| !card.bottled)
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventRemoveReturnToEvent { event },
         selected: None,
         selected_indices: Vec::new(),
     });
@@ -395,6 +416,20 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.card_grid = None;
             next.phase = RunPhase::Idle;
             next.event = None;
+        }
+        GridPurpose::EventRemoveReturnToEvent { event } => {
+            let card = selected_grid_card(grid)?;
+            next.deck.retain(|deck_card| deck_card.id != card.id);
+            next.card_grid = None;
+            next.phase = RunPhase::Event;
+            next.event = Some(EventScreen {
+                event,
+                choices: vec![EventChoice {
+                    label: "Leave".to_owned(),
+                }],
+                stage: 2,
+                event_data: 0,
+            });
         }
         GridPurpose::EventObtainCard => {
             let card = selected_grid_card(grid)?;

@@ -12,6 +12,21 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Act 1 event fidelity slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=227`,
+  `final_phase=combat`. Source-backed fixes: Scrap Ooze HP loss now follows
+  target scaling (3/4/5... HP, or 5/6/7... at A15+) while preserving its misc
+  RNG relic roll, Wing Statue/Golden Wing now implements the decompiled
+  `INTRO -> PURGE -> MAP` flow (Pray loses 7 HP, Continue opens the removal
+  grid, Confirm returns to Leave; Destroy rolls 50-80 misc RNG gold when a
+  10+ base-damage attack exists), and strict replay can import observed Scrap
+  Ooze/Wing Statue event screens without seed-specific branches. Checks:
+  `cargo fmt`, `cargo test -p sts_core scrap_ooze --lib`,
+  `cargo test -p sts_core wing_statue --lib`,
+  `cargo test -p sts_verify observed_event_screen_imports_wing_statue --lib`,
+  `uv run maturin develop --release`, and strict replay of the current live
+  trace.
 - Latest live-trace Large Slime split RNG slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=207`,

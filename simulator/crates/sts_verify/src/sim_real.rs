@@ -6185,6 +6185,75 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
     if event_id == "Lab" || event_name == "Lab" {
         return Some(event_screen(Event::Lab));
     }
+    if event_id == "Scrap Ooze" || event_name == "Scrap Ooze" {
+        let choices = choice_list_from_value(game.get("choice_list"));
+        let labels = if choices.is_empty() {
+            vec!["Leave".to_owned()]
+        } else {
+            choices
+        };
+        let stage = if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("reach inside"))
+        {
+            0
+        } else if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("deeper"))
+        {
+            1
+        } else {
+            2
+        };
+        let event_data = if stage == 1 {
+            scrap_ooze_failed_reaches_from_observed(game, int(game, "ascension_level") as u8)
+                .unwrap_or(1)
+        } else {
+            0
+        };
+        return Some(EventScreen {
+            event: Event::ScrapOoze,
+            choices: labels
+                .into_iter()
+                .map(|label| EventChoice { label })
+                .collect(),
+            stage,
+            event_data,
+        });
+    }
+    if event_id == "Golden Wing" || event_name == "Wing Statue" {
+        let choices = choice_list_from_value(game.get("choice_list"));
+        let labels = if choices.is_empty() {
+            vec!["Leave".to_owned()]
+        } else {
+            choices
+        };
+        let stage = if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("pray"))
+            || labels
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("destroy"))
+        {
+            0
+        } else if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("continue"))
+        {
+            1
+        } else {
+            2
+        };
+        return Some(EventScreen {
+            event: Event::WingStatue,
+            choices: labels
+                .into_iter()
+                .map(|label| EventChoice { label })
+                .collect(),
+            stage,
+            event_data: 0,
+        });
+    }
     if event_id != "Neow Event" && event_name != "Neow" {
         return None;
     }
@@ -6221,6 +6290,22 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
         stage,
         event_data: 0,
     })
+}
+
+fn scrap_ooze_failed_reaches_from_observed(game: &Value, ascension: u8) -> Option<u32> {
+    let options = game
+        .get("screen_state")
+        .and_then(|state| state.get("options"))
+        .and_then(Value::as_array)?;
+    let text = options
+        .iter()
+        .filter_map(|option| option.get("text").and_then(Value::as_str))
+        .find(|text| text.contains("Lose ") && text.contains(" HP"))?;
+    let after_lose = text.split("Lose ").nth(1)?;
+    let hp_text = after_lose.split(" HP").next()?;
+    let hp_loss = hp_text.trim().parse::<u32>().ok()?;
+    let base_loss = if ascension >= 15 { 5 } else { 3 };
+    hp_loss.checked_sub(base_loss)
 }
 
 fn observed_noncombat_run_phase(screen_type: &str) -> RunPhase {
@@ -9290,6 +9375,53 @@ mod tests {
             observed_event_screen(&game, 0).map(|screen| screen.event),
             Some(Event::Lab)
         );
+    }
+
+    #[test]
+    fn observed_event_screen_imports_scrap_ooze_deeper_progress() {
+        let game = json!({
+            "ascension_level": 0,
+            "screen_type": "EVENT",
+            "choice_list": ["deeper", "leave"],
+            "screen_state": {
+                "event_id": "Scrap Ooze",
+                "event_name": "Scrap Ooze",
+                "options": [
+                    {"text": "[Deeper] Lose 5 HP. 45%: Find a Relic."},
+                    {"text": "[Leave]"}
+                ]
+            }
+        });
+
+        let screen = observed_event_screen(&game, 0).expect("scrap ooze screen");
+
+        assert_eq!(screen.event, Event::ScrapOoze);
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.event_data, 2);
+        assert_eq!(screen.choices[0].label, "deeper");
+    }
+
+    #[test]
+    fn observed_event_screen_imports_wing_statue() {
+        let game = json!({
+            "screen_type": "EVENT",
+            "choice_list": ["pray", "leave"],
+            "screen_state": {
+                "event_id": "Golden Wing",
+                "event_name": "Wing Statue",
+                "options": [
+                    {"text": "[Pray] Remove a card from your deck. Lose 7 HP."},
+                    {"text": "[Locked] Requires: Card with 10 or more damage."},
+                    {"text": "[Leave]"}
+                ]
+            }
+        });
+
+        let screen = observed_event_screen(&game, 0).expect("wing statue screen");
+
+        assert_eq!(screen.event, Event::WingStatue);
+        assert_eq!(screen.stage, 0);
+        assert_eq!(screen.choices[0].label, "pray");
     }
 
     #[test]

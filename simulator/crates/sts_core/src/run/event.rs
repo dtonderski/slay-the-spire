@@ -1,9 +1,10 @@
 use crate::{
+    card::CardType,
     combat::initialize_combat_piles_with_relics,
     content::cards::{
-        upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID,
-        DOUBT_ID, INJURY_ID, JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, WRITHE_ID,
+        get_card_definition, upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID,
+        DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID, JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::monsters::{
         monster_state_for_ascension, record_target_move, MonsterDefinition, BANDIT_BEAR_A0,
@@ -15,7 +16,10 @@ use crate::{
     relic::{Relic, RelicKey},
     rng::{JavaRng, StsRng},
     run::{
-        grid::{open_event_obtain_card_grid, open_event_remove_grid, open_event_transform_grid},
+        grid::{
+            open_event_obtain_card_grid, open_event_remove_grid,
+            open_event_remove_return_to_event_grid, open_event_transform_grid,
+        },
         neow::{
             apply_neow_boss_swap, apply_neow_curse_drawback, apply_neow_lament_reward,
             apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
@@ -32,6 +36,10 @@ use crate::{
 
 pub const SCRAP_OOZE_REACH_HP_LOSS: i32 = 3;
 pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
+pub const WING_STATUE_PRAY_HP_LOSS: i32 = 7;
+pub const WING_STATUE_REQUIRED_DAMAGE: i32 = 10;
+pub const WING_STATUE_MIN_GOLD: i32 = 50;
+pub const WING_STATUE_MAX_GOLD: i32 = 80;
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
@@ -717,6 +725,22 @@ fn roll_scrap_ooze_relic(run: &mut RunState, event_data: u32) -> bool {
     roll >= 99 - relic_chance
 }
 
+fn scrap_ooze_hp_loss(ascension: u8, failed_reaches: u32) -> i32 {
+    let base = if ascension >= 15 {
+        SCRAP_OOZE_REACH_HP_LOSS + 2
+    } else {
+        SCRAP_OOZE_REACH_HP_LOSS
+    };
+    base + i32::try_from(failed_reaches).expect("scrap ooze failed reach count")
+}
+
+fn roll_wing_statue_gold(run: &mut RunState) -> i32 {
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let gold = rng.random_int_range(WING_STATUE_MIN_GOLD, WING_STATUE_MAX_GOLD);
+    run.misc_rng_counter = rng.counter();
+    gold
+}
+
 fn initialize_act1_event_pools(run: &mut RunState) {
     if !run.act1_event_list.is_empty() {
         return;
@@ -871,6 +895,25 @@ fn golden_shrine_choices(stage: u32) -> Vec<EventChoice> {
     }
 }
 
+fn wing_statue_choices(stage: u32, can_attack: bool) -> Vec<EventChoice> {
+    match stage {
+        0 if can_attack => labeled_choices(&["Pray", "Destroy", "Leave"]),
+        0 => labeled_choices(&["Pray", "Locked", "Leave"]),
+        _ => labeled_choices(&["Leave"]),
+    }
+}
+
+fn has_wing_statue_attack_card(run: &RunState) -> bool {
+    run.deck.iter().any(|card| {
+        get_card_definition(card.content_id)
+            .map(|definition| {
+                definition.card_type == CardType::Attack
+                    && definition.values.damage.unwrap_or(0) >= WING_STATUE_REQUIRED_DAMAGE
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// Compatibility wrapper for [`legacy_fixed_event_screen`].
 ///
 /// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. This is an early
@@ -948,6 +991,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::ScrapOoze => make_event_screen(event, scrap_ooze_choices(0), 0),
         Event::BigFish => make_event_screen(event, big_fish_choices(0), 0),
         Event::GoldenIdol => make_event_screen(event, golden_idol_choices(0, 0, 0), 0),
+        Event::WingStatue => make_event_screen(event, wing_statue_choices(0, false), 0),
         Event::WorldOfGoop => make_event_screen(event, world_of_goop_choices(0, 0), 0),
         Event::DeadAdventurer => make_event_screen(event, dead_adventurer_choices(0), 0),
         Event::TheSsssserpent => make_event_screen(event, sssssserpent_choices(0), 0),
@@ -987,6 +1031,11 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
         Event::Vampires => make_event_screen(
             event,
             vampires_choices(run.relics.contains(&Relic::BloodVial)),
+            0,
+        ),
+        Event::WingStatue => make_event_screen(
+            event,
+            wing_statue_choices(0, has_wing_statue_attack_card(run)),
             0,
         ),
         _ => event_screen(event),
@@ -1293,6 +1342,49 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
         },
+        Event::WingStatue => match screen.stage {
+            0 if choice_index == 0 => {
+                lose_event_hp(&mut next, WING_STATUE_PRAY_HP_LOSS);
+                next.event = Some(EventScreen {
+                    event: Event::WingStatue,
+                    choices: wing_statue_choices(1, false),
+                    stage: 1,
+                    event_data: 0,
+                });
+            }
+            0 if choice_index == 1 && has_wing_statue_attack_card(&next) => {
+                let gold = roll_wing_statue_gold(&mut next);
+                next.gain_gold(gold);
+                next.event = Some(EventScreen {
+                    event: Event::WingStatue,
+                    choices: wing_statue_choices(2, true),
+                    stage: 2,
+                    event_data: gold as u32,
+                });
+            }
+            0 if choice_index == 2 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            1 if choice_index == 0 => {
+                next.event = Some(EventScreen {
+                    event: Event::WingStatue,
+                    choices: wing_statue_choices(2, false),
+                    stage: 2,
+                    event_data: 0,
+                });
+                open_event_remove_return_to_event_grid(&mut next, Event::WingStatue);
+            }
+            2 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Wing Statue",
+                ));
+            }
+        },
         Event::WorldOfGoop => match screen.stage {
             0 if choice_index == 0 => {
                 lose_event_hp(&mut next, WORLD_OF_GOOP_DAMAGE);
@@ -1366,7 +1458,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::ScrapOoze => match screen.stage {
             0 if choice_index == 0 => {
-                next.player_hp = (next.player_hp - SCRAP_OOZE_REACH_HP_LOSS).max(0);
+                let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data);
+                next.player_hp = (next.player_hp - hp_loss).max(0);
                 if roll_scrap_ooze_relic(&mut next, screen.event_data) {
                     scrap_ooze_success(&mut next);
                 } else {
@@ -1383,7 +1476,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.event = None;
             }
             1 if choice_index == 0 => {
-                next.player_hp = (next.player_hp - SCRAP_OOZE_DEEPER_HP_LOSS).max(0);
+                let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data);
+                next.player_hp = (next.player_hp - hp_loss).max(0);
                 if roll_scrap_ooze_relic(&mut next, screen.event_data) {
                     scrap_ooze_success(&mut next);
                 } else {
@@ -3812,6 +3906,105 @@ mod tests {
             apply_event_action(&after_reach, EventAction::Choose { choice_index: 0 })
                 .expect("deeper");
         assert!(after_deeper.relics.contains(&Relic::DreamCatcher));
+    }
+
+    #[test]
+    fn test_scrap_ooze_deeper_hp_loss_increases_after_failures() {
+        let mut run = RunState::map_fixture();
+        run.reward_rng_seed = 1_218_623;
+        run.relic_rng_seed = 1_218_623;
+        run.misc_rng_seed = 1_218_623;
+        run.current_floor = 3;
+        run.player_hp = 75;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::ScrapOoze));
+
+        for counter in 0..256 {
+            let mut trial = run.clone();
+            trial.misc_rng_counter = counter;
+            let after_reach =
+                apply_event_action(&trial, EventAction::Choose { choice_index: 0 }).expect("reach");
+            if after_reach.event.as_ref().unwrap().stage != 1 {
+                continue;
+            }
+            let after_deeper =
+                apply_event_action(&after_reach, EventAction::Choose { choice_index: 0 })
+                    .expect("deeper");
+            if after_deeper.event.as_ref().unwrap().stage != 1 {
+                continue;
+            }
+            let after_deepest =
+                apply_event_action(&after_deeper, EventAction::Choose { choice_index: 0 })
+                    .expect("deeper again");
+
+            assert_eq!(after_reach.player_hp, 72);
+            assert_eq!(after_deeper.player_hp, 68);
+            assert_eq!(after_deepest.player_hp, 63);
+            return;
+        }
+
+        panic!("expected to find three Scrap Ooze failures");
+    }
+
+    #[test]
+    fn wing_statue_pray_loses_hp_and_opens_removal_grid() {
+        use crate::run::grid::{confirm_grid, select_grid_card, GridPurpose};
+
+        let mut run = RunState::map_fixture();
+        run.deck = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+        ];
+        run.player_hp = 20;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::WingStatue));
+
+        let after_pray =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("pray");
+
+        assert_eq!(after_pray.player_hp, 13);
+        assert_eq!(after_pray.event.as_ref().expect("wing screen").stage, 1);
+        assert!(after_pray.card_grid.is_none());
+
+        let grid_run = apply_event_action(&after_pray, EventAction::Choose { choice_index: 0 })
+            .expect("continue");
+        assert_eq!(
+            grid_run.card_grid.as_ref().expect("remove grid").purpose,
+            GridPurpose::EventRemoveReturnToEvent {
+                event: Event::WingStatue
+            }
+        );
+
+        let selected = select_grid_card(&grid_run, 0).expect("select strike");
+        let after = confirm_grid(&selected).expect("confirm removal");
+
+        assert_eq!(
+            after.deck,
+            vec![CardInstance::new(CardId::new(2), DEFEND_R_ID)]
+        );
+        assert_eq!(after.phase, RunPhase::Event);
+        assert_eq!(after.event.as_ref().expect("wing screen").stage, 2);
+    }
+
+    #[test]
+    fn wing_statue_destroy_requires_ten_damage_attack_and_rolls_misc_gold() {
+        use crate::content::cards::CLEAVE_PLUS_ID;
+
+        let mut run = RunState::map_fixture();
+        run.deck = vec![CardInstance::new(CardId::new(1), CLEAVE_PLUS_ID)];
+        run.gold = 10;
+        run.misc_rng_seed = 7;
+        run.misc_rng_counter = 0;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::WingStatue));
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("destroy");
+
+        assert!(after.gold >= 60);
+        assert!(after.gold <= 90);
+        assert_eq!(after.misc_rng_counter, 1);
+        assert_eq!(after.event.as_ref().expect("wing screen").stage, 2);
     }
 
     #[test]
