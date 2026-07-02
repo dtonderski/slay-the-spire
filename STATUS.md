@@ -12,6 +12,22 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Large Slime visible split slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=138`,
+  `final_phase=combat` after the floor-12 split that previously swapped the two
+  medium Acid Slime child intents. Source-backed pieces: pending
+  `SummonGremlins` split intents are no longer overwritten by small-slime
+  follow-up preparation before the monster turn executes, and large Acid Slime
+  wound-tackle follow-up no longer ignores the next AI roll. The split helper
+  now preserves the visible child slot order while assigning the child AI rolls
+  in the order observed after target `SpawnMonsterAction`/`init()` processing.
+  Checks: `cargo fmt`, `cargo test -p sts_core large_acid_slime --lib`,
+  `cargo test -p sts_core large_slime --lib`, `uv run maturin develop
+  --release`, strict replay of the current live trace, and the protected live
+  trace gate confirming older known blockers stayed at the same boundaries.
+  Current milestone remains A0 strict/live trace parity; next task is the next
+  fresh live mismatch or SlayTheData run-level decision replay.
 - Latest live bridge mapper slice: combat recommendations that resolve to
   generic select-confirm actions (`confirm_hand_select`, `confirm_draw_select`,
   `confirm_discard_select`, or `confirm_exhaust_select`) now map to the bridge

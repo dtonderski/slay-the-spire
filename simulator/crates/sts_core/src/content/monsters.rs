@@ -6412,14 +6412,6 @@ pub fn apply_large_acid_slime_split(
     left.hp = split_hp;
     right.hp = split_hp;
     if let Some(rng) = rng {
-        let left_roll = rng.random_int(99);
-        left.intent = target_medium_acid_slime_next_intent_from_roll(
-            &left.move_history,
-            left_roll,
-            rng,
-            ascension,
-        );
-        record_target_move(&mut left);
         let right_roll = rng.random_int(99);
         right.intent = target_medium_acid_slime_next_intent_from_roll(
             &right.move_history,
@@ -6428,6 +6420,14 @@ pub fn apply_large_acid_slime_split(
             ascension,
         );
         record_target_move(&mut right);
+        let left_roll = rng.random_int(99);
+        left.intent = target_medium_acid_slime_next_intent_from_roll(
+            &left.move_history,
+            left_roll,
+            rng,
+            ascension,
+        );
+        record_target_move(&mut left);
     } else {
         left.intent = MonsterIntent::Attack {
             damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE,
@@ -6473,14 +6473,6 @@ pub fn apply_large_spike_slime_split(
     left.hp = split_hp;
     right.hp = split_hp;
     if let Some(rng) = rng {
-        let left_roll = rng.random_int(99);
-        left.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-            left.hp,
-            &left.move_history,
-            left_roll,
-            ascension,
-        );
-        record_target_move(&mut left);
         let right_roll = rng.random_int(99);
         right.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
             right.hp,
@@ -6489,6 +6481,14 @@ pub fn apply_large_spike_slime_split(
             ascension,
         );
         record_target_move(&mut right);
+        let left_roll = rng.random_int(99);
+        left.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
+            left.hp,
+            &left.move_history,
+            left_roll,
+            ascension,
+        );
+        record_target_move(&mut left);
     } else {
         left.intent = MonsterIntent::AttackAddSlimedToDiscard {
             damage: SPIKE_SLIME_M_SPIT_DAMAGE,
@@ -7488,13 +7488,6 @@ pub fn target_large_acid_slime_next_intent_from_roll(
             }
         } else {
             MonsterIntent::ApplyPlayerWeak { amount: weak }
-        }
-    } else if matches!(
-        previous_intent,
-        MonsterIntent::AttackAddSlimedToDiscard { .. }
-    ) {
-        MonsterIntent::Attack {
-            damage: attack_damage,
         }
     } else if roll < 30 {
         MonsterIntent::AttackAddSlimedToDiscard {
@@ -12732,6 +12725,27 @@ mod tests {
     }
 
     #[test]
+    fn large_acid_slime_wound_followup_still_uses_ai_roll() {
+        let mut rng = StsRng::new(0);
+
+        assert_eq!(
+            target_large_acid_slime_next_intent_from_roll(
+                MonsterIntent::AttackAddSlimedToDiscard {
+                    damage: 11,
+                    count: 2
+                },
+                0,
+                &mut rng,
+                0
+            ),
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: 11,
+                count: 2
+            }
+        );
+    }
+
+    #[test]
     fn large_acid_slime_split_children_inherit_current_hp() {
         let mut monsters = vec![monster_state(&ACID_SLIME_A0, MonsterId::new(1))];
         monsters[0].hp = 12;
@@ -12770,12 +12784,12 @@ mod tests {
         monsters[0].hp = 34;
         let mut rng = StsRng::new(12_345);
         let mut expected_rng = rng.clone();
-        let left_roll = expected_rng.random_int(99);
-        let expected_left =
-            target_medium_acid_slime_next_intent_from_roll(&[], left_roll, &mut expected_rng, 0);
         let right_roll = expected_rng.random_int(99);
         let expected_right =
             target_medium_acid_slime_next_intent_from_roll(&[], right_roll, &mut expected_rng, 0);
+        let left_roll = expected_rng.random_int(99);
+        let expected_left =
+            target_medium_acid_slime_next_intent_from_roll(&[], left_roll, &mut expected_rng, 0);
         apply_large_acid_slime_split(&mut monsters, MonsterId::new(1), Some(&mut rng), 0);
 
         let alive = monsters

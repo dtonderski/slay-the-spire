@@ -764,6 +764,15 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 record_target_move(monster);
                 continue;
             }
+            if monster.split_triggered
+                && matches!(monster.intent, crate::MonsterIntent::SummonGremlins { .. })
+                && matches!(
+                    monster.content_id,
+                    ACID_SLIME_ID | SPIKE_SLIME_ID | SLIME_BOSS_ID
+                )
+            {
+                continue;
+            }
             if monster.content_id == ACID_SLIME_ID
                 && monster.hp <= ACID_SLIME_S_A7_HP_RANGE.max
                 && !acid_slime_uses_medium_move_table(monster)
@@ -1616,6 +1625,32 @@ mod tests {
         assert_eq!(
             next.monsters[1].intent,
             MonsterIntent::SummonGremlins { count: 2 }
+        );
+    }
+
+    #[test]
+    fn large_slime_pending_split_intent_is_not_overwritten_by_small_slime_followup() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::ACID_SLIME_A0,
+            MonsterId::new(1),
+        )];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 69;
+        state.monsters[0].rolled_attack_damage = Some(11);
+        state.monsters[0].split_triggered = true;
+        state.monsters[0].intent = MonsterIntent::SummonGremlins { count: 2 };
+        state.monster_rng = Some(StsRng::new(123));
+
+        prepare_next_intents(&mut state);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            MonsterIntent::SummonGremlins { count: 2 }
+        );
+        assert_eq!(
+            state.monster_rng.as_ref().expect("monster rng").counter(),
+            0
         );
     }
 
