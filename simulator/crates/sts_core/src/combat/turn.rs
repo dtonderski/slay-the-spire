@@ -323,9 +323,19 @@ fn run_monster_turn(state: &mut CombatState) {
                         ascension,
                     );
                 } else if state.monsters[index].content_id == ACID_SLIME_ID {
-                    apply_large_acid_slime_split(&mut state.monsters, summoner_id);
+                    apply_large_acid_slime_split(
+                        &mut state.monsters,
+                        summoner_id,
+                        state.monster_rng.as_mut(),
+                        ascension,
+                    );
                 } else if state.monsters[index].content_id == SPIKE_SLIME_ID {
-                    apply_large_spike_slime_split(&mut state.monsters, summoner_id);
+                    apply_large_spike_slime_split(
+                        &mut state.monsters,
+                        summoner_id,
+                        state.monster_rng.as_mut(),
+                        ascension,
+                    );
                 } else if state.monsters[index].content_id == SLIME_BOSS_ID {
                     apply_slime_boss_split(&mut state.monsters, summoner_id, ascension);
                 } else if let (Some(ai_rng), Some(hp_rng)) =

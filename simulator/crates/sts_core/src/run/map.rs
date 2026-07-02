@@ -1000,7 +1000,17 @@ mod tests {
             combat.monsters[0].intent,
             crate::MonsterIntent::Attack { damage: 16 }
         );
+        assert_eq!(combat.monsters[0].rolled_attack_damage, Some(11));
         assert_eq!(rng.counter(), 1);
+
+        combat.monsters[0].hp = 34;
+        crate::content::monsters::large_acid_slime_on_hp_damage(&mut combat.monsters[0], 5);
+
+        assert!(combat.monsters[0].split_triggered);
+        assert_eq!(
+            combat.monsters[0].intent,
+            crate::MonsterIntent::SummonGremlins { count: 2 }
+        );
     }
 
     #[test]
