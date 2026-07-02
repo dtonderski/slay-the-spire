@@ -7828,6 +7828,13 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             },
             SPIKE_SLIME_ID if damage > 0 => MonsterIntent::Attack { damage },
             SPIKE_SLIME_ID => MonsterIntent::Attack { damage: 5 },
+            ACID_SLIME_ID if move_id == 2 && damage > 0 => MonsterIntent::Attack { damage },
+            ACID_SLIME_ID if move_id == 1 && damage > 0 => {
+                MonsterIntent::AttackAddSlimedToDiscard {
+                    damage,
+                    count: observed_slimed_count(monster, content_id),
+                }
+            }
             ACID_SLIME_ID if damage > 0 => MonsterIntent::AttackAddSlimedToDiscard {
                 damage,
                 count: observed_slimed_count(monster, content_id),
@@ -9670,6 +9677,24 @@ mod tests {
                 damage: 11,
                 count: 2
             }
+        );
+    }
+
+    #[test]
+    fn medium_acid_slime_debug_move_two_imports_normal_attack() {
+        use sts_core::content::monsters::ACID_SLIME_ID;
+
+        let monster = json!({
+            "id": "AcidSlime_M",
+            "max_hp": 29,
+            "intent": "DEBUG",
+            "move_id": 2,
+            "move_base_damage": 10
+        });
+
+        assert_eq!(
+            observed_intent(&monster, ACID_SLIME_ID, 0),
+            MonsterIntent::Attack { damage: 10 }
         );
     }
 

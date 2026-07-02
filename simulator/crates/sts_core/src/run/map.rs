@@ -573,7 +573,9 @@ fn target_spawn_monster_state(
     monster.alive = spawn.current_hp > 0;
     monster.powers = spawn_monster_powers(spawn);
     monster.rolled_attack_damage = spawn.rolled_attack_damage;
-    if spawn.intent == "AttackAddSlimedToDiscard" {
+    if spawn.intent == "AttackAddSlimedToDiscard"
+        && !(monster.content_id == ACID_SLIME_ID && monster.max_hp <= ACID_SLIME_M_A7_HP_RANGE.max)
+    {
         if let Some(damage) = spawn.rolled_attack_damage {
             monster.intent = crate::MonsterIntent::AttackAddSlimedToDiscard {
                 damage,
@@ -1227,6 +1229,34 @@ mod tests {
             crate::content::monsters::THE_COLLECTOR_ID
         );
         assert_eq!(combat.monsters[0].hp, 282);
+    }
+
+    #[test]
+    fn medium_acid_slime_prefilled_spawn_uses_initial_ai_roll() {
+        let spawn = TargetEncounterSpawn {
+            name: "AcidSlime_M",
+            current_hp: ACID_SLIME_M_A7_HP_RANGE.min,
+            max_hp: ACID_SLIME_M_A7_HP_RANGE.min,
+            block: 0,
+            intent: "AttackAddSlimedToDiscard",
+            powers: Vec::new(),
+            rolled_attack_damage: Some(7),
+        };
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters = vec![target_spawn_monster_state(&spawn, 0, 0)];
+        let seed = (0_i64..)
+            .find(|seed| matches!(StsRng::new(*seed).random_int(99), 30..=69))
+            .expect("synthetic seed for medium Acid Slime normal tackle");
+        let mut rng = StsRng::new(seed);
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        record_initial_monster_moves(&mut combat);
+
+        assert_eq!(
+            combat.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 10 }
+        );
+        assert_eq!(combat.monsters[0].move_history, vec![2]);
     }
 
     #[test]
