@@ -219,6 +219,45 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(status["bridge_lifecycle"]["status"], "stale")
         self.assertFalse(preflight["pending_command"]["present"])
 
+    def test_status_derives_open_potion_slots_from_current_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-state",
+                        "ready_for_command": True,
+                        "screen_type": "COMBAT_REWARD",
+                        "available_commands": ["choose", "state"],
+                        "choices": ["potion", "card"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "current_state.json").write_text(
+                json.dumps(
+                    {
+                        "message": {
+                            "game_state": {
+                                "potions": [
+                                    {"name": "Gambler's Brew"},
+                                    {"name": "Speed Potion"},
+                                    {"name": "Power Potion"},
+                                ]
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status = BridgeMirror(root, stale_after_seconds=9999).status()
+
+        self.assertEqual(status["summary"]["open_potion_slots"], 0)
+        self.assertFalse(status["bridge_actions"][0]["enabled"])
+        self.assertEqual(status["bridge_actions"][0]["disabled_reason"], "potion belt is full")
+
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

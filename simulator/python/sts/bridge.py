@@ -35,6 +35,7 @@ class BridgeMirror:
         status = _read_json(self.session_dir / "status.json")
         summary = _read_json(self.session_dir / "summary.json")
         current_state = _read_json(self.session_dir / "current_state.json")
+        summary = _summary_with_derived_potion_slots(summary, current_state)
         command_path = self.session_dir / "next_command.txt"
         ages = {
             "status_age_seconds": _age_seconds(self.session_dir / "status.json", now),
@@ -710,6 +711,30 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {"missing": True}
     except json.JSONDecodeError as error:
         return {"error": f"invalid JSON: {error}", "missing": False}
+
+
+def _summary_with_derived_potion_slots(
+    summary: dict[str, Any],
+    current_state: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(summary, dict) or summary.get("open_potion_slots") is not None:
+        return summary
+    potions = (
+        current_state.get("message", {})
+        .get("game_state", {})
+        .get("potions")
+    )
+    if not isinstance(potions, list):
+        return summary
+    occupied = [
+        potion for potion in potions
+        if isinstance(potion, dict)
+        and str(potion.get("name") or potion.get("id") or "").lower() != "potion slot"
+    ]
+    enriched = summary.copy()
+    enriched["potion_capacity"] = len(potions)
+    enriched["open_potion_slots"] = len(potions) - len(occupied)
+    return enriched
 
 
 def _age_seconds(path: Path, now: float) -> float | None:

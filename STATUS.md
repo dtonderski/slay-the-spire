@@ -3,6 +3,13 @@
 ## What Exists
 
 ### Tooling
+- Latest bridge-control fix: full potion belts no longer wedge the live UI on
+  "Waiting for command ack" after selecting a potion reward. The trace client
+  now summarizes potion capacity/open slots, the bridge action list disables
+  the combat-reward potion choice when `open_potion_slots == 0`, and stale TCP
+  pending-command status is ignored once the observed bridge files are stale
+  and no command file remains. Checks: `node tools\communication\trace_client.test.js`
+  passed; `uv run python -m unittest python.tests.test_bridge_mirror` passed.
 - Latest live trace fidelity fix: implemented the source-backed Pain curse
   trigger exposed by `trace-2026-07-02T22-41-59-925Z.jsonl` at trace step 42.
   Decompiled `Pain.java` triggers `LoseHPAction(..., 1)` whenever another card
