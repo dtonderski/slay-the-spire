@@ -7598,6 +7598,7 @@ pub fn apply_monster_intent_with_card_rng(
             config.scaled_attack_damage(damage)
         }
     };
+    let mut block_after_thorns = 0;
     let (damage, thorns_hits) = match monster.intent {
         MonsterIntent::Attack { damage } => (
             monster_damage_to_player(player_before, monster, scale_damage(damage)),
@@ -7612,7 +7613,7 @@ pub fn apply_monster_intent_with_card_rng(
             (0, 0)
         }
         MonsterIntent::AttackAndBlock { damage, block } => {
-            monster.block += block;
+            block_after_thorns = block;
             (
                 monster_damage_to_player(player_before, monster, scale_damage(damage)),
                 1,
@@ -7829,6 +7830,9 @@ pub fn apply_monster_intent_with_card_rng(
     if total_thorns > 0 && thorns_hits > 0 {
         let hp_damage = deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
         guardian_on_hp_damage(monster, hp_damage);
+    }
+    if monster.alive && block_after_thorns > 0 {
+        monster.block += block_after_thorns;
     }
     if monster.alive && thorns_hits > 0 && monster.powers.strength_up > 0 {
         monster.powers.strength += monster.powers.strength_up;

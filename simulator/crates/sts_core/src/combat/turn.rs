@@ -1202,6 +1202,27 @@ mod tests {
     }
 
     #[test]
+    fn monster_attack_and_block_adds_block_after_player_thorns() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 40;
+        state.player.block = 5;
+        state.player.powers.thorns = 3;
+        state.monsters[0].hp = 11;
+        state.monsters[0].block = 0;
+        state.monsters[0].intent = MonsterIntent::AttackAndBlock {
+            damage: 10,
+            block: 5,
+        };
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(&state, CombatAction::EndTurn).expect("end turn");
+
+        assert_eq!(next.player.hp, 35);
+        assert_eq!(next.monsters[0].hp, 8);
+        assert_eq!(next.monsters[0].block, 5);
+    }
+
+    #[test]
     fn monster_killed_by_thorns_during_own_turn_keeps_queued_next_intent() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 30;
