@@ -1397,6 +1397,26 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["command"], "CONFIRM")
 
+    def test_bridge_action_for_exact_action_ignores_non_confirm_dict_payloads(self):
+        action = {
+            "kind": "ExactRunAction",
+            "action_kind": "play_card",
+            "action": {"PlayCard": {"card_id": 101, "target": None}},
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "PLAY 1",
+                    "descriptor": {"kind": "PlayHandSlot", "hand_slot": 1},
+                },
+            ],
+            "summary": {"combat": {"hand": [{"index": 1, "id": 101}]}},
+        }
+
+        result = _bridge_action_for_exact_action(action, bridge_status, {"combat": {}})
+
+        self.assertEqual(result["command"], "PLAY 1")
+
     def test_send_live_combat_action_attaches_searches_predicts_and_sends_bridge_command(self):
         manager = SessionManager()
         manager._sessions["live"] = CombatSession(

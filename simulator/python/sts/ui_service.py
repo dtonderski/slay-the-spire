@@ -1092,15 +1092,19 @@ def _is_confirm_select_descriptor(action: dict[str, Any]) -> bool:
         "ConfirmExhaustSelect",
     }
 
-    if action.get("action_kind") in confirm_action_kinds:
+    action_kind = action.get("action_kind")
+    action_name = action.get("action")
+    if action_kind in confirm_action_kinds:
         return True
-    if action.get("action") in confirm_actions:
+    if isinstance(action_name, str) and action_name in confirm_actions:
         return True
     descriptor = action.get("descriptor")
     if isinstance(descriptor, dict):
-        if descriptor.get("action_kind") in confirm_action_kinds:
+        descriptor_action_kind = descriptor.get("action_kind")
+        descriptor_action_name = descriptor.get("action")
+        if descriptor_action_kind in confirm_action_kinds:
             return True
-        if descriptor.get("action") in confirm_actions:
+        if isinstance(descriptor_action_name, str) and descriptor_action_name in confirm_actions:
             return True
     return False
 

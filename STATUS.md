@@ -17,8 +17,9 @@
   `confirm_discard_select`, or `confirm_exhaust_select`) now map to the bridge
   `ConfirmChoice` / `CONFIRM` command in both the Python live send path and the
   browser UI mapper. This unblocks Gambler's Brew and other select-confirm
-  flows without adding seed- or trace-specific behavior. Checks:
-  `uv run python -m unittest python.tests.test_ui_service.UiServiceTests.test_bridge_action_for_exact_action_maps_select_confirm_to_confirm_choice`,
+  flows without adding seed- or trace-specific behavior. The mapper also guards
+  normal dict-payload actions before confirm matching. Checks:
+  `uv run python -m unittest python.tests.test_ui_service.UiServiceTests.test_bridge_action_for_exact_action_maps_select_confirm_to_confirm_choice python.tests.test_ui_service.UiServiceTests.test_bridge_action_for_exact_action_ignores_non_confirm_dict_payloads python.tests.test_ui_service.UiServiceTests.test_bridge_action_for_exact_action_maps_run_play_card_to_visible_slots`,
   strict replay gate over the current protected live traces, and live
   `trace-2026-07-01T20-30-26-163Z.jsonl` advanced cleanly to
   `verified=True`, `stop_reason=trace_exhausted`, `steps=133`,
