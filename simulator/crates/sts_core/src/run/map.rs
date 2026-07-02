@@ -707,6 +707,7 @@ fn apply_event_room_outcome(run: &mut RunState, last_room_was_shop: bool) {
     match outcome {
         EventRoomOutcome::Monster => {
             run.current_room_override = Some(RoomKind::Combat);
+            enter_normal_combat(run);
         }
         EventRoomOutcome::Shop => {
             run.current_room_override = Some(RoomKind::Shop);
@@ -1497,7 +1498,8 @@ mod tests {
         )
         .expect("enter event");
 
-        assert_eq!(run.phase, RunPhase::Idle);
+        assert_eq!(run.phase, RunPhase::Combat);
+        assert!(run.combat.is_some());
         assert!(run.event.is_none());
         assert_eq!(run.current_room_kind(), Some(RoomKind::Combat));
         assert_eq!(

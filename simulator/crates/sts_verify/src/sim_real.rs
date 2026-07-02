@@ -2587,9 +2587,9 @@ fn verify_seed_start_transitions(
                         &mut combat_index,
                         &mut _reward_step,
                         &map_path_xs,
-                        &relics,
-                        &deck_ids,
-                        seed_sim.as_ref(),
+                        &mut seed_sim,
+                        &mut relics,
+                        &mut deck_ids,
                     ) {
                         return boundary;
                     }
@@ -2987,9 +2987,9 @@ fn verify_seed_start_transitions(
                         &mut combat_index,
                         &mut _reward_step,
                         &map_path_xs,
-                        &relics,
-                        &deck_ids,
-                        seed_sim.as_ref(),
+                        &mut seed_sim,
+                        &mut relics,
+                        &mut deck_ids,
                     ) {
                         return boundary;
                     }
@@ -4242,25 +4242,35 @@ fn seed_start_handle_proceed_to_map(
     combat_index: &mut usize,
     reward_step: &mut usize,
     map_path_xs: &[i32],
-    relics: &[String],
-    deck_ids: &[String],
-    seed_sim: Option<&RunState>,
+    seed_sim: &mut Option<RunState>,
+    carried_relics: &mut Vec<String>,
+    carried_deck_ids: &mut Vec<String>,
 ) -> Option<SeedStartBoundary> {
     let label = format!("return to map after floor {}", *combat_index + 1);
     let deck = seed_sim
+        .as_ref()
         .map(|sim| deck_content_keys(&sim.deck))
-        .unwrap_or_else(|| deck_ids.to_vec());
+        .unwrap_or_else(|| carried_deck_ids.clone());
     let observed = seed_start_map_return_observed_subset(post_message);
     let simulated = seed_start_simulated_map_return(
         start.numeric_seed,
         map_path_xs,
-        seed_sim,
-        relics,
+        seed_sim.as_ref(),
+        carried_relics,
         &deck,
         &deck,
     );
     compare_subset(report, action, &label, observed, simulated);
     seed_start_test_pop_last_diff(report, action, &start.external_seed);
+    if screen_type(post_message) == Some("MAP") {
+        if let Some(sim) = seed_sim.as_mut() {
+            seed_start_sync_run_from_observed(sim, post_message);
+            sim.phase = RunPhase::Idle;
+            sim.reward = None;
+            sim.card_grid = None;
+            seed_start_sync_carry_from_run(sim, carried_relics, carried_deck_ids);
+        }
+    }
     *combat_index += 1;
     *reward_step = 0;
     *phase = SeedStartPhase::Map;
