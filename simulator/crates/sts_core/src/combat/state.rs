@@ -74,6 +74,10 @@ pub struct CombatState {
     /// Pending The Bomb explosions. Each entry ticks down at end of player turn.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bomb_timers: Vec<BombTimer>,
+    /// Player damage queued by monster powers that add actions after card use, such as Guardian
+    /// Sharp Hide.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub pending_player_spikes_damage: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,6 +218,8 @@ pub struct MonsterState {
     pub defensive_turns_remaining: u32,
     #[serde(default)]
     pub mode_shift: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub mode_shift_threshold: i32,
     #[serde(default)]
     pub in_defensive_mode: bool,
     #[serde(default)]
@@ -432,6 +438,7 @@ impl CombatState {
             duplication_potion_stacks: 0,
             double_tap_pending: 0,
             bomb_timers: Vec::new(),
+            pending_player_spikes_damage: 0,
         }
     }
 

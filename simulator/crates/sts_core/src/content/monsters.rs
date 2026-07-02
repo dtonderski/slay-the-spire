@@ -126,7 +126,7 @@ pub const SLIME_BOSS_A19_SLIMED_COUNT: i32 = 5;
 const SLIME_BOSS_SPLIT_HP_THRESHOLD: i32 = 70;
 
 const GUARDIAN_MODE_SHIFT_START: i32 = 30;
-const GUARDIAN_MODE_SHIFT_RESET: i32 = 40;
+const GUARDIAN_MODE_SHIFT_INCREASE: i32 = 10;
 const GUARDIAN_DEFENSIVE_SEQUENCE_TURNS: u32 = 3;
 const GUARDIAN_DEFENSIVE_BLOCK: i32 = 20;
 const GUARDIAN_DEFENSIVE_SPIKES: i32 = 3;
@@ -3385,6 +3385,11 @@ pub fn monster_state_for_ascension(
         } else {
             0
         },
+        mode_shift_threshold: if definition.content_id == GUARDIAN_ID {
+            GUARDIAN_MODE_SHIFT_START
+        } else {
+            0
+        },
         in_defensive_mode: false,
         rolled_attack_damage: None,
         stolen_gold: 0,
@@ -4766,6 +4771,23 @@ fn shelled_parasite_double_strike_intent(ascension: u8) -> MonsterIntent {
 
 #[must_use]
 pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<u8> {
+    if content_id == GUARDIAN_ID {
+        return match intent {
+            MonsterIntent::GuardianCloseUp { .. } => Some(1),
+            MonsterIntent::Attack {
+                damage: GUARDIAN_FIERCE_BASH_DAMAGE | GUARDIAN_A4_FIERCE_BASH_DAMAGE,
+            } => Some(2),
+            MonsterIntent::Attack { .. } => Some(3),
+            MonsterIntent::AttackMultiple {
+                damage: GUARDIAN_DEFENSIVE_COMBO_DAMAGE,
+                hits: 2,
+            } => Some(4),
+            MonsterIntent::AttackMultiple { .. } => Some(5),
+            MonsterIntent::Block { .. } => Some(6),
+            MonsterIntent::ApplyPlayerWeak { .. } => Some(7),
+            _ => None,
+        };
+    }
     if content_id == GREMLIN_NOB_ID {
         return match intent {
             MonsterIntent::Attack { .. } => Some(1),
@@ -7024,6 +7046,10 @@ pub fn enter_guardian_defensive_mode(monster: &mut MonsterState) {
     monster.in_defensive_mode = true;
     monster.defensive_turns_remaining = GUARDIAN_DEFENSIVE_SEQUENCE_TURNS;
     monster.block += GUARDIAN_DEFENSIVE_BLOCK;
+    if monster.mode_shift_threshold <= 0 {
+        monster.mode_shift_threshold = GUARDIAN_MODE_SHIFT_START;
+    }
+    monster.mode_shift_threshold += GUARDIAN_MODE_SHIFT_INCREASE;
     monster.mode_shift = 0;
     monster.intent = guardian_intent(
         true,
@@ -7040,7 +7066,7 @@ fn exit_guardian_defensive_mode(monster: &mut MonsterState) {
     monster.in_defensive_mode = false;
     monster.defensive_turns_remaining = 0;
     monster.powers.spikes = 0;
-    monster.mode_shift = GUARDIAN_MODE_SHIFT_RESET;
+    monster.mode_shift = monster.mode_shift_threshold;
     monster.moves_executed = 2;
     monster.intent = guardian_intent(false, 0, monster.moves_executed, 0);
 }
@@ -7796,7 +7822,8 @@ pub fn apply_monster_intent_with_card_rng(
     };
     let total_thorns = player.powers.thorns + player.temp_thorns;
     if total_thorns > 0 && thorns_hits > 0 {
-        deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
+        let hp_damage = deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
+        guardian_on_hp_damage(monster, hp_damage);
     }
     if monster.alive && thorns_hits > 0 && monster.powers.strength_up > 0 {
         monster.powers.strength += monster.powers.strength_up;
@@ -8914,6 +8941,30 @@ mod tests {
 
         assert_eq!(damage, 6);
         assert_eq!(monster.hp, HEXAGHOST_A0.hp - 18);
+    }
+
+    #[test]
+    fn guardian_mode_shift_counts_player_thorns_reflection_damage() {
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AttackMultiple { damage: 5, hits: 4 };
+        monster.mode_shift = 18;
+        let mut player = dummy_player();
+        player.powers.thorns = 3;
+        let mut piles = dummy_piles();
+        let player_before = player.clone();
+
+        apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut piles,
+            0,
+            &player_before,
+            &[],
+        );
+
+        assert_eq!(monster.hp, GUARDIAN_A0.hp - 12);
+        assert_eq!(monster.mode_shift, 6);
+        assert!(!monster.in_defensive_mode);
     }
 
     #[test]
@@ -12795,6 +12846,21 @@ mod tests {
                 sharp_hide: GUARDIAN_DEFENSIVE_SPIKES
             }
         );
+    }
+
+    #[test]
+    fn guardian_mode_shift_threshold_increases_after_each_defensive_entry() {
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+
+        guardian_on_hp_damage(&mut monster, 30);
+        assert_eq!(monster.mode_shift_threshold, 40);
+        exit_guardian_defensive_mode(&mut monster);
+        assert_eq!(monster.mode_shift, 40);
+
+        guardian_on_hp_damage(&mut monster, 40);
+        assert_eq!(monster.mode_shift_threshold, 50);
+        exit_guardian_defensive_mode(&mut monster);
+        assert_eq!(monster.mode_shift, 50);
     }
 
     #[test]

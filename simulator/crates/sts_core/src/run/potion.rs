@@ -6,9 +6,9 @@ use crate::{
         choose_exhaust_select, choose_hand_select, close_discovery_card_reward_source,
         confirm_discard_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
         discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
-        exhaust_select_ui_to_hand_index, hand_select_ui_to_hand_index,
-        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
-        player_draw_cards, top_draw_card_definition,
+        exhaust_select_ui_to_hand_index, flush_pending_player_spikes_damage_if_ready,
+        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
+        open_gambling_chip_select, player_draw_cards, top_draw_card_definition,
     },
     combat::{CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose},
     content::cards::{get_card_definition, upgrade_card_instance},
@@ -301,8 +301,15 @@ pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<Ru
         .map(|select| select.purpose)
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     choose_discard_select(combat, index)?;
-    if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
+    if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw
+        || (purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand
+            && combat
+                .discard_select
+                .as_ref()
+                .is_some_and(|select| select.max_choices == 1))
+    {
         confirm_discard_select(combat)?;
+        flush_pending_player_spikes_damage_if_ready(combat);
     }
     Ok(next)
 }
@@ -312,6 +319,7 @@ pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
     confirm_discard_select(combat)?;
+    flush_pending_player_spikes_damage_if_ready(combat);
     Ok(next)
 }
 
@@ -840,6 +848,7 @@ mod tests {
             BASH_ID, DAZED_ID, DEFEND_R_ID, DISCOVERY_ID, HEADBUTT_ID, REAPER_ID,
             SECRET_TECHNIQUE_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, WOUND_ID,
         },
+        content::monsters::GUARDIAN_ID,
         map::RoomKind,
         MapNodeId, MonsterId, Relic,
     };
@@ -1682,8 +1691,7 @@ mod tests {
             .is_some());
         assert!(opened.potions.is_empty());
 
-        let chosen = apply_discard_select_choice(&opened, 1).expect("choose defend");
-        let after = apply_discard_select_confirm(&chosen).expect("confirm liquid memories");
+        let after = apply_discard_select_choice(&opened, 1).expect("choose defend");
         let combat = after.combat.expect("combat continues");
         assert!(combat.discard_select.is_none());
         assert_eq!(combat.piles.discard_pile.len(), 1);
@@ -1695,6 +1703,7 @@ mod tests {
             .expect("returned card");
         assert_eq!(returned.content_id, DEFEND_R_ID);
         assert_eq!(returned.temp_cost, Some(0));
+        assert!(returned.temp_cost_turn_only);
     }
 
     #[test]
@@ -1730,26 +1739,22 @@ mod tests {
                 .count(),
             2
         );
-        assert_eq!(
-            combat
-                .piles
-                .hand
-                .iter()
-                .find(|card| card.id == CardId::new(20))
-                .expect("strike returned")
-                .temp_cost,
-            Some(0)
-        );
-        assert_eq!(
-            combat
-                .piles
-                .hand
-                .iter()
-                .find(|card| card.id == CardId::new(22))
-                .expect("bash returned")
-                .temp_cost,
-            Some(0)
-        );
+        let strike = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == CardId::new(20))
+            .expect("strike returned");
+        assert_eq!(strike.temp_cost, Some(0));
+        assert!(strike.temp_cost_turn_only);
+        let bash = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == CardId::new(22))
+            .expect("bash returned");
+        assert_eq!(bash.temp_cost, Some(0));
+        assert!(bash.temp_cost_turn_only);
         assert_eq!(combat.piles.discard_pile.len(), 1);
     }
 
@@ -1763,6 +1768,10 @@ mod tests {
             CardInstance::new(CardId::new(21), STRIKE_R_ID),
             CardInstance::new(CardId::new(22), DEFEND_R_ID),
         ];
+        combat.monsters[0].content_id = GUARDIAN_ID;
+        combat.monsters[0].powers.spikes = 3;
+        combat.player.hp = 20;
+        combat.player.block = 2;
 
         let after_play = crate::run::apply_combat_action_on_run(
             &run,
@@ -1778,6 +1787,9 @@ mod tests {
 
         let combat = after_choose.combat.expect("combat continues");
         assert!(combat.discard_select.is_none());
+        assert_eq!(combat.player.hp, 19);
+        assert_eq!(combat.player.block, 0);
+        assert_eq!(combat.pending_player_spikes_damage, 0);
         assert_eq!(combat.piles.hand.len(), 0);
         assert_eq!(
             combat.piles.draw_pile.last().unwrap().content_id,
@@ -1791,6 +1803,45 @@ mod tests {
                 .map(|card| card.content_id)
                 .collect::<Vec<_>>(),
             vec![DEFEND_R_ID, HEADBUTT_ID]
+        );
+    }
+
+    #[test]
+    fn liquid_memories_single_discard_select_run_choice_confirms_immediately() {
+        let mut run = RunState::combat_fixture();
+        run.potions.push(Potion::LiquidMemories);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.hand.clear();
+        combat.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), DEFEND_R_ID),
+        ];
+
+        let after_use = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("use Liquid Memories");
+        let after_choose =
+            crate::run::apply_run_action(&after_use, RunAction::ChooseDiscardSelect { index: 0 })
+                .expect("choose discard card");
+
+        let combat = after_choose.combat.expect("combat continues");
+        assert!(combat.discard_select.is_none());
+        assert_eq!(combat.piles.hand.len(), 1);
+        assert_eq!(combat.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(combat.piles.hand[0].temp_cost, Some(0));
+        assert_eq!(
+            combat
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID]
         );
     }
 

@@ -6703,6 +6703,7 @@ fn run_from_observed_combat_impl(
         duplication_potion_pending: false,
         duplication_potion_stacks: 0,
         double_tap_pending,
+        pending_player_spikes_damage: 0,
     };
 
     Some(RunState {
@@ -7222,6 +7223,7 @@ fn monsters_from_observed(
                 split_triggered: false,
                 defensive_turns_remaining: replay.defensive_turns_remaining,
                 mode_shift: replay.mode_shift,
+                mode_shift_threshold: replay.mode_shift_threshold,
                 in_defensive_mode: replay.in_defensive_mode,
                 rolled_attack_damage,
                 stolen_gold: 0,
@@ -7241,6 +7243,7 @@ struct EliteBossReplayFields {
     has_siphoned: bool,
     defensive_turns_remaining: u32,
     mode_shift: i32,
+    mode_shift_threshold: i32,
     in_defensive_mode: bool,
     intent: MonsterIntent,
 }
@@ -7280,6 +7283,7 @@ fn elite_boss_replay_fields(
                 has_siphoned,
                 defensive_turns_remaining: 0,
                 mode_shift: 0,
+                mode_shift_threshold: 0,
                 in_defensive_mode: false,
                 intent,
             }
@@ -7299,6 +7303,7 @@ fn elite_boss_replay_fields(
                 has_siphoned: false,
                 defensive_turns_remaining: 0,
                 mode_shift: 0,
+                mode_shift_threshold: 0,
                 in_defensive_mode: false,
                 intent: observed_intent(monster, content_id, ascension),
             }
@@ -7345,6 +7350,7 @@ fn elite_boss_replay_fields(
                 has_siphoned: false,
                 defensive_turns_remaining,
                 mode_shift,
+                mode_shift_threshold: mode_shift.max(30),
                 in_defensive_mode,
                 intent: observed_intent(monster, content_id, ascension),
             }
@@ -7355,6 +7361,7 @@ fn elite_boss_replay_fields(
             has_siphoned: false,
             defensive_turns_remaining: 0,
             mode_shift: 0,
+            mode_shift_threshold: 0,
             in_defensive_mode: false,
             intent: observed_intent(monster, content_id, ascension),
         },
@@ -7527,6 +7534,12 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
         "ATTACK_DEBUFF" => MonsterIntent::Attack {
             damage: damage.max(0),
         },
+        "ATTACK_BUFF" if content_id == GUARDIAN_ID && move_id == 4 => {
+            MonsterIntent::AttackMultiple {
+                damage: damage.max(0),
+                hits: 2,
+            }
+        }
         "ATTACK_BUFF" if content_id == SHELLED_PARASITE_ID => MonsterIntent::AttackHealSelf {
             damage: damage.max(0),
         },
@@ -9529,6 +9542,24 @@ mod tests {
         assert_eq!(
             observed_intent(&monster, SHELLED_PARASITE_ID, 0),
             MonsterIntent::AttackHealSelf { damage: 10 }
+        );
+    }
+
+    #[test]
+    fn guardian_twin_slam_attack_buff_imports_two_hit_attack() {
+        use sts_core::content::monsters::GUARDIAN_ID;
+
+        let monster = json!({
+            "id": "TheGuardian",
+            "intent": "ATTACK_BUFF",
+            "move_id": 4,
+            "move_base_damage": 8,
+            "move_hits": 2
+        });
+
+        assert_eq!(
+            observed_intent(&monster, GUARDIAN_ID, 0),
+            MonsterIntent::AttackMultiple { damage: 8, hits: 2 }
         );
     }
 

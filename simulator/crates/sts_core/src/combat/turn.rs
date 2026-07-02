@@ -76,6 +76,11 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
         return next;
     }
     discard_end_of_turn_hand(&mut next);
+    apply_pending_player_spikes_damage(&mut next);
+    if next.player.hp <= 0 {
+        next.phase = CombatPhase::Lost;
+        return next;
+    }
     clear_living_monster_block(&mut next);
     next.phase = CombatPhase::MonsterTurn;
     run_monster_turn(&mut next);
@@ -90,6 +95,16 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
 
     start_player_turn_with_no_rng_discard_limit(&mut next, no_rng_discard_len_before_end_turn);
     next
+}
+
+fn apply_pending_player_spikes_damage(state: &mut CombatState) {
+    let damage = std::mem::take(&mut state.pending_player_spikes_damage);
+    if damage <= 0 {
+        return;
+    }
+    let hp_loss =
+        crate::combat::damage::reflect_spikes_to_player(&mut state.player, &state.relics, damage);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
 }
 
 fn clear_living_monster_block(state: &mut CombatState) {

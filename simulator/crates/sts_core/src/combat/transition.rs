@@ -34,7 +34,7 @@ use crate::{
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
         get_monster_definition, guardian_on_hp_damage, release_stasis_card_on_death,
-        wake_lagavulin_on_damage,
+        wake_lagavulin_on_damage, GUARDIAN_ID,
     },
     content::reward_pool::IRONCLAD_REWARD_ENTRIES,
     content::shop_pool::colorless_discovery_pool,
@@ -165,6 +165,8 @@ fn process_internal_queue(
         }
     }
 
+    flush_pending_player_spikes_damage_if_ready(&mut next);
+
     if next.player.hp <= 0 {
         next.phase = CombatPhase::Lost;
     } else if next.monsters.iter().all(|monster| !monster.alive) {
@@ -178,6 +180,23 @@ fn process_internal_queue(
         state: next,
         event_log,
     })
+}
+
+pub fn flush_pending_player_spikes_damage_if_ready(state: &mut CombatState) {
+    if state.pending_player_spikes_damage <= 0
+        || state.discard_select.is_some()
+        || state.draw_select.is_some()
+        || state.exhaust_select.is_some()
+        || state.hand_select.is_some()
+        || state.discovery_card_reward.is_some()
+        || state.potion_card_reward.is_some()
+        || state.toolbox_card_reward.is_some()
+    {
+        return;
+    }
+    let damage = std::mem::take(&mut state.pending_player_spikes_damage);
+    let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, damage);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
 }
 
 fn apply_internal_action(
@@ -253,9 +272,10 @@ fn apply_internal_action(
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
-            let (spikes, still_alive, hand_drill_applies, malleable_block) = {
+            let (spikes, monster_content_id, still_alive, hand_drill_applies, malleable_block) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
+                let monster_content_id = monster.content_id;
                 let damage = deal_damage_info_to_monster_with_result(
                     monster,
                     info,
@@ -267,6 +287,7 @@ fn apply_internal_action(
                 guardian_on_hp_damage(monster, damage.hp_damage);
                 (
                     spikes,
+                    monster_content_id,
                     monster.alive,
                     relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
                     damage.malleable_block,
@@ -290,10 +311,7 @@ fn apply_internal_action(
             if !still_alive {
                 apply_monster_death_hooks(state, info.target);
             }
-            if spikes > 0 {
-                let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
-            }
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
             Ok(follow_ups)
         }
         InternalAction::DealDamageRandomEnemy { source, amount } => {
@@ -301,9 +319,10 @@ fn apply_internal_action(
                 let player_powers = state.player.powers;
                 let temp_strength = state.player.temp_strength;
                 let relics = state.relics.clone();
-                let (spikes, still_alive, hand_drill_applies, malleable_block) = {
+                let (spikes, monster_content_id, still_alive, hand_drill_applies, malleable_block) = {
                     let monster = living_monster_mut(state, target)?;
                     let spikes = monster.powers.spikes;
+                    let monster_content_id = monster.content_id;
                     let damage = deal_damage_info_to_monster_with_result(
                         monster,
                         DamageInfo {
@@ -319,6 +338,7 @@ fn apply_internal_action(
                     guardian_on_hp_damage(monster, damage.hp_damage);
                     (
                         spikes,
+                        monster_content_id,
                         monster.alive,
                         relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
                         damage.malleable_block,
@@ -342,11 +362,7 @@ fn apply_internal_action(
                 if !still_alive {
                     apply_monster_death_hooks(state, target);
                 }
-                if spikes > 0 {
-                    let hp_loss =
-                        reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
-                }
+                apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
                 return Ok(follow_ups);
             }
             Ok(Vec::new())
@@ -358,9 +374,17 @@ fn apply_internal_action(
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
-            let (hp_damage, spikes, still_alive, hand_drill_applies, malleable_block) = {
+            let (
+                hp_damage,
+                spikes,
+                monster_content_id,
+                still_alive,
+                hand_drill_applies,
+                malleable_block,
+            ) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
+                let monster_content_id = monster.content_id;
                 let damage = deal_damage_info_to_monster_with_result(
                     monster,
                     info,
@@ -373,6 +397,7 @@ fn apply_internal_action(
                 (
                     damage.hp_damage,
                     spikes,
+                    monster_content_id,
                     monster.alive,
                     relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
                     damage.malleable_block,
@@ -397,10 +422,7 @@ fn apply_internal_action(
             if !still_alive {
                 apply_monster_death_hooks(state, info.target);
             }
-            if spikes > 0 {
-                let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
-            }
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
             Ok(follow_ups)
         }
         InternalAction::DealFeedDamage { info, max_hp_gain } => {
@@ -410,9 +432,17 @@ fn apply_internal_action(
             let player_powers = state.player.powers;
             let temp_strength = state.player.temp_strength;
             let relics = state.relics.clone();
-            let (spikes, still_alive, minion, hand_drill_applies, malleable_block) = {
+            let (
+                spikes,
+                monster_content_id,
+                still_alive,
+                minion,
+                hand_drill_applies,
+                malleable_block,
+            ) = {
                 let monster = living_monster_mut(state, info.target)?;
                 let spikes = monster.powers.spikes;
+                let monster_content_id = monster.content_id;
                 let damage = deal_damage_info_to_monster_with_result(
                     monster,
                     info,
@@ -424,6 +454,7 @@ fn apply_internal_action(
                 guardian_on_hp_damage(monster, damage.hp_damage);
                 (
                     spikes,
+                    monster_content_id,
                     monster.alive,
                     monster.powers.minion > 0,
                     relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
@@ -452,10 +483,7 @@ fn apply_internal_action(
                 }
                 apply_monster_death_hooks(state, info.target);
             }
-            if spikes > 0 {
-                let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-                crate::relic::apply_player_hp_loss_relics(state, hp_loss);
-            }
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
             Ok(follow_ups)
         }
         InternalAction::DealDamageAll { source, amount } => {
@@ -879,6 +907,18 @@ fn apply_mummified_hand_on_power_play(
 fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Vec<InternalAction> {
     let mut follow_ups = Vec::new();
 
+    if card_type == CardType::Attack {
+        let sharp_hide_damage: i32 = state
+            .monsters
+            .iter()
+            .filter(|monster| {
+                monster.alive && monster.content_id == GUARDIAN_ID && monster.powers.spikes > 0
+            })
+            .map(|monster| monster.powers.spikes)
+            .sum();
+        state.pending_player_spikes_damage += sharp_hide_damage;
+    }
+
     if state.player.powers.hex > 0 && card_type != CardType::Attack {
         for _ in 0..state.player.powers.hex {
             follow_ups.push(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
@@ -918,16 +958,16 @@ fn deal_attack_damage_to_all_living(
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
-    let targets: Vec<(MonsterId, i32)> = state
+    let targets: Vec<(MonsterId, ContentId, i32)> = state
         .monsters
         .iter()
         .filter(|monster| monster.alive)
-        .map(|monster| (monster.id, monster.powers.spikes))
+        .map(|monster| (monster.id, monster.content_id, monster.powers.spikes))
         .collect();
     let mut total_hp_damage = 0;
     let mut follow_ups = Vec::new();
 
-    for (target, spikes) in targets {
+    for (target, monster_content_id, spikes) in targets {
         let (hp_damage, still_alive, hand_drill_applies, malleable_block) = {
             let monster = living_monster_mut(state, target)?;
             let damage = deal_damage_info_to_monster_with_result(
@@ -959,13 +999,25 @@ fn deal_attack_damage_to_all_living(
         if !still_alive {
             apply_monster_death_hooks(state, target);
         }
-        if spikes > 0 {
-            let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
-        }
+        apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
     }
 
     Ok((total_hp_damage, follow_ups))
+}
+
+fn apply_or_queue_spikes_to_player(
+    state: &mut CombatState,
+    monster_content_id: ContentId,
+    spikes: i32,
+) {
+    if spikes <= 0 {
+        return;
+    }
+    if monster_content_id == GUARDIAN_ID {
+        return;
+    }
+    let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
 }
 
 fn push_malleable_block_follow_up(
@@ -2394,6 +2446,7 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
     for index in selected.into_iter().rev() {
         let mut card = state.piles.discard_pile.remove(index);
         card.temp_cost = Some(0);
+        card.temp_cost_turn_only = true;
         cards.push(card);
     }
     cards.reverse();
@@ -13280,6 +13333,22 @@ mod tests {
         assert!(next.piles.hand.is_empty());
         assert_eq!(next.piles.discard_pile.len(), 1);
         assert_eq!(next.piles.discard_pile[0].content_id, SWORD_BOOMERANG_ID);
+    }
+
+    #[test]
+    fn guardian_sharp_hide_damage_flushes_after_attack_card_resolves() {
+        let mut state = hand_only(SWORD_BOOMERANG_ID);
+        state.monsters[0].content_id = GUARDIAN_ID;
+        state.monsters[0].powers.spikes = 4;
+        state.monsters[0].hp = 240;
+        state.player.hp = 50;
+        state.player.block = 0;
+
+        let after_attack = apply_combat_action(&state, sword_boomerang_action(&state))
+            .expect("Sword Boomerang applies");
+
+        assert_eq!(after_attack.player.hp, 46);
+        assert_eq!(after_attack.pending_player_spikes_damage, 0);
     }
 
     #[test]
