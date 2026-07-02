@@ -117,6 +117,8 @@ const HEXAGHOST_DIVIDER_HITS: i32 = 2;
 const HEXAGHOST_TACKLE_DAMAGE: i32 = 5;
 const HEXAGHOST_TACKLE_HITS: i32 = 2;
 const HEXAGHOST_SEAR_BURNS: i32 = 1;
+const HEXAGHOST_STRENGTHEN_BLOCK: i32 = 12;
+const HEXAGHOST_STRENGTHEN_STRENGTH: i32 = 2;
 const HEXAGHOST_INFERNO_BURNS: i32 = 3;
 const HEXAGHOST_INFERNO_DAMAGE: i32 = 2;
 
@@ -7161,18 +7163,23 @@ fn hexaghost_intent(moves_executed: u32) -> MonsterIntent {
             damage: HEXAGHOST_DIVIDER_DAMAGE,
             hits: HEXAGHOST_DIVIDER_HITS,
         },
-        2 | 4 => MonsterIntent::AddBurnToDiscard {
-            count: HEXAGHOST_SEAR_BURNS,
-            damage: HEXAGHOST_DIVIDER_DAMAGE,
-        },
-        3 => MonsterIntent::AttackMultiple {
-            damage: HEXAGHOST_TACKLE_DAMAGE,
-            hits: HEXAGHOST_TACKLE_HITS,
-        },
-        5 => MonsterIntent::Stun,
-        _ => MonsterIntent::AddBurnToDiscard {
-            count: HEXAGHOST_INFERNO_BURNS,
-            damage: HEXAGHOST_INFERNO_DAMAGE,
+        _ => match (moves_executed - 2) % 7 {
+            0 | 2 | 5 => MonsterIntent::AddBurnToDiscard {
+                count: HEXAGHOST_SEAR_BURNS,
+                damage: HEXAGHOST_DIVIDER_DAMAGE,
+            },
+            1 | 4 => MonsterIntent::AttackMultiple {
+                damage: HEXAGHOST_TACKLE_DAMAGE,
+                hits: HEXAGHOST_TACKLE_HITS,
+            },
+            3 => MonsterIntent::StrengthAndBlock {
+                strength: HEXAGHOST_STRENGTHEN_STRENGTH,
+                block: HEXAGHOST_STRENGTHEN_BLOCK,
+            },
+            _ => MonsterIntent::AddBurnToDiscard {
+                count: HEXAGHOST_INFERNO_BURNS,
+                damage: HEXAGHOST_INFERNO_DAMAGE,
+            },
         },
     }
 }
@@ -12533,7 +12540,7 @@ mod tests {
     }
 
     #[test]
-    fn hexaghost_move_selection_activates_then_cycles_divider_sear_inferno() {
+    fn hexaghost_move_selection_activates_then_uses_orb_count_cycle() {
         let definition = &HEXAGHOST_A0;
 
         assert_eq!(
@@ -12563,13 +12570,37 @@ mod tests {
         );
         assert_eq!(
             prepare_monster_intent_for(definition, 5, None),
-            MonsterIntent::Stun
+            MonsterIntent::StrengthAndBlock {
+                strength: HEXAGHOST_STRENGTHEN_STRENGTH,
+                block: HEXAGHOST_STRENGTHEN_BLOCK,
+            }
         );
         assert_eq!(
             prepare_monster_intent_for(definition, 6, None),
+            MonsterIntent::AttackMultiple {
+                damage: HEXAGHOST_TACKLE_DAMAGE,
+                hits: HEXAGHOST_TACKLE_HITS,
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 7, None),
+            MonsterIntent::AddBurnToDiscard {
+                count: HEXAGHOST_SEAR_BURNS,
+                damage: HEXAGHOST_DIVIDER_DAMAGE,
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 8, None),
             MonsterIntent::AddBurnToDiscard {
                 count: HEXAGHOST_INFERNO_BURNS,
                 damage: HEXAGHOST_INFERNO_DAMAGE,
+            }
+        );
+        assert_eq!(
+            prepare_monster_intent_for(definition, 9, None),
+            MonsterIntent::AddBurnToDiscard {
+                count: HEXAGHOST_SEAR_BURNS,
+                damage: HEXAGHOST_DIVIDER_DAMAGE,
             }
         );
     }

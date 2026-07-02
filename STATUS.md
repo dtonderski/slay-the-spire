@@ -12,6 +12,21 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Hexaghost orb-cycle slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=185`,
+  `final_phase=combat` after the boss-turn mismatch where Hexaghost should have
+  Strengthened instead of rolling straight to Inferno. Source-backed fix:
+  Hexaghost intent preparation now follows the target `orbActiveCount` cycle
+  decoded from the game jar (`Sear, Tackle, Sear, Strengthen, Tackle, Sear,
+  Inferno`) after the opening Activate/Divider sequence. The Strengthen move
+  applies 12 block and 2 Strength, then rolls the next Tackle intent. Checks:
+  `cargo fmt`, `cargo test -p sts_core hexaghost --lib`,
+  `uv run maturin develop --release`, strict replay of the current live trace,
+  and the protected live trace gate confirming older known blockers stayed at
+  the same boundaries. Current milestone remains A0 strict/live trace parity;
+  next task is the next fresh live mismatch or SlayTheData run-level decision
+  replay.
 - Latest live-trace Large Slime visible split slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=138`,

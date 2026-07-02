@@ -1309,6 +1309,27 @@ mod tests {
     }
 
     #[test]
+    fn hexaghost_strengthen_gains_block_and_rolls_tackle_next() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&HEXAGHOST_A0, MonsterId::new(1))];
+        state.monsters[0].moves_executed = 5;
+        state.monsters[0].intent = MonsterIntent::StrengthAndBlock {
+            strength: 2,
+            block: 12,
+        };
+        state.piles.draw_pile.clear();
+
+        let next = apply_combat_action(&state, CombatAction::EndTurn).expect("end turn");
+
+        assert_eq!(next.monsters[0].block, 12);
+        assert_eq!(next.monsters[0].powers.strength, 2);
+        assert_eq!(
+            next.monsters[0].intent,
+            MonsterIntent::AttackMultiple { damage: 5, hits: 2 }
+        );
+    }
+
+    #[test]
     fn damaged_medium_acid_slime_keeps_medium_move_table() {
         let mut state = CombatState::initial_fixture();
         state.monsters = vec![monster_state(&ACID_SLIME_A0, MonsterId::new(1))];
