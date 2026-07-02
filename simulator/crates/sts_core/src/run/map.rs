@@ -975,6 +975,35 @@ mod tests {
     }
 
     #[test]
+    fn large_slime_initial_intent_uses_entry_ai_roll() {
+        let seed = 39_594_590_912;
+        let floor = 11;
+        let spawns = crate::content::monsters::target_encounter_spawn_for_key(
+            seed,
+            floor,
+            "Large Slime",
+            0,
+            false,
+        );
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| target_spawn_monster_state(spawn, index, 0))
+            .collect();
+        let mut rng = StsRng::new(seed + i64::from(floor));
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+
+        assert_eq!(combat.monsters[0].content_id, ACID_SLIME_ID);
+        assert_eq!(
+            combat.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 16 }
+        );
+        assert_eq!(rng.counter(), 1);
+    }
+
+    #[test]
     fn byrd_initial_intents_use_source_first_move_caw_roll() {
         let spawns = crate::content::monsters::target_city_encounter_spawn_for_key(
             1_131_274_027,

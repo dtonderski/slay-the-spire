@@ -12,6 +12,21 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Large Slime initial AI slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` tail through floor 11 now
+  strict-replays with `verified=True`, `stop_reason=trace_exhausted`,
+  `steps=191`, `final_phase=combat`. Source check: target
+  `AbstractMonster.rollMove()` calls `AbstractDungeon.aiRng.random(99)`, and
+  `AcidSlime_L.getMove` maps A0 rolls `30..69` to the normal 16-damage tackle.
+  The bug was that Large Slime spawn data pre-stamped an
+  `AttackAddSlimedToDiscard` intent, causing combat entry to consume but ignore
+  the real first AI roll. The fix leaves Large Slime entry intent unlocked so
+  the generic entry AI roll chooses the initial move. Checks: `cargo fmt`,
+  `cargo test -p sts_core large_slime_initial_intent_uses_entry_ai_roll --lib`,
+  `cargo clippy -p sts_core` (existing warnings), `uv run maturin develop
+  --release`, and strict replay of the current live trace. Current milestone
+  remains A0 strict/live trace parity; next task is the next fresh mismatch or
+  SlayTheData run-level decision replay.
 - Latest live-trace Discovery/Mummified Hand/Burning Blood slice: the fresh
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays to trace
   exhaustion. The fix keeps Mummified Hand inside the generic combat card-play

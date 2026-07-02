@@ -2799,19 +2799,12 @@ pub fn target_encounter_spawn_for_key(
             .unwrap_or_default(),
         "Large Slime" => {
             let roll = target_large_slime_hp_roll(seed, floor_num, ascension);
-            let mut spawn = target_combat_entry_spawn(roll.name, roll.hp, neow_lament, Vec::new());
-            match roll.name {
-                "Acid Slime (L)" => {
-                    spawn.intent = "AttackAddSlimedToDiscard";
-                    spawn.rolled_attack_damage = Some(if ascension >= 2 { 12 } else { 11 });
-                }
-                "Spike Slime (L)" => {
-                    spawn.intent = "AttackAddSlimedToDiscard";
-                    spawn.rolled_attack_damage = Some(if ascension >= 2 { 18 } else { 16 });
-                }
-                _ => {}
-            }
-            vec![spawn]
+            vec![target_combat_entry_spawn(
+                roll.name,
+                roll.hp,
+                neow_lament,
+                Vec::new(),
+            )]
         }
         "2 Louse" => target_two_louse_spawn_states(seed, floor_num, ascension, neow_lament),
         "3 Louse" => target_three_louse_spawn_states(seed, floor_num, ascension, neow_lament),
