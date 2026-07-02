@@ -13,11 +13,25 @@
 - Latest live-bridge mapper slice: single-target bridge potion actions may omit
   an explicit `target_slot` when only one legal monster target is visible. The
   UI service maps simulator `UsePotion` recommendations to that command only
-  when the simulator target resolves to that sole visible target slot, and
-  focused Python tests cover both the accepted single-target case and the
-  multi-target rejection case.
+  when the simulator target resolves to that sole visible target slot, appends
+  the inferred target to the bridge command, and focused Python tests cover both
+  the accepted single-target case and the multi-target rejection case.
 
 ### Combat
+- Latest live-trace Life Suck slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=240`,
+  `final_phase=combat` after the lethal Shelled Parasite Life Suck mismatch.
+  Generic fix: monster pending post-hit effects stop when monster attack damage
+  reduces the player to 0 HP, so Life Suck self-heal and thorns reflection do
+  not resolve after lethal player damage. Focused tests cover normal Life Suck
+  healing, blocked hits, caps, thorns ordering, and the lethal no-heal/no-thorns
+  case. Checks: `cargo fmt`,
+  `cargo test -p sts_core shelled_parasite_life_suck --lib`,
+  `cargo clippy -p sts_core --lib` (existing warnings only),
+  `uv run maturin develop --release`, active strict replay, and the protected
+  live trace gate confirming older known blockers stayed at the same
+  boundaries.
 - Latest live-trace Shelled Parasite Fell slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=234`,

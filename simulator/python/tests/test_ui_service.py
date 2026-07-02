@@ -1328,7 +1328,7 @@ class UiServiceTests(unittest.TestCase):
 
         result = _bridge_action_for_exact_action(action, bridge_status, sim_state)
 
-        self.assertEqual(result["command"], "POTION USE 0")
+        self.assertEqual(result["command"], "POTION USE 0 0")
 
     def test_bridge_action_for_exact_action_rejects_missing_target_slot_for_later_target(self):
         action = {

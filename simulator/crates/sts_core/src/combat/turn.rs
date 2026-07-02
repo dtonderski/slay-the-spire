@@ -534,6 +534,9 @@ fn apply_monster_pending_effects(
         apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
         total_hp_damage += hp_damage;
     }
+    if state.player.hp <= 0 {
+        return;
+    }
     apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage);
     apply_attack_heal_self_thorns_after_heal(state, heal_self, heal_self_thorns);
     if burn_to_discard_and_draw > 0 {
@@ -1610,6 +1613,24 @@ mod tests {
 
         assert_eq!(next.player.hp, 35);
         assert_eq!(next.monsters[0].hp, 65);
+    }
+
+    #[test]
+    fn shelled_parasite_life_suck_does_not_heal_or_take_thorns_after_lethal_hit() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SHELLED_PARASITE_A0, MonsterId::new(1))];
+        state.monsters[0].hp = 4;
+        state.monsters[0].intent = MonsterIntent::AttackHealSelf { damage: 10 };
+        state.player.hp = 7;
+        state.player.block = 0;
+        state.player.powers.thorns = 3;
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.phase, CombatPhase::Lost);
+        assert_eq!(next.player.hp, 0);
+        assert_eq!(next.monsters[0].hp, 4);
     }
 
     #[test]

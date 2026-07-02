@@ -1000,6 +1000,9 @@ def _find_bridge_action(
             if descriptor_target is None:
                 if parsed_target not in (None, 0):
                     continue
+                if parsed_target is not None and isinstance(entry.get("command"), str):
+                    entry = dict(entry)
+                    entry["command"] = f"{entry['command']} {parsed_target}"
             elif parsed_descriptor_target != parsed_target:
                 continue
         elif descriptor_target is not None:
