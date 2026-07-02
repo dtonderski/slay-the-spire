@@ -834,7 +834,7 @@ def replay_real_trace_guided(
 def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -> StrictTraceEnvResult:
     """Replay a CommunicationMod trace from START and return the exact final env."""
 
-    records = _read_jsonl(trace)
+    records = _latest_start_segment(_read_jsonl(trace))
     env = None
     last_state: dict[str, Any] | None = None
     last_state_consumed = True
@@ -974,6 +974,19 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
         final_phase=env.phase() if env is not None else None,
         latest_observed_summary=latest_observed_summary,
     )
+
+
+def _latest_start_segment(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest_start_index: int | None = None
+    for index, record in enumerate(records):
+        if record.get("type") != "action":
+            continue
+        command = str(record.get("command") or "")
+        if _parse_start_command(command) is not None:
+            latest_start_index = index
+    if latest_start_index is None:
+        return records
+    return records[latest_start_index:]
 
 
 def _restore_observed_event_screen(env: Any, observed: dict[str, Any] | None) -> Any:

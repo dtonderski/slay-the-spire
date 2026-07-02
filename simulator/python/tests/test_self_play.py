@@ -1077,6 +1077,37 @@ class SelfPlayTests(unittest.TestCase):
             self.assertEqual(result.steps, 0)
             self.assertEqual(result.start["external_seed"], "TEST")
 
+    def test_strict_replay_uses_latest_start_in_multi_run_trace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            trace_path = Path(directory) / "communication.jsonl"
+            self._write_jsonl(
+                trace_path,
+                [
+                    {"type": "metadata", "schema": 1, "source": "communication_mod"},
+                    {"type": "action", "step": 0, "command": "START IRONCLAD 0 OLD01"},
+                    {
+                        "type": "state",
+                        "step": 1,
+                        "message": {
+                            "game_state": {
+                                "screen_type": "GAME_OVER",
+                                "current_hp": 0,
+                                "max_hp": 80,
+                            }
+                        },
+                    },
+                    {"type": "action", "step": 1, "command": "PROCEED"},
+                    {"type": "action", "step": 2, "command": "START IRONCLAD 0 TEST"},
+                ],
+            )
+
+            result = strict_replay_real_trace_to_env(trace=trace_path)
+
+            self.assertTrue(result.verified)
+            self.assertEqual(result.stop_reason, "trace_exhausted")
+            self.assertEqual(result.steps, 0)
+            self.assertEqual(result.start["external_seed"], "TEST")
+
     def test_strict_replay_to_env_reports_missing_start(self):
         with tempfile.TemporaryDirectory() as directory:
             trace_path = Path(directory) / "communication.jsonl"
