@@ -13,7 +13,7 @@ use sts_core::content::monsters::{
     target_city_normal_encounter_spawn_at_combat_index, target_move_byte,
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
     GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID, MUGGER_ID,
-    SLAVER_BLUE_ID, SLAVER_RED_ID, TASKMASTER_ID,
+    SLAVER_RED_ID, TASKMASTER_ID,
 };
 use sts_core::potion::Potion;
 use sts_core::run::neow::{
@@ -7590,10 +7590,10 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
         CENTURION_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID,
         GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID,
         HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPULSOR_ID, SENTRY_ID,
-        SHELLED_PARASITE_ID, SLIME_BOSS_A19_SLIMED_COUNT, SLIME_BOSS_ID, SLIME_BOSS_SLIMED_COUNT,
-        SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK, SPHERIC_GUARDIAN_FRAIL,
-        SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
-        THE_COLLECTOR_ID,
+        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLIME_BOSS_A19_SLIMED_COUNT, SLIME_BOSS_ID,
+        SLIME_BOSS_SLIMED_COUNT, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK,
+        SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKER_ID,
+        SPIKE_SLIME_ID, THE_COLLECTOR_ID,
     };
 
     let damage = int(monster, "move_base_damage");
@@ -7609,6 +7609,12 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             damage: damage.max(0),
             amount: looter_theft(0),
         },
+        "ATTACK" if content_id == SLAVER_BLUE_ID && move_id == 4 => {
+            MonsterIntent::AttackApplyPlayerWeak {
+                damage: damage.max(0),
+                weak: 1,
+            }
+        }
         "ATTACK" if hits > 1 => MonsterIntent::AttackMultiple {
             damage: damage.max(0),
             hits,
@@ -8622,7 +8628,9 @@ fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
 }
 
 fn intent_key(monster: &MonsterState) -> String {
-    use sts_core::content::monsters::{ACID_SLIME_ID, SLIME_BOSS_ID, SPIKE_SLIME_ID};
+    use sts_core::content::monsters::{
+        ACID_SLIME_ID, SLAVER_BLUE_ID, SLIME_BOSS_ID, SPIKE_SLIME_ID,
+    };
 
     match monster.intent {
         MonsterIntent::Attack { .. }
@@ -8635,6 +8643,10 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::AttackStealGold { .. } => {
             if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) {
                 "ATTACK_DEBUFF".to_owned()
+            } else if monster.content_id == SLAVER_BLUE_ID
+                && matches!(monster.intent, MonsterIntent::AttackApplyPlayerWeak { .. })
+            {
+                "ATTACK".to_owned()
             } else if matches!(
                 monster.intent,
                 MonsterIntent::AttackApplyPlayerWeak { .. }
@@ -8734,7 +8746,33 @@ mod tests {
     use sts_core::content::cards::{
         BURN_ID, CORRUPTION_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
     };
+    use sts_core::content::monsters::{monster_state, SLAVER_BLUE_A0};
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
+
+    #[test]
+    fn slaver_blue_weak_attack_projects_to_observed_attack_intent() {
+        let mut monster = monster_state(&SLAVER_BLUE_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AttackApplyPlayerWeak { damage: 7, weak: 1 };
+
+        assert_eq!(seed_start_trace_intent(&monster), "ATTACK");
+    }
+
+    #[test]
+    fn slaver_blue_attack_move_four_imports_weak_attack() {
+        let monster = json!({
+            "id": "SlaverBlue",
+            "name": "Slaver",
+            "intent": "ATTACK",
+            "move_id": 4,
+            "move_base_damage": 7,
+            "move_hits": 1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, sts_core::content::monsters::SLAVER_BLUE_ID, 0),
+            MonsterIntent::AttackApplyPlayerWeak { damage: 7, weak: 1 }
+        );
+    }
 
     #[test]
     fn observed_card_reward_preserves_corruption_plus() {

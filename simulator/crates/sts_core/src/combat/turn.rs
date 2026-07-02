@@ -86,6 +86,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
     run_monster_turn(&mut next);
 
     if next.player.hp <= 0 {
+        next.player.hp = 0;
         next.phase = CombatPhase::Lost;
         return next;
     }
@@ -271,7 +272,6 @@ fn reset_turn_only_temp_costs(state: &mut CombatState) {
 fn run_monster_turn(state: &mut CombatState) {
     let ascension = state.ascension;
     let relics = state.relics.clone();
-    let mut pending_damage = Vec::new();
     let mut skip_ritual_tick = Vec::new();
     let turn_order = state
         .monsters
@@ -453,46 +453,20 @@ fn run_monster_turn(state: &mut CombatState) {
             } else {
                 0
             };
-            pending_damage.push((
+            apply_monster_pending_effects(
+                state,
                 damage,
                 hits,
                 state.monsters[index].powers.painful_stabs,
                 heal_self,
                 heal_self_thorns,
                 burn_to_discard_and_draw,
-            ));
+            );
         }
         prepare_next_intent_for_actor(state, actor_id);
         apply_transient_fading_after_turn(&mut state.monsters, actor_id);
-    }
-
-    for (damage, hits, painful_stabs, heal_self, heal_self_thorns, burn_to_discard_and_draw) in
-        pending_damage
-    {
-        let mut total_hp_damage = 0;
-        let hit_count = hits.max(1);
-        if damage > 0 && hit_count > 1 {
-            let hit_damage = damage / hit_count;
-            for _ in 0..hit_count {
-                let hp_damage = deal_damage_to_player(state, hit_damage);
-                apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
-                total_hp_damage += hp_damage;
-            }
-        } else if damage > 0 {
-            let hp_damage = deal_damage_to_player(state, damage);
-            apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
-            total_hp_damage += hp_damage;
-        }
-        apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage);
-        apply_attack_heal_self_thorns_after_heal(state, heal_self, heal_self_thorns);
-        if burn_to_discard_and_draw > 0 {
-            add_cards_to_draw_random_spot(
-                &mut state.piles,
-                BURN_ID,
-                burn_to_discard_and_draw,
-                state.card_random_rng.as_mut(),
-            );
-            add_cards_to_discard(&mut state.piles, BURN_ID, burn_to_discard_and_draw);
+        if state.player.hp <= 0 {
+            return;
         }
     }
 
@@ -536,6 +510,42 @@ fn run_monster_turn(state: &mut CombatState) {
     apply_turn_transition_block_loss(state);
 }
 
+fn apply_monster_pending_effects(
+    state: &mut CombatState,
+    damage: i32,
+    hits: i32,
+    painful_stabs: i32,
+    heal_self: Option<MonsterId>,
+    heal_self_thorns: i32,
+    burn_to_discard_and_draw: i32,
+) {
+    let mut total_hp_damage = 0;
+    let hit_count = hits.max(1);
+    if damage > 0 && hit_count > 1 {
+        let hit_damage = damage / hit_count;
+        for _ in 0..hit_count {
+            let hp_damage = deal_damage_to_player(state, hit_damage);
+            apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
+            total_hp_damage += hp_damage;
+        }
+    } else if damage > 0 {
+        let hp_damage = deal_damage_to_player(state, damage);
+        apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
+        total_hp_damage += hp_damage;
+    }
+    apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage);
+    apply_attack_heal_self_thorns_after_heal(state, heal_self, heal_self_thorns);
+    if burn_to_discard_and_draw > 0 {
+        add_cards_to_draw_random_spot(
+            &mut state.piles,
+            BURN_ID,
+            burn_to_discard_and_draw,
+            state.card_random_rng.as_mut(),
+        );
+        add_cards_to_discard(&mut state.piles, BURN_ID, burn_to_discard_and_draw);
+    }
+}
+
 fn apply_turn_transition_block_loss(state: &mut CombatState) {
     if state.player.powers.barricade > 0 {
         return;
@@ -571,7 +581,7 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> i32 {
     let mitigated =
         crate::relic::mitigate_unblocked_attack_damage(&state.relics, incoming - blocked);
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
-    state.player.hp -= hp_damage;
+    state.player.hp = (state.player.hp - hp_damage).max(0);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_damage);
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
@@ -1151,7 +1161,7 @@ mod tests {
             monster_state, ACID_SLIME_A0, BOOK_OF_STABBING_A0, BYRD_A0, CULTIST_A0,
             FIXED_SIMPLE_MONSTER, GREMLIN_LEADER_A0, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_A0,
             GREMLIN_WARRIOR_A0, GREMLIN_WARRIOR_ID, HEXAGHOST_A0, MUGGER_A0, REPULSOR_A0,
-            SHELLED_PARASITE_A0, SPIKE_SLIME_A0, THE_COLLECTOR_A0, TORCH_HEAD_A0,
+            SHELLED_PARASITE_A0, SLAVER_BLUE_A0, SPIKE_SLIME_A0, THE_COLLECTOR_A0, TORCH_HEAD_A0,
             TORCH_HEAD_ATTACK_DAMAGE, TRANSIENT_A0,
         },
         ids::CardId,
@@ -1209,6 +1219,27 @@ mod tests {
         assert_eq!(
             next.monsters[0].intent,
             MonsterIntent::AddDazedToDraw { count: 2 }
+        );
+    }
+
+    #[test]
+    fn lethal_monster_turn_damage_clamps_player_hp_and_keeps_visible_intents() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 5;
+        state.monsters = vec![monster_state(&SLAVER_BLUE_A0, MonsterId::new(1))];
+        state.monsters[0].intent = MonsterIntent::Attack { damage: 12 };
+        state.monsters[0].moves_executed = 1;
+        state.monsters[0].move_history = vec![1];
+        state.piles.draw_pile.clear();
+        state.monster_rng = Some(StsRng::new(39594590912 + 23));
+
+        let next = apply_combat_action(&state, CombatAction::EndTurn).expect("turn ends");
+
+        assert_eq!(next.phase, CombatPhase::Lost);
+        assert_eq!(next.player.hp, 0);
+        assert_eq!(
+            next.monsters[0].intent,
+            MonsterIntent::Attack { damage: 12 }
         );
     }
 
