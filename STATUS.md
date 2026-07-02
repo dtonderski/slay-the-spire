@@ -12,6 +12,18 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Mugger verifier import slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=317`,
+  `final_phase=combat`. CommunicationMod reports Mugger's Thievery-backed swipe
+  as generic `ATTACK`, matching the decompiled `Mugger.takeTurn` source where
+  the attack steals gold through Thievery timing; observed-state import now
+  normalizes Mugger swipe the same way it already normalized Looter swipe,
+  without any trace- or seed-specific logic. Checks: `cargo fmt`,
+  `cargo test -p sts_verify mugger_attack_observed_intent_imports_gold_steal_attack --lib`,
+  `uv run maturin develop --release`, and strict replay of the current live
+  trace. Current milestone remains A0 strict/live trace parity; next task is
+  the next fresh mismatch or SlayTheData run-level decision replay.
 - Latest live-trace Act 1 event fidelity slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=227`,

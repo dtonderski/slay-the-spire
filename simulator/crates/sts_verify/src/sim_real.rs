@@ -12,8 +12,8 @@ use sts_core::content::monsters::{
     looter_theft, target_beyond_encounter_spawn_for_key,
     target_city_normal_encounter_spawn_at_combat_index, target_move_byte,
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
-    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID, SLAVER_BLUE_ID,
-    SLAVER_RED_ID, TASKMASTER_ID,
+    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID, MUGGER_ID,
+    SLAVER_BLUE_ID, SLAVER_RED_ID, TASKMASTER_ID,
 };
 use sts_core::potion::Potion;
 use sts_core::run::neow::{
@@ -7400,7 +7400,7 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
         "DEBUG" if content_id == SENTRY_ID && damage <= 0 => {
             MonsterIntent::AddDazedToDiscard { count: 2 }
         }
-        "ATTACK" if content_id == LOOTER_ID => MonsterIntent::AttackStealGold {
+        "ATTACK" if matches!(content_id, LOOTER_ID | MUGGER_ID) => MonsterIntent::AttackStealGold {
             damage: damage.max(0),
             amount: looter_theft(0),
         },
@@ -9034,6 +9034,26 @@ mod tests {
         assert_eq!(
             observed_intent(&monster, JAW_WORM_ID, 0),
             MonsterIntent::Attack { damage: 11 }
+        );
+    }
+
+    #[test]
+    fn mugger_attack_observed_intent_imports_gold_steal_attack() {
+        let monster = json!({
+            "id": "Mugger",
+            "intent": "ATTACK",
+            "move_base_damage": 10,
+            "move_hits": 1,
+            "move_id": 1,
+            "powers": [{"id": "Thievery", "name": "Thievery", "amount": 15}]
+        });
+
+        assert_eq!(
+            observed_intent(&monster, MUGGER_ID, 0),
+            MonsterIntent::AttackStealGold {
+                damage: 10,
+                amount: 15
+            }
         );
     }
 
