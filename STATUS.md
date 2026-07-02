@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- Latest live trace fidelity fix: implemented the source-backed Pain curse
+  trigger exposed by `trace-2026-07-02T22-41-59-925Z.jsonl` at trace step 42.
+  Decompiled `Pain.java` triggers `LoseHPAction(..., 1)` whenever another card
+  is played while Pain is in hand; the simulator now applies hand-card play
+  triggers from the normal `PlayCard` transition, so playing Defend with Pain
+  in hand drops HP from 62 to 61 like the real game. Checks: `cargo fmt`
+  passed; `cargo check -p sts_core --lib` passed;
+  `uv run maturin develop --release` passed; strict replay of
+  `verification/corpus/communication_mod/trace-2026-07-02T22-41-59-925Z.jsonl`
+  passed to trace exhaustion (`verified True`, 43 steps, final phase reward).
 - Latest live trace fidelity fix: implemented generic Face Trader support after
   `trace-2026-07-02T22-41-59-925Z.jsonl` showed the simulator entering Scrap
   Ooze while the real game entered Face Trader. Face Trader is now an Act 1/2

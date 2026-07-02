@@ -22,7 +22,7 @@ use crate::{
         ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
         HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
         INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID,
-        MIND_BLAST_ID, OFFERING_ID, PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
+        MIND_BLAST_ID, OFFERING_ID, PAIN_ID, PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
         PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
         POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID,
         REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
@@ -233,6 +233,7 @@ fn apply_internal_action(
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
             apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
+            follow_ups.extend(apply_hand_card_play_triggers(state, card_id));
             Ok(follow_ups)
         }
         InternalAction::PlayCardCopy { card_id } => {
@@ -955,6 +956,22 @@ fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Ve
             }),
     );
     follow_ups
+}
+
+fn apply_hand_card_play_triggers(
+    state: &CombatState,
+    played_card_id: CardId,
+) -> Vec<InternalAction> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != played_card_id && card.content_id == PAIN_ID)
+        .map(|card| InternalAction::LoseHp {
+            amount: 1,
+            source: HpLossSource::Card(card.id),
+        })
+        .collect()
 }
 
 fn deal_attack_damage_to_all_living(
