@@ -19,9 +19,7 @@ pub(crate) fn resolve_end_of_turn_doubt(state: &mut CombatState) {
 }
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
-    let stable_discard_order_visible =
-        state.piles.draw_pile.len() >= crate::combat::turn::target_hand_size(state);
-    discard_non_retain_hand(state, stable_discard_order_visible);
+    discard_non_retain_hand(state);
 }
 
 fn apply_burn_damage_in_hand(state: &mut CombatState) {
@@ -148,7 +146,7 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
     }
 }
 
-fn discard_non_retain_hand(state: &mut CombatState, stable_discard_order_visible: bool) {
+fn discard_non_retain_hand(state: &mut CombatState) {
     if state.relics.contains(&crate::Relic::RunicPyramid) {
         return;
     }
@@ -165,9 +163,7 @@ fn discard_non_retain_hand(state: &mut CombatState, stable_discard_order_visible
         }
     }
 
-    if stable_discard_order_visible {
-        discarded.reverse();
-    }
+    discarded.reverse();
     state.piles.hand = retained;
     state.piles.discard_pile.extend(discarded);
 }
