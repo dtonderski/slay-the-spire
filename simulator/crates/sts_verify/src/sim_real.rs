@@ -7144,6 +7144,7 @@ fn monsters_from_observed(
                 gremlin_leader_slot: None,
                 stasis_card: None,
                 initial_intent_locked: false,
+                pending_extra_roll_before_next_move: false,
                 intent: replay.intent,
             }
         })

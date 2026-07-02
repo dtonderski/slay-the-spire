@@ -228,6 +228,8 @@ pub struct MonsterState {
     pub stasis_card: Option<CardInstance>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub initial_intent_locked: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending_extra_roll_before_next_move: bool,
     pub intent: MonsterIntent,
 }
 

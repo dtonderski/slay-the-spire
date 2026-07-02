@@ -237,6 +237,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -272,6 +273,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -307,6 +309,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -345,6 +348,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -384,6 +388,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -513,6 +518,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -562,6 +568,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -609,6 +616,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -654,6 +662,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -702,6 +711,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -740,6 +750,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -778,6 +789,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -825,6 +837,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -874,6 +887,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -919,6 +933,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -958,6 +973,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -1003,6 +1019,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
 
@@ -1036,6 +1053,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -1083,6 +1101,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {
@@ -1133,6 +1152,7 @@ mod tests {
             gremlin_leader_slot: None,
             stasis_card: None,
             initial_intent_locked: false,
+            pending_extra_roll_before_next_move: false,
             intent: crate::MonsterIntent::Attack { damage: 6 },
         };
         let info = DamageInfo {

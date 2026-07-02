@@ -762,6 +762,10 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 record_target_move(monster);
                 continue;
             }
+            if monster.pending_extra_roll_before_next_move {
+                monster.pending_extra_roll_before_next_move = false;
+                let _ = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
+            }
             let roll = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
             monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
                 crate::MonsterIntent::AttackMultiple {

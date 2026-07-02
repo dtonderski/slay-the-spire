@@ -3392,6 +3392,7 @@ pub fn monster_state_for_ascension(
         gremlin_leader_slot: None,
         stasis_card: None,
         initial_intent_locked: false,
+        pending_extra_roll_before_next_move: false,
         intent: prepare_monster_intent_for_monster(
             definition,
             0,
@@ -6401,9 +6402,7 @@ pub fn apply_large_acid_slime_split(
             ascension,
         );
         record_target_move(&mut right);
-
-        rng.random_int(99);
-        rng.random_int(99);
+        right.pending_extra_roll_before_next_move = true;
     } else {
         left.intent = MonsterIntent::Attack {
             damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE,
@@ -6465,9 +6464,7 @@ pub fn apply_large_spike_slime_split(
             ascension,
         );
         record_target_move(&mut right);
-
-        rng.random_int(99);
-        rng.random_int(99);
+        right.pending_extra_roll_before_next_move = true;
     } else {
         left.intent = MonsterIntent::AttackAddSlimedToDiscard {
             damage: SPIKE_SLIME_M_SPIT_DAMAGE,
@@ -12722,9 +12719,6 @@ mod tests {
         let right_roll = expected_rng.random_int(99);
         let expected_right =
             target_medium_acid_slime_next_intent_from_roll(&[], right_roll, &mut expected_rng, 0);
-        expected_rng.random_int(99);
-        expected_rng.random_int(99);
-
         apply_large_acid_slime_split(&mut monsters, MonsterId::new(1), Some(&mut rng), 0);
 
         let alive = monsters
@@ -12736,6 +12730,8 @@ mod tests {
         assert_eq!(alive[1].intent, expected_right);
         assert_eq!(alive[0].move_history.len(), 1);
         assert_eq!(alive[1].move_history.len(), 1);
+        assert!(!alive[0].pending_extra_roll_before_next_move);
+        assert!(alive[1].pending_extra_roll_before_next_move);
         assert_eq!(rng.counter(), expected_rng.counter());
     }
 

@@ -14,14 +14,18 @@
 ### Combat
 - Latest live-trace Large Slime split RNG slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
-  `verified=True`, `stop_reason=trace_exhausted`, `steps=202`,
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=204`,
   `final_phase=combat`. Source check: `sts_lightspeed` models large slime split
-  by `initSpawnedMonster` for each medium slime child, then one split no-op AI
-  roll plus one extra turn-slot no-op roll. The bug was that simulator split
-  helpers assigned fixed child intents instead of rolling spawned children from
-  `monster_rng` and recording their first moves. Checks: `cargo fmt`,
+  by `initSpawnedMonster` for each medium slime child and an extra turn-slot AI
+  roll for the second child; the game jar confirms `SpawnMonsterAction` calls
+  `AbstractMonster.init()`, whose first operation is `rollMove()`. The bug was
+  that simulator split helpers assigned fixed child intents instead of rolling
+  spawned children from `monster_rng`, recording their first moves, and carrying
+  the second child's pending extra pre-roll into its next move roll. Checks:
+  `cargo fmt`,
   `cargo test -p sts_core large_acid_slime_split_children_roll_moves_with_ai_rng --lib`,
   `cargo test -p sts_core large_slime_initial_intent_uses_entry_ai_roll --lib`,
+  `cargo test -p sts_verify large_acid_slime_debuff_observed_intent_imports_two_weak --lib`,
   `uv run maturin develop --release`, and strict replay of the current live
   trace. Current milestone remains A0 strict/live trace parity; next task is the
   next fresh mismatch or SlayTheData run-level decision replay.
