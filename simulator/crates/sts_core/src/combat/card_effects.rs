@@ -3509,7 +3509,8 @@ fn mind_blast_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: current_combat_pile_card_count(state),
+                amount: i32::try_from(state.piles.draw_pile.len())
+                    .expect("draw pile count fits in i32"),
             },
         },
         InternalAction::MoveCard {
