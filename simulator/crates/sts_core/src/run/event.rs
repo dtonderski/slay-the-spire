@@ -59,6 +59,8 @@ pub const GOLDEN_IDOL_MAX_HP_LOSS_PERCENT: f32 = 0.08;
 pub const GOLDEN_IDOL_A15_HP_LOSS_PERCENT: f32 = 0.35;
 pub const GOLDEN_IDOL_A15_MAX_HP_LOSS_PERCENT: f32 = 0.10;
 pub const SSSSSERPENT_GOLD: i32 = 175;
+pub const FACE_TRADER_GOLD: i32 = 75;
+pub const FACE_TRADER_A15_GOLD: i32 = 50;
 pub const SHINING_LIGHT_HP_PERCENT: f32 = 0.20;
 pub const THE_LIBRARY_HEAL_PERCENT: f32 = 0.33;
 pub const THE_LIBRARY_A15_HEAL_PERCENT: f32 = 0.20;
@@ -575,13 +577,14 @@ const ACT1_EVENTS: [Event; 11] = [
     Event::ShiningLight,
 ];
 
-const ACT1_SHRINES: [Event; 6] = [
+const ACT1_SHRINES: [Event; 7] = [
     Event::MatchAndKeep,
     Event::GoldenShrine,
     Event::Transmorgrifier,
     Event::Purifier,
     Event::UpgradeShrine,
     Event::WheelOfChange,
+    Event::FaceTrader,
 ];
 
 pub const ACT2_EVENTS: [Event; 13] = [
@@ -600,13 +603,14 @@ pub const ACT2_EVENTS: [Event; 13] = [
     Event::Vampires,
 ];
 
-pub const ACT2_SHRINES: [Event; 6] = [
+pub const ACT2_SHRINES: [Event; 7] = [
     Event::MatchAndKeep,
     Event::WheelOfChange,
     Event::GoldenShrine,
     Event::Transmorgrifier,
     Event::Purifier,
     Event::UpgradeShrine,
+    Event::FaceTrader,
 ];
 
 pub const ACT3_EVENTS: [Event; 1] = [Event::Lab];
@@ -635,6 +639,7 @@ pub enum Event {
     HypnotizingColoredMushrooms,
     ScrapOoze,
     ShiningLight,
+    FaceTrader,
     Transmorgrifier,
     Purifier,
     UpgradeShrine,
@@ -735,6 +740,26 @@ fn sssssserpent_choices(stage: u32) -> Vec<EventChoice> {
     }
 }
 
+fn face_trader_choices(stage: u32) -> Vec<EventChoice> {
+    match stage {
+        0 => labeled_choices(&["Continue"]),
+        1 => labeled_choices(&["Touch", "Trade", "Leave"]),
+        _ => labeled_choices(&["Leave"]),
+    }
+}
+
+fn face_trader_gold(ascension: u8) -> i32 {
+    if ascension >= 15 {
+        FACE_TRADER_A15_GOLD
+    } else {
+        FACE_TRADER_GOLD
+    }
+}
+
+fn face_trader_damage(max_hp: i32) -> i32 {
+    (max_hp / 10).max(1)
+}
+
 fn golden_idol_choices(stage: u32, max_hp: i32, ascension: u8) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Take", "Leave"]),
@@ -825,6 +850,34 @@ fn roll_wing_statue_gold(run: &mut RunState) -> i32 {
     let gold = rng.random_int_range(WING_STATUE_MIN_GOLD, WING_STATUE_MAX_GOLD);
     run.misc_rng_counter = rng.counter();
     gold
+}
+
+fn roll_face_trader_relic(run: &mut RunState) -> RelicKey {
+    let mut candidates = Vec::new();
+    if !run.relics.contains(&Relic::CultistMask) {
+        candidates.push(RelicKey::CultistMask);
+    }
+    if !run.relics.contains(&Relic::FaceOfCleric) {
+        candidates.push(RelicKey::FaceOfCleric);
+    }
+    if !run.relics.contains(&Relic::GremlinMask) {
+        candidates.push(RelicKey::GremlinMask);
+    }
+    if !run.relics.contains(&Relic::NlothsMask) {
+        candidates.push(RelicKey::NlothsMask);
+    }
+    if !run.relics.contains(&Relic::SsserpentHead) {
+        candidates.push(RelicKey::SsserpentHead);
+    }
+    if candidates.is_empty() {
+        candidates.push(RelicKey::Circlet);
+    }
+
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let shuffle_seed = rng.random_long();
+    run.misc_rng_counter = rng.counter();
+    JavaRng::new(shuffle_seed).collections_shuffle(&mut candidates);
+    candidates[0]
 }
 
 fn initialize_act1_event_pools(run: &mut RunState) {
@@ -1075,6 +1128,7 @@ pub fn event_screen(event: Event) -> EventScreen {
             0,
         ),
         Event::ScrapOoze => make_event_screen(event, scrap_ooze_choices(0), 0),
+        Event::FaceTrader => make_event_screen(event, face_trader_choices(0), 0),
         Event::BigFish => make_event_screen(event, big_fish_choices(0), 0),
         Event::GoldenIdol => make_event_screen(event, golden_idol_choices(0, 0, 0), 0),
         Event::WingStatue => make_event_screen(event, wing_statue_choices(0, false), 0),
@@ -1596,6 +1650,54 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             _ => {
                 return Err(SimError::IllegalAction(
                     "event choice is not implemented for Scrap Ooze",
+                ));
+            }
+        },
+        Event::FaceTrader => match screen.stage {
+            0 if choice_index == 0 => {
+                next.event = Some(EventScreen {
+                    event: Event::FaceTrader,
+                    choices: face_trader_choices(1),
+                    stage: 1,
+                    event_data: 0,
+                });
+            }
+            1 if choice_index == 0 => {
+                let damage = face_trader_damage(next.player_max_hp);
+                next.gain_gold(face_trader_gold(next.ascension));
+                lose_event_hp(&mut next, damage);
+                next.event = Some(EventScreen {
+                    event: Event::FaceTrader,
+                    choices: face_trader_choices(2),
+                    stage: 2,
+                    event_data: 0,
+                });
+            }
+            1 if choice_index == 1 => {
+                let key = roll_face_trader_relic(&mut next);
+                next.gain_relic_key(key);
+                next.event = Some(EventScreen {
+                    event: Event::FaceTrader,
+                    choices: face_trader_choices(2),
+                    stage: 2,
+                    event_data: 0,
+                });
+            }
+            1 if choice_index == 2 => {
+                next.event = Some(EventScreen {
+                    event: Event::FaceTrader,
+                    choices: face_trader_choices(2),
+                    stage: 2,
+                    event_data: 0,
+                });
+            }
+            2 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Face Trader",
                 ));
             }
         },

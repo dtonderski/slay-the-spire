@@ -3,6 +3,21 @@
 ## What Exists
 
 ### Tooling
+- Latest live trace fidelity fix: implemented generic Face Trader support after
+  `trace-2026-07-02T22-41-59-925Z.jsonl` showed the simulator entering Scrap
+  Ooze while the real game entered Face Trader. Face Trader is now an Act 1/2
+  shrine-special candidate in source order, has Continue/Touch/Trade/Leave
+  event flow, source-backed Touch gold/damage, deterministic Trade face-relic
+  selection via `miscRng.randomLong()` plus Java shuffle, and all five face
+  relics are represented/imported in core, verifier, and Python replay
+  snapshots. Checks: `cargo fmt` passed; `cargo check -p sts_core --lib`
+  passed; `cargo check -p sts_verify --lib` passed;
+  `uv run maturin develop --release` passed; strict replay of
+  `verification/corpus/communication_mod/trace-2026-07-02T22-41-59-925Z.jsonl`
+  passed to trace exhaustion (`verified True`, 19 steps, final phase combat).
+  `uv run python -m unittest python.tests.test_self_play` is currently blocked
+  by an existing import error for missing `_visible_combat_hand` in
+  `sts.self_play`, not by this Face Trader change.
 - Latest card-fidelity audit follow-up: corrected the Pummel+ audit row after
   source/local re-check showed the simulator already matched decompiled
   `Pummel.java`. Source Pummel sets `baseDamage=2`, `exhaust=true`, and

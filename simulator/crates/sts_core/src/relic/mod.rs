@@ -427,6 +427,16 @@ pub const BURNING_BLOOD_ID: ContentId = ContentId::new(394);
 pub const CIRCLET_ID: ContentId = ContentId::new(395);
 /// Content id for [Relic::RedCirclet].
 pub const RED_CIRCLET_ID: ContentId = ContentId::new(396);
+/// Content id for [Relic::CultistMask].
+pub const CULTIST_MASK_ID: ContentId = ContentId::new(430);
+/// Content id for [Relic::FaceOfCleric].
+pub const FACE_OF_CLERIC_ID: ContentId = ContentId::new(431);
+/// Content id for [Relic::GremlinMask].
+pub const GREMLIN_MASK_ID: ContentId = ContentId::new(432);
+/// Content id for [Relic::NlothsMask].
+pub const NLOTHS_MASK_ID: ContentId = ContentId::new(433);
+/// Content id for [Relic::SsserpentHead].
+pub const SSSERPENT_HEAD_ID: ContentId = ContentId::new(434);
 /// Content id for [Relic::SacredBark].
 pub const SACRED_BARK_ID: ContentId = ContentId::new(397);
 /// Content id for [Relic::RunicPyramid].
@@ -748,6 +758,11 @@ pub enum RelicKey {
     BloodyIdol,
     Circlet,
     RedCirclet,
+    CultistMask,
+    FaceOfCleric,
+    GremlinMask,
+    NlothsMask,
+    SsserpentHead,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1187,6 +1202,11 @@ pub enum Relic {
     HandDrill,
     Circlet,
     RedCirclet,
+    CultistMask,
+    FaceOfCleric,
+    GremlinMask,
+    NlothsMask,
+    SsserpentHead,
     SacredBark,
     RunicPyramid,
     FrozenEye,
@@ -1338,6 +1358,11 @@ impl Relic {
             Relic::HandDrill => HAND_DRILL_ID,
             Relic::Circlet => CIRCLET_ID,
             Relic::RedCirclet => RED_CIRCLET_ID,
+            Relic::CultistMask => CULTIST_MASK_ID,
+            Relic::FaceOfCleric => FACE_OF_CLERIC_ID,
+            Relic::GremlinMask => GREMLIN_MASK_ID,
+            Relic::NlothsMask => NLOTHS_MASK_ID,
+            Relic::SsserpentHead => SSSERPENT_HEAD_ID,
             Relic::SacredBark => SACRED_BARK_ID,
             Relic::RunicPyramid => RUNIC_PYRAMID_ID,
             Relic::FrozenEye => FROZEN_EYE_ID,
@@ -1489,6 +1514,11 @@ impl Relic {
             id if id == HAND_DRILL_ID => Some(Relic::HandDrill),
             id if id == CIRCLET_ID => Some(Relic::Circlet),
             id if id == RED_CIRCLET_ID => Some(Relic::RedCirclet),
+            id if id == CULTIST_MASK_ID => Some(Relic::CultistMask),
+            id if id == FACE_OF_CLERIC_ID => Some(Relic::FaceOfCleric),
+            id if id == GREMLIN_MASK_ID => Some(Relic::GremlinMask),
+            id if id == NLOTHS_MASK_ID => Some(Relic::NlothsMask),
+            id if id == SSSERPENT_HEAD_ID => Some(Relic::SsserpentHead),
             id if id == SACRED_BARK_ID => Some(Relic::SacredBark),
             id if id == RUNIC_PYRAMID_ID => Some(Relic::RunicPyramid),
             id if id == FROZEN_EYE_ID => Some(Relic::FrozenEye),
@@ -1727,6 +1757,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::HandDrill => {}
             Relic::Circlet => {}
             Relic::RedCirclet => {}
+            Relic::CultistMask => {}
+            Relic::FaceOfCleric => {}
+            Relic::GremlinMask => {}
+            Relic::NlothsMask => {}
+            Relic::SsserpentHead => {}
         }
     }
 

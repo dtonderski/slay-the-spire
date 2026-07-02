@@ -1249,6 +1249,11 @@ impl RunState {
             | Relic::BurningBlood
             | Relic::Circlet
             | Relic::RedCirclet
+            | Relic::CultistMask
+            | Relic::FaceOfCleric
+            | Relic::GremlinMask
+            | Relic::NlothsMask
+            | Relic::SsserpentHead
             | Relic::SacredBark
             | Relic::RunicPyramid
             | Relic::FrozenEye
@@ -1595,6 +1600,11 @@ impl Relic {
             Relic::HandDrill => RelicKey::HandDrill,
             Relic::Circlet => RelicKey::Circlet,
             Relic::RedCirclet => RelicKey::RedCirclet,
+            Relic::CultistMask => RelicKey::CultistMask,
+            Relic::FaceOfCleric => RelicKey::FaceOfCleric,
+            Relic::GremlinMask => RelicKey::GremlinMask,
+            Relic::NlothsMask => RelicKey::NlothsMask,
+            Relic::SsserpentHead => RelicKey::SsserpentHead,
             Relic::SacredBark => RelicKey::SacredBark,
             Relic::RunicPyramid => RelicKey::RunicPyramid,
             Relic::FrozenEye => RelicKey::FrozenEye,
@@ -1751,6 +1761,11 @@ impl Relic {
             RelicKey::BloodyIdol => Some(Relic::BloodyIdol),
             RelicKey::Circlet => Some(Relic::Circlet),
             RelicKey::RedCirclet => Some(Relic::RedCirclet),
+            RelicKey::CultistMask => Some(Relic::CultistMask),
+            RelicKey::FaceOfCleric => Some(Relic::FaceOfCleric),
+            RelicKey::GremlinMask => Some(Relic::GremlinMask),
+            RelicKey::NlothsMask => Some(Relic::NlothsMask),
+            RelicKey::SsserpentHead => Some(Relic::SsserpentHead),
             RelicKey::SacredBark => Some(Relic::SacredBark),
             RelicKey::RunicPyramid => Some(Relic::RunicPyramid),
             RelicKey::FrozenEye => Some(Relic::FrozenEye),

@@ -4853,6 +4853,11 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::BlackBlood => "Black Blood",
         RelicKey::MarkOfPain => "Mark of Pain",
         RelicKey::RunicCube => "Runic Cube",
+        RelicKey::CultistMask => "CultistMask",
+        RelicKey::FaceOfCleric => "FaceOfCleric",
+        RelicKey::GremlinMask => "GremlinMask",
+        RelicKey::NlothsMask => "NlothsMask",
+        RelicKey::SsserpentHead => "SsserpentHead",
         _ => "Unknown Relic",
     }
 }
@@ -4896,6 +4901,11 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "blackblood" => Some(RelicKey::BlackBlood),
         "markofpain" => Some(RelicKey::MarkOfPain),
         "runiccube" => Some(RelicKey::RunicCube),
+        "cultistmask" | "cultistheadpiece" => Some(RelicKey::CultistMask),
+        "faceofcleric" | "clericface" => Some(RelicKey::FaceOfCleric),
+        "gremlinmask" | "gremlinvisage" => Some(RelicKey::GremlinMask),
+        "nlothsmask" => Some(RelicKey::NlothsMask),
+        "ssserpenthead" => Some(RelicKey::SsserpentHead),
         "pear" => Some(RelicKey::Pear),
         "eternalfeather" => Some(RelicKey::EternalFeather),
         "championbelt" => Some(RelicKey::ChampionBelt),
@@ -4953,6 +4963,11 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "blackblood" => Some(Relic::BlackBlood),
         "markofpain" => Some(Relic::MarkOfPain),
         "runiccube" => Some(Relic::RunicCube),
+        "cultistmask" | "cultistheadpiece" => Some(Relic::CultistMask),
+        "faceofcleric" | "clericface" => Some(Relic::FaceOfCleric),
+        "gremlinmask" | "gremlinvisage" => Some(Relic::GremlinMask),
+        "nlothsmask" => Some(Relic::NlothsMask),
+        "ssserpenthead" => Some(Relic::SsserpentHead),
         "pear" => Some(Relic::Pear),
         "eternalfeather" => Some(Relic::EternalFeather),
         "championbelt" => Some(Relic::ChampionBelt),
@@ -6345,6 +6360,49 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
                 .collect(),
             stage,
             event_data,
+        });
+    }
+    if event_id == "FaceTrader"
+        || event_name == "Face Trader"
+        || (event_id.is_empty()
+            && event_name.is_empty()
+            && choices.len() == 3
+            && choices
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("touch"))
+            && choices
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("trade"))
+            && choices
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("leave")))
+    {
+        let labels = if choices.is_empty() {
+            vec!["Leave".to_owned()]
+        } else {
+            choices
+        };
+        let stage = if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("continue"))
+        {
+            0
+        } else if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("touch"))
+        {
+            1
+        } else {
+            2
+        };
+        return Some(EventScreen {
+            event: Event::FaceTrader,
+            choices: labels
+                .into_iter()
+                .map(|label| EventChoice { label })
+                .collect(),
+            stage,
+            event_data: 0,
         });
     }
     if event_id == "Golden Wing"
