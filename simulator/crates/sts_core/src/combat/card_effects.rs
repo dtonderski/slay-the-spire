@@ -979,7 +979,13 @@ fn bloodletting_queue(
             amount: 3,
             source: HpLossSource::Card(card_id),
         },
-        InternalAction::GainEnergy { amount: 3 },
+        InternalAction::GainEnergy {
+            amount: if definition.id == BLOODLETTING_PLUS_ID {
+                3
+            } else {
+                2
+            },
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,

@@ -5,6 +5,14 @@
 ### Tooling
 - Latest active trace replay follow-up: the extended
   `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays to exhaustion
+  (`verified=True`, `steps=122`, `final_phase=combat`). Generic fix:
+  unupgraded Bloodletting now grants the source-backed 2 energy while
+  Bloodletting+ grants 3, fixing the floor-10 Gremlin Nob turn-3 energy
+  mismatch. Checks: `cargo fmt`, `cargo check -p sts_core --lib`,
+  `cargo check -p sts_verify --lib`, `uv run maturin develop --release`, and
+  strict replay of the active trace. UI restarted at `http://127.0.0.1:8799/`.
+- Latest active trace replay follow-up: the extended
+  `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays to exhaustion
   (`verified=True`, `steps=97`, `final_phase=combat`). Generic fix: Mind
   Blast now uses the source `AbstractDungeon.player.drawPile.size()` damage
   formula instead of counting all combat piles, fixing the floor-8 generated
