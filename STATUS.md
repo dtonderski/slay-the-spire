@@ -3,6 +3,21 @@
 ## What Exists
 
 ### Tooling
+- Latest card-fidelity audit follow-up: fixed a generic Slimed mismatch found
+  by comparing local card definitions/effects against decompiled constructors.
+  Decompiled `Slimed.java` is cost 1 Status, `CardTarget.SELF`, `exhaust=true`,
+  and has an empty `use`; local Slimed now maps that to no monster target,
+  no damage value, spend 1 energy, and move only the played card to exhaust
+  without generating an extra Slimed in discard. The audit artifact records the
+  source/database/local facts and fixed verdict. Checks: `cargo fmt --check`
+  passed; `cargo test -p sts_core --test card_fidelity` passed; `cargo clippy`
+  passed with existing warnings after setting `PYO3_PYTHON` to the bundled
+  Python; active live-regression manifest replay passed via
+  `uv run python -m unittest python.tests.test_live_regression_traces`.
+  Full `cargo test` is currently blocked before execution by unrelated
+  exhaustiveness errors in the dirty `simulator/crates/sts_core/src/relic/mod.rs`
+  / run-state relic mapping for `CultistMask`, `FaceOfCleric`, `GremlinMask`,
+  `NlothsMask`, and `SsserpentHead`.
 - Latest card-fidelity audit follow-up: fixed a generic Thunderclap definition
   mismatch found while sharpening the audit artifact. Decompiled
   `ThunderClap.java` uses `CardTarget.ALL_ENEMY` for base Thunderclap, matching

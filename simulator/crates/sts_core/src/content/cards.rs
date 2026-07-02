@@ -543,9 +543,9 @@ pub const SLIMED: CardDefinition = CardDefinition {
     name: "Slimed",
     cost: 1,
     card_type: CardType::Status,
-    target: TargetRequirement::Enemy,
+    target: TargetRequirement::None,
     values: CardValues {
-        damage: Some(0),
+        damage: None,
         block: None,
         vulnerable: None,
     },

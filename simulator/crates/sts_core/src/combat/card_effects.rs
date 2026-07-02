@@ -98,7 +98,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Bash has a target"),
             definition,
         ),
-        SLIMED_ID => slimed_queue(card_id, target.expect("validated Slimed has a target")),
+        SLIMED_ID => slimed_queue(card_id),
         ANGER_ID | ANGER_PLUS_ID => anger_queue(
             card_id,
             target.expect("validated Anger has a target"),
@@ -2488,25 +2488,14 @@ fn other_hand_cards(state: &CombatState, exclude_id: CardId) -> Vec<CardId> {
         .collect()
 }
 
-fn slimed_queue(card_id: CardId, target: MonsterId) -> SimResult<VecDeque<InternalAction>> {
+fn slimed_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: 1 },
-        InternalAction::DealDamage {
-            info: DamageInfo {
-                source: DamageSource::Card(card_id),
-                target,
-                amount: 0,
-            },
-        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: CardPile::ExhaustPile,
-        },
-        InternalAction::AddCardToPile {
-            content_id: SLIMED_ID,
-            to: CardPile::DiscardPile,
         },
     ]))
 }
