@@ -12,6 +12,17 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live bridge mapper slice: combat recommendations that resolve to
+  generic select-confirm actions (`confirm_hand_select`, `confirm_draw_select`,
+  `confirm_discard_select`, or `confirm_exhaust_select`) now map to the bridge
+  `ConfirmChoice` / `CONFIRM` command in both the Python live send path and the
+  browser UI mapper. This unblocks Gambler's Brew and other select-confirm
+  flows without adding seed- or trace-specific behavior. Checks:
+  `uv run python -m unittest python.tests.test_ui_service.UiServiceTests.test_bridge_action_for_exact_action_maps_select_confirm_to_confirm_choice`,
+  strict replay gate over the current protected live traces, and live
+  `trace-2026-07-01T20-30-26-163Z.jsonl` advanced cleanly to
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=133`,
+  `final_phase=combat` after sending `CONFIRM`.
 - Latest seed-start verifier regression slice: `sts_verify` is back to a clean
   full library suite after the M33 Neow regression set. Source-backed fixes:
   Neow `ThreeRareCards` now burns the same per-card rarity rolls as

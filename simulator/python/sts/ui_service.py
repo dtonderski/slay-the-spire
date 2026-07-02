@@ -930,6 +930,9 @@ def _bridge_action_for_exact_action(
     if _is_skip_combat_card_reward_descriptor(action):
         return _find_bridge_action(bridge_actions, kind="SkipVisibleReward")
 
+    if _is_confirm_select_descriptor(action):
+        return _find_bridge_action(bridge_actions, kind="ConfirmChoice")
+
     play = _play_card_payload(action)
     if play is not None:
         hand_slot = _observed_hand_slot_for_card_id(play.get("card_id"), bridge_status, sim_state)
@@ -1072,6 +1075,33 @@ def _is_skip_combat_card_reward_descriptor(action: dict[str, Any]) -> bool:
         or descriptor.get("action") == "SkipCombatCardReward"
     ):
         return True
+    return False
+
+
+def _is_confirm_select_descriptor(action: dict[str, Any]) -> bool:
+    confirm_action_kinds = {
+        "confirm_hand_select",
+        "confirm_draw_select",
+        "confirm_discard_select",
+        "confirm_exhaust_select",
+    }
+    confirm_actions = {
+        "ConfirmHandSelect",
+        "ConfirmDrawSelect",
+        "ConfirmDiscardSelect",
+        "ConfirmExhaustSelect",
+    }
+
+    if action.get("action_kind") in confirm_action_kinds:
+        return True
+    if action.get("action") in confirm_actions:
+        return True
+    descriptor = action.get("descriptor")
+    if isinstance(descriptor, dict):
+        if descriptor.get("action_kind") in confirm_action_kinds:
+            return True
+        if descriptor.get("action") in confirm_actions:
+            return True
     return False
 
 

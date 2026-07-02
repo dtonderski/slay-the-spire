@@ -2495,6 +2495,12 @@
     if (isSkipCombatCardRewardAction(best)) {
       return bridgeActions.find((action) => String(action.command || "").toUpperCase() === "SKIP") || null;
     }
+    if (isConfirmSelectAction(best)) {
+      return bridgeActions.find((action) => {
+        const descriptor = action.descriptor || {};
+        return descriptor.kind === "ConfirmChoice";
+      }) || null;
+    }
     const potion = exactRunUsePotion(best);
     if (potion) {
       const targetSlot = observedMonsterSlotForTarget(potion.target);
@@ -2641,6 +2647,28 @@
     const descriptor = action.descriptor || {};
     if (descriptor.action_kind === "skip_combat_card_reward") return true;
     if (descriptor.action === "SkipCombatCardReward") return true;
+    return false;
+  }
+
+  function isConfirmSelectAction(action) {
+    if (!action) return false;
+    const confirmActionKinds = new Set([
+      "confirm_hand_select",
+      "confirm_draw_select",
+      "confirm_discard_select",
+      "confirm_exhaust_select",
+    ]);
+    const confirmActions = new Set([
+      "ConfirmHandSelect",
+      "ConfirmDrawSelect",
+      "ConfirmDiscardSelect",
+      "ConfirmExhaustSelect",
+    ]);
+    if (confirmActionKinds.has(action.action_kind)) return true;
+    if (confirmActions.has(action.action)) return true;
+    const descriptor = action.descriptor || {};
+    if (confirmActionKinds.has(descriptor.action_kind)) return true;
+    if (confirmActions.has(descriptor.action)) return true;
     return false;
   }
 

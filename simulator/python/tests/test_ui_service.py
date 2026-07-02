@@ -1377,6 +1377,26 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["command"], "SKIP")
 
+    def test_bridge_action_for_exact_action_maps_select_confirm_to_confirm_choice(self):
+        action = {
+            "kind": "ExactRunAction",
+            "family": "run",
+            "action_kind": "confirm_exhaust_select",
+            "action": "ConfirmExhaustSelect",
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "CONFIRM",
+                    "descriptor": {"kind": "ConfirmChoice"},
+                },
+            ],
+        }
+
+        result = _bridge_action_for_exact_action(action, bridge_status, {"combat": {}})
+
+        self.assertEqual(result["command"], "CONFIRM")
+
     def test_send_live_combat_action_attaches_searches_predicts_and_sends_bridge_command(self):
         manager = SessionManager()
         manager._sessions["live"] = CombatSession(
