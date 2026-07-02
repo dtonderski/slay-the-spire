@@ -1344,8 +1344,11 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::GoldenShrine => match screen.stage {
             0 if choice_index == 0 => {
                 next.gain_gold(GOLDEN_SHRINE_GOLD);
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(make_event_screen(
+                    Event::GoldenShrine,
+                    golden_shrine_choices(1),
+                    1,
+                ));
             }
             0 if choice_index == 1 => {
                 next.gain_gold(GOLDEN_SHRINE_DESECRATE_GOLD);
@@ -3716,7 +3719,7 @@ mod tests {
     }
 
     #[test]
-    fn golden_shrine_choice_grants_gold_and_exits_event() {
+    fn golden_shrine_pray_grants_gold_then_requires_leave() {
         let mut run = RunState::map_fixture();
         enter_fixed_event_screen(&mut run);
         let gold_before = run.gold;
@@ -3724,9 +3727,18 @@ mod tests {
         let after =
             apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("pray");
 
-        assert_eq!(after.phase, RunPhase::Idle);
-        assert!(after.event.is_none());
+        assert_eq!(after.phase, RunPhase::Event);
         assert_eq!(after.gold, gold_before + GOLDEN_SHRINE_GOLD);
+        let screen = after.event.as_ref().expect("leave screen");
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices.len(), 1);
+        assert_eq!(screen.choices[0].label, "Leave");
+
+        let left =
+            apply_event_action(&after, EventAction::Choose { choice_index: 0 }).expect("leave");
+
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.event.is_none());
     }
 
     #[test]
@@ -3876,8 +3888,10 @@ mod tests {
         let after =
             apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("pray");
 
-        assert_eq!(after.phase, RunPhase::Idle);
-        assert!(after.event.is_none());
+        assert_eq!(after.phase, RunPhase::Event);
+        let screen = after.event.as_ref().expect("leave screen");
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices[0].label, "Leave");
         assert_eq!(after.gold, gold_before + GOLDEN_SHRINE_GOLD);
     }
 
