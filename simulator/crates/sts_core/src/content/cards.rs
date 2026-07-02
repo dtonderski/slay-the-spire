@@ -348,7 +348,7 @@ pub const WOUND: CardDefinition = CardDefinition {
     card_type: CardType::Status,
     target: TargetRequirement::None,
     values: CardValues {
-        damage: Some(2),
+        damage: None,
         block: None,
         vulnerable: None,
     },

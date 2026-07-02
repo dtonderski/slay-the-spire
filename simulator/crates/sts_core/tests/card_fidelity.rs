@@ -1,12 +1,22 @@
 use sts_core::{
     apply_combat_action,
-    card::TargetRequirement,
+    card::{CardType, TargetRequirement},
     content::{
         cards,
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
     },
     legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
 };
+
+#[test]
+fn wound_definition_matches_unplayable_status_source() {
+    assert_eq!(cards::WOUND.cost, 0);
+    assert_eq!(cards::WOUND.card_type, CardType::Status);
+    assert_eq!(cards::WOUND.target, TargetRequirement::None);
+    assert_eq!(cards::WOUND.values.damage, None);
+    assert!(cards::WOUND.keywords.unplayable);
+    assert!(!cards::WOUND.keywords.exhaust);
+}
 
 #[test]
 fn sword_boomerang_definitions_target_all_enemies_without_selection() {
