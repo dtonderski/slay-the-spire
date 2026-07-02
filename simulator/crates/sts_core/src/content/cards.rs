@@ -4106,7 +4106,7 @@ pub const THUNDERCLAP: CardDefinition = CardDefinition {
     name: "Thunderclap",
     cost: 1,
     card_type: CardType::Attack,
-    target: TargetRequirement::None,
+    target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(4),
         block: None,

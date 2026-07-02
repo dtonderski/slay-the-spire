@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Latest card-fidelity audit follow-up: fixed a generic Thunderclap definition
+  mismatch found while sharpening the audit artifact. Decompiled
+  `ThunderClap.java` uses `CardTarget.ALL_ENEMY` for base Thunderclap, matching
+  Thunderclap+ and the printed `sts.gg /v1/cards` behavior; local
+  `THUNDERCLAP` now uses `TargetRequirement::AllEnemies`, with a regression
+  covering both forms. The audit artifact also corrects inert curse local facts
+  that were over-reporting zero damage/exhaust and adds a source-backed Pain
+  trigger note. Checks: `cargo fmt --check` passed;
+  `cargo test -p sts_core --test m32a_matrix thunderclap_definitions_target_all_enemies`
+  passed; `cargo clippy` passed with existing warnings after setting
+  `PYO3_PYTHON` to the bundled Python; active live-regression manifest replay
+  passed via `uv run python -m unittest python.tests.test_live_regression_traces`.
+  Full `cargo test` still fails only in the pre-existing stale `milestone6`
+  monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Latest bridge-control fix: TCP command guarding no longer wedges forever
   after commands such as `CANCEL` that may leave the game on the same visible
   state and time out waiting for a state-sequence advance. The trace client now
