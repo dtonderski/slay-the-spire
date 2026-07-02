@@ -10,6 +10,12 @@
   restarts only local `sts.ui_service` Python/uv processes and waits for
   `http://127.0.0.1:8799/`. These scripts are generic command wrappers; they do
   not bake in trace names, seeds, or simulator behavior.
+- Latest live-bridge mapper slice: single-target bridge potion actions may omit
+  an explicit `target_slot` when only one legal monster target is visible. The
+  UI service maps simulator `UsePotion` recommendations to that command only
+  when the simulator target resolves to that sole visible target slot, and
+  focused Python tests cover both the accepted single-target case and the
+  multi-target rejection case.
 
 ### Combat
 - Latest live-trace Shelled Parasite Fell slice: the current

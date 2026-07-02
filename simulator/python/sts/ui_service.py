@@ -995,7 +995,12 @@ def _find_bridge_action(
             continue
         descriptor_target = descriptor.get("target_slot")
         if target_required:
-            if _parse_int_or_none(descriptor_target) != _parse_int_or_none(target_slot):
+            parsed_target = _parse_int_or_none(target_slot)
+            parsed_descriptor_target = _parse_int_or_none(descriptor_target)
+            if descriptor_target is None:
+                if parsed_target not in (None, 0):
+                    continue
+            elif parsed_descriptor_target != parsed_target:
                 continue
         elif descriptor_target is not None:
             continue

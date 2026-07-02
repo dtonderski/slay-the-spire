@@ -1305,6 +1305,59 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["command"], "PLAY 1 0")
 
+    def test_bridge_action_for_exact_action_maps_single_target_potion_without_target_slot(self):
+        action = {
+            "kind": "ExactRunAction",
+            "action_kind": "use_potion",
+            "action": {"UsePotion": {"slot": 0, "target": 1}},
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "POTION USE 0",
+                    "descriptor": {"kind": "UsePotionSlot", "potion_slot": 0},
+                }
+            ],
+            "summary": {
+                "combat": {
+                    "monsters": [{"index": 0, "id": "Shelled Parasite", "gone": False}],
+                }
+            },
+        }
+        sim_state = {"combat": {"monsters": [{"id": 1}]}}
+
+        result = _bridge_action_for_exact_action(action, bridge_status, sim_state)
+
+        self.assertEqual(result["command"], "POTION USE 0")
+
+    def test_bridge_action_for_exact_action_rejects_missing_target_slot_for_later_target(self):
+        action = {
+            "kind": "ExactRunAction",
+            "action_kind": "use_potion",
+            "action": {"UsePotion": {"slot": 0, "target": 2}},
+        }
+        bridge_status = {
+            "bridge_actions": [
+                {
+                    "command": "POTION USE 0",
+                    "descriptor": {"kind": "UsePotionSlot", "potion_slot": 0},
+                }
+            ],
+            "summary": {
+                "combat": {
+                    "monsters": [
+                        {"index": 0, "id": "Cultist", "gone": False},
+                        {"index": 1, "id": "Jaw Worm", "gone": False},
+                    ],
+                }
+            },
+        }
+        sim_state = {"combat": {"monsters": [{"id": 1}, {"id": 2}]}}
+
+        result = _bridge_action_for_exact_action(action, bridge_status, sim_state)
+
+        self.assertIsNone(result)
+
     def test_bridge_action_for_exact_action_prefers_sim_monster_order_over_visible_index(self):
         action = {
             "kind": "ExactRunAction",
