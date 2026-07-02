@@ -1058,10 +1058,22 @@ fn any_color_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
 }
 
 pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
-    let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
-    let gold_offer =
-        combat_gold_offer_with_relics(run, target_normal_combat_gold(&mut treasure_rng));
-    run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
+    let all_monsters_escaped = run
+        .combat
+        .as_ref()
+        .map(|combat| {
+            !combat.monsters.is_empty() && combat.monsters.iter().all(|monster| monster.escaped)
+        })
+        .unwrap_or(false);
+    let gold_offer = if all_monsters_escaped {
+        0
+    } else {
+        let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
+        let gold_offer =
+            combat_gold_offer_with_relics(run, target_normal_combat_gold(&mut treasure_rng));
+        run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
+        gold_offer
+    };
 
     let potion_offer = if run.can_gain_potions() {
         let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
@@ -3677,6 +3689,35 @@ mod tests {
                 .stolen_gold_offer,
             0
         );
+    }
+
+    #[test]
+    fn normal_combat_gold_is_not_offered_when_all_monsters_escaped() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.monsters[0].alive = false;
+        combat.monsters[0].escaped = true;
+
+        enter_reward_screen(&mut run);
+
+        assert_eq!(run.reward.as_ref().expect("reward screen").gold_offer, 0);
+    }
+
+    #[test]
+    fn normal_combat_gold_is_offered_when_escape_is_mixed_with_kill() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let mut killed = combat.monsters[0].clone();
+        killed.id = MonsterId::new(2);
+        killed.alive = false;
+        killed.escaped = false;
+        combat.monsters[0].alive = false;
+        combat.monsters[0].escaped = true;
+        combat.monsters.push(killed);
+
+        enter_reward_screen(&mut run);
+
+        assert!(run.reward.as_ref().expect("reward screen").gold_offer > 0);
     }
 
     #[test]
