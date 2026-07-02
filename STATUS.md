@@ -18,6 +18,26 @@
   `uv run python -m unittest python.tests.test_self_play` is currently blocked
   by an existing import error for missing `_visible_combat_hand` in
   `sts.self_play`, not by this Face Trader change.
+- Card-fidelity audit follow-up: corrected the Twin Strike/Twin Strike+ audit
+  rows after source/local re-check showed the simulator already matched
+  decompiled `TwinStrike.java`. Source Twin Strike is cost 1, targets one enemy,
+  deals 5 damage twice, and upgrades damage by 2; the persistent audit artifact
+  now records selected-enemy double hits for base/upgraded forms instead of the
+  stale generic random-target repeated-hit description. Checks:
+  `cargo fmt --check` passed; `cargo test -p sts_core --test card_fidelity`
+  passed; active live-regression manifest replay
+  passed via `uv run python -m unittest python.tests.test_live_regression_traces`.
+  `cargo clippy` is currently blocked by unrelated unstaged
+  `simulator/crates/sts_core/src/combat/transition.rs` edits that call missing
+  `apply_hand_card_play_triggers`. Full `cargo test` still fails only in the
+  pre-existing stale `milestone6` monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Card-fidelity audit follow-up: corrected the base Pummel audit row after
   source/local re-check showed the simulator already matched decompiled
   `Pummel.java`. Source Pummel sets `baseDamage=2`, `exhaust=true`, and

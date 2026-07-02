@@ -28,6 +28,15 @@ fn pummel_plus_definition_keeps_damage_and_exhausts() {
 }
 
 #[test]
+fn twin_strike_definitions_target_one_enemy_twice() {
+    assert_eq!(cards::TWIN_STRIKE.target, TargetRequirement::Enemy);
+    assert_eq!(cards::TWIN_STRIKE.values.damage, Some(5));
+
+    assert_eq!(cards::TWIN_STRIKE_PLUS.target, TargetRequirement::Enemy);
+    assert_eq!(cards::TWIN_STRIKE_PLUS.values.damage, Some(7));
+}
+
+#[test]
 fn sword_boomerang_definitions_target_all_enemies_without_selection() {
     for definition in [cards::SWORD_BOOMERANG, cards::SWORD_BOOMERANG_PLUS] {
         assert_eq!(definition.target, TargetRequirement::AllEnemies);
