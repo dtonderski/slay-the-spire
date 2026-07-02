@@ -6329,6 +6329,36 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
             event_data: 0,
         });
     }
+    if event_id == "Nest" || event_name == "The Nest" {
+        let choices = choice_list_from_value(game.get("choice_list"));
+        let labels = if choices.is_empty() {
+            vec!["Continue".to_owned()]
+        } else {
+            choices
+        };
+        let stage = if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("continue"))
+        {
+            0
+        } else if labels.iter().any(|choice| {
+            choice.eq_ignore_ascii_case("smash and grab")
+                || choice.eq_ignore_ascii_case("stay in line")
+        }) {
+            1
+        } else {
+            2
+        };
+        return Some(EventScreen {
+            event: Event::Nest,
+            choices: labels
+                .into_iter()
+                .map(|label| EventChoice { label })
+                .collect(),
+            stage,
+            event_data: 0,
+        });
+    }
     if event_id != "Neow Event" && event_name != "Neow" {
         return None;
     }
@@ -9582,6 +9612,28 @@ mod tests {
         assert_eq!(screen.event, Event::WingStatue);
         assert_eq!(screen.stage, 0);
         assert_eq!(screen.choices[0].label, "pray");
+    }
+
+    #[test]
+    fn observed_event_screen_imports_nest_choice_stage() {
+        let game = json!({
+            "screen_type": "EVENT",
+            "choice_list": ["smash and grab", "stay in line"],
+            "screen_state": {
+                "event_id": "Nest",
+                "event_name": "The Nest",
+                "options": [
+                    {"text": "[Smash and Grab] Obtain 99 Gold."},
+                    {"text": "[Stay in Line] Obtain Ritual Dagger. Lose 6 HP."}
+                ]
+            }
+        });
+
+        let screen = observed_event_screen(&game, 0).expect("nest screen");
+
+        assert_eq!(screen.event, Event::Nest);
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices[0].label, "smash and grab");
     }
 
     #[test]
