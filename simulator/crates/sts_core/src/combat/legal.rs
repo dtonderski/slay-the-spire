@@ -3044,13 +3044,13 @@ mod tests {
     }
 
     #[test]
-    fn spot_weakness_is_legal_without_target() {
+    fn spot_weakness_is_legal_with_target() {
         let state = hand_with_card(SPOT_WEAKNESS_ID);
 
         assert!(
             legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: CardId::new(20),
-                target: None,
+                target: Some(MonsterId::new(1)),
             })
         );
     }
@@ -3063,7 +3063,7 @@ mod tests {
         assert!(
             !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: CardId::new(20),
-                target: None,
+                target: Some(MonsterId::new(1)),
             })
         );
     }
@@ -3076,7 +3076,7 @@ mod tests {
         assert!(
             !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
                 card_id: CardId::new(20),
-                target: None,
+                target: Some(MonsterId::new(1)),
             })
         );
     }

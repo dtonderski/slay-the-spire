@@ -1425,7 +1425,7 @@ pub const SPOT_WEAKNESS: CardDefinition = CardDefinition {
     name: "Spot Weakness",
     cost: 1,
     card_type: CardType::Skill,
-    target: TargetRequirement::None,
+    target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
         block: None,
@@ -1470,7 +1470,7 @@ pub const SPOT_WEAKNESS_PLUS: CardDefinition = CardDefinition {
     name: "Spot Weakness+",
     cost: 1,
     card_type: CardType::Skill,
-    target: TargetRequirement::None,
+    target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
         block: None,
@@ -6470,7 +6470,7 @@ mod tests {
     #[test]
     fn spot_weakness_has_expected_values() {
         assert_eq!(SPOT_WEAKNESS.cost, 1);
-        assert_eq!(SPOT_WEAKNESS.target, TargetRequirement::None);
+        assert_eq!(SPOT_WEAKNESS.target, TargetRequirement::Enemy);
         assert_eq!(SPOT_WEAKNESS.card_type, CardType::Skill);
     }
 

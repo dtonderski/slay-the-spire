@@ -14841,7 +14841,7 @@ mod tests {
             &state,
             CombatAction::PlayCard {
                 card_id: CardId::new(20),
-                target: None,
+                target: Some(MonsterId::new(1)),
             },
         )
         .expect("Spot Weakness applies");
@@ -14860,7 +14860,7 @@ mod tests {
             &state,
             CombatAction::PlayCard {
                 card_id: CardId::new(20),
-                target: None,
+                target: Some(MonsterId::new(1)),
             },
         )
         .expect("Spot Weakness applies");
@@ -14876,7 +14876,7 @@ mod tests {
             &state,
             CombatAction::PlayCard {
                 card_id: CardId::new(20),
-                target: None,
+                target: Some(MonsterId::new(1)),
             },
         )
         .expect("Spot Weakness+ applies");
@@ -14897,7 +14897,7 @@ mod tests {
             &state,
             CombatAction::PlayCard {
                 card_id: CardId::new(20),
-                target: None,
+                target: Some(MonsterId::new(1)),
             },
         )
         .expect("Spot Weakness applies");

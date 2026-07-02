@@ -309,7 +309,9 @@ pub(super) fn play_card_queue(
         }
         THE_BOMB_ID | THE_BOMB_PLUS_ID => the_bomb_queue(card_id, definition),
         OFFERING_ID | OFFERING_PLUS_ID => offering_queue(card_id, definition),
-        SPOT_WEAKNESS_ID | SPOT_WEAKNESS_PLUS_ID => spot_weakness_queue(state, card_id, definition),
+        SPOT_WEAKNESS_ID | SPOT_WEAKNESS_PLUS_ID => {
+            spot_weakness_queue(state, card_id, target, definition)
+        }
         THUNDERCLAP_ID | THUNDERCLAP_PLUS_ID => thunderclap_queue(state, card_id, definition),
         UPPERCUT_ID | UPPERCUT_PLUS_ID => uppercut_queue(
             card_id,
@@ -3737,29 +3739,10 @@ fn spot_weakness_strength_amount(definition: &CardDefinition) -> i32 {
     }
 }
 
-fn any_monster_intends_attack(state: &CombatState) -> bool {
-    state.monsters.iter().any(|monster| {
-        monster.alive
-            && matches!(
-                monster.intent,
-                MonsterIntent::Attack { .. }
-                    | MonsterIntent::AttackAndBlock { .. }
-                    | MonsterIntent::AttackApplyPlayerFrail { .. }
-                    | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
-                    | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
-                    | MonsterIntent::AttackApplyPlayerVulnerable { .. }
-                    | MonsterIntent::AttackHealSelf { .. }
-                    | MonsterIntent::AttackAddWoundsToDiscard { .. }
-                    | MonsterIntent::AttackAddSlimedToDiscard { .. }
-                    | MonsterIntent::AttackMultiple { .. }
-                    | MonsterIntent::AttackStealGold { .. }
-            )
-    })
-}
-
 fn spot_weakness_queue(
     state: &CombatState,
     card_id: CardId,
+    target: Option<MonsterId>,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     let mut queue = VecDeque::from([
@@ -3769,7 +3752,7 @@ fn spot_weakness_queue(
         },
     ]);
 
-    if any_monster_intends_attack(state) {
+    if target.is_some_and(|target| monster_intends_attack(state, target)) {
         queue.push_back(InternalAction::GainStrength {
             amount: spot_weakness_strength_amount(definition),
         });
@@ -3782,4 +3765,28 @@ fn spot_weakness_queue(
     });
 
     Ok(queue)
+}
+
+fn monster_intends_attack(state: &CombatState, target: MonsterId) -> bool {
+    state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == target && monster.alive)
+        .is_some_and(|monster| {
+            matches!(
+                monster.intent,
+                MonsterIntent::Attack { .. }
+                    | MonsterIntent::AttackAndBlock { .. }
+                    | MonsterIntent::AttackApplyPlayerWeak { .. }
+                    | MonsterIntent::AttackApplyPlayerFrail { .. }
+                    | MonsterIntent::AttackApplyPlayerVulnerable { .. }
+                    | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
+                    | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+                    | MonsterIntent::AttackHealSelf { .. }
+                    | MonsterIntent::AttackAddWoundsToDiscard { .. }
+                    | MonsterIntent::AttackAddSlimedToDiscard { .. }
+                    | MonsterIntent::AttackMultiple { .. }
+                    | MonsterIntent::AttackStealGold { .. }
+            )
+        })
 }
