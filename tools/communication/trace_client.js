@@ -550,6 +550,13 @@ async function handleControlMessage(payload) {
           accepted_state_seq: acceptedStateSeq,
         });
       }
+      if (
+        commandInFlight
+        && commandInFlight.command_id === commandId
+        && queuedCommands.length === 0
+      ) {
+        commandInFlight = null;
+      }
     }
     return response;
   }

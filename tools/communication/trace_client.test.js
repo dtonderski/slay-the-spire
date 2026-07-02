@@ -736,6 +736,87 @@ async function testTcpControlRejectsSecondCommandUntilStateUpdate() {
   }
 }
 
+async function testTcpControlClearsInFlightAfterUnchangedCommandTimeout() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "corpus");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_CORPUS_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_ALLOW_FILE_COMMANDS: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["cancel", "state"],
+      game_state: {
+        screen_type: "GRID",
+        floor: 14,
+      },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "test-controller",
+    });
+
+    const cancel = controlRequest(status.control.port, {
+      type: "command",
+      command: "CANCEL",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+      wait_for_state_update: true,
+      update_timeout_ms: 50,
+    });
+    await waitFor(() => stdout.includes("CANCEL\n"));
+    const cancelResult = await cancel;
+    assert.strictEqual(cancelResult.ok, true);
+    assert.strictEqual(cancelResult.observed_update.ok, false);
+    assert.strictEqual(cancelResult.observed_update.application_status, "timeout");
+
+    const second = await controlRequest(status.control.port, {
+      type: "command",
+      command: "STATE",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(second.ok, true, second.error);
+
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
   .then(testCommandMetadataIsPreservedInTraceActions)
   .then(testAutoStatePollsAreMarkedAsPassive)
@@ -744,6 +825,7 @@ Promise.resolve()
   .then(testTcpControlDisablesLegacyFileCommandsByDefault)
   .then(testTcpControlRecordsObservedUpdateTimeout)
   .then(testTcpControlRejectsSecondCommandUntilStateUpdate)
+  .then(testTcpControlClearsInFlightAfterUnchangedCommandTimeout)
   .then(() => {
     console.log("trace_client tests passed");
   })
