@@ -7390,24 +7390,40 @@ pub fn target_jaw_worm_next_intent_from_previous_roll(
 }
 
 #[must_use]
-pub fn target_jaw_worm_next_intent_from_roll(move_history: &[u8], roll: i32) -> MonsterIntent {
+pub fn target_jaw_worm_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    rng: &mut StsRng,
+) -> MonsterIntent {
     if move_history.is_empty() {
         return jaw_worm_chomp_intent();
     }
     if roll < 25 {
         if last_move(move_history, 1) {
-            return jaw_worm_thrash_intent();
+            return if rng.random_float() < 0.5625 {
+                jaw_worm_bellow_intent()
+            } else {
+                jaw_worm_thrash_intent()
+            };
         }
         return jaw_worm_chomp_intent();
     }
     if roll < 55 {
-        if last_move(move_history, 3) {
-            return jaw_worm_bellow_intent();
+        if last_two_moves(move_history, 3) {
+            return if rng.random_float() < 0.357 {
+                jaw_worm_chomp_intent()
+            } else {
+                jaw_worm_bellow_intent()
+            };
         }
         return jaw_worm_thrash_intent();
     }
     if last_move(move_history, 2) {
-        return jaw_worm_chomp_intent();
+        return if rng.random_float() < 0.416 {
+            jaw_worm_chomp_intent()
+        } else {
+            jaw_worm_thrash_intent()
+        };
     }
     jaw_worm_bellow_intent()
 }

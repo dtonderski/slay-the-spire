@@ -254,7 +254,8 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
                 combat.ascension,
             );
         } else if monster.content_id == JAW_WORM_ID {
-            monster.intent = target_jaw_worm_next_intent_from_roll(&monster.move_history, roll);
+            monster.intent =
+                target_jaw_worm_next_intent_from_roll(&monster.move_history, roll, rng);
         } else if monster.content_id == RED_LOUSE_ID {
             monster.intent = target_louse_entry_intent_from_roll(
                 roll,

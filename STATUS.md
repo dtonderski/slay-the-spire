@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- Latest simulator test-policy cleanup slice: agent rules now make
+  CommunicationMod trace replay the preferred regression surface for real-game
+  simulator fidelity bugs. Narrow unit tests are reserved for infrastructure,
+  serialization/determinism, parsers/mappers, or tiny source-backed rules that
+  traces cannot isolate cleanly. The Jaw Worm secondary-`aiRng` fix is covered
+  by active strict replay advancement rather than an added mechanic unit test:
+  `trace-2026-07-02T09-19-40-178Z.jsonl` now clears the floor-5 Jaw Worm
+  intent blocker and reaches the later step-107 hand/draw-pile mismatch.
 - Latest live trace display/replay slice: the UI replay summary no longer says
   `Verified` while a pending simulator/live prediction mismatch is active; it
   now surfaces `Prediction mismatch` until acknowledged/re-attached. The newest

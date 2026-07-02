@@ -33,11 +33,21 @@ These rules are for Codex or any other coding agent working on this project.
 
 ## Testing Rules
 
-- Unit-test local rules.
-- Golden-test complete transitions.
+- For simulator fidelity bugs found through real play, prefer adding or
+  extending CommunicationMod trace replay coverage over adding narrow unit
+  tests. The trace is the primary regression.
+- Keep unit tests small and rare for simulator mechanics. Use them when they
+  protect infrastructure/parsers, serialization, deterministic invariants, or a
+  tiny source-backed rule that a trace cannot isolate cleanly.
+- Do not add broad gameplay unit tests that merely encode the agent's current
+  interpretation of Slay the Spire. Source-backed code plus trace replay is
+  preferred.
+- Golden-test complete transitions when a compact transition fixture is clearer
+  than a full trace.
 - Add regression tests for every bug fix.
 - Add serialization round-trip tests when state shape changes.
-- Add replay tests when transition behavior changes.
+- Add replay tests when transition behavior changes; for real-game parity work,
+  this should usually mean a persistent trace or manifest entry.
 - Add property tests for invariants when the affected state can be randomly generated.
 
 ## Verification Rules

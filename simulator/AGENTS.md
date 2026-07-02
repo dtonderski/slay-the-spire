@@ -31,3 +31,14 @@ Verifier diagnostics may report observed identities and inferred counters, but
 they must not use those observations to alter authoritative replay behavior for
 that seed.
 
+## Trace-First Fidelity Testing
+
+For simulator fidelity bugs found through live play or CommunicationMod replay,
+prefer persistent trace replay coverage over new narrow unit tests. The trace is
+the primary evidence that the simulator still matches the real game.
+
+Use unit tests sparingly for simulator mechanics. They are appropriate for
+infrastructure, parsers/mappers, serialization, deterministic invariants, or a
+small source-backed rule that a trace cannot isolate cleanly. Avoid broad
+gameplay unit tests that simply encode an agent's current interpretation of the
+game; they can make the wrong model look authoritative.

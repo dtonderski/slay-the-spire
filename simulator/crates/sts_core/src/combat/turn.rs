@@ -811,8 +811,8 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                     hits: 6,
                 }
             } else if monster.content_id == JAW_WORM_ID {
-                if let Some(roll) = roll {
-                    target_jaw_worm_next_intent_from_roll(&monster.move_history, roll)
+                if let (Some(roll), Some(rng)) = (roll, state.monster_rng.as_mut()) {
+                    target_jaw_worm_next_intent_from_roll(&monster.move_history, roll, rng)
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
