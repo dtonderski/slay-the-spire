@@ -3533,6 +3533,7 @@ fn seed_start_neow_option_is_supported_boss_swap(option: GeneratedNeowOption) ->
     option.drawback == NeowDrawback::None && option.reward == NeowRewardType::BossRelic
 }
 
+#[cfg(test)]
 fn seed_start_apply_neow_curse_simple_option(
     numeric_seed: i64,
     deck_ids: &[String],
