@@ -16,7 +16,14 @@ pub(crate) fn resolve_end_of_turn_doubt(state: &mut CombatState) {
 }
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
-    discard_non_retain_hand(state);
+    // CommunicationMod exposes hand order as the bridge can address it. For a
+    // stable discard pile, target top-of-hand discard is visible as the reverse
+    // order; if the next draw will shuffle discard immediately, the bridge
+    // order is the order that source replay evidence needs entering shuffle.
+    discard_non_retain_hand(
+        state,
+        state.piles.draw_pile.len() >= crate::combat::turn::target_hand_size(state),
+    );
 }
 
 fn apply_burn_damage_in_hand(state: &mut CombatState) {
@@ -118,7 +125,7 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
     }
 }
 
-fn discard_non_retain_hand(state: &mut CombatState) {
+fn discard_non_retain_hand(state: &mut CombatState, stable_discard_order_visible: bool) {
     if state.relics.contains(&crate::Relic::RunicPyramid) {
         return;
     }
@@ -135,6 +142,9 @@ fn discard_non_retain_hand(state: &mut CombatState) {
         }
     }
 
+    if stable_discard_order_visible {
+        discarded.reverse();
+    }
     state.piles.hand = retained;
     state.piles.discard_pile.extend(discarded);
 }

@@ -816,7 +816,7 @@ fn draw_next_hand_without_rng(
     }
 }
 
-fn target_hand_size(state: &CombatState) -> usize {
+pub(crate) fn target_hand_size(state: &CombatState) -> usize {
     HAND_SIZE
         + if state.relics.contains(&crate::Relic::SneckoEye) {
             crate::relic::SNECKO_EYE_DRAW

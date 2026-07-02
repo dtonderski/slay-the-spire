@@ -3,6 +3,15 @@
 ## What Exists
 
 ### Tooling
+- Latest live trace replay follow-up: the extended
+  `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays to exhaustion
+  (`verified=True`, `steps=12`, `final_phase=combat`). Generic fix: end-turn
+  hand discard now treats CommunicationMod hand order as a bridge-facing order;
+  stable visible discard piles use source top-of-hand order, while hands that
+  immediately enter a discard reshuffle preserve the bridge order needed for
+  source-shaped shuffle parity. Checks: `cargo fmt`,
+  `cargo check -p sts_core --lib`, `cargo check -p sts_verify --lib`,
+  `uv run maturin develop --release`, and strict replay of the trace.
 - Latest live trace replay slice: `trace-2026-07-02T20-50-14-856Z.jsonl`
   now strict-replays to exhaustion (`verified=True`, `steps=11`,
   `final_phase=combat`). Generic fix: end-turn hand discard now preserves the
