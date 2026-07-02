@@ -65,6 +65,7 @@ use crate::{
 use std::collections::VecDeque;
 
 const DISCOVERY_ACTION_HIDDEN_GENERATIONS: usize = 3;
+const DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS: usize = 1;
 
 pub(super) fn play_card_queue(
     state: &CombatState,
@@ -1434,6 +1435,13 @@ fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) 
             // therefore burn extra invisible choice generations after the visible choices.
             for _ in 0..DISCOVERY_ACTION_HIDDEN_GENERATIONS {
                 let _ = discovery_choices_from_pool(rng, &pool);
+            }
+            // The live CommunicationMod/SuperFastMode verifier environment consistently advances
+            // one more card-random draw while the card reward screen settles before control
+            // returns to the next combat action. Keep this as a named generic DiscoveryAction
+            // timing draw rather than folding it into the full hidden-generation count.
+            for _ in 0..DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS {
+                let _ = rng.random_int((pool.len() - 1) as i32);
             }
         }
         None => content_choices.extend(pool.into_iter().take(3)),

@@ -140,7 +140,11 @@ fn start_player_turn_with_no_rng_discard_limit(
         return;
     }
     if state.monsters.iter().all(|monster| !monster.alive) {
+        let was_already_won = state.phase == CombatPhase::Won;
         state.phase = CombatPhase::Won;
+        if !was_already_won {
+            crate::combat::apply_burning_blood(state);
+        }
         return;
     }
     state.phase = CombatPhase::WaitingForPlayer;
@@ -1916,6 +1920,31 @@ mod tests {
             state.card_random_rng.as_ref().expect("card rng").counter(),
             1
         );
+    }
+
+    #[test]
+    fn start_turn_mayhem_victory_applies_burning_blood() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::BurningBlood];
+        state.player.hp = 30;
+        state.player.powers.mayhem = 1;
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
+        state.monsters[0].hp = 6;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+            CardInstance::new(CardId::new(12), DEFEND_R_ID),
+            CardInstance::new(CardId::new(13), DEFEND_R_ID),
+            CardInstance::new(CardId::new(14), DEFEND_R_ID),
+            CardInstance::new(CardId::new(15), DEFEND_R_ID),
+        ];
+
+        start_player_turn(&mut state);
+
+        assert_eq!(state.phase, CombatPhase::Won);
+        assert_eq!(state.player.hp, 30 + BURNING_BLOOD_HEAL_AMOUNT);
+        assert!(!state.monsters[0].alive);
     }
 
     #[test]

@@ -13,8 +13,10 @@ use crate::{
     combat::{CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose},
     content::cards::{get_card_definition, upgrade_card_instance},
     content::shop_pool::{
-        burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_generations,
-        colorless_discovery_card_choices, discovery_card_choices,
+        burn_colorless_discovery_card_choice_draws,
+        burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
+        burn_discovery_card_choice_generations, colorless_discovery_card_choices,
+        discovery_card_choices,
     },
     ids::{CardId, MonsterId},
     map::RoomKind,
@@ -35,6 +37,7 @@ use crate::{
 };
 
 const DISCOVERY_ACTION_HIDDEN_GENERATIONS: usize = 3;
+const DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS: usize = 1;
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
     match action {
@@ -726,31 +729,59 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     };
                     // Target DiscoveryAction.generate*Choices is called at the top of update(),
                     // before the action checks whether the reward screen is already open. At
-                    // fast duration this burns three extra generations after the visible choices.
+                    // fast duration this burns three extra generations after the visible choices,
+                    // then one live verifier screen-settle draw before the next combat action.
                     match potion {
-                        Potion::Attack => burn_discovery_card_choice_generations(
-                            &mut rng,
-                            CardType::Attack,
-                            3,
-                            DISCOVERY_ACTION_HIDDEN_GENERATIONS,
-                        ),
-                        Potion::Skill => burn_discovery_card_choice_generations(
-                            &mut rng,
-                            CardType::Skill,
-                            3,
-                            DISCOVERY_ACTION_HIDDEN_GENERATIONS,
-                        ),
-                        Potion::Colorless => burn_colorless_discovery_card_choice_generations(
-                            &mut rng,
-                            3,
-                            DISCOVERY_ACTION_HIDDEN_GENERATIONS,
-                        ),
-                        Potion::Power => burn_discovery_card_choice_generations(
-                            &mut rng,
-                            CardType::Power,
-                            3,
-                            DISCOVERY_ACTION_HIDDEN_GENERATIONS,
-                        ),
+                        Potion::Attack => {
+                            burn_discovery_card_choice_generations(
+                                &mut rng,
+                                CardType::Attack,
+                                3,
+                                DISCOVERY_ACTION_HIDDEN_GENERATIONS,
+                            );
+                            burn_discovery_card_choice_draws(
+                                &mut rng,
+                                CardType::Attack,
+                                DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS,
+                            );
+                        }
+                        Potion::Skill => {
+                            burn_discovery_card_choice_generations(
+                                &mut rng,
+                                CardType::Skill,
+                                3,
+                                DISCOVERY_ACTION_HIDDEN_GENERATIONS,
+                            );
+                            burn_discovery_card_choice_draws(
+                                &mut rng,
+                                CardType::Skill,
+                                DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS,
+                            );
+                        }
+                        Potion::Colorless => {
+                            burn_colorless_discovery_card_choice_generations(
+                                &mut rng,
+                                3,
+                                DISCOVERY_ACTION_HIDDEN_GENERATIONS,
+                            );
+                            burn_colorless_discovery_card_choice_draws(
+                                &mut rng,
+                                DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS,
+                            );
+                        }
+                        Potion::Power => {
+                            burn_discovery_card_choice_generations(
+                                &mut rng,
+                                CardType::Power,
+                                3,
+                                DISCOVERY_ACTION_HIDDEN_GENERATIONS,
+                            );
+                            burn_discovery_card_choice_draws(
+                                &mut rng,
+                                CardType::Power,
+                                DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS,
+                            );
+                        }
                         _ => unreachable!("matched discovery potion"),
                     }
                     next.card_random_rng_counter = rng.counter();

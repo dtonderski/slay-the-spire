@@ -12,19 +12,26 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
-- Latest live-trace elite reward/Discovery/Mummified Hand slice: the fresh
-  `trace-2026-07-01T20-30-26-163Z.jsonl` now advances past the floor-6 elite
-  relic mismatch by initializing relic pools before the elite relic-tier roll,
-  and past the compact `feelnopain` observed card-reward diff by canonicalizing
-  observed combat reward card ids in both Rust verifier summaries and Python
-  strict replay summaries. Cleave and related AoE queues now spend effective
-  card cost, and Discovery hidden update burns now use the same duplicate-aware
-  generation loop as the target `DiscoveryAction` bytecode. Current remaining
-  blocker for this trace is floor 10 after Discovery generates Fire Breathing:
-  target Mummified Hand discounts Cleave, while the simulator discounts Strike
-  from the same visible hand. This is intentionally left as an open generic
-  Mummified Hand/`cardRandomRng` ordering blocker rather than patched with a
-  trace-shaped override.
+- Latest live-trace Discovery/Mummified Hand/Burning Blood slice: the fresh
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays to trace
+  exhaustion. The fix keeps Mummified Hand inside the generic combat card-play
+  transition using the combat `cardRandomRng`, shares the source-backed
+  Discovery duplicate-aware hidden-generation burn across card and potion
+  Discovery, and adds the observed live verifier screen-settle draw as a named
+  generic DiscoveryAction timing draw rather than any seed/trace override.
+  Start-of-player-turn victories now also apply Burning Blood, covering the
+  Mayhem-style branch that previously won before the Ironclad heal. Checks:
+  `cargo fmt`, `cargo test -p sts_core discovery --lib`,
+  `cargo test -p sts_core mummified_hand --lib`,
+  `cargo test -p sts_core burning_blood --lib`,
+  `uv run maturin develop --release`, and strict replay of
+  `trace-2026-07-01T20-30-26-163Z.jsonl` with `verified=True`,
+  `stop_reason=trace_exhausted`, `steps=189`, `final_phase=idle`. Current
+  milestone remains A0 strict/live trace parity; next task is the next fresh
+  mismatch or SlayTheData run-level decision replay. Known risk: the extra
+  DiscoveryAction settle draw is modeled generically from live/source timing
+  evidence and should be replaced with a richer frame/action model if later
+  instrumentation identifies a more exact source.
 - Latest live-trace Gremlin Nob Bellow strength slice: Gremlin Nob's Bellow
   intent now applies Anger without immediate Strength, matching the target
   `AngerPower` source behavior; subsequent player Skill plays convert that

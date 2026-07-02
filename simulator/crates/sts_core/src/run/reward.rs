@@ -2,8 +2,7 @@ use crate::{
     card::{CardInstance, CardRarity},
     combat::{apply_combat_action_with_events, CombatPhase},
     content::cards::{
-        get_card_definition, upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID,
-        SHRUG_IT_OFF_ID,
+        upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID, SHRUG_IT_OFF_ID,
     },
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
@@ -1372,14 +1371,16 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         .as_ref()
         .ok_or(SimError::InvalidState("combat state is missing"))?;
 
-    let transition = apply_combat_action_with_events(combat, action)?;
+    let mut combat_for_action = combat.clone();
+    combat_for_action.relics = run.relics.clone();
+
+    let transition = apply_combat_action_with_events(&combat_for_action, action)?;
     let mut next_combat = transition.state;
     let mut next = run.clone();
-    apply_looter_theft_to_run_gold(&mut next, combat, &mut next_combat);
+    apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     if let Some(rng) = next_combat.card_random_rng.as_ref() {
         next.store_rng_counter(RunRngStream::CardRandom, rng);
     }
-    apply_mummified_hand_for_power_play(&mut next, &mut next_combat, combat, &transition.event_log);
     let dead_branch_placement = if matches!(action, CombatAction::EndTurn) {
         DeadBranchPlacement::FrontOfHand
     } else {
@@ -1437,62 +1438,6 @@ fn apply_looter_theft_to_run_gold(
         run.gold -= actual;
         monster.stolen_gold = before_stolen + actual;
     }
-}
-
-fn apply_mummified_hand_for_power_play(
-    run: &mut RunState,
-    combat: &mut crate::combat::CombatState,
-    before: &crate::combat::CombatState,
-    event_log: &[crate::InternalAction],
-) {
-    if !run.relics.contains(&Relic::MummifiedHand) {
-        return;
-    }
-
-    let power_plays = event_log.iter().filter(|action| {
-        let crate::InternalAction::PlayCard { card_id } = action else {
-            return false;
-        };
-        before
-            .piles
-            .hand
-            .iter()
-            .chain(before.piles.draw_pile.iter())
-            .chain(before.piles.discard_pile.iter())
-            .chain(before.piles.exhaust_pile.iter())
-            .find(|card| card.id == *card_id)
-            .and_then(|card| get_card_definition(card.content_id))
-            .is_some_and(|definition| definition.card_type == crate::CardType::Power)
-    });
-
-    for _ in power_plays {
-        apply_mummified_hand_once(run, combat);
-    }
-}
-
-fn apply_mummified_hand_once(run: &mut RunState, combat: &mut crate::combat::CombatState) {
-    let candidates = combat
-        .piles
-        .hand
-        .iter()
-        .enumerate()
-        .filter_map(|(index, card)| {
-            let definition = get_card_definition(card.content_id)?;
-            let cost_for_turn = card.temp_cost.unwrap_or(definition.cost);
-            (definition.cost > 0 && cost_for_turn > 0).then_some(index)
-        })
-        .collect::<Vec<_>>();
-
-    if candidates.is_empty() {
-        return;
-    }
-
-    let mut rng = run.card_random_rng();
-    let pick = rng.random_int_range(0, (candidates.len() - 1) as i32) as usize;
-    let card = &mut combat.piles.hand[candidates[pick]];
-    card.temp_cost = Some(0);
-    card.temp_cost_turn_only = true;
-    run.store_rng_counter(RunRngStream::CardRandom, &rng);
 }
 
 fn apply_dead_branch_for_exhaust_log(

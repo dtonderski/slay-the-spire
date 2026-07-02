@@ -212,6 +212,7 @@ fn apply_internal_action(
             apply_rage_on_card_type(state, definition.card_type);
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
+            apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
             Ok(follow_ups)
         }
@@ -835,6 +836,44 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
     }
+}
+
+fn apply_mummified_hand_on_power_play(
+    state: &mut CombatState,
+    played_card_id: CardId,
+    card_type: CardType,
+) {
+    if card_type != CardType::Power || !state.relics.contains(&Relic::MummifiedHand) {
+        return;
+    }
+
+    let candidates = state
+        .piles
+        .hand
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| {
+            if card.id == played_card_id {
+                return None;
+            }
+            let definition = get_card_definition(card.content_id)?;
+            let cost_for_turn = card.temp_cost.unwrap_or(definition.cost);
+            (definition.cost > 0 && cost_for_turn > 0).then_some(index)
+        })
+        .collect::<Vec<_>>();
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    let pick = state
+        .card_random_rng
+        .as_mut()
+        .map(|rng| rng.random_int_range(0, (candidates.len() - 1) as i32) as usize)
+        .unwrap_or(0);
+    let card = &mut state.piles.hand[candidates[pick]];
+    card.temp_cost = Some(0);
+    card.temp_cost_turn_only = true;
 }
 
 fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Vec<InternalAction> {
@@ -4980,6 +5019,7 @@ mod tests {
                 }
             }
         }
+        let _ = expected_rng.random_int((pool.len() - 1) as i32);
 
         let next =
             apply_combat_action(&state, discovery_action(&state)).expect("Discovery applies");
