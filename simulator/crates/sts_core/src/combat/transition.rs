@@ -10401,15 +10401,16 @@ mod tests {
     }
 
     #[test]
-    fn true_grit_gains_seven_block_and_exhausts_lowest_other_hand_card() {
+    fn true_grit_gains_seven_block_and_exhausts_random_other_hand_card() {
         let mut state = CombatState::initial_fixture();
+        state.card_random_rng = Some(crate::rng::StsRng::new(123));
         state.piles.hand = vec![
             CardInstance::new(CardId::new(25), TRUE_GRIT_ID),
             CardInstance::new(CardId::new(30), STRIKE_R_ID),
             CardInstance::new(CardId::new(20), DEFEND_R_ID),
         ];
 
-        let next = apply_combat_action(
+        let transition = apply_combat_action_with_events(
             &state,
             CombatAction::PlayCard {
                 card_id: CardId::new(25),
@@ -10417,13 +10418,21 @@ mod tests {
             },
         )
         .expect("True Grit applies");
+        let next = transition.state;
 
         assert_eq!(next.player.block, 7);
-        assert!(next
-            .piles
-            .exhaust_pile
-            .iter()
-            .any(|card| card.id == CardId::new(20)));
+        assert_eq!(
+            next.card_random_rng.as_ref().expect("card rng").counter(),
+            1
+        );
+        assert!(transition
+            .event_log
+            .contains(&InternalAction::ExhaustRandomHandCardExcept {
+                excluded_card_id: CardId::new(25),
+            }));
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        let exhausted = next.piles.exhaust_pile.first().map(|card| card.id);
+        assert!(exhausted == Some(CardId::new(20)) || exhausted == Some(CardId::new(30)));
         assert!(next
             .piles
             .discard_pile
@@ -10437,7 +10446,7 @@ mod tests {
     }
 
     #[test]
-    fn strange_spoon_does_not_roll_for_true_grit_target_exhaust() {
+    fn strange_spoon_does_not_prevent_true_grit_target_exhaust() {
         let mut state = CombatState::initial_fixture();
         state.relics = vec![Relic::StrangeSpoon];
         state.card_random_rng = Some(crate::rng::StsRng::new(123));
@@ -10457,7 +10466,7 @@ mod tests {
 
         assert_eq!(
             next.card_random_rng.as_ref().expect("card rng").counter(),
-            0
+            1
         );
         assert!(next
             .piles

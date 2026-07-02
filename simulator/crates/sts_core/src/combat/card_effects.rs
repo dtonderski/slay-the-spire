@@ -3281,10 +3281,6 @@ fn lowest_other_hand_card(state: &CombatState, exclude_id: CardId) -> Option<Car
         .map(|card| card.id)
 }
 
-fn true_grit_exhaust_target(state: &CombatState, true_grit_id: CardId) -> Option<CardId> {
-    lowest_other_hand_card(state, true_grit_id)
-}
-
 fn true_grit_queue(
     state: &CombatState,
     card_id: CardId,
@@ -3300,7 +3296,7 @@ fn true_grit_queue(
         },
     ]);
 
-    if let Some(exhaust_target) = true_grit_exhaust_target(state, card_id) {
+    if state.piles.hand.iter().any(|card| card.id != card_id) {
         if definition.id == TRUE_GRIT_PLUS_ID {
             queue.push_back(InternalAction::AwaitExhaustSelect {
                 source_card_id: card_id,
@@ -3308,10 +3304,8 @@ fn true_grit_queue(
             });
             return Ok(queue);
         } else {
-            queue.push_back(InternalAction::MoveCard {
-                card_id: exhaust_target,
-                from: CardPile::Hand,
-                to: CardPile::ExhaustPile,
+            queue.push_back(InternalAction::ExhaustRandomHandCardExcept {
+                excluded_card_id: card_id,
             });
         }
     }
