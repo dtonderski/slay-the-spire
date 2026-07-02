@@ -113,6 +113,19 @@ pub fn target_city_act_two_boss(seed: i64) -> String {
 }
 
 #[must_use]
+pub fn target_beyond_act_three_boss(seed: i64) -> String {
+    let mut rng = StsRng::new(seed);
+    advance_exordium_content_generation_rng(&mut rng);
+    let _ = generate_city_encounter_lists_with_rng(&mut rng);
+    let mut normal_encounters = generate_beyond_weak_encounters_with_rng(&mut rng, 2);
+    append_beyond_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
+    let _elite_encounters = generate_beyond_elite_encounters_with_rng(&mut rng, 10);
+    let mut bosses = ["Awakened One", "Time Eater", "Donu and Deca"];
+    JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
+    bosses[0].to_owned()
+}
+
+#[must_use]
 pub fn generate_city_weak_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
     generate_city_weak_encounters_with_rng(&mut rng, 2)

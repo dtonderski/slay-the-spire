@@ -3025,3 +3025,33 @@ fn upgrade_combat_cards(state: &mut CombatState) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::monsters::{monster_state, FUNGI_BEAST_A0, JAW_WORM_A0};
+
+    #[test]
+    fn spore_cloud_releases_only_when_battle_is_not_ending() {
+        let fungi_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, fungi_id),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].alive = false;
+
+        apply_monster_death_hooks(&mut state, fungi_id);
+
+        assert_eq!(state.player.powers.vulnerable, 2);
+
+        let last_fungi_id = MonsterId::new(3);
+        let mut ending_state = CombatState::initial_fixture();
+        ending_state.monsters = vec![monster_state(&FUNGI_BEAST_A0, last_fungi_id)];
+        ending_state.monsters[0].alive = false;
+
+        apply_monster_death_hooks(&mut ending_state, last_fungi_id);
+
+        assert_eq!(ending_state.player.powers.vulnerable, 0);
+    }
+}

@@ -320,6 +320,9 @@ pub enum MonsterIntent {
     ApplyPlayerEntangled {
         amount: i32,
     },
+    ApplyPlayerConstricted {
+        amount: i32,
+    },
     HealAllMonsters {
         amount: i32,
     },

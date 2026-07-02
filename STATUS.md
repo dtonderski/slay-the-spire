@@ -74,6 +74,269 @@
   the accepted single-target case and the multi-target rejection case.
 
 ### Combat
+- Latest Reptomancer RNG slice: Reptomancer now uses a source-shaped
+  post-opening move helper instead of the representative modulo cycle. Empty
+  history fixes Spawn Dagger; later low rolls recurse with
+  `aiRng.random(33, 99)` when Snake Strike is blocked, mid rolls respect
+  `canSpawn` and last-two Spawn history, and high rolls recurse with
+  `aiRng.random(65)` when Big Bite is blocked. Combat entry and turn prep route
+  through that helper, and focused coverage pins first move, can-spawn fallback,
+  and both replacement counters. Remaining Reptomancer work is summon
+  slot/action ordering, death cleanup, and Snake Strike's attack+Weak execution
+  surface.
+- Latest Darkling RNG slice: half-dead Darklings now keep the local
+  non-targetable marker while following the source Count/Reincarnate turn
+  shape. Count records source move byte `4`, consumes one normal ignored AI
+  roll, and prepares Reincarnate byte `5`; Reincarnate revives to half max HP,
+  clears the half-dead marker, and consumes the next normal roll for the
+  following move. Focused coverage pins both transitions and AI counters.
+  Remaining Darkling work is exact all-Darklings-dead room resolution, Regrow
+  power visibility, and broader multi-Darkling trace validation.
+- Latest Gremlin Leader RNG slice: recursive move replacements now consume the
+  source AI ranges instead of representative fixed rolls. With one living
+  gremlin, a blocked low-branch Rally consumes `aiRng.random(50, 99)`, and a
+  blocked high-branch Stab consumes `aiRng.random(0, 80)`. Combat entry and
+  turn prep pass the live AI stream into those replacements, and focused
+  coverage pins both counters. Remaining Gremlin Leader work is summon
+  identity/slot/action ordering, Encourage quote draw placement, and minion
+  death/escape trace validation.
+- Latest Byrd RNG slice: grounded Byrd turn prep now consumes the normal
+  `RollMoveAction` AI integer, ignores it, and fixes Headbutt. Headbutt now
+  directly sets Go Airborne without another AI roll; Go Airborne records source
+  move byte `2` and reapplies Flight instead of adding Strength. Focused
+  coverage pins the grounded prep and direct Headbutt transition. Remaining
+  Byrd work is trace-backed multi-Byrd and damage-triggered Stun/Flight
+  validation.
+- Latest Spike Slime M/L RNG slice: collapsed medium/large Spike Slime
+  handling now uses source Frail amounts and max-HP identity for large
+  attack/count/Frail adaptation. Large Spike Slime split children now use
+  current split HP as max HP, matching the target child constructor. Focused
+  coverage pins sub-A17 versus A17 history guards and split-child max HP.
+- Latest large Acid Slime RNG slice: the large Acid Slime helper now uses
+  source move history instead of only previous intent, preserving the
+  decompiled last-two Wound/Normal Tackle guards and their replacement
+  `aiRng` boolean draws. Entry, turn-prep, and split follow-up call sites pass
+  history. Remaining large-slime work is exact split child action ordering and
+  trace-backed validation.
+- Latest louse RNG slice: mixed `Exordium Thugs` and `Exordium Wildlife`
+  helpers now attach rolled Curl Up when the weak slot selects a louse, with the
+  `monsterHpRng` draw delayed until after the source candidate
+  constructor/private HP draws. Focused coverage pins the hidden Curl Up amount
+  for both mixed helpers. Remaining louse work is trace-backed action-order and
+  state-import validation.
+- Latest Jaw Worm RNG slice: focused coverage now proves the source helper's
+  replacement draw counts. Unguarded threshold branches consume no extra AI
+  draw, while the last-Chomp, last-two-Thrash, and last-Bellow guarded branches
+  each consume exactly one replacement `aiRng.randomBoolean()` with the
+  decompiled probabilities. Remaining Jaw Worm work is horde setup and broader
+  trace-backed action ordering.
+- Latest small Acid Slime RNG slice: combat entry now matches the decompiled
+  ascension split. Small Acid Slime still consumes the normal ignored
+  `RollMoveAction` integer on entry; below A17 it also consumes the source
+  `aiRng.randomBoolean()` for Tackle versus Weak, while A17+ opens Weak without
+  that extra boolean. Focused coverage pins the A16 two-draw and A17 one-draw
+  counter difference.
+- Latest Fungi Beast RNG slice: corrected the audit's stale A17 Artifact note;
+  decompiled Fungi Beast applies Spore Cloud 2 pre-battle, not Artifact. Focused
+  coverage now pins the `num < 60` Bite/Grow table, A17 Grow +1, Spore Cloud
+  setup without Artifact, and Spore Cloud release only when combat is not
+  ending. Remaining work is trace-backed action-order and broader HP/routing
+  validation.
+- Latest Centurion/Mystic RNG slice: Centurion Protect now mirrors target
+  `GainBlockRandomMonsterAction` stream shape by consuming combat AI RNG to
+  choose a valid non-source ally before the normal post-turn `RollMoveAction`
+  roll. Focused coverage also pins Centurion Protect/Fury/Slash history and
+  Mystic's missing-HP heal threshold, A17 history changes, attack+Frail, and
+  Strength-all fallback. Remaining work is trace-backed pair action-order,
+  heal-cap, death, and escape validation.
+- Latest Snake Plant RNG slice: Snake Plant's decompiled one-roll table and
+  effect surface now have focused coverage. `num < 65` selects Chompy Chomps
+  unless the last two moves were attacks; high rolls select Spores unless
+  history blocks Spores, with A17+ checking the last or previous move. Local
+  setup starts Malleable at 3, and Spores applies Frail 2 plus Weak 2. Remaining
+  work is trace-backed action-order validation.
+- Latest Chosen RNG slice: Chosen's decompiled move table now has focused
+  helper coverage. A17+ opens with Hex after the normal ignored
+  `RollMoveAction` integer; below A17 opens with two-hit Poke, then Hex once;
+  later turns use the source Debilitate/Drain threshold, Debilitate/Drain
+  history guard, and Zap/Poke fallback. Remaining work is trace-backed
+  action-order validation.
+- Latest Snecko RNG slice: Snecko's decompiled move table now has focused
+  helper coverage. The fixed opening Glare/Confusion consumes the normal
+  ignored `RollMoveAction` integer, later turns use `num < 40` for Tail
+  attack+debuff, high rolls Bite unless the last two moves were Bite, and A17
+  adds Weak to Tail; remaining work is trace-backed action-order/card-cost
+  validation.
+- Latest small Spike Slime RNG slice: small Spike Slime now has source-backed
+  fixed-attack coverage. Combat entry consumes the normal ignored
+  `RollMoveAction` AI integer, the roll value is ignored, and the HP-collapsed
+  local small branch always opens with Attack; remaining work is trace-backed
+  action-order, poison, and split-routed small slime validation.
+- Latest Red Slaver RNG slice: Red Slaver's opening `firstTurn` guard now
+  matches the decompiled class. Combat entry consumes the normal ignored
+  `RollMoveAction` AI integer, but empty move history always opens with Stab
+  even on high rolls that can select Entangle later; later turns retain the
+  source Entangle/Scrape/Stab roll table.
+- Latest Gremlin Nob RNG slice: Gremlin Nob's A18+ move helper now follows
+  the decompiled history-only branch after the normal ignored
+  `RollMoveAction` AI roll. A18+ ignores the roll value, prefers Skull Bash
+  unless Skull Bash appears in the prior two move slots, uses Rush unless the
+  last two moves were Rush, and then forces Skull Bash; sub-A18 keeps the
+  source `num < 33` Skull Bash branch.
+- Latest Lagavulin RNG slice: sleeping Lagavulin now follows the decompiled
+  direct-transition timing. Initial sleep and the first two idle sleep turns
+  consume ignored `RollMoveAction` AI integers, the third natural wake
+  direct-sets the attack without an extra AI roll, damage-wake Stun still
+  consumes one ignored roll before attack, and source move bytes `5/4/3/1`
+  are recorded.
+- Latest Sentry RNG slice: Sentry now mirrors the decompiled fixed move
+  surface while preserving roll timing. Combat entry and turn prep consume one
+  ignored `RollMoveAction` AI integer, the first move uses group index
+  parity (even Bolt/Dazed, odd Beam/attack), and later moves alternate from
+  source move bytes `3` and `4`.
+- Latest Gremlin Tsundere RNG slice: Shield Gremlin Protect now follows the
+  decompiled `GainBlockRandomMonsterAction` stream shape. The block target is
+  chosen from non-source, non-escaping, non-dying monsters with combat
+  `aiRng`, including the one-candidate case; when no valid target exists it
+  blocks itself. After Protect, Tsundere direct-sets the next Protect/Bash
+  move without an extra post-turn `RollMoveAction` integer.
+- Latest Shelled Parasite RNG slice: Shelled Parasite's first move now follows
+  the source stream shape: below A17 it consumes the normal ignored
+  `RollMoveAction` integer plus a source `aiRng.randomBoolean()` for Double
+  Strike versus Life Suck, while A17+ fixes Fell after only the normal roll.
+- Latest Book of Stabbing RNG/state slice: Book of Stabbing now stores the
+  source hidden `stabCount`, initializes it to 1, mutates it during combat
+  entry and turn-prep intent selection, and preserves the A18 rule where Big
+  Stab also increments the hidden count. Book move history now records source
+  bytes `1` for multi-stab and `2` for Big Stab.
+- Latest Bronze Automaton RNG/cycle slice: Bronze Automaton now has a
+  source-shaped history-aware boss cycle with source move bytes `4/1/5/2/3`,
+  A9 Boost block 12, A4 Boost strength 4, and the A19 post-Hyper-Beam Boost
+  branch instead of Stun. Turn prep consumes the normal ignored
+  `RollMoveAction` AI integer while routing through that helper.
+- Latest Spiker RNG/execution slice: Spiker now initializes source Thorns,
+  including the A17 +3 bonus, tracks the hidden thorns-buff count separately
+  from total Thorns, buffs by exactly 2 per buff move, and forces attacks after
+  more than five thorns buffs.
+- Latest Exploder RNG/execution slice: Exploder now carries its source
+  Explosive(3) monster power in combat state, and its third-turn Unknown move
+  deals 3 damage, clears the power, kills the monster, clears block, and skips
+  follow-up intent preparation/post-death AI rolls.
+- Latest Dagger RNG/execution slice: Snake Dagger/Dagger Explode now attacks
+  for 25, loses all current HP, clears block, dies, and skips follow-up intent
+  preparation so it does not consume an extra post-death AI roll.
+- Latest Nemesis RNG slice: Nemesis now uses a decompiled-source helper for
+  first move, Scythe/Burn/Tri-Attack thresholds, replacement
+  `aiRng.randomBoolean()` draws, source move bytes `2/3/4`, fixed A8 HP, A18
+  Burn count, and post-turn monster Intangible damage capping. Exact
+  Intangible decrement/action timing still needs trace validation.
+- Latest Giant Head RNG slice: Giant Head now uses the decompiled one-roll
+  countdown table with A18 shortened setup, Glare/Count history guards, It Is
+  Time damage ramp/cap, source move bytes `1/2/3`, fixed A8 HP, and a Slow
+  setup marker. Slow's per-card damage amplification remains a later combat
+  damage hook.
+- Latest Spire Growth RNG slice: Spire Growth now uses the decompiled one-roll
+  move table with A17 Constrict opener, Quick Tackle/Smash history guards,
+  source move bytes `1/2/3`, fixed A7 HP, and a local Constricted player power
+  that applies end-of-player-turn HP loss.
+- Latest Maw RNG slice: The Maw now uses the decompiled one-roll move table:
+  fixed opening Roar with A17 Weak/Frail scaling, Nom no-repeat plus
+  turn-count hit scaling, Drool Strength scaling, Slam damage scaling, and
+  source move bytes `2/3/4/5`.
+- Latest Spheric Guardian RNG slice: Spheric Guardian setup and turn prep now
+  mirror the decompiled class shape: Barricade, Artifact 3, 40 starting block,
+  fixed activate/frail openers, normal ignored `RollMoveAction` AI draw after
+  turns, and source move bytes `2/4/1/3` for the big/harden alternation.
+- Latest Gremlin Wizard RNG slice: Gremlin Wizard post-turn prep now follows
+  the decompiled direct `setMove` cycle without consuming `aiRng`: charge,
+  charge, blast, then repeat below A17; at A17+ the Wizard keeps blasting after
+  the first blast. Focused coverage pins the A0/A17 cycle, source move bytes,
+  and zero post-turn monster RNG counter movement. Remaining work is exact
+  escape/death-react behavior and trace validation.
+- Latest Exploder RNG slice: Exploder now has a source-shaped ignored-roll
+  countdown helper. Combat entry and turn prep consume the normal
+  `RollMoveAction` AI integer but ignore its value, producing two attacks then
+  the source Unknown/no-op move byte `2` instead of the old representative
+  parity alternation. Focused coverage pins A2 damage, the two-attack countdown,
+  move byte, and combat-entry helper routing. Remaining work is executable
+  Explosive power/death timing and trace validation.
+- Latest Repulsor RNG slice: Repulsor now has a source-style one-roll
+  `getMove(int num)` helper: Attack only on `num < 20` when the previous move
+  was not Attack, otherwise add two Dazed to the draw pile. Combat entry and
+  turn prep route Repulsor through that helper instead of the representative
+  alternating fallback, and focused coverage pins the threshold, no-repeat
+  guard, move byte, and entry helper routing. Remaining work is trace-backed
+  validation of random draw-pile insertion ordering in multi-shape fights.
+- Latest Looter/Mugger RNG slice: Looter and Mugger post-attack move prep now
+  follows the decompiled direct `SetMoveAction` path instead of a normal
+  `RollMoveAction` roll table. Looter consumes the source 0.6 speech boolean
+  after first Mug and 0.5 Smoke/Lunge boolean after second Mug. Mugger consumes
+  source attack voice `aiRng.random(2)` draws plus the second-Mug 0.6 speech and
+  0.5 Smoke/Big Swipe booleans. Focused tests cover the no-`random(99)` stream
+  shape for first and second Mug transitions; remaining work is stolen-gold,
+  escape/reward, Mugger death-voice RNG, and trace validation.
+- Latest Donu/Deca RNG slice: Beyond Act 3 boss selection now follows the
+  source boss-list shuffle and can construct the Donu/Deca pair instead of a
+  generic fixture. The pair helper builds Deca then Donu with source fixed
+  250/265 HP, A19 Artifact 3, Deca opening Beam after one ignored `aiRng` roll,
+  Donu opening Circle/strength after one ignored `aiRng` roll, and source move
+  bytes `0`/`2`. Focused coverage pins A19 pair state, opening intents, move
+  bytes, Donu's second Beam intent, and Deca Square execution as all-living
+  block plus A19 Plated Armor. Remaining work is exact Dazed insertion,
+  strength action ordering, and trace coverage.
+- Latest Transient RNG slice: Transient combat entry is source-locked with no
+  opening AI roll, A4+ opening damage now starts at 40, and post-turn intent
+  prep directly sets the escalating attack without consuming `aiRng`, matching
+  the decompiled class's lack of `RollMoveAction`. Focused tests cover A4 spawn
+  damage and zero post-turn AI counter movement.
+- Latest Torch Head RNG slice: Collector-spawned Torch Heads now consume the
+  source HP stream shape, with constructor HP always rolled from `38..40` and
+  source `setHp` rolling `38..40` or A9+ `40..45`. Focused coverage pins two
+  spawned Torch Heads at A9 with four HP draws, two ignored spawn-init `aiRng`
+  rolls, fixed attack intents, and move-history byte `1`.
+- Latest Taskmaster RNG slice: Taskmaster City member spawn now has focused
+  coverage for the source constructor HP roll plus `setHp` roll, and combat
+  entry routes Taskmaster through a fixed Scouring Whip intent that consumes
+  one normal opening `aiRng` roll while ignoring its value. Taskmaster move
+  history now records source byte `2`; wound count and A18 Strength remain
+  handled in the execution path.
+- Latest Reptomancer/Dagger RNG slice: target Reptomancer encounter import now
+  builds the source `Dagger`, `Reptomancer`, `Dagger` group and consumes HP in
+  target constructor order: Dagger HP, Reptomancer constructor HP,
+  Reptomancer `setHp`, Dagger HP. Reptomancer's fixed first Spawn Dagger move
+  now consumes the normal opening `aiRng` roll, Reptomancer Spawn Dagger uses a
+  Reptomancer-specific Dagger spawn path instead of Gremlin Leader summons, and
+  spawned Daggers consume source HP/opening AI rolls with fixed Wound first
+  moves recorded. Focused tests cover group HP order and A18 two-Dagger spawn
+  roll counters/slots. Remaining work includes Reptomancer's recursive later
+  move table, exact `canSpawn` edge cases, and Dagger explode/death behavior.
+- Latest Bronze Automaton orb RNG slice: Bronze Automaton-spawned Bronze Orbs
+  now consume the live `monsterHpRng` constructor roll plus source `setHp` roll
+  per orb, consume one opening combat `aiRng` roll per orb, and route that roll
+  through the Bronze Orb source-style helper. Focused coverage pins A9 HP
+  double-roll consumption, opening AI roll counters, insertion order, minion
+  state, and move-history recording. Remaining monster RNG audit work still
+  includes Bronze Orb Stasis selection proof, recursive reroll monsters, and
+  broader constructor/private HP draws.
+- Latest monster RNG helper-routing slice: combat-entry and turn-prep AI now
+  use source-style helpers for Red Slaver, Snecko, Book of Stabbing, Bronze
+  Orb, and Orb Walker. Book of Stabbing and Orb Walker gained compact
+  decompiled-`getMove` helpers, and focused tests pin that this batch consumes
+  exactly one combat `aiRng` roll at entry and routes through those helpers.
+  Remaining monster RNG audit work is still broad: exact Book private
+  `stabCount` persistence, Bronze Automaton/orb spawn details, Bronze Orb
+  Stasis selection proof, recursive reroll monsters, constructor/private
+  `monsterHpRng` draws, and `MonsterHelper` composition parity.
+- Latest monster RNG audit slice: combat entry now documents local
+  `CombatState.monster_rng` as target combat `aiRng`, stops pre-advancing
+  `monsterHpRng` by monster count after source-backed spawn helpers have
+  already consumed HP/private constructor rolls, and avoids an extra initial
+  AI draw for source-locked spawn intents. Focused regression coverage pins
+  locked-intent zero-draw behavior and ordinary unlocked one-roll behavior.
+  Current milestone remains A0 strict/live trace parity; next monster-RNG work
+  is translating the remaining source-backed first-move/recursive-reroll and
+  `MonsterHelper` composition gaps from
+  `simulator/docs/audit/monster_rng_decompiled_audit.md`.
 - Latest live-trace Life Suck slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=240`,
@@ -377,7 +640,7 @@
 - Latest M36 City monster HP inventory slice: City-native monster HP ranges are now source-backed from decompiled constructors for Byrd, Chosen, Shelled Parasite, Spheric Guardian, Mugger, Snake Plant, Snecko, Centurion, Healer, Book of Stabbing, Gremlin Leader, and Taskmaster, including the target A7/A8 threshold split. The new `target_city_monster_hp_range` helper is inventory only and is not yet wired into executable City combat spawning.
 - Latest M36 City monster profile inventory slice: City-native damage/status/block constants are now decoded into `target_city_monster_profile` for the same City monster set. This covers source-backed A2 damage upgrades, A3/A18 elite constants, A17 support thresholds, starting block/armor/artifact/flight constants, and named multi-hit counts, but it remains data inventory only: no City AI move-selection or executable Act 2 combat groups are claimed.
 - Latest M36 Spheric Guardian executable slice: `SphericGuardian` is now a registered core monster with source-backed 20 HP, pre-battle Artifact 3, starting block 40, Barricade-like monster block persistence across player end-turn block clearing, deterministic opening Harden block with source-backed A17 block, Frail attack, double attack, and attack+block loop with source-backed A2 damage variants. This is still only an executable City monster foothold: City encounter spawning and Act 2 trace parity are not claimed.
-- Latest M36 Mugger executable slice: `Mugger` is now a registered core monster with source-backed A0 midpoint HP, two opening theft attacks, representative Big Swipe theft attack, deterministic representative smoke-bomb setup block, escape intent execution, source-backed A2 damage and A17 theft/block variants, and escaped-monster stolen-gold filtering so escaped stolen gold is not offered as recovered reward gold. This reuses the existing stolen-gold reward surface for killed thieves. This remains partial: exact random post-second-swipe Big Swipe vs smoke-bomb branch, exact room `mugged` flag semantics, City encounter execution, and Act 2 trace parity are not claimed.
+- Latest M36 Mugger executable slice: `Mugger` is now a registered core monster with source-backed A0 midpoint HP, two opening theft attacks, source-shaped post-second-swipe Big Swipe versus Smoke Bomb branching, deterministic smoke-bomb setup block, escape intent execution, source-backed A2 damage and A17 theft/block variants, and escaped-monster stolen-gold filtering so escaped stolen gold is not offered as recovered reward gold. This reuses the existing stolen-gold reward surface for killed thieves. This remains partial: exact room `mugged` flag semantics, Mugger death-voice `aiRng`, City encounter execution, and Act 2 trace parity are not claimed.
 - Latest M36 Chosen executable slice: `Chosen` is now a registered core monster with source-backed A0 midpoint HP, opening double Poke, second-turn Hex intent, stored player Hex debuff state, Hex's non-Attack card-play trigger adding generated Dazed cards to the draw pile, representative post-Hex Debilitate, Drain, Zap, and Poke surfaces, source-backed A2 damage variants, and representative A17 opening Hex behavior. Drain applies player Weak and self Strength. This remains partial: exact random insertion order for Hex-created Dazed cards, exact Chosen RNG move-history selection, City encounter execution, and Act 2 trace parity are not claimed.
 - Latest M36 Snake Plant/Malleable executable slice: `SnakePlant` is now a registered core monster with source-backed A0 midpoint HP, pre-battle Malleable 3, local Malleable block/increment on non-lethal attack HP damage, end-of-monster-turn Malleable reset, Chompy Chomps attack-multiple surface with A2 damage, and Spores Frail+Weak surface. This remains partial: Snake Plant's RNG move-selection table, exact A17 history-sensitive move-selection differences, exact non-attack damage interactions for Malleable, City encounter spawning, and Act 2 trace parity are not claimed.
 - Latest M36 Snecko/Confusion executable slice: `Snecko` is now a registered core monster with source-backed A0 midpoint HP, deterministic opening Glare applying artifact-blockable Confusion, representative Tail Whip attack+Vulnerable and Bite attack surfaces, A2 Tail/Bite damage variants, A17 Tail Whip Weak+Vulnerable behavior, and drawn-card/opening-hand cost randomization through the shared Confusion/Snecko Eye surface including zero-cost playable cards. This remains partial: exact Snecko RNG move-history selection, exact UI/free-to-play flag timing, City encounter execution, and Act 2 trace parity are not claimed.
@@ -613,7 +876,7 @@ Milestone 29 is in progress. The TEST trace elite/boss slice has a passing guard
 
 Milestone 32A is complete. The inventory is split across `simulator/docs/content_support_matrix.md`, `simulator/docs/m32a_cards_matrix.md`, `simulator/docs/m32a_relic_potion_matrix.md`, and `simulator/docs/m32a_run_world_matrix.md`; `simulator/crates/sts_core/tests/m32a_matrix.rs` now fails when known Ironclad A0 content or named run-world surfaces are missing from the matrices.
 
-Current milestone: Milestone 33, Neow generalization. Milestone 32B's deterministic card completion sweep is complete for the known Ironclad A0/card-pool rows in `simulator/docs/m32a_cards_matrix.md`; remaining `placeholder` card rows are mechanic-test fixtures or non-A0/special curse surfaces, not unimplemented Ironclad A0 card sweep work. Milestone 32C evidence backfill has promoted all safe currently evidenced high-risk surfaces while leaving explicit caveats where source/trace evidence is insufficient: Mind Blast/Panache timing/count gaps, unproved potion/relic identity rows, A1/A7/A20 ascension caveats, and contaminated/unverified CommunicationMod traces. Latest M33 slices implement source-backed Neow option generation, forced-rare card rewards, split-stream colorless rewards, three-potion rewards, fixed-tier common/rare relic rewards, transform identity generation, boss-swap helper application, Neow grid opening/confirmation, simple immediate rewards/drawbacks, and narrow curse verifier paths behind the `sts_core::run::neow` facade, including the source-possible `Curse + TransformTwoCards` grid branch. Seed-start verification now uses generated Neow option labels and generated identities for the exercised CODEX04/TEST colorless rewards, VERIFY01 common relic, M290001/M290008 transform replacements, MANUAL01 immediate rare-card reward, and helper/synthetic rare-relic, rare-colorless, grid, potion, curse-transform, and boss-swap branches. Current boss-swap follow-up slices include Calling Bell queued relic rewards, Astrolabe, Pandora's Box, Empty Cage, and Tiny House reward-screen opening/skip/pick; the current Ironclad A0 boss relic pool has no known unsupported initial boss-swap outcomes, but branch combinations and selected-trace coverage remain caveated where only helper/synthetic tests exercise them.
+Current milestone: Milestone 33, Neow generalization. Latest monster RNG audit work has source-shaped the Donu/Deca boss-pair surface: Beyond boss selection can produce the source boss-list shuffle result, Donu/Deca construction uses Deca then Donu with fixed 250/265 HP and A19 Artifact 3, Deca opens Beam after one ignored AI roll, Donu opens Circle/strength after one ignored AI roll, and source move bytes are recorded. Focused and full `sts_core` library tests pass; clippy passes with the existing warning backlog. Milestone 32B's deterministic card completion sweep is complete for the known Ironclad A0/card-pool rows in `simulator/docs/m32a_cards_matrix.md`; remaining `placeholder` card rows are mechanic-test fixtures or non-A0/special curse surfaces, not unimplemented Ironclad A0 card sweep work. Milestone 32C evidence backfill has promoted all safe currently evidenced high-risk surfaces while leaving explicit caveats where source/trace evidence is insufficient: Mind Blast/Panache timing/count gaps, unproved potion/relic identity rows, A1/A7/A20 ascension caveats, and contaminated/unverified CommunicationMod traces. Latest M33 slices implement source-backed Neow option generation, forced-rare card rewards, split-stream colorless rewards, three-potion rewards, fixed-tier common/rare relic rewards, transform identity generation, boss-swap helper application, Neow grid opening/confirmation, simple immediate rewards/drawbacks, and narrow curse verifier paths behind the `sts_core::run::neow` facade, including the source-possible `Curse + TransformTwoCards` grid branch. Seed-start verification now uses generated Neow option labels and generated identities for the exercised CODEX04/TEST colorless rewards, VERIFY01 common relic, M290001/M290008 transform replacements, MANUAL01 immediate rare-card reward, and helper/synthetic rare-relic, rare-colorless, grid, potion, curse-transform, and boss-swap branches. Current boss-swap follow-up slices include Calling Bell queued relic rewards, Astrolabe, Pandora's Box, Empty Cage, and Tiny House reward-screen opening/skip/pick; the current Ironclad A0 boss relic pool has no known unsupported initial boss-swap outcomes, but branch combinations and selected-trace coverage remain caveated where only helper/synthetic tests exercise them.
 
 Next task: exercise the next caveated Neow branch with explicit RNG counters and source-backed trace comparison where possible, likely selected real-trace coverage for remove-two/upgrade grids, `THREE_RARE_CARDS`, rare-colorless, rare-relic, potion, supported curse combos, or boss-swap branches. Remaining implementation gaps are narrower: selected-trace evidence for implemented boss-swap follow-ups and branch-combination coverage still need follow-up beyond synthetic/helper tests. Do not preserve named-seed behavior with implementation branches; keep trace labels as fixtures only and fix the generic simulator/verifier mechanics that explain them.
 

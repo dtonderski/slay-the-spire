@@ -9,6 +9,7 @@ use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId};
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
     apply_player_end_of_turn_powers_for_combat_state(state);
+    apply_end_of_turn_constricted(state);
     apply_end_of_turn_combust(state);
     apply_end_of_turn_bomb_timers(state);
 }
@@ -42,6 +43,14 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
     if state.player.powers.entangled > 0 {
         state.player.powers.entangled = 0;
     }
+}
+
+fn apply_end_of_turn_constricted(state: &mut CombatState) {
+    if state.player.powers.constricted <= 0 {
+        return;
+    }
+    let hp_loss = lose_player_hp(state, state.player.powers.constricted);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
 }
 
 pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
@@ -79,6 +88,9 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
     }
     if player.powers.entangled > 0 {
         player.powers.entangled = 0;
+    }
+    if player.powers.constricted > 0 {
+        player.hp = (player.hp - player.powers.constricted).max(0);
     }
 }
 

@@ -29,6 +29,7 @@ pub struct AttackDamageResult {
 }
 
 pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
+    let amount = cap_monster_damage_with_intangible(monster, amount);
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
     let hp_damage = monster.hp.max(0).min(amount - blocked);
@@ -63,6 +64,7 @@ fn deal_attack_damage_to_monster(
     } else {
         amount
     };
+    let amount = cap_monster_damage_with_intangible(monster, amount);
     let block_before = monster.block;
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
@@ -112,6 +114,14 @@ fn deal_attack_damage_to_monster(
         hp_damage,
         broke_block: block_before > 0 && blocked == block_before,
         malleable_block,
+    }
+}
+
+fn cap_monster_damage_with_intangible(monster: &MonsterState, amount: i32) -> i32 {
+    if monster.powers.intangible > 0 && amount > 1 {
+        1
+    } else {
+        amount
     }
 }
 

@@ -17,6 +17,20 @@ These rules are for Codex or any other coding agent working on this project.
 11. Read `RESEARCH.md` before implementing RNG, action queue, save loading, map generation, reward generation, shop generation, or real-game verification tools.
 12. If a missing dependency or tool would materially simplify the task, improve correctness, or avoid a substantially worse workaround, stop and tell the user. Do not quietly build an inferior workaround around a missing crucial dependency.
 
+## Search Scope / Context Hygiene
+
+- Do not run broad repository-wide searches that include `tmp/decompiled-sts/`,
+  generated files, build outputs, or vendor/dependency trees.
+- Treat `tmp/decompiled-sts/` as a large local reference corpus. When inspecting
+  decompiled Slay the Spire sources, search only the relevant package or class
+  path, for example `tmp/decompiled-sts/com/megacrit/cardcrawl/monsters/...`.
+- Prefer targeted `rg` commands with explicit paths or globs over root-level
+  `rg --files` or broad keyword searches.
+- If a broad inventory is needed, exclude heavy trees explicitly, for example
+  `rg --files -g '!tmp/decompiled-sts/**'`.
+- Keep command output budgets small for exploratory searches, then widen only
+  after the target files are known.
+
 ## Determinism Rules
 
 - No untracked global RNG.

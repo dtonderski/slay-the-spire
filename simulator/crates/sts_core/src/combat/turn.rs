@@ -17,30 +17,41 @@ use crate::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
         apply_gremlin_leader_encourage, apply_gremlin_leader_rally_representative,
         apply_gremlin_leader_rally_target, apply_heal_all_monsters, apply_large_acid_slime_split,
-        apply_large_spike_slime_split, apply_monster_intent_with_card_rng, apply_slime_boss_split,
-        apply_strength_all_monsters, clear_lagavulin_metallicize_if_awake,
-        heal_monster_to_definition_cap, living_monster_missing_hp,
-        prepare_monster_intent_for_ascension, record_target_move,
-        target_bronze_orb_next_intent_from_roll, target_byrd_flight_amount,
+        apply_large_spike_slime_split, apply_monster_intent_with_card_rng,
+        apply_reptomancer_dagger_spawn, apply_slime_boss_split, apply_strength_all_monsters,
+        clear_lagavulin_metallicize_if_awake, heal_monster_to_definition_cap,
+        living_monster_missing_hp, prepare_monster_intent_for_ascension, record_target_move,
+        target_book_of_stabbing_next_intent_from_roll_with_stab_count,
+        target_bronze_automaton_next_intent, target_bronze_orb_next_intent_from_roll,
+        target_byrd_flight_amount, target_byrd_go_airborne_intent,
         target_byrd_next_intent_from_roll, target_centurion_next_intent_from_roll,
         target_chosen_next_intent_from_roll, target_collector_next_intent_from_roll,
-        target_fungi_beast_next_intent_from_roll, target_gremlin_leader_next_intent_from_roll,
-        target_gremlin_nob_next_intent_from_roll, target_healer_next_intent_from_roll,
-        target_jaw_worm_next_intent_from_roll, target_large_acid_slime_next_intent_from_roll,
-        target_looter_next_intent_from_roll, target_louse_next_intent_from_roll,
-        target_medium_acid_slime_next_intent_from_roll,
+        target_exploder_next_intent_from_roll, target_fungi_beast_next_intent_from_roll,
+        target_giant_head_next_intent_from_roll, target_gremlin_leader_next_intent_from_roll,
+        target_gremlin_nob_next_intent_from_roll,
+        target_gremlin_wizard_direct_next_intent_after_turn, target_grounded_byrd_next_intent,
+        target_healer_next_intent_from_roll, target_jaw_worm_next_intent_from_roll,
+        target_lagavulin_direct_wake_attack_intent, target_large_acid_slime_next_intent_from_roll,
+        target_looter_direct_next_intent_after_turn, target_louse_next_intent_from_roll,
+        target_maw_next_intent_from_roll, target_medium_acid_slime_next_intent_from_roll,
         target_medium_or_large_spike_slime_next_intent_from_roll,
+        target_mugger_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
+        target_orb_walker_next_intent_from_roll, target_reptomancer_next_intent_from_roll,
+        target_repulsor_next_intent_from_roll, target_sentry_next_intent,
         target_shelled_parasite_next_intent_from_roll, target_slaver_blue_next_intent_from_roll,
         target_slaver_red_next_intent_from_roll, target_small_acid_slime_followup_intent,
         target_snake_plant_next_intent_from_roll, target_snecko_next_intent_from_roll,
-        target_spiker_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
-        ACID_SLIME_S_A7_HP_RANGE, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID,
-        CHOSEN_ID, DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID,
-        GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_TSUNDERE_ID, HEALER_ID,
-        HEXAGHOST_ID, JAW_WORM_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, RED_LOUSE_BITE_DAMAGE,
-        RED_LOUSE_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID,
-        SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
-        SPIKE_SLIME_S_A7_HP_RANGE, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
+        target_spheric_guardian_next_intent_from_roll, target_spiker_next_intent_from_roll,
+        target_spire_growth_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
+        ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
+        CENTURION_ID, CHOSEN_ID, DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
+        GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID,
+        GREMLIN_NOB_ID, GREMLIN_TSUNDERE_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID,
+        JAW_WORM_ID, LAGAVULIN_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID,
+        ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
+        SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIKE_SLIME_S_A7_HP_RANGE,
+        SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
     },
     ids::MonsterId,
     rng::{JavaRng, StsRng},
@@ -286,11 +297,26 @@ fn run_monster_turn(state: &mut CombatState) {
         else {
             continue;
         };
-        if !state.monsters[index].alive {
+        if !state.monsters[index].alive && !is_half_dead_darkling(&state.monsters[index]) {
             continue;
         }
         clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
         match state.monsters[index].intent {
+            crate::MonsterIntent::Attack { damage }
+                if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
+            {
+                state.monsters[index].moves_executed += 1;
+                prepare_next_intent_for_actor(state, actor_id);
+                continue;
+            }
+            crate::MonsterIntent::Stun if is_half_dead_darkling(&state.monsters[index]) => {
+                state.monsters[index].alive = true;
+                state.monsters[index].escaped = false;
+                state.monsters[index].hp = state.monsters[index].max_hp / 2;
+                state.monsters[index].moves_executed += 1;
+                prepare_next_intent_for_actor(state, actor_id);
+                continue;
+            }
             crate::MonsterIntent::HealAllMonsters { amount } => {
                 apply_heal_all_monsters(&mut state.monsters, ascension, amount);
                 state.monsters[index].moves_executed += 1;
@@ -325,10 +351,36 @@ fn run_monster_turn(state: &mut CombatState) {
                 prepare_next_intent_for_actor(state, actor_id);
                 continue;
             }
+            crate::MonsterIntent::Attack { damage }
+                if state.monsters[index].content_id == BYRD_ID && damage == 3 =>
+            {
+                let player_snapshot = state.player.clone();
+                let damage = apply_monster_intent_with_card_rng(
+                    &mut state.monsters[index],
+                    &mut state.player,
+                    &mut state.piles,
+                    ascension,
+                    &player_snapshot,
+                    &state.relics,
+                    state.card_random_rng.as_mut(),
+                );
+                let painful_stabs = state.monsters[index].powers.painful_stabs;
+                apply_monster_pending_effects(state, damage, 1, painful_stabs, None, 0, 0);
+                record_target_move(&mut state.monsters[index]);
+                state.monsters[index].intent = target_byrd_go_airborne_intent();
+                record_target_move(&mut state.monsters[index]);
+                continue;
+            }
             crate::MonsterIntent::SummonGremlins { count } => {
                 let summoner_id = state.monsters[index].id;
                 if state.monsters[index].content_id == BRONZE_AUTOMATON_ID {
-                    apply_bronze_automaton_orb_spawn(&mut state.monsters, summoner_id);
+                    apply_bronze_automaton_orb_spawn(
+                        &mut state.monsters,
+                        summoner_id,
+                        state.monster_rng.as_mut(),
+                        state.monster_hp_rng.as_mut(),
+                        ascension,
+                    );
                 } else if state.monsters[index].content_id == THE_COLLECTOR_ID {
                     apply_collector_spawn_torch_heads(
                         &mut state.monsters,
@@ -353,6 +405,14 @@ fn run_monster_turn(state: &mut CombatState) {
                     );
                 } else if state.monsters[index].content_id == SLIME_BOSS_ID {
                     apply_slime_boss_split(&mut state.monsters, summoner_id, ascension);
+                } else if state.monsters[index].content_id == REPTOMANCER_ID {
+                    apply_reptomancer_dagger_spawn(
+                        &mut state.monsters,
+                        summoner_id,
+                        count,
+                        state.monster_rng.as_mut(),
+                        state.monster_hp_rng.as_mut(),
+                    );
                 } else if let (Some(ai_rng), Some(hp_rng)) =
                     (state.monster_rng.as_mut(), state.monster_hp_rng.as_mut())
                 {
@@ -400,7 +460,24 @@ fn run_monster_turn(state: &mut CombatState) {
                 continue;
             }
             crate::MonsterIntent::Block { block }
-                if state.monsters[index].content_id == GREMLIN_TSUNDERE_ID =>
+                if state.monsters[index].content_id == DECA_ID =>
+            {
+                apply_deca_square(&mut state.monsters, block, ascension);
+                if let Some(monster) = state
+                    .monsters
+                    .iter_mut()
+                    .find(|monster| monster.id == actor_id)
+                {
+                    monster.moves_executed += 1;
+                }
+                prepare_next_intent_for_actor(state, actor_id);
+                continue;
+            }
+            crate::MonsterIntent::Block { block }
+                if matches!(
+                    state.monsters[index].content_id,
+                    CENTURION_ID | GREMLIN_TSUNDERE_ID
+                ) =>
             {
                 apply_shield_gremlin_random_block(
                     &mut state.monsters,
@@ -464,8 +541,25 @@ fn run_monster_turn(state: &mut CombatState) {
                 burn_to_discard_and_draw,
             );
         }
-        prepare_next_intent_for_actor(state, actor_id);
-        apply_transient_fading_after_turn(&mut state.monsters, actor_id);
+        if state.monsters[index].alive
+            && state.monsters[index].content_id == NEMESIS_ID
+            && state.monsters[index].powers.intangible == 0
+        {
+            state.monsters[index].powers.intangible = 1;
+        }
+        if state.monsters[index].alive {
+            if state.monsters[index].content_id == LAGAVULIN_ID
+                && matches!(intent, crate::MonsterIntent::Sleep)
+                && state.monsters[index].sleep_turns_remaining == 0
+            {
+                state.monsters[index].intent =
+                    target_lagavulin_direct_wake_attack_intent(ascension);
+                record_target_move(&mut state.monsters[index]);
+                continue;
+            }
+            prepare_next_intent_for_actor(state, actor_id);
+            apply_transient_fading_after_turn(&mut state.monsters, actor_id);
+        }
         if state.player.hp <= 0 {
             return;
         }
@@ -753,7 +847,8 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
         }
         if is_half_dead_darkling(monster) {
             let _ = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
-            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            monster.intent = crate::MonsterIntent::Stun;
+            record_target_move(monster);
             continue;
         }
 
@@ -799,11 +894,129 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 record_target_move(monster);
                 continue;
             }
+            if monster.content_id == TRANSIENT_ID {
+                monster.intent = crate::MonsterIntent::Attack {
+                    damage: crate::content::monsters::transient_attack_damage(
+                        monster.moves_executed,
+                        state.ascension,
+                    ),
+                };
+                record_target_move(monster);
+                continue;
+            }
+            if monster.content_id == LOOTER_ID {
+                monster.intent = target_looter_direct_next_intent_after_turn(
+                    &monster.move_history,
+                    monster.moves_executed,
+                    state.monster_rng.as_mut(),
+                    state.ascension,
+                );
+                record_target_move(monster);
+                continue;
+            }
+            if monster.content_id == MUGGER_ID {
+                monster.intent = target_mugger_direct_next_intent_after_turn(
+                    &monster.move_history,
+                    monster.moves_executed,
+                    state.monster_rng.as_mut(),
+                    state.ascension,
+                );
+                record_target_move(monster);
+                continue;
+            }
+            if monster.content_id == GREMLIN_TSUNDERE_ID {
+                let mut source_branch = monster.clone();
+                source_branch.moves_executed = if living_monster_count > 1 { 0 } else { 1 };
+                monster.intent =
+                    prepare_monster_intent_for_ascension(&source_branch, state.ascension);
+                record_target_move(monster);
+                continue;
+            }
+            if monster.content_id == GREMLIN_WIZARD_ID {
+                monster.intent = target_gremlin_wizard_direct_next_intent_after_turn(
+                    monster.moves_executed,
+                    state.ascension,
+                );
+                record_target_move(monster);
+                continue;
+            }
             let roll = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
             monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
                 crate::MonsterIntent::AttackMultiple {
                     damage: (state.player.hp / 12) + 1,
                     hits: 6,
+                }
+            } else if monster.content_id == BRONZE_AUTOMATON_ID {
+                if roll.is_some() {
+                    target_bronze_automaton_next_intent(
+                        monster.moves_executed,
+                        &monster.move_history,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == EXPLODER_ID {
+                if roll.is_some() {
+                    target_exploder_next_intent_from_roll(monster.moves_executed, state.ascension)
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == SPHERIC_GUARDIAN_ID {
+                if roll.is_some() {
+                    target_spheric_guardian_next_intent_from_roll(
+                        monster.moves_executed,
+                        &monster.move_history,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == MAW_ID {
+                if let Some(roll) = roll {
+                    target_maw_next_intent_from_roll(
+                        monster.moves_executed,
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == SPIRE_GROWTH_ID {
+                if let Some(roll) = roll {
+                    target_spire_growth_next_intent_from_roll(
+                        monster.moves_executed,
+                        &monster.move_history,
+                        roll,
+                        state.player.powers.constricted > 0,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == GIANT_HEAD_ID {
+                if let Some(roll) = roll {
+                    target_giant_head_next_intent_from_roll(
+                        monster.moves_executed,
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == NEMESIS_ID {
+                if let Some(roll) = roll {
+                    target_nemesis_next_intent_from_roll(
+                        monster.moves_executed,
+                        &monster.move_history,
+                        roll,
+                        state.monster_rng.as_mut(),
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
             } else if monster.content_id == JAW_WORM_ID {
                 if let (Some(roll), Some(rng)) = (roll, state.monster_rng.as_mut()) {
@@ -840,16 +1053,6 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
-            } else if monster.content_id == LOOTER_ID {
-                if let Some(roll) = roll {
-                    target_looter_next_intent_from_roll(
-                        &monster.move_history,
-                        roll,
-                        state.ascension,
-                    )
-                } else {
-                    prepare_monster_intent_for_ascension(monster, state.ascension)
-                }
             } else if monster.content_id == GREMLIN_NOB_ID {
                 if let Some(roll) = roll {
                     target_gremlin_nob_next_intent_from_roll(
@@ -873,12 +1076,16 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
             } else if monster.content_id == BYRD_ID {
                 if let Some(roll) = roll {
                     if let Some(rng) = state.monster_rng.as_mut() {
-                        target_byrd_next_intent_from_roll(
-                            &monster.move_history,
-                            roll,
-                            rng,
-                            state.ascension,
-                        )
+                        if monster.powers.flight <= 0 {
+                            target_grounded_byrd_next_intent()
+                        } else {
+                            target_byrd_next_intent_from_roll(
+                                &monster.move_history,
+                                roll,
+                                rng,
+                                state.ascension,
+                            )
+                        }
                     } else {
                         prepare_monster_intent_for_ascension(monster, state.ascension)
                     }
@@ -891,7 +1098,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 if let Some(roll) = roll {
                     if let Some(rng) = state.monster_rng.as_mut() {
                         target_large_acid_slime_next_intent_from_roll(
-                            monster.intent,
+                            &monster.move_history,
                             roll,
                             rng,
                             state.ascension,
@@ -932,6 +1139,12 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
+            } else if monster.content_id == SENTRY_ID {
+                if roll.is_some() {
+                    target_sentry_next_intent(&monster.move_history, monster_index, state.ascension)
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
             } else if monster.content_id == SHELLED_PARASITE_ID {
                 if let Some(roll) = roll {
                     if let Some(rng) = state.monster_rng.as_mut() {
@@ -964,6 +1177,20 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                         roll,
                         state.ascension,
                     )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == BOOK_OF_STABBING_ID {
+                if let Some(roll) = roll {
+                    let mut stab_count = monster.powers.book_stab_count.max(1);
+                    let intent = target_book_of_stabbing_next_intent_from_roll_with_stab_count(
+                        &monster.move_history,
+                        &mut stab_count,
+                        roll,
+                        state.ascension,
+                    );
+                    monster.powers.book_stab_count = stab_count;
+                    intent
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
@@ -1024,6 +1251,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                     target_gremlin_leader_next_intent_from_roll(
                         &monster.move_history,
                         roll,
+                        state.monster_rng.as_mut().map(|rng| &mut *rng),
                         alive_gremlin_count,
                         state.ascension,
                     )
@@ -1040,13 +1268,41 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
-            } else if monster.content_id == GREMLIN_TSUNDERE_ID {
-                let mut source_branch = monster.clone();
-                source_branch.moves_executed = if living_monster_count > 1 { 0 } else { 1 };
-                prepare_monster_intent_for_ascension(&source_branch, state.ascension)
             } else if monster.content_id == BRONZE_ORB_ID {
                 if let Some(roll) = roll {
                     target_bronze_orb_next_intent_from_roll(&monster.move_history, roll)
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == ORB_WALKER_ID {
+                if let Some(roll) = roll {
+                    target_orb_walker_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == REPTOMANCER_ID {
+                if let Some(roll) = roll {
+                    target_reptomancer_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        living_monster_count.saturating_sub(1) <= 3,
+                        state.monster_rng.as_mut().map(|rng| &mut *rng),
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == REPULSOR_ID {
+                if let Some(roll) = roll {
+                    target_repulsor_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        state.ascension,
+                    )
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
@@ -1077,6 +1333,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 if let Some(roll) = roll {
                     target_spiker_next_intent_from_roll(
                         &monster.move_history,
+                        monster.powers.spiker_thorns_buffs,
                         roll,
                         state.ascension,
                     )
@@ -1146,6 +1403,15 @@ fn apply_shield_gremlin_random_block(
     }
 }
 
+fn apply_deca_square(monsters: &mut [crate::MonsterState], block: i32, ascension: u8) {
+    for monster in monsters.iter_mut().filter(|monster| monster.alive) {
+        monster.block += block;
+        if ascension >= 19 {
+            monster.powers.plated_armor += 3;
+        }
+    }
+}
+
 fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize {
     monsters
         .iter()
@@ -1154,4 +1420,1040 @@ fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize 
                 && crate::content::monsters::is_gremlin_leader_minion_content_id(monster.content_id)
         })
         .count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::monsters::{
+        donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
+        target_giant_head_next_intent_from_roll,
+        target_gremlin_wizard_direct_next_intent_after_turn,
+        target_looter_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
+        target_spheric_guardian_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
+        transient_attack_damage, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0, BYRD_A0, CENTURION_A0,
+        DAGGER_A0, DAGGER_ID, DARKLING_A0, EXPLODER_A0, GIANT_HEAD_A0, GIANT_HEAD_ID,
+        GREMLIN_NOB_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WIZARD_A0, HEALER_A0, LAGAVULIN_A0, LOOTER_A0,
+        LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
+        SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
+    };
+
+    #[test]
+    fn transient_direct_set_move_does_not_consume_ai_rng_after_turn() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 4;
+        state.monsters = vec![monster_state_for_ascension(
+            &TRANSIENT_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![1, 1];
+        state.monster_rng = Some(StsRng::new(123));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::Attack {
+                damage: transient_attack_damage(2, 4)
+            }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            0
+        );
+        assert_eq!(state.monsters[0].move_history, vec![1, 1, 1]);
+    }
+
+    #[test]
+    fn deca_square_blocks_all_living_monsters_and_adds_a19_plated_armor() {
+        let deca_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 19;
+        state.monsters = donu_deca_boss_monsters_for_ascension(state.ascension);
+        state.monsters[0].moves_executed = 1;
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 16 };
+        state.monster_rng = Some(StsRng::new(123));
+
+        run_monster_turn(&mut state);
+
+        let deca = state
+            .monsters
+            .iter()
+            .find(|monster| monster.id == deca_id)
+            .expect("Deca remains present");
+        let donu = state
+            .monsters
+            .iter()
+            .find(|monster| monster.id == MonsterId::new(2))
+            .expect("Donu remains present");
+        assert_eq!(deca.block, 19);
+        assert_eq!(donu.block, 19);
+        assert_eq!(deca.powers.plated_armor, 3);
+        assert_eq!(donu.powers.plated_armor, 3);
+        assert_eq!(deca.moves_executed, 2);
+        assert_eq!(
+            deca.intent,
+            crate::MonsterIntent::AttackMultiple {
+                damage: 12,
+                hits: 2
+            }
+        );
+    }
+
+    #[test]
+    fn bronze_automaton_turn_prep_uses_source_post_beam_a19_boost() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 19;
+        state.monsters = vec![monster_state_for_ascension(
+            &BRONZE_AUTOMATON_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].moves_executed = 6;
+        state.monsters[0].move_history = vec![4, 1, 5, 1, 5, 2];
+        state.monster_rng = Some(StsRng::new(4444));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::StrengthAndBlock {
+                strength: 4,
+                block: 12,
+            }
+        );
+        assert_eq!(state.monsters[0].move_history.last().copied(), Some(5));
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn book_of_stabbing_turn_prep_uses_stored_stab_count() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 18;
+        state.monsters = vec![monster_state_for_ascension(
+            &BOOK_OF_STABBING_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].move_history = vec![2];
+        state.monsters[0].powers.book_stab_count = 4;
+        state.monster_rng = Some(StsRng::new(9));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AttackMultiple { damage: 7, hits: 5 }
+        );
+        assert_eq!(state.monsters[0].powers.book_stab_count, 5);
+        assert_eq!(state.monsters[0].move_history.last().copied(), Some(1));
+    }
+
+    #[test]
+    fn looter_direct_set_move_consumes_speech_bool_without_roll_move() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state_for_ascension(&LOOTER_A0, actor_id, 0)];
+        state.monsters[0].moves_executed = 1;
+        state.monsters[0].move_history = vec![1];
+        state.monster_rng = Some(StsRng::new(123));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AttackStealGold {
+                damage: 10,
+                amount: 15
+            }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+        assert_eq!(state.monsters[0].move_history, vec![1, 1]);
+    }
+
+    #[test]
+    fn looter_second_mug_uses_source_half_chance_without_roll_move() {
+        let mut expected_rng = StsRng::new(456);
+        let expected =
+            target_looter_direct_next_intent_after_turn(&[1, 1], 2, Some(&mut expected_rng), 0);
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state_for_ascension(&LOOTER_A0, actor_id, 0)];
+        state.monsters[0].content_id = LOOTER_ID;
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![1, 1];
+        state.monster_rng = Some(StsRng::new(456));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(state.monsters[0].intent, expected);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            expected_rng.counter()
+        );
+        assert_eq!(
+            state.monsters[0].move_history.last().copied(),
+            crate::content::monsters::target_move_byte(LOOTER_ID, expected)
+        );
+    }
+
+    #[test]
+    fn mugger_direct_set_move_consumes_attack_voice_roll_without_roll_move() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state_for_ascension(&MUGGER_A0, actor_id, 0)];
+        state.monsters[0].moves_executed = 1;
+        state.monsters[0].move_history = vec![1];
+        state.monster_rng = Some(StsRng::new(789));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AttackStealGold {
+                damage: 10,
+                amount: 15
+            }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+        assert_eq!(state.monsters[0].move_history, vec![1, 1]);
+    }
+
+    #[test]
+    fn mugger_second_mug_consumes_voice_talk_and_half_chance_without_roll_move() {
+        let mut expected_rng = StsRng::new(987);
+        let expected = crate::content::monsters::target_mugger_direct_next_intent_after_turn(
+            &[1, 1],
+            2,
+            Some(&mut expected_rng),
+            17,
+        );
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![monster_state_for_ascension(
+            &MUGGER_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![1, 1];
+        state.monster_rng = Some(StsRng::new(987));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(state.monsters[0].intent, expected);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            expected_rng.counter()
+        );
+        assert_eq!(
+            state.monsters[0].move_history.last().copied(),
+            crate::content::monsters::target_move_byte(MUGGER_ID, expected)
+        );
+    }
+
+    #[test]
+    fn gremlin_wizard_direct_cycle_does_not_consume_ai_rng_after_turn() {
+        assert_eq!(
+            target_gremlin_wizard_direct_next_intent_after_turn(1, 0),
+            crate::MonsterIntent::Block { block: 0 }
+        );
+        assert_eq!(
+            target_gremlin_wizard_direct_next_intent_after_turn(2, 0),
+            crate::MonsterIntent::Attack { damage: 25 }
+        );
+        assert_eq!(
+            target_gremlin_wizard_direct_next_intent_after_turn(3, 0),
+            crate::MonsterIntent::Block { block: 0 }
+        );
+        assert_eq!(
+            target_gremlin_wizard_direct_next_intent_after_turn(3, 17),
+            crate::MonsterIntent::Attack { damage: 30 }
+        );
+
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state_for_ascension(&GREMLIN_WIZARD_A0, actor_id, 0)];
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![2, 2];
+        state.monster_rng = Some(StsRng::new(246));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 25 }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            0
+        );
+        assert_eq!(state.monsters[0].move_history, vec![2, 2, 1]);
+    }
+
+    #[test]
+    fn gremlin_tsundere_protect_uses_ai_rng_for_target_but_direct_sets_next_move() {
+        let actor_id = MonsterId::new(1);
+        let target_id = MonsterId::new(2);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state_for_ascension(&GREMLIN_TSUNDERE_A0, actor_id, 0),
+            monster_state_for_ascension(&LOOTER_A0, target_id, 0),
+        ];
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 7 };
+        state.monsters[0].move_history = vec![1];
+        state.monster_rng = Some(StsRng::new(246));
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.monsters[1].block, 7);
+        assert_eq!(state.monsters[0].moves_executed, 1);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::Block { block: 7 }
+        );
+        assert_eq!(state.monsters[0].move_history, vec![1, 1]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn centurion_protect_uses_ai_rng_for_ally_block_before_roll_move() {
+        let actor_id = MonsterId::new(1);
+        let target_id = MonsterId::new(2);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![
+            monster_state_for_ascension(&CENTURION_A0, actor_id, state.ascension),
+            monster_state_for_ascension(&HEALER_A0, target_id, state.ascension),
+        ];
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 20 };
+        state.monsters[0].move_history = vec![1, 1];
+        state.monster_rng = Some(StsRng::new(2468));
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.monsters[0].block, 0);
+        assert_eq!(state.monsters[1].block, 20);
+        assert_eq!(state.monsters[0].moves_executed, 1);
+        assert_eq!(state.monsters[0].move_history.last().copied(), Some(2));
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            3
+        );
+    }
+
+    #[test]
+    fn sentry_turn_prep_ignores_roll_value_and_alternates_from_last_move() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 3;
+        state.monsters = vec![monster_state_for_ascension(
+            &SENTRY_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].moves_executed = 1;
+        state.monsters[0].move_history = vec![4];
+        state.monster_rng = Some(StsRng::new(123));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AddDazedToDiscard { count: 2 }
+        );
+        assert_eq!(state.monsters[0].move_history, vec![4, 3]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn grounded_byrd_turn_prep_uses_headbutt_without_replacement_draw() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![monster_state_for_ascension(
+            &BYRD_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].powers.flight = 0;
+        state.monsters[0].move_history = vec![4];
+        state.monster_rng = Some(StsRng::new(123));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(state.monsters[0].intent, target_grounded_byrd_next_intent());
+        assert_eq!(state.monsters[0].move_history, vec![4, 5]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn byrd_headbutt_direct_sets_go_airborne_without_ai_roll() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![monster_state_for_ascension(
+            &BYRD_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].powers.flight = 0;
+        state.monsters[0].intent = target_grounded_byrd_next_intent();
+        state.monsters[0].move_history = vec![4];
+        state.monster_rng = Some(StsRng::new(456));
+        let player_hp = state.player.hp;
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.player.hp, player_hp - 3);
+        assert_eq!(state.monsters[0].intent, target_byrd_go_airborne_intent());
+        assert_eq!(
+            crate::content::monsters::target_move_byte(BYRD_ID, state.monsters[0].intent),
+            Some(2)
+        );
+        assert_eq!(state.monsters[0].move_history, vec![4, 5, 2]);
+        assert_eq!(state.monsters[0].moves_executed, 1);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            0
+        );
+    }
+
+    #[test]
+    fn half_dead_darkling_count_sets_reincarnate_after_one_roll() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![monster_state_for_ascension(
+            &DARKLING_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].alive = false;
+        state.monsters[0].escaped = true;
+        state.monsters[0].hp = 0;
+        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 0 };
+        state.monsters[0].move_history = vec![4];
+        state.monster_rng = Some(StsRng::new(111));
+
+        run_monster_turn(&mut state);
+
+        assert!(!state.monsters[0].alive);
+        assert!(state.monsters[0].escaped);
+        assert_eq!(state.monsters[0].intent, crate::MonsterIntent::Stun);
+        assert_eq!(state.monsters[0].move_history, vec![4, 5]);
+        assert_eq!(state.monsters[0].moves_executed, 1);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn half_dead_darkling_reincarnates_then_rolls_next_move() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![monster_state_for_ascension(
+            &DARKLING_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].alive = false;
+        state.monsters[0].escaped = true;
+        state.monsters[0].hp = 0;
+        state.monsters[0].max_hp = 58;
+        state.monsters[0].rolled_attack_damage = Some(11);
+        state.monsters[0].intent = crate::MonsterIntent::Stun;
+        state.monsters[0].move_history = vec![4, 5];
+        state.monster_rng = Some(StsRng::new(222));
+        let mut expected_rng = StsRng::new(222);
+        let roll = expected_rng.random_int(99);
+        let expected_intent =
+            crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
+                &[4, 5],
+                roll,
+                0,
+                Some(11),
+                state.ascension,
+                &mut expected_rng,
+            );
+        let expected_move =
+            crate::content::monsters::target_move_byte(DARKLING_ID, expected_intent);
+
+        run_monster_turn(&mut state);
+
+        assert!(state.monsters[0].alive);
+        assert!(!state.monsters[0].escaped);
+        assert_eq!(state.monsters[0].hp, 29);
+        assert_eq!(state.monsters[0].intent, expected_intent);
+        assert_eq!(
+            state.monsters[0].move_history.last().copied(),
+            expected_move
+        );
+        assert_eq!(state.monsters[0].moves_executed, 1);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            expected_rng.counter()
+        );
+    }
+
+    #[test]
+    fn lagavulin_natural_wake_direct_sets_attack_without_extra_ai_roll() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 3;
+        state.monsters = vec![monster_state_for_ascension(
+            &LAGAVULIN_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].sleep_turns_remaining = 1;
+        state.monsters[0].intent = crate::MonsterIntent::Sleep;
+        state.monsters[0].move_history = vec![5, 5];
+        state.monster_rng = Some(StsRng::new(123));
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.monsters[0].sleep_turns_remaining, 0);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 20 }
+        );
+        assert_eq!(state.monsters[0].move_history, vec![5, 5, 3]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            0
+        );
+    }
+
+    #[test]
+    fn lagavulin_damage_wake_stun_consumes_roll_move_before_attack() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 3;
+        state.monsters = vec![monster_state_for_ascension(
+            &LAGAVULIN_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].sleep_turns_remaining = 0;
+        state.monsters[0].intent = crate::MonsterIntent::Stun;
+        state.monsters[0].move_history = vec![5, 4];
+        state.monster_rng = Some(StsRng::new(456));
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 20 }
+        );
+        assert_eq!(state.monsters[0].move_history, vec![5, 4, 3]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn gremlin_nob_turn_prep_uses_a18_history_guard_after_roll_action() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 18;
+        state.monsters = vec![monster_state_for_ascension(
+            &GREMLIN_NOB_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![3, 2];
+        state.monster_rng = Some(StsRng::new(123));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 16 }
+        );
+        assert_eq!(state.monsters[0].move_history, vec![3, 2, 1]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+    }
+
+    #[test]
+    fn spheric_guardian_uses_source_roll_table_and_move_bytes() {
+        assert_eq!(
+            target_spheric_guardian_next_intent_from_roll(0, &[], 17),
+            crate::MonsterIntent::Block { block: 35 }
+        );
+        assert_eq!(
+            target_spheric_guardian_next_intent_from_roll(1, &[2], 0),
+            crate::MonsterIntent::AttackApplyPlayerFrail {
+                damage: 10,
+                frail: 5
+            }
+        );
+        assert_eq!(
+            target_spheric_guardian_next_intent_from_roll(2, &[2, 4], 2),
+            crate::MonsterIntent::AttackMultiple {
+                damage: 11,
+                hits: 2
+            }
+        );
+        assert_eq!(
+            target_spheric_guardian_next_intent_from_roll(3, &[2, 4, 1], 2),
+            crate::MonsterIntent::AttackAndBlock {
+                damage: 11,
+                block: 15
+            }
+        );
+
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 2;
+        state.monsters = vec![monster_state_for_ascension(
+            &SPHERIC_GUARDIAN_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].content_id = SPHERIC_GUARDIAN_ID;
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![2, 4];
+        state.monster_rng = Some(StsRng::new(246));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AttackMultiple {
+                damage: 11,
+                hits: 2
+            }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+        assert_eq!(state.monsters[0].move_history, vec![2, 4, 1]);
+    }
+
+    #[test]
+    fn maw_uses_source_turn_count_roll_table_and_move_bytes() {
+        assert_eq!(
+            target_maw_next_intent_from_roll(0, &[], 99, 17),
+            crate::MonsterIntent::ApplyPlayerFrailAndWeak { frail: 5, weak: 5 }
+        );
+        assert_eq!(
+            target_maw_next_intent_from_roll(1, &[2], 49, 0),
+            crate::MonsterIntent::Attack { damage: 5 }
+        );
+        assert_eq!(
+            target_maw_next_intent_from_roll(2, &[2, 5], 0, 0),
+            crate::MonsterIntent::StrengthSelf { amount: 3 }
+        );
+        assert_eq!(
+            target_maw_next_intent_from_roll(3, &[2, 5, 4], 99, 2),
+            crate::MonsterIntent::Attack { damage: 30 }
+        );
+        assert_eq!(
+            target_maw_next_intent_from_roll(4, &[2, 5, 4, 3], 0, 17),
+            crate::MonsterIntent::AttackMultiple { damage: 5, hits: 3 }
+        );
+
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![monster_state_for_ascension(
+            &MAW_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].content_id = MAW_ID;
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![2, 5];
+        state.monster_rng = Some(StsRng::new(135));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::StrengthSelf { amount: 5 }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+        assert_eq!(state.monsters[0].move_history, vec![2, 5, 4]);
+    }
+
+    #[test]
+    fn spire_growth_uses_source_constrict_roll_table_and_hp() {
+        assert_eq!(
+            target_spire_growth_next_intent_from_roll(0, &[], 99, false, 17),
+            crate::MonsterIntent::ApplyPlayerConstricted { amount: 12 }
+        );
+        assert_eq!(
+            target_spire_growth_next_intent_from_roll(0, &[], 49, false, 0),
+            crate::MonsterIntent::Attack { damage: 16 }
+        );
+        assert_eq!(
+            target_spire_growth_next_intent_from_roll(1, &[1], 99, false, 0),
+            crate::MonsterIntent::ApplyPlayerConstricted { amount: 10 }
+        );
+        assert_eq!(
+            target_spire_growth_next_intent_from_roll(2, &[1, 2], 99, true, 2),
+            crate::MonsterIntent::Attack { damage: 25 }
+        );
+        assert_eq!(
+            target_spire_growth_next_intent_from_roll(4, &[1, 2, 3, 3], 99, true, 2),
+            crate::MonsterIntent::Attack { damage: 18 }
+        );
+
+        let mut source_monster =
+            monster_state_for_ascension(&SPIRE_GROWTH_A0, MonsterId::new(1), 17);
+        assert_eq!((source_monster.hp, source_monster.max_hp), (190, 190));
+        source_monster.intent = crate::MonsterIntent::ApplyPlayerConstricted { amount: 12 };
+        let fixture = CombatState::initial_fixture();
+        let mut player = fixture.player;
+        let before = player.clone();
+        let mut piles = fixture.piles;
+        let damage = crate::content::monsters::apply_monster_intent(
+            &mut source_monster,
+            &mut player,
+            &mut piles,
+            17,
+            &before,
+            &[],
+        );
+        assert_eq!(damage, 0);
+        assert_eq!(player.powers.constricted, 12);
+
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 17;
+        state.monsters = vec![monster_state_for_ascension(
+            &SPIRE_GROWTH_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].content_id = SPIRE_GROWTH_ID;
+        state.monsters[0].moves_executed = 1;
+        state.monsters[0].move_history = vec![1];
+        state.player.powers.constricted = 0;
+        state.monster_rng = Some(StsRng::new(2468));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::ApplyPlayerConstricted { amount: 12 }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+        assert_eq!(state.monsters[0].move_history, vec![1, 2]);
+    }
+
+    #[test]
+    fn giant_head_uses_source_countdown_roll_table_hp_and_slow_setup() {
+        assert_eq!(
+            target_giant_head_next_intent_from_roll(0, &[], 49, 0),
+            crate::MonsterIntent::ApplyPlayerWeak { amount: 1 }
+        );
+        assert_eq!(
+            target_giant_head_next_intent_from_roll(0, &[], 50, 0),
+            crate::MonsterIntent::Attack { damage: 13 }
+        );
+        assert_eq!(
+            target_giant_head_next_intent_from_roll(2, &[1, 1], 0, 0),
+            crate::MonsterIntent::Attack { damage: 13 }
+        );
+        assert_eq!(
+            target_giant_head_next_intent_from_roll(4, &[1, 3, 1, 3], 0, 0),
+            crate::MonsterIntent::Attack { damage: 30 }
+        );
+        assert_eq!(
+            target_giant_head_next_intent_from_roll(3, &[1, 3, 1], 0, 18),
+            crate::MonsterIntent::Attack { damage: 40 }
+        );
+        assert_eq!(
+            target_giant_head_next_intent_from_roll(10, &[2, 2, 2], 0, 18),
+            crate::MonsterIntent::Attack { damage: 70 }
+        );
+
+        let source_monster = monster_state_for_ascension(&GIANT_HEAD_A0, MonsterId::new(1), 18);
+        assert_eq!((source_monster.hp, source_monster.max_hp), (520, 520));
+        assert_eq!(source_monster.powers.slow, 1);
+
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 18;
+        state.monsters = vec![monster_state_for_ascension(
+            &GIANT_HEAD_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].content_id = GIANT_HEAD_ID;
+        state.monsters[0].moves_executed = 3;
+        state.monsters[0].move_history = vec![1, 3, 1];
+        state.monster_rng = Some(StsRng::new(97531));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 40 }
+        );
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            1
+        );
+        assert_eq!(state.monsters[0].move_history, vec![1, 3, 1, 2]);
+    }
+
+    #[test]
+    fn nemesis_uses_source_replacement_booleans_burns_hp_and_intangible() {
+        assert_eq!(
+            target_nemesis_next_intent_from_roll(0, &[], 49, None, 3),
+            crate::MonsterIntent::AttackMultiple { damage: 7, hits: 3 }
+        );
+        assert_eq!(
+            target_nemesis_next_intent_from_roll(0, &[], 50, None, 18),
+            crate::MonsterIntent::AddBurnToDiscard {
+                count: 5,
+                damage: 0
+            }
+        );
+        assert_eq!(
+            target_nemesis_next_intent_from_roll(1, &[2], 29, None, 0),
+            crate::MonsterIntent::Attack { damage: 45 }
+        );
+
+        let mut expected_rng = StsRng::new(4242);
+        let expected =
+            target_nemesis_next_intent_from_roll(2, &[2, 3], 20, Some(&mut expected_rng), 18);
+        assert_eq!(expected_rng.counter(), 1);
+        assert!(matches!(
+            expected,
+            crate::MonsterIntent::AttackMultiple { .. }
+                | crate::MonsterIntent::AddBurnToDiscard { .. }
+        ));
+
+        let source_monster = monster_state_for_ascension(&NEMESIS_A0, MonsterId::new(1), 18);
+        assert_eq!((source_monster.hp, source_monster.max_hp), (200, 200));
+
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 18;
+        state.monsters = vec![monster_state_for_ascension(
+            &NEMESIS_A0,
+            actor_id,
+            state.ascension,
+        )];
+        state.monsters[0].content_id = NEMESIS_ID;
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![2, 3];
+        state.monster_rng = Some(StsRng::new(4242));
+
+        prepare_next_intent_for_actor(&mut state, actor_id);
+
+        assert_eq!(state.monsters[0].intent, expected);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            expected_rng.counter() + 1
+        );
+        assert_eq!(
+            state.monsters[0].move_history.last().copied(),
+            crate::content::monsters::target_move_byte(NEMESIS_ID, expected)
+        );
+
+        state.monsters[0].intent = crate::MonsterIntent::AddBurnToDiscard {
+            count: 5,
+            damage: 0,
+        };
+        state.monsters[0].moves_executed = 0;
+        state.monsters[0].move_history.clear();
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.monsters[0].powers.intangible, 1);
+        let hp_before = state.monsters[0].hp;
+        let hp_damage =
+            crate::combat::damage::deal_unmodified_damage_to_monster(&mut state.monsters[0], 99);
+        assert_eq!(hp_damage, 1);
+        assert_eq!(state.monsters[0].hp, hp_before - 1);
+    }
+
+    #[test]
+    fn dagger_explode_attacks_then_loses_all_hp_without_next_roll() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state_for_ascension(&DAGGER_A0, actor_id, 0)];
+        state.monsters[0].content_id = DAGGER_ID;
+        state.monsters[0].hp = 20;
+        state.monsters[0].max_hp = 20;
+        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 25 };
+        state.monsters[0].move_history = vec![1, 2];
+        state.monster_rng = Some(StsRng::new(11));
+        let player_hp = state.player.hp;
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.player.hp, player_hp - 25);
+        assert_eq!(state.monsters[0].hp, 0);
+        assert!(!state.monsters[0].alive);
+        assert_eq!(state.monsters[0].block, 0);
+        assert_eq!(state.monsters[0].move_history, vec![1, 2]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            0
+        );
+    }
+
+    #[test]
+    fn exploder_unknown_move_deals_explosive_damage_and_dies_without_next_roll() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state_for_ascension(&EXPLODER_A0, actor_id, 0)];
+        state.monsters[0].intent = crate::MonsterIntent::Stun;
+        state.monsters[0].moves_executed = 2;
+        state.monsters[0].move_history = vec![1, 1, 2];
+        state.monster_rng = Some(StsRng::new(12));
+        let player_hp = state.player.hp;
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.player.hp, player_hp - 3);
+        assert_eq!(state.monsters[0].hp, 0);
+        assert!(!state.monsters[0].alive);
+        assert_eq!(state.monsters[0].block, 0);
+        assert_eq!(state.monsters[0].powers.explosive, 0);
+        assert_eq!(state.monsters[0].move_history, vec![1, 1, 2]);
+        assert_eq!(
+            state
+                .monster_rng
+                .as_ref()
+                .expect("test installs monster rng")
+                .counter(),
+            0
+        );
+    }
 }
