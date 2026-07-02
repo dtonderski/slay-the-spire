@@ -90,6 +90,10 @@ const SPIKE_SLIME_L_SPIT_DAMAGE: i32 = 16;
 pub(crate) const ACID_SLIME_S_TACKLE_DAMAGE: i32 = 3;
 pub(crate) const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
 pub(crate) const ACID_SLIME_M_NORMAL_TACKLE_DAMAGE: i32 = 10;
+const ACID_SLIME_L_WOUND_TACKLE_DAMAGE: i32 = 11;
+const ACID_SLIME_L_A2_WOUND_TACKLE_DAMAGE: i32 = 12;
+const ACID_SLIME_L_NORMAL_TACKLE_DAMAGE: i32 = 16;
+const ACID_SLIME_L_A2_NORMAL_TACKLE_DAMAGE: i32 = 18;
 const ACID_SLIME_WEAK: i32 = 1;
 
 const LAGAVULIN_SLEEP_TURNS: u32 = 3;
@@ -2806,7 +2810,11 @@ pub fn target_encounter_spawn_for_key(
             let roll = target_large_slime_hp_roll(seed, floor_num, ascension);
             let mut spawn = target_combat_entry_spawn(roll.name, roll.hp, neow_lament, Vec::new());
             spawn.rolled_attack_damage = match roll.name {
-                "Acid Slime (L)" => Some(if ascension >= 2 { 12 } else { 11 }),
+                "Acid Slime (L)" => Some(if ascension >= 2 {
+                    ACID_SLIME_L_A2_WOUND_TACKLE_DAMAGE
+                } else {
+                    ACID_SLIME_L_WOUND_TACKLE_DAMAGE
+                }),
                 "Spike Slime (L)" => Some(if ascension >= 2 { 18 } else { 16 }),
                 _ => None,
             };
@@ -2819,6 +2827,9 @@ pub fn target_encounter_spawn_for_key(
         }
         "Exordium Thugs" => {
             target_exordium_thugs_spawn_states(seed, floor_num, ascension, neow_lament)
+        }
+        "Exordium Wildlife" => {
+            target_exordium_wildlife_spawn_states(seed, floor_num, ascension, neow_lament)
         }
         "Blue Slaver" => {
             let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
@@ -2990,6 +3001,82 @@ fn target_exordium_thugs_spawn_states(
                     amount: looter_theft(ascension),
                 }],
             ),
+        },
+    ]
+}
+
+fn target_exordium_wildlife_spawn_states(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
+    let seed = seed + i64::from(floor_num);
+    let mut misc_rng = StsRng::new(seed);
+    let mut hp_rng = StsRng::new(seed);
+
+    let fungi_hp = if ascension >= 7 {
+        FUNGI_BEAST_A7_HP_RANGE
+    } else {
+        FUNGI_BEAST_A0_HP_RANGE
+    }
+    .roll(&mut hp_rng);
+    let jaw_worm_hp = target_jaw_worm_hp_range(ascension).roll(&mut hp_rng);
+    let strong_index = misc_rng.random_int_range(0, 1);
+
+    let louse_is_normal = misc_rng.random_bool();
+    let louse_hp_range = if louse_is_normal {
+        target_louse_normal_hp_range(ascension)
+    } else {
+        target_louse_defensive_hp_range(ascension)
+    };
+    let louse_hp = louse_hp_range.roll(&mut hp_rng);
+    let louse_bite_damage = target_louse_bite_damage_range(ascension).roll(&mut hp_rng);
+    let spike_hp = target_spike_slime_m_hp_range(ascension).roll(&mut hp_rng);
+    let acid_hp = target_acid_slime_m_hp_range(ascension).roll(&mut hp_rng);
+    let weak_index = misc_rng.random_int_range(0, 2);
+
+    vec![
+        match strong_index {
+            0 => target_combat_entry_spawn(
+                "FungiBeast",
+                fungi_hp,
+                neow_lament,
+                vec![TargetSpawnPower {
+                    id: "Spore Cloud",
+                    amount: FUNGI_BEAST_SPORE_CLOUD,
+                }],
+            ),
+            _ => target_combat_entry_spawn("Jaw Worm", jaw_worm_hp, neow_lament, Vec::new()),
+        },
+        match weak_index {
+            0 => {
+                let name = if louse_is_normal {
+                    "LouseNormal"
+                } else {
+                    "LouseDefensive"
+                };
+                let mut spawn = target_combat_entry_spawn(name, louse_hp, neow_lament, Vec::new());
+                spawn.rolled_attack_damage = Some(louse_bite_damage);
+                spawn
+            }
+            1 => {
+                let mut spawn =
+                    target_combat_entry_spawn("Spike Slime (M)", spike_hp, neow_lament, Vec::new());
+                spawn.intent = "ApplyPlayerFrailAndWeak";
+                spawn
+            }
+            _ => {
+                let mut spawn =
+                    target_combat_entry_spawn("Acid Slime (M)", acid_hp, neow_lament, Vec::new());
+                spawn.intent = "AttackAddSlimedToDiscard";
+                spawn.rolled_attack_damage = Some(if ascension >= 2 {
+                    8
+                } else {
+                    ACID_SLIME_ATTACK_DAMAGE
+                });
+                spawn
+            }
         },
     ]
 }
@@ -6458,8 +6545,17 @@ pub fn apply_large_acid_slime_split(
             ascension,
         );
     }
-    monsters.insert(slime_index, left);
-    monsters.insert(slime_index + 2, right);
+    if let Some(boss_index) = monsters
+        .iter()
+        .position(|monster| monster.content_id == SLIME_BOSS_ID && monster.hp <= 0)
+        .filter(|index| *index < slime_index)
+    {
+        monsters.insert(boss_index, left);
+        monsters.insert(slime_index + 2, right);
+    } else {
+        monsters.insert(slime_index, left);
+        monsters.insert(slime_index + 2, right);
+    }
 }
 
 pub fn apply_large_spike_slime_split(
@@ -6569,12 +6665,15 @@ pub fn apply_slime_boss_split(monsters: &mut Vec<MonsterState>, boss_id: Monster
     spike.initial_intent_locked = true;
     acid.hp = split_hp;
     acid.max_hp = split_hp;
-    acid.rolled_attack_damage = Some(if ascension >= 2 { 12 } else { 11 });
-    acid.intent = MonsterIntent::AttackAddSlimedToDiscard {
+    acid.rolled_attack_damage = Some(if ascension >= 2 {
+        ACID_SLIME_L_A2_NORMAL_TACKLE_DAMAGE
+    } else {
+        ACID_SLIME_L_NORMAL_TACKLE_DAMAGE
+    });
+    acid.intent = MonsterIntent::Attack {
         damage: acid
             .rolled_attack_damage
-            .expect("Slime Boss split acid has large wound damage"),
-        count: 1,
+            .expect("Slime Boss split acid has large normal tackle damage"),
     };
     acid.initial_intent_locked = true;
 
@@ -7503,7 +7602,11 @@ pub fn target_large_acid_slime_next_intent_from_roll(
     rng: &mut StsRng,
     ascension: u8,
 ) -> MonsterIntent {
-    let wound_damage = if ascension >= 2 { 12 } else { 11 };
+    let wound_damage = if ascension >= 2 {
+        ACID_SLIME_L_A2_WOUND_TACKLE_DAMAGE
+    } else {
+        ACID_SLIME_L_WOUND_TACKLE_DAMAGE
+    };
     let attack_damage = if ascension >= 2 { 18 } else { 16 };
     let weak = if ascension >= 17 { 3 } else { 2 };
 

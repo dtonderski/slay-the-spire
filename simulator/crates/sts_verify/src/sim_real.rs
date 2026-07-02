@@ -7716,8 +7716,11 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
         },
         "DEBUFF"
             if content_id == SPIKE_SLIME_ID
-                && int(monster, "max_hp")
-                    > sts_core::content::monsters::SPIKE_SLIME_S_A7_HP_RANGE.max =>
+                && (matches!(
+                    str_field(monster, "id"),
+                    Some("SpikeSlime_M" | "SpikeSlime_L")
+                ) || int(monster, "max_hp")
+                    > sts_core::content::monsters::SPIKE_SLIME_S_A7_HP_RANGE.max) =>
         {
             MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 }
         }

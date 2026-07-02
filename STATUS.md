@@ -4,6 +4,18 @@
 
 ### Tooling
 - Latest active trace replay slice: `trace-2026-07-02T09-19-40-178Z.jsonl`
+  now strict-replays to exhaustion (`verified=True`, `steps=211`,
+  `final_phase=combat`) after the floor-13 and Slime Boss blockers. Generic
+  fixes: implemented source-backed executable `Exordium Wildlife` spawn
+  generation, including constructor-order HP/misc RNG consumption; Slime Boss
+  split now gives the Acid Slime L child its source normal-tackle starting
+  intent; large Acid Slime split insertion mirrors target smart-positioning for
+  Slime Boss child splits; and observed Spike Slime M/L `DEBUFF` import uses
+  CommunicationMod monster ids instead of max HP so low-HP split children still
+  import as Frail. Checks: `cargo fmt`, `cargo check -p sts_core --lib`,
+  `cargo check -p sts_verify --lib`, `uv run maturin develop --release`, and
+  active strict replay.
+- Latest active trace replay slice: `trace-2026-07-02T09-19-40-178Z.jsonl`
   now advances from the floor-10 Bottled Lightning opening-hand mismatch and
   the floor-11 large Spike Slime/split blockers to a later floor-13 encounter
   mismatch. Generic fixes: bottle relic grids now mirror STS
