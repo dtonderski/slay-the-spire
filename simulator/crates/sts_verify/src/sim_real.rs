@@ -6360,6 +6360,41 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
             event_data: 0,
         });
     }
+    if event_id == "Knowing Skull" || event_name == "Knowing Skull" {
+        let choices = choice_list_from_value(game.get("choice_list"));
+        let labels = if choices.is_empty() {
+            vec!["Continue".to_owned()]
+        } else {
+            choices
+        };
+        let stage = if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("continue"))
+        {
+            0
+        } else if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("leave"))
+        {
+            2
+        } else {
+            1
+        };
+        let event_data = if stage == 1 {
+            knowing_skull_costs_from_observed(game).unwrap_or_else(default_knowing_skull_costs)
+        } else {
+            default_knowing_skull_costs()
+        };
+        return Some(EventScreen {
+            event: Event::KnowingSkull,
+            choices: labels
+                .into_iter()
+                .map(|label| EventChoice { label })
+                .collect(),
+            stage,
+            event_data,
+        });
+    }
     if event_id != "Neow Event" && event_name != "Neow" {
         return None;
     }
@@ -6396,6 +6431,57 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
         stage,
         event_data: 0,
     })
+}
+
+fn default_knowing_skull_costs() -> u32 {
+    knowing_skull_cost_data(6, 6, 6, 6)
+}
+
+fn knowing_skull_cost_data(potion: u32, gold: u32, card: u32, leave: u32) -> u32 {
+    potion | (gold << 8) | (card << 16) | (leave << 24)
+}
+
+fn knowing_skull_costs_from_observed(game: &Value) -> Option<u32> {
+    let options = game
+        .get("screen_state")
+        .and_then(|state| state.get("options"))
+        .and_then(Value::as_array)?;
+    let mut potion = None;
+    let mut gold = None;
+    let mut card = None;
+    let mut leave = None;
+
+    for option in options {
+        let label = option
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let text = option.get("text").and_then(Value::as_str).unwrap_or("");
+        let cost = hp_loss_cost_from_option_text(text)?;
+        if label.contains("pick me up") {
+            potion = Some(cost);
+        } else if label.contains("riches") {
+            gold = Some(cost);
+        } else if label.contains("success") {
+            card = Some(cost);
+        } else if label.contains("leave") {
+            leave = Some(cost);
+        }
+    }
+
+    Some(knowing_skull_cost_data(
+        potion.unwrap_or(6),
+        gold.unwrap_or(6),
+        card.unwrap_or(6),
+        leave.unwrap_or(6),
+    ))
+}
+
+fn hp_loss_cost_from_option_text(text: &str) -> Option<u32> {
+    let after_lose = text.split("Lose ").nth(1)?;
+    let hp_text = after_lose.split(" HP").next()?;
+    hp_text.trim().parse::<u32>().ok()
 }
 
 fn scrap_ooze_failed_reaches_from_observed(game: &Value, ascension: u8) -> Option<u32> {
@@ -9715,6 +9801,31 @@ mod tests {
         assert_eq!(screen.event, Event::Nest);
         assert_eq!(screen.stage, 1);
         assert_eq!(screen.choices[0].label, "smash and grab");
+    }
+
+    #[test]
+    fn observed_event_screen_imports_knowing_skull_option_stage() {
+        let game = json!({
+            "screen_type": "EVENT",
+            "choice_list": ["a pick me up?", "riches?", "success?", "how do i leave?"],
+            "screen_state": {
+                "event_id": "Knowing Skull",
+                "event_name": "Knowing Skull",
+                "options": [
+                    {"label": "A Pick Me Up?", "text": "[A Pick Me Up?] Get a Potion. Lose 6 HP."},
+                    {"label": "Riches?", "text": "[Riches?] Gain 90 Gold. Lose 6 HP."},
+                    {"label": "Success?", "text": "[Success?] Get a Colorless Card. Lose 6 HP."},
+                    {"label": "How do I leave?", "text": "[How do I leave?] Lose 6 HP."}
+                ]
+            }
+        });
+
+        let screen = observed_event_screen(&game, 0).expect("knowing skull screen");
+
+        assert_eq!(screen.event, Event::KnowingSkull);
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices[3].label, "how do i leave?");
+        assert_eq!(screen.event_data, default_knowing_skull_costs());
     }
 
     #[test]

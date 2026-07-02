@@ -1,15 +1,18 @@
 use crate::{
-    card::CardType,
+    card::{CardRarity, CardType},
     combat::initialize_combat_piles_with_relics,
     content::cards::{
         get_card_definition, upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID,
         DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID, JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
-    content::monsters::{
-        monster_state_for_ascension, record_target_move, MonsterDefinition, BANDIT_BEAR_A0,
-        BANDIT_LEADER_A0, BANDIT_POINTY_A0, GREMLIN_NOB_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
-        TASKMASTER_A0,
+    content::{
+        monsters::{
+            monster_state_for_ascension, record_target_move, MonsterDefinition, BANDIT_BEAR_A0,
+            BANDIT_LEADER_A0, BANDIT_POINTY_A0, GREMLIN_NOB_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
+            TASKMASTER_A0,
+        },
+        shop_pool::random_colorless_from_pool,
     },
     ids::ContentId,
     potion::Potion,
@@ -27,7 +30,7 @@ use crate::{
             generate_neow_options, generate_neow_three_potions, open_neow_reward_grid,
             GeneratedNeowOption, NeowDrawback, NeowRewardType,
         },
-        reward::target_card_reward_choices_with_count,
+        reward::{target_card_reward_choices_with_count, target_random_potion},
         state::RunRngStream,
     },
     CardId, CardInstance, CombatState, EventAction, MonsterId, RewardScreen, RunPhase, RunState,
@@ -81,6 +84,8 @@ pub const GHOSTS_MAX_HP_LOSS_PERCENT: f32 = 0.50;
 pub const GHOSTS_APPARITION_COUNT: usize = 5;
 pub const GHOSTS_A15_APPARITION_COUNT: usize = 3;
 pub const DRUG_DEALER_TRANSFORM_COUNT: u8 = 2;
+pub const KNOWING_SKULL_STARTING_COST: i32 = 6;
+pub const KNOWING_SKULL_GOLD_REWARD: i32 = 90;
 pub const SHRINE_CHANCE: f32 = 0.25;
 
 #[must_use]
@@ -335,6 +340,34 @@ fn drug_dealer_choices(stage: u8, transform_enabled: bool) -> Vec<EventChoice> {
     }
 }
 
+fn knowing_skull_choices(stage: u32, event_data: u32) -> Vec<EventChoice> {
+    match stage {
+        0 => labeled_choices(&["Continue"]),
+        1 => {
+            let costs = knowing_skull_costs(event_data);
+            vec![
+                EventChoice {
+                    label: format!("A Pick Me Up? (lose {} HP)", costs.potion),
+                },
+                EventChoice {
+                    label: format!(
+                        "Riches? (gain {KNOWING_SKULL_GOLD_REWARD} gold, lose {} HP)",
+                        costs.gold
+                    ),
+                },
+                EventChoice {
+                    label: format!("Success? (obtain colorless card, lose {} HP)", costs.card),
+                },
+                EventChoice {
+                    label: format!("How do I leave? (lose {} HP)", costs.leave),
+                },
+            ]
+        }
+        2 => labeled_choices(&["Leave"]),
+        _ => Vec::new(),
+    }
+}
+
 fn dead_adventurer_choices(stage: u8) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Search", "Leave"]),
@@ -353,6 +386,57 @@ fn vampires_choices(has_blood_vial: bool) -> Vec<EventChoice> {
 
 fn lose_event_hp(run: &mut RunState, amount: i32) {
     run.player_hp = (run.player_hp - amount).max(0);
+}
+
+#[derive(Debug, Clone, Copy)]
+struct KnowingSkullCosts {
+    potion: i32,
+    gold: i32,
+    card: i32,
+    leave: i32,
+}
+
+fn knowing_skull_costs(event_data: u32) -> KnowingSkullCosts {
+    if event_data == 0 {
+        return KnowingSkullCosts {
+            potion: KNOWING_SKULL_STARTING_COST,
+            gold: KNOWING_SKULL_STARTING_COST,
+            card: KNOWING_SKULL_STARTING_COST,
+            leave: KNOWING_SKULL_STARTING_COST,
+        };
+    }
+
+    KnowingSkullCosts {
+        potion: (event_data & 0xff) as i32,
+        gold: ((event_data >> 8) & 0xff) as i32,
+        card: ((event_data >> 16) & 0xff) as i32,
+        leave: ((event_data >> 24) & 0xff) as i32,
+    }
+}
+
+fn knowing_skull_event_data(costs: KnowingSkullCosts) -> u32 {
+    (costs.potion as u32)
+        | ((costs.gold as u32) << 8)
+        | ((costs.card as u32) << 16)
+        | ((costs.leave as u32) << 24)
+}
+
+fn knowing_skull_gain_random_colorless(run: &mut RunState) {
+    let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
+    let content_id = random_colorless_from_pool(&mut card_rng, CardRarity::Uncommon);
+    run.store_rng_counter(RunRngStream::CardReward, &card_rng);
+    run.gain_deck_card(content_id);
+}
+
+fn knowing_skull_gain_random_potion(run: &mut RunState) {
+    if !run.can_gain_potions() {
+        return;
+    }
+    let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
+    let potion = target_random_potion(&mut potion_rng);
+    run.store_rng_counter(RunRngStream::Potion, &potion_rng);
+    run.gain_potion(potion)
+        .expect("potion gain validated before Knowing Skull potion reward");
 }
 
 fn purgeable_event_card_count(run: &RunState) -> usize {
@@ -563,6 +647,7 @@ pub enum Event {
     DrugDealer,
     ForgottenAltar,
     Ghosts,
+    KnowingSkull,
     MaskedBandits,
     Nest,
     TheLibrary,
@@ -1009,6 +1094,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::Addict => make_event_screen(event, addict_choices(0), 0),
         Event::ForgottenAltar => make_event_screen(event, forgotten_altar_choices(0, 0, 0), 0),
         Event::Ghosts => make_event_screen(event, ghosts_choices(0, 0), 0),
+        Event::KnowingSkull => make_event_screen(event, knowing_skull_choices(0, 0), 0),
         Event::MaskedBandits => make_event_screen(event, masked_bandits_choices(0), 0),
         Event::Colosseum => make_event_screen(event, colosseum_choices(0), 0),
         Event::DrugDealer => make_event_screen(event, drug_dealer_choices(0, false), 0),
@@ -1878,6 +1964,75 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
         },
+        Event::KnowingSkull => match screen.stage {
+            0 if choice_index == 0 => {
+                let event_data = knowing_skull_event_data(knowing_skull_costs(0));
+                next.event = Some(EventScreen {
+                    event: Event::KnowingSkull,
+                    choices: knowing_skull_choices(1, event_data),
+                    stage: 1,
+                    event_data,
+                });
+            }
+            1 if choice_index == 0 => {
+                let mut costs = knowing_skull_costs(screen.event_data);
+                lose_event_hp(&mut next, costs.potion);
+                costs.potion += 1;
+                let event_data = knowing_skull_event_data(costs);
+                knowing_skull_gain_random_potion(&mut next);
+                next.event = Some(EventScreen {
+                    event: Event::KnowingSkull,
+                    choices: knowing_skull_choices(1, event_data),
+                    stage: 1,
+                    event_data,
+                });
+            }
+            1 if choice_index == 1 => {
+                let mut costs = knowing_skull_costs(screen.event_data);
+                lose_event_hp(&mut next, costs.gold);
+                costs.gold += 1;
+                let event_data = knowing_skull_event_data(costs);
+                next.gain_gold(KNOWING_SKULL_GOLD_REWARD);
+                next.event = Some(EventScreen {
+                    event: Event::KnowingSkull,
+                    choices: knowing_skull_choices(1, event_data),
+                    stage: 1,
+                    event_data,
+                });
+            }
+            1 if choice_index == 2 => {
+                let mut costs = knowing_skull_costs(screen.event_data);
+                lose_event_hp(&mut next, costs.card);
+                costs.card += 1;
+                let event_data = knowing_skull_event_data(costs);
+                knowing_skull_gain_random_colorless(&mut next);
+                next.event = Some(EventScreen {
+                    event: Event::KnowingSkull,
+                    choices: knowing_skull_choices(1, event_data),
+                    stage: 1,
+                    event_data,
+                });
+            }
+            1 if choice_index == 3 => {
+                let costs = knowing_skull_costs(screen.event_data);
+                lose_event_hp(&mut next, costs.leave);
+                next.event = Some(EventScreen {
+                    event: Event::KnowingSkull,
+                    choices: knowing_skull_choices(2, screen.event_data),
+                    stage: 2,
+                    event_data: screen.event_data,
+                });
+            }
+            2 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Knowing Skull",
+                ));
+            }
+        },
         Event::MaskedBandits => match screen.stage {
             0 if choice_index == 0 => {
                 let stolen_gold = next.gold.max(0) as u32;
@@ -2689,6 +2844,54 @@ mod tests {
             assert_eq!(after.phase, RunPhase::Idle);
             assert!(after.event.is_none());
         }
+    }
+
+    #[test]
+    fn knowing_skull_intro_continue_opens_repeatable_choices_without_rewards() {
+        let mut run = RunState::map_fixture();
+        run.gold = 399;
+        run.player_hp = 41;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::KnowingSkull));
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("continue");
+
+        assert_eq!(after.phase, RunPhase::Event);
+        assert_eq!(after.player_hp, 41);
+        assert_eq!(after.gold, 399);
+        let event = after.event.as_ref().expect("Knowing Skull choices");
+        assert_eq!(event.event, Event::KnowingSkull);
+        assert_eq!(event.stage, 1);
+        assert_eq!(event.choices.len(), 4);
+        assert!(event.choices[0].label.contains("6 HP"));
+        assert!(event.choices[3].label.contains("6 HP"));
+    }
+
+    #[test]
+    fn knowing_skull_leave_loses_hp_then_requires_final_leave() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 41;
+        run.phase = RunPhase::Event;
+        let event_data = knowing_skull_event_data(knowing_skull_costs(0));
+        run.event = Some(EventScreen {
+            event: Event::KnowingSkull,
+            choices: knowing_skull_choices(1, event_data),
+            stage: 1,
+            event_data,
+        });
+
+        let leave_prompt =
+            apply_event_action(&run, EventAction::Choose { choice_index: 3 }).expect("ask leave");
+
+        assert_eq!(leave_prompt.player_hp, 35);
+        assert_eq!(leave_prompt.phase, RunPhase::Event);
+        assert_eq!(leave_prompt.event.as_ref().expect("leave").stage, 2);
+
+        let after = apply_event_action(&leave_prompt, EventAction::Choose { choice_index: 0 })
+            .expect("leave");
+        assert_eq!(after.phase, RunPhase::Idle);
+        assert!(after.event.is_none());
     }
 
     #[test]
