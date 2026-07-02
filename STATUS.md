@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- Latest active trace replay slice: the extended
+  `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays to exhaustion
+  (`verified=True`, `steps=29`, `final_phase=combat`). Generic fix: Shame now
+  follows the source curse end-turn path, applying Frail and moving itself to
+  discard before the normal end-turn hand discard batch, which fixes the live
+  floor-2 discard-pile order diff. Checks: `cargo fmt`,
+  `cargo check -p sts_core --lib`, `cargo check -p sts_verify --lib`,
+  `uv run maturin develop --release`, and strict replay of the active trace.
 - Latest representation-boundary slice: CommunicationMod combat pile order now
   has an explicit design note and named verifier/replay helpers for observed
   pile import, simulator-to-visible projection, and bridge `PLAY n` hand-slot

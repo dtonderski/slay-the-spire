@@ -1,6 +1,8 @@
 use crate::{
     combat::{transition::apply_on_exhaust_effects, CombatState},
-    content::cards::{get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID, DOUBT_ID, REGRET_ID},
+    content::cards::{
+        get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID, DOUBT_ID, REGRET_ID, SHAME_ID,
+    },
     ids::CardId,
 };
 
@@ -13,6 +15,7 @@ pub fn resolve_end_of_turn_hand(state: &mut CombatState) {
 
 pub(crate) fn resolve_end_of_turn_doubt(state: &mut CombatState) {
     apply_doubt_weak_in_hand(state);
+    apply_shame_frail_in_hand(state);
 }
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
@@ -96,6 +99,31 @@ fn apply_doubt_weak_in_hand(state: &mut CombatState) {
         } else {
             state.piles.discard_pile.extend(doubts);
         }
+    }
+}
+
+fn apply_shame_frail_in_hand(state: &mut CombatState) {
+    let mut shame_copies = 0;
+    let mut remaining = Vec::with_capacity(state.piles.hand.len());
+    let mut shames = Vec::new();
+
+    for card in state.piles.hand.drain(..) {
+        if card.content_id == SHAME_ID {
+            shame_copies += 1;
+            shames.push(card);
+        } else {
+            remaining.push(card);
+        }
+    }
+    state.piles.hand = remaining;
+
+    if shame_copies > 0 {
+        crate::relic::apply_player_frail_with_relics(
+            &mut state.player.powers,
+            &state.relics,
+            shame_copies,
+        );
+        state.piles.discard_pile.extend(shames);
     }
 }
 
