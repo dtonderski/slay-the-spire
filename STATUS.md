@@ -3,6 +3,12 @@
 ## What Exists
 
 ### Tooling
+- Latest broad unit-test cleanup slice: broad inline `sts_core` mechanics unit
+  tests have been removed in favor of trace-driven fidelity. Remaining
+  `sts_core` unit tests are limited to small infrastructure/determinism surfaces
+  (`rng`, `snapshot`, `ids`, and `error`). CommunicationMod corpus/live replay
+  tests and Python UI/bridge infrastructure tests remain the intended
+  regression gates.
 - Latest simulator test-policy cleanup slice: agent rules now make
   CommunicationMod trace replay the preferred regression surface for real-game
   simulator fidelity bugs. Narrow unit tests are reserved for infrastructure,

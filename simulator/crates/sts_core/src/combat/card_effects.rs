@@ -1590,11 +1590,6 @@ fn jack_of_all_trades_generated_colorless(state: &mut CombatState) -> ContentId 
     pool[index]
 }
 
-#[cfg(test)]
-pub(crate) fn jack_of_all_trades_colorless_pool() -> Vec<ContentId> {
-    colorless_discovery_pool()
-}
-
 fn madness_queue(
     card_id: CardId,
     definition: &CardDefinition,
