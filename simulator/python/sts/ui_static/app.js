@@ -356,6 +356,7 @@
     app.livePendingPrediction = {
       source_state_id: firstDefined(prediction.source_state_id, currentStateId(), null),
       predicted_state_id: firstDefined(prediction.predicted_state_id, prediction.predictedStateId, null),
+      predicted_snapshot_json: firstDefined(prediction.predicted_snapshot_json, prediction.predictedSnapshotJson, null),
       bridge_state_id: bridgeStateId(),
       bridge_step: app.bridge && app.bridge.last_state_step,
       action_label: recommendationBestLabel(),
