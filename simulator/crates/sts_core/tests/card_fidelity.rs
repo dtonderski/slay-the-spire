@@ -19,6 +19,15 @@ fn wound_definition_matches_unplayable_status_source() {
 }
 
 #[test]
+fn pummel_plus_definition_keeps_damage_and_exhausts() {
+    assert_eq!(cards::PUMMEL.values.damage, Some(2));
+    assert!(cards::PUMMEL.keywords.exhaust);
+
+    assert_eq!(cards::PUMMEL_PLUS.values.damage, Some(2));
+    assert!(cards::PUMMEL_PLUS.keywords.exhaust);
+}
+
+#[test]
 fn sword_boomerang_definitions_target_all_enemies_without_selection() {
     for definition in [cards::SWORD_BOOMERANG, cards::SWORD_BOOMERANG_PLUS] {
         assert_eq!(definition.target, TargetRequirement::AllEnemies);
