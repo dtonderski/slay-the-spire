@@ -4691,13 +4691,23 @@ fn shelled_parasite_fell_damage(ascension: u8) -> i32 {
     }
 }
 
+fn shelled_parasite_fell_intent(ascension: u8) -> MonsterIntent {
+    if ascension >= 17 {
+        MonsterIntent::AttackApplyPlayerFrail {
+            damage: shelled_parasite_fell_damage(ascension),
+            frail: SHELLED_PARASITE_FELL_FRAIL,
+        }
+    } else {
+        MonsterIntent::Attack {
+            damage: shelled_parasite_fell_damage(ascension),
+        }
+    }
+}
+
 #[must_use]
 fn shelled_parasite_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
     if moves_executed == 0 && ascension >= 17 {
-        return MonsterIntent::AttackApplyPlayerFrail {
-            damage: shelled_parasite_fell_damage(ascension),
-            frail: SHELLED_PARASITE_FELL_FRAIL,
-        };
+        return shelled_parasite_fell_intent(ascension);
     }
 
     match moves_executed {
@@ -4708,10 +4718,7 @@ fn shelled_parasite_intent(moves_executed: u32, ascension: u8) -> MonsterIntent 
         1 => MonsterIntent::AttackHealSelf {
             damage: shelled_parasite_suck_damage(ascension),
         },
-        _ => MonsterIntent::AttackApplyPlayerFrail {
-            damage: shelled_parasite_fell_damage(ascension),
-            frail: SHELLED_PARASITE_FELL_FRAIL,
-        },
+        _ => shelled_parasite_fell_intent(ascension),
     }
 }
 
@@ -4741,10 +4748,7 @@ fn shelled_parasite_intent_from_target_roll(
 ) -> MonsterIntent {
     if roll < 20 {
         if !last_move(move_history, 1) {
-            return MonsterIntent::AttackApplyPlayerFrail {
-                damage: shelled_parasite_fell_damage(ascension),
-                frail: SHELLED_PARASITE_FELL_FRAIL,
-            };
+            return shelled_parasite_fell_intent(ascension);
         }
         return shelled_parasite_intent_from_target_roll(
             rng.random_int_range(20, 99),
@@ -4831,7 +4835,7 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
     }
     if content_id == SHELLED_PARASITE_ID {
         return match intent {
-            MonsterIntent::AttackApplyPlayerFrail { .. } => Some(1),
+            MonsterIntent::Attack { .. } | MonsterIntent::AttackApplyPlayerFrail { .. } => Some(1),
             MonsterIntent::AttackMultiple { .. } => Some(2),
             MonsterIntent::AttackHealSelf { .. } => Some(3),
             _ => None,
@@ -10873,9 +10877,8 @@ mod tests {
         );
         assert_eq!(
             prepare_monster_intent_for(&SHELLED_PARASITE_A0, 2, None),
-            MonsterIntent::AttackApplyPlayerFrail {
+            MonsterIntent::Attack {
                 damage: SHELLED_PARASITE_FELL_DAMAGE,
-                frail: SHELLED_PARASITE_FELL_FRAIL,
             }
         );
     }
@@ -10900,9 +10903,8 @@ mod tests {
         monster.moves_executed = 2;
         assert_eq!(
             prepare_monster_intent_for_ascension(&monster, 2),
-            MonsterIntent::AttackApplyPlayerFrail {
+            MonsterIntent::Attack {
                 damage: SHELLED_PARASITE_A2_FELL_DAMAGE,
-                frail: SHELLED_PARASITE_FELL_FRAIL,
             }
         );
     }
@@ -10921,11 +10923,29 @@ mod tests {
     }
 
     #[test]
+    fn shelled_parasite_fell_roll_is_plain_attack_before_a17() {
+        let mut rng = StsRng::new(123);
+
+        assert_eq!(
+            target_shelled_parasite_next_intent_from_roll(&[], 10, &mut rng, 0),
+            MonsterIntent::Attack {
+                damage: SHELLED_PARASITE_FELL_DAMAGE,
+            }
+        );
+        assert_eq!(
+            target_shelled_parasite_next_intent_from_roll(&[], 10, &mut rng, 17),
+            MonsterIntent::AttackApplyPlayerFrail {
+                damage: SHELLED_PARASITE_A2_FELL_DAMAGE,
+                frail: SHELLED_PARASITE_FELL_FRAIL,
+            }
+        );
+    }
+
+    #[test]
     fn shelled_parasite_source_scaled_fell_damage_does_not_double_apply_ascension_bonus() {
         let mut monster = monster_state_for_ascension(&SHELLED_PARASITE_A0, MonsterId::new(1), 2);
-        monster.intent = MonsterIntent::AttackApplyPlayerFrail {
+        monster.intent = MonsterIntent::Attack {
             damage: SHELLED_PARASITE_A2_FELL_DAMAGE,
-            frail: SHELLED_PARASITE_FELL_FRAIL,
         };
         let mut player = dummy_player();
         let player_before = player.clone();
@@ -10941,7 +10961,7 @@ mod tests {
         );
 
         assert_eq!(damage, SHELLED_PARASITE_A2_FELL_DAMAGE);
-        assert_eq!(player.powers.frail, SHELLED_PARASITE_FELL_FRAIL);
+        assert_eq!(player.powers.frail, 0);
     }
 
     #[test]

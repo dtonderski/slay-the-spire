@@ -12,6 +12,21 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Shelled Parasite Fell slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=234`,
+  `final_phase=combat` after the floor-19 Shelled Parasite intent mismatch.
+  Generic fix: Shelled Parasite Fell is plain attack before A17 and only applies
+  Frail at A17+, while target move-id mapping still treats both forms as move 1.
+  Focused tests cover the A0/A2 plain attack variants, A17 Frail variant, and a
+  blocked Life Suck expectation that no longer assumed unrelated combat-victory
+  healing. Checks: `cargo fmt`, `cargo test -p sts_core shelled_parasite --lib`,
+  `cargo clippy -p sts_core --lib` (existing warnings only),
+  `uv run maturin develop --release`, active strict replay, and the protected
+  live trace gate confirming older known blockers stayed at the same
+  boundaries. Current milestone remains A0 strict/live trace parity; next task
+  is continuing live UI play to the next fresh mismatch or SlayTheData
+  run-level decision replay.
 - Latest live-trace multi-hit thorns slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=222`,

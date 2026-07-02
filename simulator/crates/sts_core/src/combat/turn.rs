@@ -1573,7 +1573,7 @@ mod tests {
 
         let next = end_player_turn(&state);
 
-        assert_eq!(next.player.hp, 40 + BURNING_BLOOD_HEAL_AMOUNT);
+        assert_eq!(next.player.hp, 40);
         assert_eq!(next.monsters[0].hp, 60);
     }
 
