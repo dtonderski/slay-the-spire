@@ -7600,6 +7600,8 @@ pub fn apply_monster_intent_with_card_rng(
         }
     };
     let mut block_after_thorns = 0;
+    let total_thorns = player.powers.thorns + player.temp_thorns;
+    let mut thorns_already_applied = false;
     let (damage, thorns_hits) = match monster.intent {
         MonsterIntent::Attack { damage } => (
             monster_damage_to_player(player_before, monster, scale_damage(damage)),
@@ -7817,11 +7819,24 @@ pub fn apply_monster_intent_with_card_rng(
         } => {
             upgrade_burns_and_add_upgraded_to_discard(piles, count);
             let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
-            (hit_damage * hits, hits)
+            let effective_hits = apply_multi_hit_thorns(monster, total_thorns, hits);
+            monster.intent = MonsterIntent::AttackMultipleUpgradeBurns {
+                damage,
+                hits: effective_hits,
+                count,
+            };
+            thorns_already_applied = total_thorns > 0 && effective_hits > 0;
+            (hit_damage * effective_hits, effective_hits)
         }
         MonsterIntent::AttackMultiple { damage, hits } => {
             let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
-            (hit_damage * hits, hits)
+            let effective_hits = apply_multi_hit_thorns(monster, total_thorns, hits);
+            monster.intent = MonsterIntent::AttackMultiple {
+                damage,
+                hits: effective_hits,
+            };
+            thorns_already_applied = total_thorns > 0 && effective_hits > 0;
+            (hit_damage * effective_hits, effective_hits)
         }
         MonsterIntent::GuardianCloseUp { sharp_hide } => {
             monster.powers.spikes = sharp_hide;
@@ -7836,8 +7851,7 @@ pub fn apply_monster_intent_with_card_rng(
             (0, 0)
         }
     };
-    let total_thorns = player.powers.thorns + player.temp_thorns;
-    if total_thorns > 0 && thorns_hits > 0 {
+    if total_thorns > 0 && thorns_hits > 0 && !thorns_already_applied {
         let hp_damage = deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
         guardian_on_hp_damage(monster, hp_damage);
     }
@@ -7854,6 +7868,25 @@ pub fn apply_monster_intent_with_card_rng(
         monster.moves_executed += 1;
     }
     damage
+}
+
+fn apply_multi_hit_thorns(monster: &mut MonsterState, total_thorns: i32, hits: i32) -> i32 {
+    let hit_count = hits.max(1);
+    if total_thorns <= 0 {
+        return hit_count;
+    }
+
+    let mut effective_hits = 0;
+    for _ in 0..hit_count {
+        if !monster.alive {
+            break;
+        }
+        effective_hits += 1;
+        let hp_damage =
+            crate::combat::damage::deal_unmodified_damage_to_monster(monster, total_thorns);
+        guardian_on_hp_damage(monster, hp_damage);
+    }
+    effective_hits
 }
 
 fn upgrade_burns_and_add_upgraded_to_discard(piles: &mut CardPiles, count: i32) {

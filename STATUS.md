@@ -12,6 +12,23 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace multi-hit thorns slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=222`,
+  `final_phase=reward` after the Act 2 Byrds combat-end HP mismatch. Generic
+  fix: monster multi-hit attacks now apply player thorns hit-by-hit, stop
+  adding hits once thorns kills the attacker, and carry the effective hit count
+  into pending player damage so per-hit damage is not truncated across the
+  original hit count. A Byrds-shaped regression pins the low-HP Peck/Bronze
+  Scales timing without seed- or trace-specific production code. Checks:
+  `cargo fmt`, `cargo test -p sts_core monster_multi_hit --lib`,
+  `cargo test -p sts_core byrd_peck_thorns --lib`,
+  `cargo clippy -p sts_core --lib` (existing warnings only),
+  `uv run maturin develop --release`, active strict replay, and the protected
+  live trace gate confirming older known blockers stayed at the same
+  boundaries. Current milestone remains A0 strict/live trace parity; next task
+  is continuing live UI play to the next fresh mismatch or SlayTheData
+  run-level decision replay.
 - Latest live-trace Headbutt single-discard slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=214`,

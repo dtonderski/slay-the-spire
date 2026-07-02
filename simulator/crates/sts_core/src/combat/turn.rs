@@ -422,11 +422,6 @@ fn run_monster_turn(state: &mut CombatState) {
         }
         let player_snapshot = state.player.clone();
         let intent = state.monsters[index].intent;
-        let hits = match intent {
-            crate::MonsterIntent::AttackMultiple { hits, .. }
-            | crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. } => hits,
-            _ => 1,
-        };
         let damage = apply_monster_intent_with_card_rng(
             &mut state.monsters[index],
             &mut state.player,
@@ -436,6 +431,11 @@ fn run_monster_turn(state: &mut CombatState) {
             &relics,
             state.card_random_rng.as_mut(),
         );
+        let hits = match state.monsters[index].intent {
+            crate::MonsterIntent::AttackMultiple { hits, .. }
+            | crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. } => hits,
+            _ => 1,
+        };
         if matches!(intent, crate::MonsterIntent::Ritual { .. }) {
             skip_ritual_tick.push(actor_id);
         }
@@ -1227,7 +1227,7 @@ mod tests {
 
         let next = apply_combat_action(&state, CombatAction::EndTurn).expect("end turn");
 
-        assert_eq!(next.player.hp, 35);
+        assert_eq!(next.player.hp, 32);
         assert_eq!(next.monsters[0].hp, 8);
         assert_eq!(next.monsters[0].block, 5);
     }
@@ -1488,6 +1488,61 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.player.hp, 46);
+    }
+
+    #[test]
+    fn monster_multi_hit_stops_when_thorns_kills_attacker() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.clear();
+        state.player.hp = 50;
+        state.player.block = 0;
+        state.player.powers = Default::default();
+        state.player.powers.thorns = 3;
+        state.monsters[0].hp = 8;
+        state.monsters[0].intent = MonsterIntent::AttackMultiple { damage: 6, hits: 5 };
+        let mut sleeper = state.monsters[0].clone();
+        sleeper.id = MonsterId::new(2);
+        sleeper.hp = 50;
+        sleeper.intent = MonsterIntent::Sleep;
+        state.monsters.push(sleeper);
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 32);
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.monsters[0].hp, 0);
+    }
+
+    #[test]
+    fn byrd_peck_thorns_matches_live_low_hp_multi_hit_timing() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.clear();
+        state.player.hp = 63;
+        state.player.block = 0;
+        state.player.powers = Default::default();
+        state.player.powers.thorns = 3;
+        state.monsters = vec![
+            monster_state(&BYRD_A0, MonsterId::new(1)),
+            monster_state(&BYRD_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 12;
+        state.monsters[0].powers.strength = 2;
+        state.monsters[0].intent = MonsterIntent::AttackMultiple { damage: 1, hits: 5 };
+        state.monsters[1].hp = 8;
+        state.monsters[1].powers.strength = 1;
+        state.monsters[1].intent = MonsterIntent::AttackMultiple { damage: 1, hits: 5 };
+        let mut sleeper = monster_state(&BYRD_A0, MonsterId::new(3));
+        sleeper.hp = 50;
+        sleeper.intent = MonsterIntent::Sleep;
+        state.monsters.push(sleeper);
+        state.piles.draw_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 45);
+        assert!(!next.monsters[0].alive);
+        assert!(!next.monsters[1].alive);
     }
 
     #[test]
