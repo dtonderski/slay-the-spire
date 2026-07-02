@@ -3472,6 +3472,7 @@ _CARD_CHOICE_CONTENT_IDS = {
     "heavyblade": 108,
     "perfectedstrike": 109,
     "swordboomerang": 110,
+    "powerthrough": 111,
     "recklesscharge": 113,
     "hemokinesis": 114,
     "bloodforblood": 116,

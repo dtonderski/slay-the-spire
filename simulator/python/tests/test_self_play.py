@@ -1196,18 +1196,18 @@ class SelfPlayTests(unittest.TestCase):
             ],
         )
 
-    def test_observed_combat_card_reward_choices_normalize_ironclad_powers(self):
+    def test_observed_combat_card_reward_choices_normalize_compact_ironclad_ids(self):
         observed = {
             "screen_type": "CARD_REWARD",
             "room_phase": "COMBAT",
-            "choice_list": ["corruption", "shockwave", "feelnopain"],
+            "choice_list": ["powerthrough", "shockwave", "feelnopain"],
             "combat_state": {"player": {}, "monsters": []},
         }
 
         diffs = _observed_summary_diffs(_FakeCombatRewardEnv(), observed)
 
         choice_diffs = [diff for diff in diffs if diff["field"] == "combat.card_reward_choices"]
-        self.assertEqual(choice_diffs[0]["observed"], [142, 120, 19])
+        self.assertEqual(choice_diffs[0]["observed"], [111, 120, 19])
 
     def test_observed_defend_intent_wildcards_hidden_block_amount_only(self):
         self.assertTrue(

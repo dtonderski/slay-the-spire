@@ -7365,6 +7365,14 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
         "DEBUFF" if content_id == GREEN_LOUSE_ID => MonsterIntent::ApplyPlayerWeak {
             amount: GREEN_LOUSE_WEAK,
         },
+        "DEBUFF"
+            if content_id == ACID_SLIME_ID
+                && (str_field(monster, "id") == Some("AcidSlime_L")
+                    || int(monster, "max_hp")
+                        > sts_core::content::monsters::ACID_SLIME_M_A7_HP_RANGE.max) =>
+        {
+            MonsterIntent::ApplyPlayerWeak { amount: 2 }
+        }
         "DEBUFF" => MonsterIntent::ApplyPlayerWeak { amount: 1 },
         "ATTACK_DEBUFF" if matches!(content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) => {
             MonsterIntent::AttackAddSlimedToDiscard {
@@ -8329,6 +8337,10 @@ fn int(value: &Value, key: &str) -> i32 {
     value.get(key).and_then(Value::as_i64).unwrap_or(0) as i32
 }
 
+fn str_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
 fn observed_act1_boss(game: &Value) -> Act1Boss {
     game.get("act_boss")
         .and_then(Value::as_str)
@@ -9178,6 +9190,24 @@ mod tests {
                 damage: 11,
                 count: 2
             }
+        );
+    }
+
+    #[test]
+    fn large_acid_slime_debuff_observed_intent_imports_two_weak() {
+        use sts_core::content::monsters::ACID_SLIME_ID;
+
+        let monster = json!({
+            "id": "AcidSlime_L",
+            "max_hp": 68,
+            "intent": "DEBUFF",
+            "move_id": 4,
+            "move_base_damage": -1
+        });
+
+        assert_eq!(
+            observed_intent(&monster, ACID_SLIME_ID, 0),
+            MonsterIntent::ApplyPlayerWeak { amount: 2 }
         );
     }
 

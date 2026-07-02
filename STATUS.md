@@ -12,6 +12,22 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace verifier normalization slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` tail now strict-replays through step
+  199 with `verified=True`, `stop_reason=trace_exhausted`,
+  `final_phase=combat`. The exposed issues were verifier-side rather than core
+  transition mismatches: Python strict replay did not normalize compact
+  `powerthrough` card-choice ids to `POWER_THROUGH_ID`, and Rust observed-state
+  import treated large Acid Slime `DEBUFF` as generic Weak 1 instead of the
+  source-backed Weak 2 from `AcidSlime_L`. Checks: `cargo fmt`,
+  `uv run python -m unittest
+  python.tests.test_self_play.SelfPlayTests.test_observed_combat_card_reward_choices_normalize_compact_ironclad_ids`,
+  `cargo test -p sts_verify large_acid_slime_debuff_observed_intent_imports_two_weak --lib`,
+  `uv run maturin develop --release`, strict replay of the current live trace,
+  and `cargo clippy -p sts_verify` (existing warnings). Known risk: observed
+  card-choice normalization still has a duplicated Python table and should be
+  centralized against Rust card definitions instead of being extended one
+  compact id at a time.
 - Latest live-trace Large Slime initial AI slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` tail through floor 11 now
   strict-replays with `verified=True`, `stop_reason=trace_exhausted`,
