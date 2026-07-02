@@ -4,6 +4,15 @@
 
 ### Tooling
 - Latest active trace replay follow-up: the extended
+  `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays to exhaustion
+  (`verified=True`, `steps=75`, `final_phase=combat`). Generic fix: large
+  Acid Slime split no longer spends a post-split AI roll for the dead parent;
+  decompiled `AcidSlime_L.takeTurn` spawns the two medium slimes and sets the
+  parent's split move without enqueuing `RollMoveAction`, unlike large Spike
+  Slime. Checks: `cargo fmt`, `cargo check -p sts_core --lib`,
+  `cargo check -p sts_verify --lib`, `uv run maturin develop --release`, and
+  strict replay of the active trace. UI restarted at `http://127.0.0.1:8799/`.
+- Latest active trace replay follow-up: the extended
   `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays through the next
   turn (`verified=True`, `steps=30`, `final_phase=combat`). Generic fix:
   after modeling Shame's separate end-turn autoplay/discard trigger, the normal

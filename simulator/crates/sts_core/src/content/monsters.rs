@@ -7505,15 +7505,6 @@ pub fn apply_large_acid_slime_split(
     monsters[slime_index].hp = 0;
     monsters[slime_index].alive = false;
     monsters[slime_index].block = 0;
-    if let Some(rng) = rng.as_deref_mut() {
-        let parent_roll = rng.random_int(99);
-        monsters[slime_index].intent = target_large_acid_slime_next_intent_from_roll(
-            &monsters[slime_index].move_history,
-            parent_roll,
-            rng,
-            ascension,
-        );
-    }
     if let Some(boss_index) = monsters
         .iter()
         .position(|monster| monster.content_id == SLIME_BOSS_ID && monster.hp <= 0)
