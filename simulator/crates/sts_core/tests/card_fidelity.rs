@@ -37,6 +37,42 @@ fn twin_strike_definitions_target_one_enemy_twice() {
 }
 
 #[test]
+fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::FLASH_OF_STEEL_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Havoc plays Flash of Steel+ from the draw pile");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 6);
+    assert!(next
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == cards::STRIKE_R_ID));
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::FLASH_OF_STEEL_PLUS_ID
+    );
+}
+
+#[test]
 fn sword_boomerang_definitions_target_all_enemies_without_selection() {
     for definition in [cards::SWORD_BOOMERANG, cards::SWORD_BOOMERANG_PLUS] {
         assert_eq!(definition.target, TargetRequirement::AllEnemies);

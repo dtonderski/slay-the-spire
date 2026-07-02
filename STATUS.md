@@ -20,6 +20,26 @@
   `uv run maturin develop --release` passed; strict replay of
   `verification/corpus/communication_mod/trace-2026-07-02T22-41-59-925Z.jsonl`
   passed to trace exhaustion (`verified True`, 43 steps, final phase reward).
+- Card-fidelity fix: corrected Flash of Steel/Flash of Steel+ audit rows and
+  fixed the generic Havoc/top-draw free-play path for Flash of Steel+. Source
+  `FlashOfSteel.java` deals selected-enemy damage, draws 1 card, and upgrades
+  damage by 3; normal local play already matched, but the `PlayTopDrawCard`
+  branch only recognized base Flash of Steel and omitted upgraded damage/draw.
+  The free-play branch now handles both forms, and `card_fidelity.rs` covers
+  Havoc playing Flash of Steel+ from the draw pile. Checks:
+  `cargo fmt --check` passed; `cargo test -p sts_core --test card_fidelity`
+  passed; active live-regression manifest replay passed via
+  `uv run python -m unittest python.tests.test_live_regression_traces`;
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled Python. Full `cargo test` still fails only in the pre-existing
+  stale `milestone6` monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Card-fidelity audit follow-up: corrected the Bludgeon/Bludgeon+ audit rows
   after source/local re-check showed the simulator already matched decompiled
   `Bludgeon.java`. Source Bludgeon is a cost 3 enemy Attack with
