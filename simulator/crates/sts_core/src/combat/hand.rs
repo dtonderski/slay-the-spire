@@ -16,14 +16,9 @@ pub(crate) fn resolve_end_of_turn_doubt(state: &mut CombatState) {
 }
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
-    // CommunicationMod exposes hand order as the bridge can address it. For a
-    // stable discard pile, target top-of-hand discard is visible as the reverse
-    // order; if the next draw will shuffle discard immediately, the bridge
-    // order is the order that source replay evidence needs entering shuffle.
-    discard_non_retain_hand(
-        state,
-        state.piles.draw_pile.len() >= crate::combat::turn::target_hand_size(state),
-    );
+    let stable_discard_order_visible =
+        state.piles.draw_pile.len() >= crate::combat::turn::target_hand_size(state);
+    discard_non_retain_hand(state, stable_discard_order_visible);
 }
 
 fn apply_burn_damage_in_hand(state: &mut CombatState) {
