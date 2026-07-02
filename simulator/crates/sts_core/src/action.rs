@@ -134,6 +134,9 @@ pub enum InternalAction {
         count: usize,
     },
     ShuffleDiscardIntoDraw,
+    DrawCardsIfNoAttacksInHand {
+        count: usize,
+    },
     DrawRandomAttacksFromDrawPile {
         count: usize,
     },

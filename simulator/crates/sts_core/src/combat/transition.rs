@@ -21,16 +21,16 @@ use crate::{
         DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DROPKICK_PLUS_ID, ENLIGHTENMENT_ID,
         ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID,
         FLASH_OF_STEEL_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID,
-        HEMOKINESIS_PLUS_ID, IMPATIENCE_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID,
-        IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID, PAIN_ID, PANACEA_ID,
-        PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID,
-        PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID,
-        RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID,
-        SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
-        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID,
-        WILD_STRIKE_PLUS_ID, WOUND_ID,
+        HEMOKINESIS_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID,
+        IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID, MIND_BLAST_ID, OFFERING_ID,
+        PAIN_ID, PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
+        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID,
+        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
+        SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
@@ -614,6 +614,12 @@ fn apply_internal_action(
         }
         InternalAction::ShuffleDiscardIntoDraw => {
             player_shuffle_discard_into_draw(state);
+            Ok(Vec::new())
+        }
+        InternalAction::DrawCardsIfNoAttacksInHand { count } => {
+            if !hand_contains_attack(state) {
+                player_draw_cards(state, count);
+            }
             Ok(Vec::new())
         }
         InternalAction::DrawRandomAttacksFromDrawPile { count } => {
@@ -1334,6 +1340,13 @@ pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) {
     }
 }
 
+fn hand_contains_attack(state: &CombatState) -> bool {
+    state.piles.hand.iter().any(|card| {
+        get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Attack)
+    })
+}
+
 fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
     let mut attack_ids = Vec::new();
     for card in &state.piles.draw_pile {
@@ -1773,7 +1786,10 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
         IMPATIENCE_ID => {
-            follow_ups.push(InternalAction::DrawCards { count: 2 });
+            follow_ups.push(InternalAction::DrawCardsIfNoAttacksInHand { count: 2 });
+        }
+        IMPATIENCE_PLUS_ID => {
+            follow_ups.push(InternalAction::DrawCardsIfNoAttacksInHand { count: 3 });
         }
         CHRYSALIS_ID => {
             for content_id in card_effects::chrysalis_generated_skills(state, 3) {

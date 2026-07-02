@@ -134,6 +134,75 @@ fn deep_breath_plus_draws_two_after_shuffle() {
 }
 
 #[test]
+fn impatience_plays_with_attack_in_hand_without_drawing() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::IMPATIENCE_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    assert!(
+        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        })
+    );
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Impatience remains playable with an attack in hand");
+
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.draw_pile.len(), 2);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::IMPATIENCE_ID);
+}
+
+#[test]
+fn impatience_plus_draws_three_without_attack_in_hand() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::IMPATIENCE_PLUS_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::SHRUG_IT_OFF_ID),
+        CardInstance::new(CardId::new(4), cards::BATTLE_TRANCE_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Impatience+ draws when no attacks are in hand");
+
+    assert_eq!(next.piles.hand.len(), 3);
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::IMPATIENCE_PLUS_ID
+    );
+}
+
+#[test]
 fn sword_boomerang_definitions_target_all_enemies_without_selection() {
     for definition in [cards::SWORD_BOOMERANG, cards::SWORD_BOOMERANG_PLUS] {
         assert_eq!(definition.target, TargetRequirement::AllEnemies);

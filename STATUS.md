@@ -61,6 +61,28 @@
   `slime_boss_fixture_has_expected_hp_and_slam_intent`,
   `slime_boss_splits_into_acid_slimes_at_half_hp`, and
   `spike_slime_combat_executes_spit_lick_cycle`.
+- Card-fidelity fix: corrected Impatience/Impatience+ audit rows and fixed
+  generic simulator play behavior. Decompiled `Impatience.java` queues
+  `ConditionalDrawAction(magicNumber, ATTACK)`: the card is playable even with
+  Attacks in hand, but draws only when the current hand has no Attack cards.
+  Local play previously rejected Impatience when an Attack was in hand, and the
+  Havoc/top-draw free-play path drew unconditionally and only covered the base
+  form. The simulator now uses a conditional no-Attacks draw action for normal
+  and top-draw/free-play paths, with focused tests for playability with an
+  Attack in hand and upgraded draw 3 behavior. Checks: `cargo fmt --check`
+  passed; `git diff --check` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (11 tests); active live-regression manifest replay
+  passed via `uv run python -m unittest python.tests.test_live_regression_traces`;
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled Python. Full `cargo test` still fails only in the pre-existing
+  stale `milestone6` monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Card-fidelity audit follow-up: corrected the Finesse/Finesse+ audit rows
   after source/local re-check showed the simulator already matched decompiled
   `Finesse.java`. Source Finesse is a cost 0 self-targeting Skill with

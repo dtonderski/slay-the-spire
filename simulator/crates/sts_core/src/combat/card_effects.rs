@@ -3144,7 +3144,7 @@ fn impatience_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DrawCards {
+        InternalAction::DrawCardsIfNoAttacksInHand {
             count: if definition.id == IMPATIENCE_PLUS_ID {
                 3
             } else {
