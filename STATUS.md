@@ -3,6 +3,25 @@
 ## What Exists
 
 ### Tooling
+- Latest bridge-control fix: TCP command guarding no longer wedges forever
+  after commands such as `CANCEL` that may leave the game on the same visible
+  state and time out waiting for a state-sequence advance. The trace client now
+  clears its in-memory in-flight marker after an observed-update timeout when
+  no queued command remains, and a regression covers accepting a follow-up
+  command at the same state. Check: `node tools\communication\trace_client.test.js`.
+- Latest card-fidelity audit slice: added
+  `simulator/docs/audit/card_fidelity_audit.md`, covering all 242 local
+  `ALL_CARDS` entries with separate base/upgraded rows, decompiled-source path
+  facts, trusted `sts.gg /v1/cards` database facts, local simulator
+  definition/effect facts, verdicts, and fix/blocker notes. This pass found no
+  new high-confidence generic card mismatch and made no simulator behavior
+  changes. Checks: `cargo fmt --check` passed; `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled Python; active
+  live-regression manifest replay passed via
+  `uv run python -m unittest python.tests.test_live_regression_traces`.
+  Full `cargo test` still has pre-existing stale `milestone6` fixture failures
+  around source-backed monster RNG/intent behavior and should not be treated as
+  introduced by this documentation-only audit.
 - Latest active trace replay follow-up: the extended
   `trace-2026-07-02T20-50-14-856Z.jsonl` now strict-replays to exhaustion
   (`verified=True`, `steps=122`, `final_phase=combat`). Generic fix:
