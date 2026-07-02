@@ -18,7 +18,7 @@ from sts.guided_selection import GuidedSelectionConfig, select_run_audit_report
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
-from sts.self_play import _action_for_communication_command
+from sts.self_play import _action_for_communication_command, _summary
 from sts.slaythedata_index import (
     export_guided_run_script,
     select_guided_collection_candidates,
@@ -440,6 +440,20 @@ class SessionManager:
             }
         observed = live_session.get("state_id")
         if observed != expected:
+            summary_match = _prediction_visible_summary_match(
+                self,
+                prediction,
+                live_session,
+                state_kind="run",
+            )
+            if summary_match is True:
+                return {
+                    "status": "matched",
+                    "reason": "visible_summary_match",
+                    "expected_state_id": expected,
+                    "observed_state_id": observed,
+                    "attach": live_session,
+                }
             return {
                 "status": "mismatch",
                 "reason": "prediction_mismatch",
@@ -647,6 +661,14 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "live", "session"]:
                 self._send_json(self.manager.create_live_session(self.bridge.status()))
+                return
+            if parts == ["api", "live", "prediction", "verify"]:
+                self._send_json(
+                    self.manager.verify_live_prediction(
+                        payload,
+                        bridge_status=self.bridge.status(),
+                    )
+                )
                 return
             if parts[:2] == ["api", "sessions"] and len(parts) == 4 and parts[3] == "step":
                 self._send_json(self.manager.step(parts[2], payload))
@@ -1548,6 +1570,25 @@ def _env_from_snapshot(state_kind: str, snapshot_json: str) -> Any:
     if state_kind == "run":
         return omni.OmniRunEnv.from_snapshot_json(snapshot_json)
     raise ValueError(f"unsupported session state kind: {state_kind}")
+
+
+def _prediction_visible_summary_match(
+    manager: SessionManager,
+    prediction: dict[str, Any],
+    live_session: dict[str, Any],
+    *,
+    state_kind: str,
+) -> bool | None:
+    snapshot_json = prediction.get("predicted_snapshot_json")
+    observed_session_id = live_session.get("session_id")
+    if not isinstance(snapshot_json, str) or not isinstance(observed_session_id, str):
+        return None
+    try:
+        predicted_env = _env_from_snapshot(state_kind, snapshot_json)
+        observed_env = manager._require_session(observed_session_id).env
+        return _summary(predicted_env) == _summary(observed_env)
+    except Exception:
+        return None
 
 
 def _call_optional(obj: Any, name: str) -> Any:

@@ -1871,6 +1871,79 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["expected_state_id"], "predicted-live-state")
         self.assertEqual(result["observed_state_id"], "observed-live-state")
 
+    def test_verify_live_prediction_accepts_visible_summary_match(self):
+        manager = SessionManager()
+        observed_env = FakeLiveEnv()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=observed_env,
+        )
+        live_session = {
+            "session_id": "live",
+            "state_id": "observed-hidden-state",
+            "attach_fidelity": "seed_replay",
+        }
+        predicted_env = FakeLiveEnv()
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch(
+            "sts.ui_service._env_from_snapshot", return_value=predicted_env
+        ), patch(
+            "sts.ui_service._summary",
+            side_effect=[
+                {"phase": "combat", "combat": {"hand": [1, 2]}},
+                {"phase": "combat", "combat": {"hand": [1, 2]}},
+            ],
+        ):
+            result = manager.verify_live_prediction(
+                {
+                    "predicted_state_id": "predicted-hidden-state",
+                    "predicted_snapshot_json": "{}",
+                },
+                bridge_status={"state_id": "bridge-state"},
+            )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["reason"], "visible_summary_match")
+        self.assertEqual(result["expected_state_id"], "predicted-hidden-state")
+        self.assertEqual(result["observed_state_id"], "observed-hidden-state")
+
+    def test_verify_live_prediction_reports_visible_summary_mismatch(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeLiveEnv(),
+        )
+        live_session = {
+            "session_id": "live",
+            "state_id": "observed-hidden-state",
+            "attach_fidelity": "seed_replay",
+        }
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch(
+            "sts.ui_service._env_from_snapshot", return_value=FakeLiveEnv()
+        ), patch(
+            "sts.ui_service._summary",
+            side_effect=[
+                {"phase": "combat", "combat": {"hand": [1, 2]}},
+                {"phase": "combat", "combat": {"hand": [2, 1]}},
+            ],
+        ):
+            result = manager.verify_live_prediction(
+                {
+                    "predicted_state_id": "predicted-hidden-state",
+                    "predicted_snapshot_json": "{}",
+                },
+                bridge_status={"state_id": "bridge-state"},
+            )
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["expected_state_id"], "predicted-hidden-state")
+        self.assertEqual(result["observed_state_id"], "observed-hidden-state")
+
     def test_parity_reports_unknown_without_observed_combat(self):
         manager = SessionManager()
         session = manager.create_session()

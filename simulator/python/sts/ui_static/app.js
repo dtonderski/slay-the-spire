@@ -308,7 +308,7 @@
       app.liveSearchBridgeStateId = null;
       await loadSnapshotQuietly();
       await refreshParityQuietly();
-      if (verifyPendingLivePrediction(currentStateId())) {
+      if (await verifyPendingLivePrediction(currentStateId())) {
         const advanced = advanceLiveSearchPlan(previousSearch, pendingPlanIndex, currentBridgeStateId);
         if (app.liveAutoPlayPlan) {
           scheduleAutoPlayPlanStep();
@@ -2307,22 +2307,40 @@
     return current + 1;
   }
 
-  function verifyPendingLivePrediction(observedStateId) {
+  async function verifyPendingLivePrediction(observedStateId) {
     const pending = app.livePendingPrediction;
     if (!pending) return false;
     app.livePendingPrediction = null;
     const expected = firstDefined(pending.predicted_state_id, pending.predictedStateId, null);
     if (expected && observedStateId && expected === observedStateId) return true;
+    let verification = null;
+    try {
+      verification = await requestJson("/api/live/prediction/verify", {
+        method: "POST",
+        body: pending,
+      });
+    } catch (error) {
+      verification = {
+        status: "mismatch",
+        reason: "prediction_check_failed",
+        detail: readableError(error),
+      };
+    }
+    if (verification && verification.status === "matched") return true;
 
     const violation = {
       title: "Simulator prediction mismatch",
-      message: "The live game reached a different state than the simulator predicted. Cached recommendations are blocked until you inspect and reattach/research.",
-      expected,
-      observed: observedStateId || "-",
+      message: firstDefined(
+        verification && verification.detail,
+        "The live game reached a different state than the simulator predicted. Cached recommendations are blocked until you inspect and reattach/research.",
+      ),
+      expected: firstDefined(verification && verification.expected_state_id, expected),
+      observed: firstDefined(verification && verification.observed_state_id, observedStateId, "-"),
       source: firstDefined(pending.source_state_id, "-"),
       bridgeState: firstDefined(pending.bridge_state_id, "-"),
       bridgeStep: firstDefined(pending.bridge_step, "-"),
       action: firstDefined(pending.action_label, "Unknown action"),
+      reason: firstDefined(verification && verification.reason, "prediction_mismatch"),
     };
     app.liveInvariantViolation = violation;
     app.search = null;
