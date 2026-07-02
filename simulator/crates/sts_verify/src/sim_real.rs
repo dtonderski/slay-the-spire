@@ -7612,6 +7612,17 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
                 vulnerable: 2,
             }
         }
+        "ATTACK_DEBUFF" if content_id == SNECKO_ID && ascension >= 17 => {
+            MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
+                damage: damage.max(0),
+                weak: 2,
+                vulnerable: 2,
+            }
+        }
+        "ATTACK_DEBUFF" if content_id == SNECKO_ID => MonsterIntent::AttackApplyPlayerVulnerable {
+            damage: damage.max(0),
+            vulnerable: 2,
+        },
         "ATTACK_DEBUFF" if content_id == SLAVER_BLUE_ID => MonsterIntent::AttackApplyPlayerWeak {
             damage: damage.max(0),
             weak: if ascension >= 17 { 2 } else { 1 },
@@ -9386,6 +9397,33 @@ mod tests {
             observed_intent(&monster, GREMLIN_NOB_ID, 0),
             MonsterIntent::AttackApplyPlayerVulnerable {
                 damage: 6,
+                vulnerable: 2
+            }
+        );
+    }
+
+    #[test]
+    fn snecko_attack_debuff_observed_intent_imports_tail_whip() {
+        use sts_core::content::monsters::SNECKO_ID;
+
+        let monster = json!({
+            "id": "Snecko",
+            "intent": "ATTACK_DEBUFF",
+            "move_base_damage": 8
+        });
+
+        assert_eq!(
+            observed_intent(&monster, SNECKO_ID, 0),
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: 8,
+                vulnerable: 2
+            }
+        );
+        assert_eq!(
+            observed_intent(&monster, SNECKO_ID, 17),
+            MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
+                damage: 8,
+                weak: 2,
                 vulnerable: 2
             }
         );
