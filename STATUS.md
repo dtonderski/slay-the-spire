@@ -40,6 +40,25 @@
   `slime_boss_fixture_has_expected_hp_and_slam_intent`,
   `slime_boss_splits_into_acid_slimes_at_half_hp`, and
   `spike_slime_combat_executes_spit_lick_cycle`.
+- Card-fidelity audit follow-up: corrected the Finesse/Finesse+ audit rows
+  after source/local re-check showed the simulator already matched decompiled
+  `Finesse.java`. Source Finesse is a cost 0 self-targeting Skill with
+  `baseBlock=2`, queues `GainBlockAction` then `DrawCardAction(1)`, and
+  upgrades block by 2; the artifact now records base/upgraded local behavior
+  as 2/4 Block plus draw 1 through the explicit `finesse_queue` instead of
+  stale generic draw/block wording. Checks: `cargo fmt --check` passed;
+  `git diff --check` passed; active live-regression manifest replay passed via
+  `uv run python -m unittest python.tests.test_live_regression_traces`;
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled Python. Full `cargo test` still fails only in the pre-existing
+  stale `milestone6` monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Card-fidelity audit follow-up: corrected the Bludgeon/Bludgeon+ audit rows
   after source/local re-check showed the simulator already matched decompiled
   `Bludgeon.java`. Source Bludgeon is a cost 3 enemy Attack with
