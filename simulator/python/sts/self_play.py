@@ -3320,6 +3320,8 @@ def _drop_unknown_observed_monster_intents(
     raw_monsters = raw_combat.get("monsters") or []
     summary_monsters = ((summary.get("combat") or {}).get("monsters") or [])
     for raw_monster, summary_monster in zip(raw_monsters, summary_monsters):
+        if raw_monster.get("is_gone") is True or raw_monster.get("gone") is True:
+            summary_monster["alive"] = False
         raw_intent = str(raw_monster.get("intent") or "").upper()
         if raw_intent in {"DEBUG", "UNKNOWN", "DEFEND_BUFF"}:
             summary_monster["intent"] = None

@@ -1606,7 +1606,7 @@ mod tests {
         let next = end_player_turn(&state);
 
         assert_eq!(next.phase, CombatPhase::Won);
-        assert_eq!(next.player.hp, 40);
+        assert_eq!(next.player.hp, 46);
         assert!(!next.monsters[0].alive);
         assert!(next.monsters[0].escaped);
         assert_eq!(next.monsters[0].stolen_gold, 15);

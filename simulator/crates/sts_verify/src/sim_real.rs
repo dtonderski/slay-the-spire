@@ -7282,13 +7282,17 @@ fn monsters_from_observed(
             let move_history = target_move_byte(content_id, replay.intent)
                 .map(|move_byte| vec![move_byte])
                 .unwrap_or_default();
+            let is_gone = monster
+                .get("is_gone")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             MonsterState {
                 id: MonsterId::new(index as u64 + 1),
                 hp: int(monster, "current_hp"),
                 max_hp: int(monster, "max_hp"),
                 block: int(monster, "block"),
-                alive: int(monster, "current_hp") > 0,
-                escaped: false,
+                alive: int(monster, "current_hp") > 0 && !is_gone,
+                escaped: is_gone,
                 powers,
                 temp_strength_down: 0,
                 content_id,
@@ -8994,6 +8998,50 @@ mod tests {
 
         assert_eq!(combat.relic_counters.cards_played_this_turn, 2);
         assert_eq!(combat.relic_counters.player_turns_started, 5);
+    }
+
+    #[test]
+    fn observed_combat_reconstruction_treats_gone_monsters_as_escaped() {
+        let message = json!({
+            "game_state": {
+                "deck": [],
+                "relics": [],
+                "current_hp": 70,
+                "max_hp": 80,
+                "gold": 42,
+                "floor": 16,
+                "ascension_level": 0,
+                "combat_state": {
+                    "player": {
+                        "current_hp": 70,
+                        "max_hp": 80,
+                        "block": 0,
+                        "energy": 3,
+                        "powers": []
+                    },
+                    "monsters": [{
+                        "id": "Looter",
+                        "name": "Looter",
+                        "current_hp": 26,
+                        "max_hp": 44,
+                        "block": 0,
+                        "intent": "ESCAPE",
+                        "is_gone": true,
+                        "powers": []
+                    }],
+                    "hand": [],
+                    "draw_pile": [],
+                    "discard_pile": [],
+                    "exhaust_pile": []
+                }
+            }
+        });
+
+        let run = run_from_observed_combat(&message).expect("observed combat reconstructs");
+        let combat = run.combat.as_ref().expect("combat state");
+
+        assert!(!combat.monsters[0].alive);
+        assert!(combat.monsters[0].escaped);
     }
 
     #[test]

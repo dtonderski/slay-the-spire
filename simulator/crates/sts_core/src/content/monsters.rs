@@ -170,7 +170,8 @@ const MUGGER_BIG_SWIPE_DAMAGE: i32 = 16;
 const MUGGER_A2_BIG_SWIPE_DAMAGE: i32 = 18;
 const MUGGER_THEFT: i32 = 15;
 const MUGGER_A17_THEFT: i32 = 20;
-const MUGGER_SMOKE_BOMB_BLOCK: i32 = 28;
+const MUGGER_SMOKE_BOMB_BLOCK: i32 = 11;
+const MUGGER_A17_SMOKE_BOMB_BLOCK: i32 = 17;
 const CHOSEN_POKE_DAMAGE: i32 = 5;
 const CHOSEN_A2_POKE_DAMAGE: i32 = 6;
 const CHOSEN_POKE_HITS: i32 = 2;
@@ -4063,8 +4064,12 @@ fn mugger_theft(ascension: u8) -> i32 {
 }
 
 #[must_use]
-fn mugger_escape_block(_ascension: u8) -> i32 {
-    MUGGER_SMOKE_BOMB_BLOCK
+fn mugger_escape_block(ascension: u8) -> i32 {
+    if ascension >= 17 {
+        MUGGER_A17_SMOKE_BOMB_BLOCK
+    } else {
+        MUGGER_SMOKE_BOMB_BLOCK
+    }
 }
 
 #[must_use]
@@ -9907,7 +9912,7 @@ mod tests {
         assert_eq!(
             prepare_monster_intent_for_ascension(&mugger, 17),
             MonsterIntent::Block {
-                block: MUGGER_SMOKE_BOMB_BLOCK,
+                block: MUGGER_A17_SMOKE_BOMB_BLOCK,
             }
         );
     }

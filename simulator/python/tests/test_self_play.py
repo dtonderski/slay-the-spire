@@ -12,7 +12,9 @@ from sts.self_play import (
     _action_for_communication_command,
     _candidate_with_allowed_potions,
     _combat_intents_match,
+    _combat_monster_summary_diffs,
     _combat_policy_from_name,
+    _drop_unknown_observed_monster_intents,
     _observed_summary_diffs,
     _real_trace_combat_baselines,
     _parse_candidate_names,
@@ -145,6 +147,35 @@ class SelfPlaySummaryHelperTests(unittest.TestCase):
         diffs = _reward_summary_diffs(simulator_reward, observed_reward, observed)
 
         self.assertIn("reward.potion_offer", {diff["field"] for diff in diffs})
+
+    def test_observed_gone_monster_does_not_diff_as_alive(self):
+        summary = {
+            "combat": {
+                "monsters": [
+                    {"alive": True, "hp": 26, "block": 0, "intent": "Escape"},
+                ]
+            }
+        }
+        observed = {
+            "combat_state": {
+                "monsters": [
+                    {
+                        "is_gone": True,
+                        "current_hp": 26,
+                        "block": 0,
+                        "intent": "ESCAPE",
+                    }
+                ]
+            }
+        }
+
+        _drop_unknown_observed_monster_intents(summary, observed)
+        diffs = _combat_monster_summary_diffs(
+            {"monsters": [{"alive": False, "hp": 26, "block": 0, "intent": "Escape"}]},
+            summary["combat"],
+        )
+
+        self.assertNotIn("combat.monsters[0].alive", {diff["field"] for diff in diffs})
 
 
 class _FakeCombatRewardEnv:
