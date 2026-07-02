@@ -3,6 +3,12 @@
 ## What Exists
 
 ### Tooling
+- Latest live-regression corpus slice: the clean current live trace has been
+  snapshotted into the persistent verification corpus as
+  `communication_mod/live-regression-2026-07-01T20-30-26-163Z.jsonl`, and a
+  manifest-driven Python test now strict-replays every
+  `verification/corpus/live_regressions.json` entry. This keeps live fidelity
+  regressions under automatic testing without seed-specific simulator behavior.
 - Latest simulator developer-loop tooling slice: `simulator/scripts/dev-verify.ps1`
   now wraps the common local fidelity loop (`cargo fmt`, focused Rust test
   filters, `uv run cargo clippy`, `uv run maturin develop --release`, and
