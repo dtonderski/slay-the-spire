@@ -36,20 +36,24 @@ class BridgeMirror:
         summary = _read_json(self.session_dir / "summary.json")
         current_state = _read_json(self.session_dir / "current_state.json")
         command_path = self.session_dir / "next_command.txt"
-        file_pending = command_path.exists()
-        tcp_pending = bool(status.get("pending_command")) if isinstance(status, dict) else False
-        pending_command = file_pending or tcp_pending
-        command_meta = (
-            _read_json(self.session_dir / "next_command.json")
-            if file_pending
-            else status.get("queued_command_meta", {}) if isinstance(status, dict) and tcp_pending else {}
-        )
         ages = {
             "status_age_seconds": _age_seconds(self.session_dir / "status.json", now),
             "summary_age_seconds": _age_seconds(self.session_dir / "summary.json", now),
             "current_state_age_seconds": _age_seconds(self.session_dir / "current_state.json", now),
         }
         observed_state_stale = _is_observed_state_stale(ages, self.stale_after_seconds)
+        file_pending = command_path.exists()
+        tcp_pending = (
+            bool(status.get("pending_command"))
+            if isinstance(status, dict) and not observed_state_stale
+            else False
+        )
+        pending_command = file_pending or tcp_pending
+        command_meta = (
+            _read_json(self.session_dir / "next_command.json")
+            if file_pending
+            else status.get("queued_command_meta", {}) if isinstance(status, dict) and tcp_pending else {}
+        )
         stale = observed_state_stale
         exited = status.get("status") == "exited" if isinstance(status, dict) else False
         connected = bool(status) and not status.get("missing", False) and not exited
@@ -108,7 +112,12 @@ class BridgeMirror:
         status_age = _age_seconds(status_path, now)
         summary_age = _age_seconds(summary_path, now)
         command_exists = command_path.exists()
-        tcp_pending = bool(status.get("pending_command")) if isinstance(status, dict) else False
+        tcp_pending = (
+            bool(status.get("pending_command"))
+            if isinstance(status, dict)
+            and not _is_observed_state_stale({"summary_age_seconds": summary_age}, self.stale_after_seconds)
+            else False
+        )
         command_meta_exists = command_meta_path.exists()
         command_meta = (
             _read_json(command_meta_path)
@@ -629,13 +638,22 @@ def bridge_actions_from_status(
 
     if "choose" in available:
         choices = summary.get("choices") or []
+        open_potion_slots = summary.get("open_potion_slots")
         for index, choice in enumerate(choices):
+            choice_disabled_reason = disabled_reason
+            if (
+                choice_disabled_reason is None
+                and str(choice).strip().lower() == "potion"
+                and _screen_type(summary) == "COMBAT_REWARD"
+                and open_potion_slots == 0
+            ):
+                choice_disabled_reason = "potion belt is full"
             actions.append(
                 _bridge_action(
                     f"choose-{index}",
                     str(choice),
                     {"kind": "ChooseVisibleOption", "option_slot": index},
-                    disabled_reason,
+                    choice_disabled_reason,
                     source_state_id,
                 )
             )
@@ -747,6 +765,10 @@ def _bridge_lifecycle(status: str, label: str, detail: Any) -> dict[str, str | N
         "label": label,
         "detail": None if detail is None else str(detail),
     }
+
+
+def _screen_type(summary: dict[str, Any]) -> str:
+    return str(summary.get("screen_type") or summary.get("screen_name") or "").upper()
 
 
 def _bridge_disabled_reason(

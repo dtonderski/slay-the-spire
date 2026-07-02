@@ -4,6 +4,7 @@ import socket
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from sts.bridge import (
@@ -181,6 +182,42 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertIn("bridge command already pending", preflight["problems"])
         self.assertEqual(preflight["pending_command"]["transport"], "tcp-jsonl")
         self.assertEqual(preflight["pending_command"]["command_id"], "tcp-cmd-1")
+
+    def test_status_ignores_stale_tcp_pending_without_command_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "sent",
+                        "pending_command": True,
+                        "queued_command_meta": {
+                            "command_id": "tcp-cmd-1",
+                            "command": "CHOOSE 0",
+                            "protocol": "tcp-jsonl",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-state",
+                        "ready_for_command": True,
+                        "available_commands": ["choose", "state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            os.utime(root / "summary.json", (800.0, 800.0))
+
+            status = BridgeMirror(root, stale_after_seconds=120).status(now=1000.0)
+            preflight = BridgeMirror(root, stale_after_seconds=120).preflight(now=1000.0)
+
+        self.assertFalse(status["pending_command"])
+        self.assertEqual(status["bridge_lifecycle"]["status"], "stale")
+        self.assertFalse(preflight["pending_command"]["present"])
 
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -962,6 +999,26 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(commands, ["CHOOSE 0", "CHOOSE 1", "LEAVE", "RETURN"])
         self.assertTrue(all(action["source_state_id"] == "bridge-state" for action in actions))
         self.assertTrue(all(action["enabled"] for action in actions))
+
+    def test_bridge_actions_disable_full_belt_potion_reward_choice(self):
+        actions = bridge_actions_from_status(
+            {
+                "ready_for_command": True,
+                "screen_type": "COMBAT_REWARD",
+                "available_commands": ["choose", "proceed", "state"],
+                "choices": ["potion", "card"],
+                "open_potion_slots": 0,
+            },
+            source_state_id="bridge-state",
+        )
+
+        potion = actions[0]
+        card = actions[1]
+        self.assertEqual(potion["command"], "CHOOSE 0")
+        self.assertFalse(potion["enabled"])
+        self.assertEqual(potion["disabled_reason"], "potion belt is full")
+        self.assertEqual(card["command"], "CHOOSE 1")
+        self.assertTrue(card["enabled"])
 
     def test_bridge_actions_cover_play_end_and_disabled_state(self):
         actions = bridge_actions_from_status(

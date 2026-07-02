@@ -121,6 +121,13 @@ function markExit(reason, details = {}) {
 function summarize(message) {
   const gs = message.game_state ?? {};
   const combat = gs.combat_state ?? null;
+  const potions = gs.potions ?? [];
+  const occupiedPotions = potions.filter((potion) => {
+    const name = String(potion.name ?? "");
+    const id = String(potion.id ?? "");
+    return name.toLowerCase() !== "potion slot" && id.toLowerCase() !== "potion slot";
+  });
+  const openPotionSlots = potions.length - occupiedPotions.length;
   const summary = {
     step,
     client_pid: clientPid,
@@ -139,13 +146,15 @@ function summarize(message) {
     current_hp: gs.current_hp ?? null,
     max_hp: gs.max_hp ?? null,
     gold: gs.gold ?? null,
-    potions: (gs.potions ?? []).map((potion, index) => ({
+    potions: occupiedPotions.map((potion, index) => ({
       index,
       name: potion.name,
       id: potion.id,
       can_use: potion.can_use,
       can_discard: potion.can_discard,
     })),
+    potion_capacity: potions.length,
+    open_potion_slots: openPotionSlots,
     choices: gs.choice_list ?? null,
   };
 
