@@ -2738,8 +2738,9 @@
   }
 
   function strictReplayText() {
-    if (app.attachFidelity === "seed_replay") return "Verified";
+    if (app.liveInvariantViolation) return "Prediction mismatch";
     const blocker = app.strictReplayBlocker;
+    if (app.attachFidelity === "seed_replay" && !blocker) return "Verified";
     if (!blocker) return app.mode === "live_bridge" ? "Not used" : "-";
     const reason = firstDefined(blocker.stop_reason, blocker.blocker && blocker.blocker.category, "Fallback");
     if (reason === "missing_start") return "No START in trace";

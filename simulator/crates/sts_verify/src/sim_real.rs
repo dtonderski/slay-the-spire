@@ -6268,11 +6268,47 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
         .and_then(|state| state.get("event_name"))
         .and_then(Value::as_str)
         .unwrap_or("");
+    let choices = choice_list_from_value(game.get("choice_list"));
     if event_id == "Lab" || event_name == "Lab" {
         return Some(event_screen(Event::Lab));
     }
+    if event_id == "Shining Light"
+        || event_name == "Shining Light"
+        || (event_id.is_empty()
+            && event_name.is_empty()
+            && choices.len() == 2
+            && choices
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("enter"))
+            && choices
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("leave")))
+    {
+        let labels = if choices.is_empty() {
+            vec!["Leave".to_owned()]
+        } else {
+            choices
+        };
+        let stage = if labels.len() == 1
+            && labels
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("leave"))
+        {
+            1
+        } else {
+            0
+        };
+        return Some(EventScreen {
+            event: Event::ShiningLight,
+            choices: labels
+                .into_iter()
+                .map(|label| EventChoice { label })
+                .collect(),
+            stage,
+            event_data: 0,
+        });
+    }
     if event_id == "Scrap Ooze" || event_name == "Scrap Ooze" {
-        let choices = choice_list_from_value(game.get("choice_list"));
         let labels = if choices.is_empty() {
             vec!["Leave".to_owned()]
         } else {
@@ -6307,8 +6343,18 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
             event_data,
         });
     }
-    if event_id == "Golden Wing" || event_name == "Wing Statue" {
-        let choices = choice_list_from_value(game.get("choice_list"));
+    if event_id == "Golden Wing"
+        || event_name == "Wing Statue"
+        || (event_id.is_empty()
+            && event_name.is_empty()
+            && choices.len() == 2
+            && choices
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("pray"))
+            && choices
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("leave")))
+    {
         let labels = if choices.is_empty() {
             vec!["Leave".to_owned()]
         } else {
@@ -9856,6 +9902,21 @@ mod tests {
     }
 
     #[test]
+    fn observed_event_screen_imports_shining_light_from_visible_choices_without_event_id() {
+        let game = json!({
+            "screen_type": "EVENT",
+            "choice_list": ["enter", "leave"],
+            "screen_state": {}
+        });
+
+        let screen = observed_event_screen(&game, 0).expect("shining light screen");
+
+        assert_eq!(screen.event, Event::ShiningLight);
+        assert_eq!(screen.stage, 0);
+        assert_eq!(screen.choices[0].label, "enter");
+    }
+
+    #[test]
     fn observed_event_screen_imports_wing_statue() {
         let game = json!({
             "screen_type": "EVENT",
@@ -9869,6 +9930,21 @@ mod tests {
                     {"text": "[Leave]"}
                 ]
             }
+        });
+
+        let screen = observed_event_screen(&game, 0).expect("wing statue screen");
+
+        assert_eq!(screen.event, Event::WingStatue);
+        assert_eq!(screen.stage, 0);
+        assert_eq!(screen.choices[0].label, "pray");
+    }
+
+    #[test]
+    fn observed_event_screen_imports_wing_statue_from_visible_choices_without_event_id() {
+        let game = json!({
+            "screen_type": "EVENT",
+            "choice_list": ["pray", "leave"],
+            "screen_state": {}
         });
 
         let screen = observed_event_screen(&game, 0).expect("wing statue screen");

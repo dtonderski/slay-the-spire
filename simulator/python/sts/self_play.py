@@ -3862,7 +3862,11 @@ def _trace_eval_set_spec(eval_set: str | None) -> dict[str, Any] | None:
 
 def _normalize_potion_name(name: str) -> str:
     normalized = "".join(char.lower() for char in name if char.isalnum())
-    return normalized.removesuffix("potion")
+    normalized = normalized.removesuffix("potion")
+    aliases = {
+        "fairyinabottle": "fairy",
+    }
+    return aliases.get(normalized, normalized)
 
 
 def _safe_file_stem(value: str) -> str:

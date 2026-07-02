@@ -25,6 +25,7 @@ from sts.self_play import (
     _trace_candidates_by_name,
     _trace_combat_roots,
     _visible_combat_hand,
+    _normalize_potion_name,
     evaluate_self_play_corpus,
     real_trace_root_report,
     replay_real_trace_guided,
@@ -206,6 +207,9 @@ class SelfPlaySummaryHelperTests(unittest.TestCase):
         diffs = _reward_summary_diffs(simulator_reward, observed_reward, observed)
 
         self.assertIn("reward.potion_offer", {diff["field"] for diff in diffs})
+
+    def test_normalize_potion_name_matches_fairy_short_and_long_names(self):
+        self.assertEqual(_normalize_potion_name("Fairy"), _normalize_potion_name("Fairy in a Bottle"))
 
     def test_observed_gone_monster_does_not_diff_as_alive(self):
         summary = {

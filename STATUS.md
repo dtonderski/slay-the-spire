@@ -3,6 +3,18 @@
 ## What Exists
 
 ### Tooling
+- Latest live trace display/replay slice: the UI replay summary no longer says
+  `Verified` while a pending simulator/live prediction mismatch is active; it
+  now surfaces `Prediction mismatch` until acknowledged/re-attached. The newest
+  live trace `trace-2026-07-02T09-19-40-178Z.jsonl` strict-replays cleanly
+  through its current end after generic fixes for Fairy potion name
+  canonicalization, id-less visible-choice event import for Shining Light/Wing
+  Statue, and Shining Light's real post-enter leave screen. Checks:
+  `cargo fmt`, `cargo test -p sts_core shining_light --lib`,
+  `cargo test -p sts_verify observed_event_screen_imports --lib`,
+  focused Python Fairy normalization unittest,
+  `uv run maturin develop --release`, and strict replay of the newest live
+  trace.
 - Latest live-regression corpus slice: the clean current live trace has been
   snapshotted into the persistent verification corpus as
   `communication_mod/live-regression-2026-07-01T20-30-26-163Z.jsonl`, and a

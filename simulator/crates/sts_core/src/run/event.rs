@@ -1530,14 +1530,17 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        Event::ShiningLight if choice_index == 0 => {
+        Event::ShiningLight if screen.stage == 0 && choice_index == 0 => {
             let loss = shining_light_hp_loss(next.player_max_hp);
             next.player_hp = (next.player_hp - loss).max(0);
             upgrade_random_deck_cards(&mut next, 2);
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            next.event = Some(make_event_screen(
+                Event::ShiningLight,
+                labeled_choices(&["Leave"]),
+                1,
+            ));
         }
-        Event::ShiningLight if choice_index == 1 => {
+        Event::ShiningLight if choice_index == 1 || screen.stage == 1 => {
             next.phase = RunPhase::Idle;
             next.event = None;
         }
@@ -3999,9 +4002,31 @@ mod tests {
         );
         assert_eq!(after.deck[0].content_id, STRIKE_R_PLUS_ID);
         assert_eq!(after.deck[1].content_id, ANGER_PLUS_ID);
+        assert_eq!(after.phase, RunPhase::Event);
+        assert_eq!(
+            after.event.as_ref().expect("leave screen").event,
+            Event::ShiningLight
+        );
+        assert_eq!(after.event.as_ref().expect("leave screen").stage, 1);
+        assert!(after.misc_rng_counter > run.misc_rng_counter);
+    }
+
+    #[test]
+    fn shining_light_post_enter_leave_exits_event() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::ShiningLight,
+            choices: labeled_choices(&["Leave"]),
+            stage: 1,
+            event_data: 0,
+        });
+
+        let after =
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("leave");
+
         assert_eq!(after.phase, RunPhase::Idle);
         assert!(after.event.is_none());
-        assert!(after.misc_rng_counter > run.misc_rng_counter);
     }
 
     #[test]
