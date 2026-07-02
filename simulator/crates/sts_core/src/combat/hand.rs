@@ -32,10 +32,18 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
     }
     state.piles.hand = remaining;
 
-    let burn_copies = burns.len() as i32;
+    let burn_damage = burns
+        .iter()
+        .map(|card| {
+            if card.upgrades > 0 {
+                BURN_END_TURN_DAMAGE * 2
+            } else {
+                BURN_END_TURN_DAMAGE
+            }
+        })
+        .sum();
 
-    let hp_loss =
-        crate::combat::hp_loss::lose_player_blockable_hp(state, burn_copies * BURN_END_TURN_DAMAGE);
+    let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, burn_damage);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
     state.piles.discard_pile.extend(burns);
 }

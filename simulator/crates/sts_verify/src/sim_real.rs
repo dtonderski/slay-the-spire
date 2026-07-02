@@ -7693,9 +7693,16 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
                 count: observed_slimed_count(monster, content_id),
             }
         }
+        "ATTACK_DEBUFF" if content_id == HEXAGHOST_ID && move_id == 6 => {
+            MonsterIntent::AttackMultipleUpgradeBurns {
+                damage: damage.max(0),
+                hits: int(monster, "move_hits").max(1),
+                count: 3,
+            }
+        }
         "ATTACK_DEBUFF" if content_id == HEXAGHOST_ID => MonsterIntent::AddBurnToDiscard {
             damage: damage.max(0),
-            count: 3,
+            count: if ascension >= 19 { 2 } else { 1 },
         },
         "ATTACK_DEBUFF" if content_id == ORB_WALKER_ID => MonsterIntent::AddBurnToDiscardAndDraw {
             damage: damage.max(0),
@@ -8130,6 +8137,7 @@ fn card_instances_from_array_impl(
                 content_id_from_card_value(card)
             }?;
             let mut instance = CardInstance::new(CardId::new(base_id + index as u64), content_id);
+            instance.upgrades = card_upgrade_count(card);
             if use_observed_cost {
                 if let Some(cost) = card
                     .get("cost")
@@ -8164,10 +8172,20 @@ fn card_instances_from_array_with_observed_shrug_plus(
         .enumerate()
         .filter_map(|(index, card)| {
             content_id_from_card_value_with_observed_shrug_plus(card).map(|content_id| {
-                CardInstance::new(CardId::new(base_id + index as u64), content_id)
+                let mut instance =
+                    CardInstance::new(CardId::new(base_id + index as u64), content_id);
+                instance.upgrades = card_upgrade_count(card);
+                instance
             })
         })
         .collect()
+}
+
+fn card_upgrade_count(card: &Value) -> u8 {
+    card.get("upgrades")
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .unwrap_or(0)
 }
 
 fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
@@ -8657,8 +8675,14 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::AttackApplyPlayerWeak { .. }
         | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
         | MonsterIntent::AttackMultiple { .. }
+        | MonsterIntent::AttackMultipleUpgradeBurns { .. }
         | MonsterIntent::AttackStealGold { .. } => {
-            if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) {
+            if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID)
+                || matches!(
+                    monster.intent,
+                    MonsterIntent::AttackMultipleUpgradeBurns { .. }
+                )
+            {
                 "ATTACK_DEBUFF".to_owned()
             } else if monster.content_id == SLAVER_BLUE_ID
                 && matches!(monster.intent, MonsterIntent::AttackApplyPlayerWeak { .. })
@@ -9954,20 +9978,43 @@ mod tests {
     }
 
     #[test]
-    fn hexaghost_attack_debuff_imports_observed_inferno_damage() {
+    fn hexaghost_attack_debuff_imports_observed_sear() {
         use sts_core::content::monsters::HEXAGHOST_ID;
 
         let monster = json!({
             "id": "Hexaghost",
             "intent": "ATTACK_DEBUFF",
             "move_base_damage": 6,
-            "move_hits": 1
+            "move_hits": 1,
+            "move_id": 4
         });
 
         assert_eq!(
             observed_intent(&monster, HEXAGHOST_ID, 0),
             MonsterIntent::AddBurnToDiscard {
                 damage: 6,
+                count: 1
+            }
+        );
+    }
+
+    #[test]
+    fn hexaghost_attack_debuff_imports_observed_inferno() {
+        use sts_core::content::monsters::HEXAGHOST_ID;
+
+        let monster = json!({
+            "id": "Hexaghost",
+            "intent": "ATTACK_DEBUFF",
+            "move_base_damage": 2,
+            "move_hits": 6,
+            "move_id": 6
+        });
+
+        assert_eq!(
+            observed_intent(&monster, HEXAGHOST_ID, 0),
+            MonsterIntent::AttackMultipleUpgradeBurns {
+                damage: 2,
+                hits: 6,
                 count: 3
             }
         );

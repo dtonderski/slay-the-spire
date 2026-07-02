@@ -423,7 +423,8 @@ fn run_monster_turn(state: &mut CombatState) {
         let player_snapshot = state.player.clone();
         let intent = state.monsters[index].intent;
         let hits = match intent {
-            crate::MonsterIntent::AttackMultiple { hits, .. } => hits,
+            crate::MonsterIntent::AttackMultiple { hits, .. }
+            | crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. } => hits,
             _ => 1,
         };
         let damage = apply_monster_intent_with_card_rng(

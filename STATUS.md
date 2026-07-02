@@ -12,6 +12,23 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Hexaghost Inferno/BurnIncrease slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=198`,
+  `final_phase=combat` after the later boss-turn HP mismatch. Source-backed
+  fix: Hexaghost Inferno now models the target six-hit attack followed by
+  `BurnIncreaseAction`, which upgrades Burns in draw/discard and adds three
+  upgraded Burns instead of treating Inferno as a single hit that adds normal
+  Burns. Observed-state import now distinguishes Hexaghost Sear (`move_id` 4)
+  from Inferno (`move_id` 6), and combat card instances preserve observed
+  upgrade counts so `Burn+` damage can replay. Checks: `cargo fmt`,
+  `cargo test -p sts_core hexaghost --lib`,
+  `cargo test -p sts_verify hexaghost --lib`,
+  `uv run maturin develop --release`, strict replay of the current live trace,
+  and the protected live trace gate confirming older known blockers stayed at
+  the same boundaries. Current milestone remains A0 strict/live trace parity;
+  next task is the next fresh live mismatch or SlayTheData run-level decision
+  replay.
 - Latest live-trace Hexaghost orb-cycle slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=185`,

@@ -375,6 +375,11 @@ pub enum MonsterIntent {
         count: i32,
         damage: i32,
     },
+    AttackMultipleUpgradeBurns {
+        damage: i32,
+        hits: i32,
+        count: i32,
+    },
     AttackMultiple {
         damage: i32,
         hits: i32,

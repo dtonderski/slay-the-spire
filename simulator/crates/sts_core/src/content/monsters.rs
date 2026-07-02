@@ -5,7 +5,7 @@ use crate::{
     combat::{CardPiles, MonsterIntent, MonsterState},
     content::ascension::AscensionConfig,
     content::cards::{card_type_and_rarity, BURN_ID, DAZED_ID, SLIMED_ID},
-    ids::{ContentId, MonsterId},
+    ids::{CardId, ContentId, MonsterId},
     power::MonsterPowers,
     rng::StsRng,
 };
@@ -7176,9 +7176,10 @@ fn hexaghost_intent(moves_executed: u32) -> MonsterIntent {
                 strength: HEXAGHOST_STRENGTHEN_STRENGTH,
                 block: HEXAGHOST_STRENGTHEN_BLOCK,
             },
-            _ => MonsterIntent::AddBurnToDiscard {
-                count: HEXAGHOST_INFERNO_BURNS,
+            _ => MonsterIntent::AttackMultipleUpgradeBurns {
                 damage: HEXAGHOST_INFERNO_DAMAGE,
+                hits: 6,
+                count: HEXAGHOST_INFERNO_BURNS,
             },
         },
     }
@@ -7809,6 +7810,15 @@ pub fn apply_monster_intent_with_card_rng(
         MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => {
             (monster_attack_damage(monster, scale_damage(damage)), 1)
         }
+        MonsterIntent::AttackMultipleUpgradeBurns {
+            damage,
+            hits,
+            count,
+        } => {
+            upgrade_burns_and_add_upgraded_to_discard(piles, count);
+            let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
+            (hit_damage * hits, hits)
+        }
         MonsterIntent::AttackMultiple { damage, hits } => {
             let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
             (hit_damage * hits, hits)
@@ -7844,6 +7854,25 @@ pub fn apply_monster_intent_with_card_rng(
         monster.moves_executed += 1;
     }
     damage
+}
+
+fn upgrade_burns_and_add_upgraded_to_discard(piles: &mut CardPiles, count: i32) {
+    for card in piles
+        .discard_pile
+        .iter_mut()
+        .chain(piles.draw_pile.iter_mut())
+    {
+        if card.content_id == BURN_ID {
+            card.upgrades = card.upgrades.saturating_add(1);
+        }
+    }
+
+    for _ in 0..count {
+        let next_id = CardId::new(piles.max_card_instance_id() + 1);
+        let mut burn = CardInstance::new(next_id, BURN_ID);
+        burn.upgrades = 1;
+        piles.discard_pile.push(burn);
+    }
 }
 
 fn lagavulin_sleep_or_stun(content_id: ContentId, intent: MonsterIntent) -> bool {
@@ -12591,9 +12620,10 @@ mod tests {
         );
         assert_eq!(
             prepare_monster_intent_for(definition, 8, None),
-            MonsterIntent::AddBurnToDiscard {
-                count: HEXAGHOST_INFERNO_BURNS,
+            MonsterIntent::AttackMultipleUpgradeBurns {
                 damage: HEXAGHOST_INFERNO_DAMAGE,
+                hits: 6,
+                count: HEXAGHOST_INFERNO_BURNS,
             }
         );
         assert_eq!(
@@ -12619,13 +12649,17 @@ mod tests {
     #[test]
     fn hexaghost_inferno_adds_burns_and_deals_damage() {
         let mut monster = monster_state(&HEXAGHOST_A0, MonsterId::new(1));
-        monster.intent = MonsterIntent::AddBurnToDiscard {
-            count: HEXAGHOST_INFERNO_BURNS,
+        monster.intent = MonsterIntent::AttackMultipleUpgradeBurns {
             damage: HEXAGHOST_INFERNO_DAMAGE,
+            hits: 6,
+            count: HEXAGHOST_INFERNO_BURNS,
         };
         let mut player = dummy_player();
         let player_before = player.clone();
         let mut piles = dummy_piles();
+        piles
+            .draw_pile
+            .push(CardInstance::new(CardId::new(20), BURN_ID));
 
         assert_eq!(
             apply_monster_intent(
@@ -12636,13 +12670,14 @@ mod tests {
                 &player_before,
                 &[]
             ),
-            2
+            12
         );
         assert_eq!(piles.discard_pile.len(), 3);
+        assert_eq!(piles.draw_pile[0].upgrades, 1);
         assert!(piles
             .discard_pile
             .iter()
-            .all(|card| card.content_id == BURN_ID));
+            .all(|card| { card.content_id == BURN_ID && card.upgrades == 1 }));
     }
 
     #[test]

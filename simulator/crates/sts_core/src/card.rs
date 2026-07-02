@@ -81,6 +81,10 @@ pub struct CardInstance {
     /// Combat-local Blood for Blood cost reduction for this specific card instance.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub blood_for_blood_cost_reduction: i32,
+    /// Generic card upgrade count for cards whose upgraded form is not modeled as a
+    /// separate content id, such as Hexaghost-upgraded Burns.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub upgrades: u8,
     /// Total Searing Blow upgrades on this instance. The first upgrade also changes
     /// content_id to Searing Blow+; later upgrades keep that content id and raise this count.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
@@ -99,6 +103,7 @@ impl CardInstance {
             combat_only: false,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
+            upgrades: 0,
             searing_blow_upgrades: 0,
         }
     }
@@ -114,6 +119,7 @@ impl CardInstance {
             combat_only: true,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
+            upgrades: 0,
             searing_blow_upgrades: 0,
         }
     }
