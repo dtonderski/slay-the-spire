@@ -612,6 +612,10 @@ fn apply_internal_action(
             player_draw_cards(state, count);
             Ok(Vec::new())
         }
+        InternalAction::ShuffleDiscardIntoDraw => {
+            player_shuffle_discard_into_draw(state);
+            Ok(Vec::new())
+        }
         InternalAction::DrawRandomAttacksFromDrawPile { count } => {
             draw_random_attacks_from_draw_pile(state, count);
             Ok(Vec::new())
@@ -1320,6 +1324,16 @@ pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
     }
 }
 
+pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) {
+    if let Some(mut rng) = state.shuffle_rng.take() {
+        crate::combat::draw::shuffle_discard_into_draw_sts(state, &mut rng);
+        state.shuffle_rng = Some(rng);
+    } else {
+        let mut rng = SimulatorRng::new(0);
+        crate::combat::draw::shuffle_discard_into_draw(state, &mut rng);
+    }
+}
+
 fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
     let mut attack_ids = Vec::new();
     for card in &state.piles.draw_pile {
@@ -1878,6 +1892,7 @@ fn apply_play_top_draw_card(
             } else {
                 1
             };
+            follow_ups.push(InternalAction::ShuffleDiscardIntoDraw);
             follow_ups.push(InternalAction::DrawCards { count });
         }
         ENLIGHTENMENT_ID | ENLIGHTENMENT_PLUS_ID => {

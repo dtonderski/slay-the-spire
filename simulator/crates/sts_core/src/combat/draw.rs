@@ -139,7 +139,7 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     card.temp_cost = Some(rng.random_int(3) as u8);
 }
 
-fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut SimulatorRng) {
+pub(crate) fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut SimulatorRng) {
     if state.piles.discard_pile.is_empty() {
         return;
     }
@@ -153,7 +153,7 @@ fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut SimulatorRng) {
     crate::relic::apply_shuffle_relics(state);
 }
 
-fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
+pub(crate) fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
     if state.piles.discard_pile.is_empty() {
         return;
     }

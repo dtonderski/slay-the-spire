@@ -73,6 +73,67 @@ fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
 }
 
 #[test]
+fn deep_breath_shuffles_discard_before_drawing() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DEEP_BREATH_ID)];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), cards::DEFEND_R_ID)];
+    state.piles.discard_pile = vec![
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Deep Breath plays without a monster target");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::DEEP_BREATH_ID);
+    assert_eq!(next.piles.draw_pile.len(), 2);
+}
+
+#[test]
+fn deep_breath_plus_draws_two_after_shuffle() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::DEEP_BREATH_PLUS_ID,
+    )];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), cards::DEFEND_R_ID)];
+    state.piles.discard_pile = vec![
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Deep Breath+ plays without a monster target");
+
+    assert_eq!(next.piles.hand.len(), 2);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::DEEP_BREATH_PLUS_ID
+    );
+    assert_eq!(next.piles.draw_pile.len(), 1);
+}
+
+#[test]
 fn sword_boomerang_definitions_target_all_enemies_without_selection() {
     for definition in [cards::SWORD_BOOMERANG, cards::SWORD_BOOMERANG_PLUS] {
         assert_eq!(definition.target, TargetRequirement::AllEnemies);

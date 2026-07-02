@@ -3125,6 +3125,7 @@ fn deep_breath_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
+        InternalAction::ShuffleDiscardIntoDraw,
         InternalAction::DrawCards { count },
         InternalAction::MoveCard {
             card_id,
