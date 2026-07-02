@@ -10,7 +10,9 @@ use crate::{
         hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
         open_gambling_chip_select, player_draw_cards, top_draw_card_definition,
     },
-    combat::{CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose},
+    combat::{
+        apply_burning_blood, CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose,
+    },
     content::cards::{get_card_definition, upgrade_card_instance},
     content::shop_pool::{
         burn_colorless_discovery_card_choice_draws,
@@ -827,7 +829,12 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 .map(|combat| combat.phase == CombatPhase::Won)
                 .unwrap_or(false);
             if won {
-                super::reward::enter_reward_screen(&mut next);
+                if let Some(combat) = next.combat.as_mut() {
+                    apply_burning_blood(combat);
+                    next.player_hp = combat.player.hp;
+                    next.player_max_hp = combat.player.max_hp;
+                }
+                enter_combat_reward_for_current_room(&mut next);
             }
         }
         RunAction::DiscardPotion { slot } => {
@@ -837,4 +844,12 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
     }
 
     Ok(next)
+}
+
+fn enter_combat_reward_for_current_room(run: &mut RunState) {
+    match current_room_kind(run) {
+        Some(RoomKind::Boss) => super::reward::enter_boss_combat_reward_screen(run),
+        Some(RoomKind::Elite) => super::reward::enter_elite_combat_reward_screen(run),
+        _ => super::reward::enter_reward_screen(run),
+    }
 }

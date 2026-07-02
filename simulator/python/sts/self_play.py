@@ -3402,6 +3402,10 @@ def _combat_monster_summary_diffs(
         for key in ("alive", "hp", "block", "intent"):
             if obs_monster.get(key) is None:
                 continue
+            if key == "intent" and (
+                sim_monster.get("alive") is False or obs_monster.get("alive") is False
+            ):
+                continue
             if key == "intent":
                 matches = _combat_intents_match(sim_monster.get(key), obs_monster.get(key))
             else:

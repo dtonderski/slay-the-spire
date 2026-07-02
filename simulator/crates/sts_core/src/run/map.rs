@@ -687,7 +687,10 @@ fn target_spawn_monster_state(
             monster.initial_intent_locked = true;
         }
     } else if spawn.intent == "ApplyPlayerFrailAndWeak" {
-        monster.intent = crate::MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 };
+        monster.intent = crate::MonsterIntent::ApplyPlayerFrailAndWeak {
+            frail: observed_spike_slime_frail_amount(spawn, ascension),
+            weak: 0,
+        };
         monster.initial_intent_locked = true;
     } else if spawn.intent == "AddDazedToDiscard" {
         monster.intent = crate::MonsterIntent::AddDazedToDiscard { count: 2 };
@@ -720,6 +723,20 @@ fn target_spawn_monster_state(
         }
     }
     monster
+}
+
+fn observed_spike_slime_frail_amount(spawn: &TargetEncounterSpawn, ascension: u8) -> i32 {
+    let large = spawn.name.ends_with("(L)")
+        || spawn.max_hp > crate::content::monsters::SPIKE_SLIME_M_A7_HP_RANGE.max;
+    if large {
+        if ascension >= 17 {
+            3
+        } else {
+            2
+        }
+    } else {
+        1
+    }
 }
 
 fn spawn_monster_powers(spawn: &TargetEncounterSpawn) -> MonsterPowers {

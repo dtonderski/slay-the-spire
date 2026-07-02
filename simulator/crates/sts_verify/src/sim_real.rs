@@ -7722,7 +7722,10 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
                 ) || int(monster, "max_hp")
                     > sts_core::content::monsters::SPIKE_SLIME_S_A7_HP_RANGE.max) =>
         {
-            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 }
+            MonsterIntent::ApplyPlayerFrailAndWeak {
+                frail: observed_spike_slime_frail(monster, ascension),
+                weak: 0,
+            }
         }
         "DEBUFF" if content_id == GREEN_LOUSE_ID => MonsterIntent::ApplyPlayerWeak {
             amount: GREEN_LOUSE_WEAK,
@@ -7929,6 +7932,20 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             _ => MonsterIntent::Attack { damage: 0 },
         },
         _ => MonsterIntent::Attack { damage: 0 },
+    }
+}
+
+fn observed_spike_slime_frail(monster: &Value, ascension: u8) -> i32 {
+    let large = str_field(monster, "id") == Some("SpikeSlime_L")
+        || int(monster, "max_hp") > sts_core::content::monsters::SPIKE_SLIME_M_A7_HP_RANGE.max;
+    if large {
+        if ascension >= 17 {
+            3
+        } else {
+            2
+        }
+    } else {
+        1
     }
 }
 
@@ -8765,6 +8782,7 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::ApplyPlayerHex { .. }
         | MonsterIntent::ApplyPlayerWeakStrengthSelf { .. }
         | MonsterIntent::ApplyPlayerConfusion
+        | MonsterIntent::ApplyPlayerConstricted { .. }
         | MonsterIntent::AddDazedToDiscard { .. }
         | MonsterIntent::AddDazedToDraw { .. }
         | MonsterIntent::AddBurnToDiscard { .. }

@@ -7968,7 +7968,7 @@ pub fn target_spike_slime_entry_intent_from_roll(hp: i32, roll: i32) -> MonsterI
 
     if roll >= 30 {
         return MonsterIntent::ApplyPlayerFrailAndWeak {
-            frail: SPIKE_SLIME_LICK_WEAK,
+            frail: spike_slime_frail_amount(hp, 0),
             weak: 0,
         };
     }

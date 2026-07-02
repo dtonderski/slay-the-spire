@@ -3,6 +3,19 @@
 ## What Exists
 
 ### Tooling
+- Latest live trace fidelity slice: potion kills now enter the same
+  room-kind-aware combat victory rewards as card/end-turn kills and apply
+  Burning Blood/Black Blood victory healing before opening rewards, so boss
+  kills from Explosive Potion produce boss gold/reward timing. Spike Slime
+  medium/large `DEBUFF` import and entry intent now preserve the source-backed
+  Frail duration hidden behind CommunicationMod's generic `DEBUFF` label, and
+  the verifier intent display mapper covers Constricted. Checks:
+  `cargo fmt`, `cargo check -p sts_core --lib`,
+  `cargo check -p sts_verify --lib`, `uv run maturin develop --release`.
+  Active trace `trace-2026-07-02T09-19-40-178Z.jsonl` now advances to a later
+  floor-13 Jaw Worm/Spike Slime AI RNG mismatch; newest live trace
+  `trace-2026-07-02T19-54-35-294Z.jsonl` currently exposes a separate Blue
+  Slaver intent blocker.
 - Latest active trace replay slice: `trace-2026-07-02T09-19-40-178Z.jsonl`
   now strict-replays to exhaustion (`verified=True`, `steps=211`,
   `final_phase=combat`) after the floor-13 and Slime Boss blockers. Generic
