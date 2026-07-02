@@ -803,11 +803,18 @@ fn apply_internal_action(
             source_card_id,
             purpose,
         } => {
-            if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw
-                && state.monsters.iter().all(|monster| !monster.alive)
-            {
-                move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
-                return Ok(Vec::new());
+            if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
+                if state.monsters.iter().all(|monster| !monster.alive) {
+                    move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
+                    return Ok(Vec::new());
+                }
+                if state.piles.discard_pile.len() == 1 {
+                    let source_card = remove_card_from_pile(state, source_card_id, CardPile::Hand)?;
+                    let selected = state.piles.discard_pile.remove(0);
+                    state.piles.draw_pile.push(selected);
+                    state.piles.discard_pile.push(source_card);
+                    return Ok(Vec::new());
+                }
             }
             let source_card = if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
                 Some(remove_card_from_pile(
@@ -16033,6 +16040,34 @@ mod tests {
     }
 
     #[test]
+    fn headbutt_with_one_discard_card_resolves_without_select_screen() {
+        let mut state = hand_only(HEADBUTT_ID);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(40), BASH_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Headbutt applies");
+
+        assert!(next.discard_select.is_none());
+        assert_eq!(next.piles.draw_pile.last().unwrap().content_id, STRIKE_R_ID);
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![HEADBUTT_ID]
+        );
+        assert!(next.piles.hand.is_empty());
+    }
+
+    #[test]
     fn lethal_headbutt_with_discard_cards_does_not_open_discard_select() {
         let mut state = hand_only(HEADBUTT_ID);
         state.monsters[0].hp = 9;
@@ -16062,7 +16097,10 @@ mod tests {
     #[test]
     fn headbutt_discard_select_purpose_round_trips_through_json() {
         let mut state = hand_only(HEADBUTT_ID);
-        state.piles.discard_pile = vec![CardInstance::new(CardId::new(30), STRIKE_R_ID)];
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(30), STRIKE_R_ID),
+            CardInstance::new(CardId::new(31), DEFEND_R_ID),
+        ];
 
         let after_play = apply_combat_action(
             &state,

@@ -12,6 +12,21 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest live-trace Headbutt single-discard slice: the current
+  `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
+  `verified=True`, `stop_reason=trace_exhausted`, `steps=214`,
+  `final_phase=combat` after the Act 2 Byrds mismatch where CommunicationMod
+  returned directly to combat after `PLAY 4 0`. Generic fix: Headbutt now
+  resolves immediately when the discard pile has exactly one card after damage,
+  putting that card on top of draw and discarding Headbutt without opening a
+  discard-select state; multi-card discard piles still open the normal selection
+  and lethal Headbutt still skips the draw placement. Checks: `cargo fmt`,
+  `cargo test -p sts_core headbutt --lib`, `cargo clippy -p sts_core --lib`
+  (existing warnings only), `uv run maturin develop --release`, active strict
+  replay, and the protected live trace gate confirming older known blockers
+  stayed at the same boundaries. Current milestone remains A0 strict/live trace
+  parity; next task is continuing live UI play to the next fresh mismatch or
+  SlayTheData run-level decision replay.
 - Latest live-trace Hexaghost Inferno/BurnIncrease slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=198`,
