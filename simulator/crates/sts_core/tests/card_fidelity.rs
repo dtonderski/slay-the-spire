@@ -73,6 +73,42 @@ fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
 }
 
 #[test]
+fn havoc_master_of_strategy_plus_draws_four_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::SHRUG_IT_OFF_ID),
+        CardInstance::new(CardId::new(6), cards::MASTER_OF_STRATEGY_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc plays Master of Strategy+ from the draw pile");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.hand.len(), 4);
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::MASTER_OF_STRATEGY_PLUS_ID));
+}
+
+#[test]
 fn deep_breath_shuffles_discard_before_drawing() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
