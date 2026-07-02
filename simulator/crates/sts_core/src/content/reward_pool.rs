@@ -28,21 +28,22 @@ pub struct RewardCardEntry {
 
 /// Target normal curse pool/order used by `AbstractDungeon.returnRandomCurse`.
 ///
-/// Source evidence from the target jar links `CardLibrary` curse classes to this class order,
-/// while `AbstractDungeon` removes special curses (`Ascender's Bane`, `Curse of the Bell`,
-/// `Necronomicurse`, and `Pride`) from the random curse pool. Several entries are currently
-/// inert/unplayable placeholders in combat; this pool only claims identity/RNG parity.
+/// `CardLibrary.getCurse()` iterates a Java `HashMap`, not source declaration order. With the
+/// target curse insertions the map has resized to 32 buckets by the time normal curses are sampled,
+/// then special curses (`Ascender's Bane`, `Curse of the Bell`, `Necronomicurse`, and `Pride`) are
+/// filtered out. Several entries are currently inert/unplayable placeholders in combat; this pool
+/// only claims identity/RNG parity.
 pub const NORMAL_CURSE_POOL: &[ContentId] = &[
-    CLUMSY_ID,
-    DECAY_ID,
-    DOUBT_ID,
-    INJURY_ID,
-    NORMALITY_ID,
-    PAIN_ID,
-    PARASITE_ID,
     REGRET_ID,
+    INJURY_ID,
     SHAME_ID,
+    PARASITE_ID,
+    NORMALITY_ID,
+    DOUBT_ID,
     WRITHE_ID,
+    PAIN_ID,
+    DECAY_ID,
+    CLUMSY_ID,
 ];
 
 pub fn random_normal_curse(rng: &mut StsRng) -> ContentId {

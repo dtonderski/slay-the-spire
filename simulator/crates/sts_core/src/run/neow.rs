@@ -120,7 +120,9 @@ pub fn generate_neow_card_reward_with_rng(
     let cards = match reward {
         NeowRewardType::ThreeCards => neow_unique_ironclad_cards_with_rolled_rarity(rng, 3),
         NeowRewardType::OneRandomRareCard => vec![neow_random_ironclad_card(rng, CardRarity::Rare)],
-        NeowRewardType::ThreeRareCards => neow_unique_ironclad_cards(rng, CardRarity::Rare, 3),
+        NeowRewardType::ThreeRareCards => {
+            neow_unique_ironclad_cards_with_forced_rarity(rng, CardRarity::Rare, 3)
+        }
         other => panic!("Neow reward {other:?} is not a card reward"),
     };
 
@@ -464,21 +466,6 @@ fn percent_damage(player_max_hp: i32) -> i32 {
     player_max_hp * 3 / 10
 }
 
-fn neow_unique_ironclad_cards(
-    rng: &mut StsRng,
-    rarity: CardRarity,
-    count: usize,
-) -> Vec<ContentId> {
-    let mut cards = Vec::new();
-    while cards.len() < count {
-        let candidate = neow_random_ironclad_card(rng, rarity);
-        if !cards.contains(&candidate) {
-            cards.push(candidate);
-        }
-    }
-    cards
-}
-
 fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
     let pool: Vec<_> = IRONCLAD_REWARD_ENTRIES
         .iter()
@@ -493,6 +480,25 @@ fn neow_unique_ironclad_cards_with_rolled_rarity(rng: &mut StsRng, count: usize)
     let mut cards = Vec::new();
     while cards.len() < count {
         let rarity = neow_normal_card_rarity(rng);
+        loop {
+            let candidate = neow_random_ironclad_card(rng, rarity);
+            if !cards.contains(&candidate) {
+                cards.push(candidate);
+                break;
+            }
+        }
+    }
+    cards
+}
+
+fn neow_unique_ironclad_cards_with_forced_rarity(
+    rng: &mut StsRng,
+    rarity: CardRarity,
+    count: usize,
+) -> Vec<ContentId> {
+    let mut cards = Vec::new();
+    while cards.len() < count {
+        let _rolled_rarity = neow_normal_card_rarity(rng);
         loop {
             let candidate = neow_random_ironclad_card(rng, rarity);
             if !cards.contains(&candidate) {
@@ -554,8 +560,9 @@ fn neow_modeled_random_curse(card_rng: &mut StsRng) -> ContentId {
 mod tests {
     use super::*;
     use crate::content::cards::{
-        is_curse_content_id, CLASH_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, JACK_OF_ALL_TRADES_ID,
-        JUGGERNAUT_ID, RAMPAGE_ID, SENTINEL_ID, SEVER_SOUL_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
+        is_curse_content_id, CLASH_ID, CLUMSY_ID, DECAY_ID, DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID,
+        FEED_ID, IMPERVIOUS_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, RAMPAGE_ID,
+        SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, WRITHE_ID,
     };
     use crate::content::reward_pool::NORMAL_CURSE_POOL;
     use crate::relic::{RelicPoolState, DARKSTONE_PERIAPT_MAX_HP};
@@ -633,7 +640,15 @@ mod tests {
         assert_ne!(reward.cards[0], reward.cards[1]);
         assert_ne!(reward.cards[0], reward.cards[2]);
         assert_ne!(reward.cards[1], reward.cards[2]);
-        assert!(reward.neow_rng_counter >= 8);
+        assert!(reward.neow_rng_counter >= 11);
+    }
+
+    #[test]
+    fn three_rare_cards_burn_rarity_rolls_before_forcing_rare() {
+        let reward = generate_neow_card_reward(8, NeowRewardType::ThreeRareCards);
+
+        assert_eq!(reward.cards, vec![LIMIT_BREAK_ID, IMPERVIOUS_ID, FEED_ID]);
+        assert_eq!(reward.neow_rng_counter, 11);
     }
 
     #[test]
@@ -991,6 +1006,23 @@ mod tests {
             starting_max_hp + DARKSTONE_PERIAPT_MAX_HP
         );
         assert_eq!(run.player_hp, starting_hp + DARKSTONE_PERIAPT_MAX_HP);
+    }
+
+    #[test]
+    fn random_curse_pool_uses_target_hash_map_iteration_order() {
+        let cases = [
+            (2, CLUMSY_ID),
+            (12, DECAY_ID),
+            (36, WRITHE_ID),
+            (46, SHAME_ID),
+        ];
+
+        for (seed, expected) in cases {
+            let mut rng = StsRng::new(seed);
+
+            assert_eq!(neow_modeled_random_curse(&mut rng), expected);
+            assert_eq!(rng.counter(), 1);
+        }
     }
 
     #[test]

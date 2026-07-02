@@ -273,7 +273,7 @@ fn compare_spawn_sets(
     }
 
     for (index, (actual, expected_spawn)) in captured.iter().zip(expected.iter()).enumerate() {
-        if actual.name != expected_spawn.name {
+        if !monster_names_match_observed(&actual.name, expected_spawn.name) {
             return Some(format!(
                 "monster {index} name mismatch: captured {}, expected {}",
                 actual.name, expected_spawn.name
@@ -309,6 +309,11 @@ fn compare_spawn_sets(
     }
 
     None
+}
+
+fn monster_names_match_observed(captured: &str, expected: &str) -> bool {
+    captured == expected
+        || (captured == "Louse" && matches!(expected, "LouseNormal" | "LouseDefensive"))
 }
 
 fn compare_powers(captured: &[(String, i32)], expected: &[TargetSpawnPower]) -> Option<String> {

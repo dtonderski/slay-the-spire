@@ -12,6 +12,22 @@
   not bake in trace names, seeds, or simulator behavior.
 
 ### Combat
+- Latest seed-start verifier regression slice: `sts_verify` is back to a clean
+  full library suite after the M33 Neow regression set. Source-backed fixes:
+  Neow `ThreeRareCards` now burns the same per-card rarity rolls as
+  `NeowReward.getRewardCards(true)` before forcing Rare; the normal curse pool
+  follows target `CardLibrary.getCurse()` Java `HashMap` iteration order rather
+  than declaration order; seed-start replay now compares CommunicationMod's
+  observable Neow queued-effect boundaries for curse/colorless/transform
+  branches instead of forcing the final deck state into earlier trace states.
+  Verifier normalization also keeps canonical numeric card reward ids, starter
+  deck display ids, Calling Bell curse labels, and observed generic Louse names
+  aligned with source-backed simulator identity. Checks: `cargo fmt`,
+  `cargo test -p sts_core three_rare_cards_burn_rarity_rolls_before_forcing_rare --lib`,
+  `cargo test -p sts_core random_curse_pool_uses_target_hash_map_iteration_order --lib`,
+  and `cargo test -p sts_verify --lib` (121 passed). Current milestone remains
+  A0 strict/live trace parity; next task is the next fresh live mismatch or
+  SlayTheData run-level decision replay.
 - Latest live-trace Mugger verifier import slice: the current
   `trace-2026-07-01T20-30-26-163Z.jsonl` now strict-replays with
   `verified=True`, `stop_reason=trace_exhausted`, `steps=317`,
