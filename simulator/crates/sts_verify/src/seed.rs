@@ -40,6 +40,25 @@ pub fn sts_seed_string_to_long(seed: &str) -> i64 {
     try_sts_seed_string_to_long(seed).unwrap_or_else(|error| panic!("{error}"))
 }
 
+/// Convert the numeric seed back to the user-facing seed text used by
+/// `SeedHelper.getString(long)`. The target game first treats the signed Java
+/// long as unsigned, then writes it in the same base-35 alphabet.
+pub fn sts_seed_long_to_string(seed: i64) -> String {
+    let mut value = seed as u64 as u128;
+    if value == 0 {
+        return String::new();
+    }
+    let alphabet = STS_SEED_ALPHABET.as_bytes();
+    let radix = alphabet.len() as u128;
+    let mut out = Vec::new();
+    while value != 0 {
+        let digit = (value % radix) as usize;
+        value /= radix;
+        out.push(alphabet[digit] as char);
+    }
+    out.iter().rev().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -63,6 +82,19 @@ mod tests {
         assert_eq!(
             try_sts_seed_string_to_long("-123").unwrap_err().to_string(),
             "invalid Slay the Spire seed character: -"
+        );
+    }
+
+    #[test]
+    fn seed_long_to_string_matches_target_unsigned_encoding() {
+        assert_eq!(sts_seed_long_to_string(1_957_307_888_551), "VERIFY01");
+        assert_eq!(
+            sts_seed_long_to_string(-3_574_229_841_928_219_368),
+            "4E1F1EYL4U1M3"
+        );
+        assert_eq!(
+            sts_seed_string_to_long(&sts_seed_long_to_string(-3_574_229_841_928_219_368)),
+            -3_574_229_841_928_219_368
         );
     }
 }

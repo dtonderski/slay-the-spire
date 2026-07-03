@@ -723,13 +723,17 @@
       safe_neow: "1",
       limit: "25",
       ranked: "0",
+      preflight: "1",
     });
     await singleFlight("Finding SlayTheData runs", async () => {
       await refreshSlaythedataStatusQuietly();
       const result = await requestJson(`/api/slaythedata/candidates?${params.toString()}`);
       app.slaythedataCandidates = arrayOf(result.candidates);
-      app.slaythedataSelectedRunId = app.slaythedataCandidates.length
-        ? String(app.slaythedataCandidates[0].id)
+      const selectedCandidate =
+        app.slaythedataCandidates.find((candidate) => !candidate.autoplay_blocked)
+        || app.slaythedataCandidates[0];
+      app.slaythedataSelectedRunId = selectedCandidate
+        ? String(selectedCandidate.id)
         : "";
       app.slaythedataSelectionAudit = null;
       applySelectedSlaythedataRunToStartControls();
@@ -2804,7 +2808,8 @@
     const neowBonus = firstDefined(candidate && candidate.neow_bonus, candidate && candidate.neowBonus, "");
     const neowCost = firstDefined(candidate && candidate.neow_cost, candidate && candidate.neowCost, "");
     const neow = neowBonus ? ` Neow ${neowBonus}${neowCost ? `:${neowCost}` : ""} |` : "";
-    return `#${runId} ${seed} F${floor} path ${path} ${result} |${neow} score ${score} cards ${cards} events ${events} shops ${shops} pots ${potions}`;
+    const preflight = candidate && candidate.autoplay_blocked ? " blocked |" : "";
+    return `#${runId} ${seed} F${floor} path ${path} ${result} |${preflight}${neow} score ${score} cards ${cards} events ${events} shops ${shops} pots ${potions}`;
   }
 
   function attachFidelityText() {

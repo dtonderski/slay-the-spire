@@ -526,6 +526,29 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector_start")
         self.assertEqual(bridge.sent[0][1]["metadata"]["script_source"]["run_id"], 77)
 
+    def test_start_guided_live_run_encodes_slaythedata_numeric_seed_for_bridge(self):
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "run_id": 77,
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 0,
+                            "seed_played": "-3574229841928219368",
+                        },
+                    }
+                )
+            }
+        )
+        bridge = FakeBridge({"state_id": "menu-state"})
+
+        result = _start_guided_live_run(collector, bridge)
+
+        self.assertEqual(result["command"], "START IRONCLAD 0 4E1F1EYL4U1M3")
+        self.assertEqual(bridge.sent[0][0], "START IRONCLAD 0 4E1F1EYL4U1M3")
+
     def test_start_guided_live_run_rejects_observed_state_timeout(self):
         collector = GuidedCollector()
         collector.start(
@@ -959,6 +982,41 @@ class UiServiceTests(unittest.TestCase):
         self.assertTrue(result["filters"]["safe_neow"])
         self.assertEqual(result["candidates"], [])
         self.assertTrue(select.call_args.kwargs["require_guided_safe_neow"])
+
+    def test_slaythedata_candidates_can_include_rust_preflight_blockers(self):
+        with patch(
+            "sts.ui_service.select_guided_collection_candidates",
+            return_value=[{"id": 1}, {"id": 2}],
+        ), patch(
+            "sts.ui_service.export_guided_run_row",
+            side_effect=[{"run": 1}, {"run": 2}],
+        ), patch(
+            "sts.ui_service.build_guided_run_script",
+            side_effect=[{"script": 1}, {"script": 2}],
+        ), patch(
+            "sts.ui_service.guided_script_support_audit",
+            side_effect=[
+                [{"reason": "unsupported_event", "detail": "no"}],
+                [],
+            ],
+        ), patch(
+            "sts.ui_service._slaythedata_rust_preflight_for_exported_run",
+            side_effect=[
+                {"steps": [{"status": "checked", "code": "ok"}]},
+                {"steps": [{"status": "checked", "code": "ok"}]},
+            ],
+        ):
+            result = _slaythedata_candidates_from_query({"preflight": ["1"]})
+
+        self.assertTrue(result["filters"]["preflight"])
+        self.assertFalse(result["candidates"][0]["rust_preflight_blocked"])
+        self.assertTrue(result["candidates"][0]["guided_support_blocked"])
+        self.assertTrue(result["candidates"][0]["autoplay_blocked"])
+        self.assertEqual(result["candidates"][0]["autoplay_blocker"]["reason"], "unsupported_event")
+        self.assertFalse(result["candidates"][1]["rust_preflight_blocked"])
+        self.assertFalse(result["candidates"][1]["guided_support_blocked"])
+        self.assertFalse(result["candidates"][1]["autoplay_blocked"])
+        self.assertIsNone(result["candidates"][1]["rust_preflight_blocker"])
 
     def test_slaythedata_status_query_uses_filters(self):
         with patch(

@@ -87,16 +87,19 @@ def select_guided_collection_candidates(
         neow_bonus_expr = "neow_bonus" if "neow_bonus" in run_columns else "NULL AS neow_bonus"
         neow_cost_expr = "neow_cost" if "neow_cost" in run_columns else "NULL AS neow_cost"
         query = f"""
-            SELECT id, seed_played, floor_reached, victory, path_length,
+            SELECT runs.id, seed_played, floor_reached, victory, path_length,
                    card_choice_count, event_choice_count, shop_purchase_count,
                    potion_usage_count, {neow_bonus_expr}, {neow_cost_expr},
                    (card_choice_count + event_choice_count * 2 + shop_purchase_count * 3 + potion_usage_count) AS guided_score
             FROM runs
+            JOIN chunk_runs ON chunk_runs.run_id = runs.id
             WHERE {where}
             {_candidate_order_clause(ranked)}
             LIMIT ?
         """
-        rows = conn.execute(query, [*params, int(limit)]).fetchall()
+        rows = _sqlite_fetchall_with_step_limit(conn, query, [*params, int(limit)])
+        if rows is None:
+            raise TimeoutError("SlayTheData candidate query timed out")
     finally:
         conn.close()
     return [
@@ -227,7 +230,13 @@ def slaythedata_index_status(
         }
         candidate_row = _sqlite_fetchone_with_step_limit(
             conn,
-            f"SELECT 1 FROM runs WHERE {where} LIMIT 1",
+            f"""
+            SELECT 1
+            FROM runs
+            JOIN chunk_runs ON chunk_runs.run_id = runs.id
+            WHERE {where}
+            LIMIT 1
+            """,
             params,
         )
         if candidate_row is None:
@@ -275,7 +284,6 @@ def guided_collection_where(
     require_supported: bool = True,
 ) -> tuple[str, list[Any]]:
     clauses = [
-        "id IN (SELECT run_id FROM chunk_runs)",
         "character_chosen = ?",
         "ascension_level = ?",
         "floor_reached >= ?",
@@ -466,6 +474,31 @@ def _sqlite_fetchone_with_step_limit(
     conn.set_progress_handler(progress, 1000)
     try:
         return conn.execute(query, params).fetchone()
+    except sqlite3.OperationalError as error:
+        if "interrupted" in str(error).lower():
+            return None
+        raise
+    finally:
+        conn.set_progress_handler(None, 0)
+
+
+def _sqlite_fetchall_with_step_limit(
+    conn: sqlite3.Connection,
+    query: str,
+    params: list[Any],
+    *,
+    max_steps: int = 20_000,
+) -> list[tuple[Any, ...]] | None:
+    steps = 0
+
+    def progress() -> int:
+        nonlocal steps
+        steps += 1
+        return 1 if steps > max_steps else 0
+
+    conn.set_progress_handler(progress, 1000)
+    try:
+        return conn.execute(query, params).fetchall()
     except sqlite3.OperationalError as error:
         if "interrupted" in str(error).lower():
             return None

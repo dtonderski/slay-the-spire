@@ -827,10 +827,10 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                             }
                         }
                         [] => (
-                            SlayTheDataPreflightStatus::Blocked,
-                            "map_symbol_not_legal".to_owned(),
+                            SlayTheDataPreflightStatus::Guided,
+                            "guided_map_symbol_unmatched".to_owned(),
                             format!(
-                                "route symbol {symbol:?} matched no legal map actions from phase {:?}",
+                                "route symbol {symbol:?} matched no legal map actions from phase {:?}; SlayTheData route data has no map x/y so this remains guided",
                                 current.phase
                             ),
                             None,

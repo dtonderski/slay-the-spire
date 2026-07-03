@@ -25,7 +25,11 @@ from sts.slaythedata_index import (
     slaythedata_index_status,
 )
 from sts.self_play import strict_replay_real_trace_to_env
-from sts.slaythedata_policy import build_guided_run_script, load_guided_run_script
+from sts.slaythedata_policy import (
+    build_guided_run_script,
+    guided_script_support_audit,
+    load_guided_run_script,
+)
 from sts.trace_replay import TraceReplayStore
 
 
@@ -1356,7 +1360,7 @@ def _start_guided_live_run(
     ascension = _required_ascension(
         config.get("ascension") if config.get("ascension") is not None else config.get("ascension_level")
     )
-    seed = _required_command_token(config.get("seed_played") or config.get("seed"), "seed")
+    seed = _bridge_seed_token(config.get("seed_played") or config.get("seed"))
     bridge_status = bridge.status()
     command = f"START {character} {ascension} {seed}"
     metadata = {
@@ -1386,6 +1390,14 @@ def _start_guided_live_run(
             "observed_update": observed_update,
         },
     }
+
+
+def _bridge_seed_token(value: Any) -> str:
+    seed = _required_command_token(value, "seed")
+    body = seed[1:] if seed.startswith("-") else seed
+    if body.isdigit():
+        return omni.sts_seed_long_to_string(int(seed))
+    return seed
 
 
 def _collector_status_with_preflight(collector: GuidedCollector, bridge: BridgeMirror) -> dict[str, Any]:
@@ -1494,6 +1506,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
     safe_neow = _query_bool(query, "safe_neow", True)
     limit = _query_int(query, "limit", 25)
     ranked = _query_bool(query, "ranked", True)
+    include_preflight = _query_bool(query, "preflight", False)
     rows = select_guided_collection_candidates(
         character=character,
         ascension=ascension,
@@ -1508,6 +1521,8 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
         limit=limit,
         ranked=ranked,
     )
+    if include_preflight:
+        rows = [_slaythedata_candidate_with_preflight(row) for row in rows]
     return {
         "candidates": rows,
         "filters": {
@@ -1523,8 +1538,64 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
             "safe_neow": safe_neow,
             "limit": limit,
             "ranked": ranked,
+            "preflight": include_preflight,
         },
     }
+
+
+def _slaythedata_candidate_with_preflight(row: dict[str, Any]) -> dict[str, Any]:
+    candidate = dict(row)
+    try:
+        exported_run = export_guided_run_row(int(candidate["id"]))
+        script = build_guided_run_script(exported_run)
+        support_blockers = guided_script_support_audit(script)
+        preflight = _slaythedata_rust_preflight_for_exported_run(exported_run)
+        blocker = _slaythedata_rust_preflight_blocker(preflight)
+        candidate["rust_preflight_blocked"] = blocker is not None
+        candidate["rust_preflight_blocker"] = blocker
+        candidate["guided_support_blocked"] = bool(support_blockers)
+        candidate["guided_support_blocker"] = support_blockers[0] if support_blockers else None
+        candidate["autoplay_blocked"] = bool(blocker or support_blockers)
+        candidate["autoplay_blocker"] = blocker or (support_blockers[0] if support_blockers else None)
+    except Exception as error:
+        candidate["rust_preflight_blocked"] = True
+        candidate["rust_preflight_blocker"] = {
+            "reason": "preflight_candidate_error",
+            "detail": str(error),
+        }
+        candidate["guided_support_blocked"] = True
+        candidate["guided_support_blocker"] = {
+            "reason": "preflight_candidate_error",
+            "detail": str(error),
+        }
+        candidate["autoplay_blocked"] = True
+        candidate["autoplay_blocker"] = {
+            "reason": "preflight_candidate_error",
+            "detail": str(error),
+        }
+    return candidate
+
+
+def _slaythedata_rust_preflight_blocker(preflight: dict[str, Any]) -> dict[str, Any] | None:
+    diagnostics = preflight.get("diagnostics") if isinstance(preflight, dict) else None
+    if isinstance(diagnostics, list):
+        for diagnostic in diagnostics:
+            if isinstance(diagnostic, dict) and diagnostic.get("severity") == "error":
+                return {
+                    "reason": diagnostic.get("code") or "rust_preflight_error",
+                    "detail": diagnostic.get("message"),
+                }
+    steps = preflight.get("steps") if isinstance(preflight, dict) else None
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, dict) and step.get("status") == "blocked":
+                return {
+                    "reason": step.get("code") or "rust_preflight_blocked",
+                    "detail": step.get("message"),
+                    "floor": step.get("floor"),
+                    "ordinal": step.get("ordinal"),
+                }
+    return None
 
 
 def _slaythedata_status_from_query(query: dict[str, list[str]]) -> dict[str, Any]:

@@ -24,7 +24,10 @@ pub use normalize::{
     normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
     CanonicalMonsterObservation, CanonicalRunObservation,
 };
-pub use seed::{sts_seed_string_to_long, try_sts_seed_string_to_long, STS_SEED_ALPHABET};
+pub use seed::{
+    sts_seed_long_to_string, sts_seed_string_to_long, try_sts_seed_string_to_long,
+    STS_SEED_ALPHABET,
+};
 pub use sim_real::{
     run_state_from_observed_combat_message, run_state_from_observed_message,
     verify_communication_mod_trace, verify_communication_mod_trace_with_mode,

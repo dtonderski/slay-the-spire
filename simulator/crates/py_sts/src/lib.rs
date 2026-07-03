@@ -499,7 +499,13 @@ fn sts_omni(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyOmniCombatEnv>()?;
     module.add_class::<PyOmniRunEnv>()?;
     module.add_function(wrap_pyfunction!(slaythedata_preflight_json, module)?)?;
+    module.add_function(wrap_pyfunction!(sts_seed_long_to_string, module)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn sts_seed_long_to_string(seed: i64) -> String {
+    sts_verify::sts_seed_long_to_string(seed)
 }
 
 #[pyfunction]
