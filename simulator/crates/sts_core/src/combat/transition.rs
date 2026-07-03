@@ -905,7 +905,7 @@ fn apply_mummified_hand_on_power_play(
                 return None;
             }
             let definition = get_card_definition(card.content_id)?;
-            let cost_for_turn = card.temp_cost.unwrap_or(definition.cost);
+            let cost_for_turn = card.temp_cost.map_or(definition.cost, |cost| cost as i8);
             (definition.cost > 0 && cost_for_turn > 0).then_some(index)
         })
         .collect::<Vec<_>>();

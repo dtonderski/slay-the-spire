@@ -1483,7 +1483,7 @@ pub const WHIRLWIND: CardDefinition = CardDefinition {
     id: WHIRLWIND_ID,
     key: "Whirlwind",
     name: "Whirlwind",
-    cost: 0,
+    cost: -1,
     card_type: CardType::Attack,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
@@ -1498,7 +1498,7 @@ pub const WHIRLWIND_PLUS: CardDefinition = CardDefinition {
     id: WHIRLWIND_PLUS_ID,
     key: "Whirlwind+",
     name: "Whirlwind+",
-    cost: 0,
+    cost: -1,
     card_type: CardType::Attack,
     target: TargetRequirement::AllEnemies,
     values: CardValues {

@@ -3232,12 +3232,15 @@ pub(super) fn enlightenment_cost_actions(
         .collect()
 }
 
-fn hand_card_cost_before_enlightenment(card: &crate::CardInstance) -> u8 {
-    card.temp_cost.unwrap_or_else(|| {
-        get_card_definition(card.content_id)
-            .map(|definition| definition.cost)
-            .unwrap_or(0)
-    })
+fn hand_card_cost_before_enlightenment(card: &crate::CardInstance) -> i32 {
+    card.temp_cost.map_or_else(
+        || {
+            get_card_definition(card.content_id)
+                .map(|definition| i32::from(definition.cost))
+                .unwrap_or(0)
+        },
+        i32::from,
+    )
 }
 
 fn flame_barrier_queue(

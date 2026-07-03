@@ -37,6 +37,17 @@ fn twin_strike_definitions_target_one_enemy_twice() {
 }
 
 #[test]
+fn whirlwind_definitions_are_x_cost_all_enemy_attacks() {
+    assert_eq!(cards::WHIRLWIND.cost, -1);
+    assert_eq!(cards::WHIRLWIND.target, TargetRequirement::AllEnemies);
+    assert_eq!(cards::WHIRLWIND.values.damage, Some(5));
+
+    assert_eq!(cards::WHIRLWIND_PLUS.cost, -1);
+    assert_eq!(cards::WHIRLWIND_PLUS.target, TargetRequirement::AllEnemies);
+    assert_eq!(cards::WHIRLWIND_PLUS.values.damage, Some(8));
+}
+
+#[test]
 fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

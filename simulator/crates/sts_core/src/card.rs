@@ -30,7 +30,7 @@ pub struct CardDefinition {
     pub id: ContentId,
     pub key: &'static str,
     pub name: &'static str,
-    pub cost: u8,
+    pub cost: i8,
     pub card_type: CardType,
     pub target: TargetRequirement,
     pub values: CardValues,
