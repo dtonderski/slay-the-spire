@@ -1003,6 +1003,16 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     run.reward.as_mut().expect("reward screen present").choices = choices;
 }
 
+fn preview_obtain_card_reward_choices(run: &mut RunState) {
+    let Some(mut choices) = run.reward.as_ref().map(|reward| reward.choices.clone()) else {
+        return;
+    };
+    for choice in &mut choices {
+        choice.content_id = run.content_id_after_card_add_relics(choice.content_id);
+    }
+    run.reward.as_mut().expect("reward screen present").choices = choices;
+}
+
 fn card_upgraded_chance(run: &RunState) -> f32 {
     match run.current_act {
         2 if run.ascension >= 12 => 0.125,
@@ -1770,6 +1780,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             }) {
                 roll_pending_card_reward_choices(&mut next);
             }
+            preview_obtain_card_reward_choices(&mut next);
             next.reward
                 .as_mut()
                 .expect("validated reward screen")
