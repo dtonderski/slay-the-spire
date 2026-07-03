@@ -3620,6 +3620,7 @@ _CARD_CHOICE_CONTENT_IDS = {
     "thunderclap": 103,
     "clothesline": 104,
     "headbutt": 106,
+    "armaments": 105,
     "wildstrike": 107,
     "heavyblade": 108,
     "perfectedstrike": 109,
