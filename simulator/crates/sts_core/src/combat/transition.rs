@@ -829,6 +829,10 @@ fn apply_internal_action(
             upgrade_hand_cards_except(state, card_id);
             Ok(Vec::new())
         }
+        InternalAction::UpgradeHandCard { card_id } => {
+            upgrade_hand_card(state, card_id)?;
+            Ok(Vec::new())
+        }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
             find_hand_card_mut(state, card_id)?.rampage_damage_bonus += amount;
             Ok(Vec::new())
@@ -1787,6 +1791,12 @@ fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) 
             *card = upgraded;
         }
     }
+}
+
+fn upgrade_hand_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
+    let card = find_hand_card_mut(state, card_id)?;
+    *card = upgrade_card_instance(*card).ok_or(SimError::IllegalAction("card cannot upgrade"))?;
+    Ok(())
 }
 
 fn apply_play_top_draw_card(

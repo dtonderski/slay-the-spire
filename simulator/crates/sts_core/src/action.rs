@@ -186,6 +186,9 @@ pub enum InternalAction {
     UpgradeHandCardsExcept {
         card_id: CardId,
     },
+    UpgradeHandCard {
+        card_id: CardId,
+    },
     IncreaseRampageDamage {
         card_id: CardId,
         amount: i32,

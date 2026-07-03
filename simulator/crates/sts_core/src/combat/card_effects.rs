@@ -983,17 +983,28 @@ fn armaments_queue(
         return Ok(queue);
     }
 
-    if has_upgradeable_other_hand_card(state, card_id) {
-        queue.push_back(InternalAction::AwaitHandSelect {
-            source_card_id: card_id,
-            purpose: HandSelectPurpose::ArmamentsUpgrade,
-        });
-    } else {
-        queue.push_back(InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::DiscardPile,
-        });
+    match upgradeable_other_hand_card_ids(state, card_id).as_slice() {
+        [] => {
+            queue.push_back(InternalAction::MoveCard {
+                card_id,
+                from: CardPile::Hand,
+                to: CardPile::DiscardPile,
+            });
+        }
+        [target] => {
+            queue.push_back(InternalAction::UpgradeHandCard { card_id: *target });
+            queue.push_back(InternalAction::MoveCard {
+                card_id,
+                from: CardPile::Hand,
+                to: card_move_destination(definition),
+            });
+        }
+        _ => {
+            queue.push_back(InternalAction::AwaitHandSelect {
+                source_card_id: card_id,
+                purpose: HandSelectPurpose::ArmamentsUpgrade,
+            });
+        }
     }
 
     Ok(queue)
@@ -1053,12 +1064,14 @@ fn headbutt_queue(
     Ok(queue)
 }
 
-fn has_upgradeable_other_hand_card(state: &CombatState, exclude_id: CardId) -> bool {
+fn upgradeable_other_hand_card_ids(state: &CombatState, exclude_id: CardId) -> Vec<CardId> {
     state
         .piles
         .hand
         .iter()
-        .any(|card| card.id != exclude_id && upgrade_content_id(card.content_id).is_some())
+        .filter(|card| card.id != exclude_id && upgrade_content_id(card.content_id).is_some())
+        .map(|card| card.id)
+        .collect()
 }
 
 fn entrench_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
