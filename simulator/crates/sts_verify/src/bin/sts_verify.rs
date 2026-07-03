@@ -1,9 +1,10 @@
 use std::{env, fs, process::exit};
 
 use sts_verify::{
-    canonical_diff, corpus_path, import_communication_mod_trace, load_corpus_file,
-    minimize_communication_mod_trace, verify_communication_mod_trace_with_mode, MinimizeError,
-    VerificationMode,
+    canonical_diff, corpus_path, import_communication_mod_trace, import_slaythedata_jsonl_line,
+    import_slaythedata_run_json, load_corpus_file, minimize_communication_mod_trace,
+    slaythedata_replay_plan, verify_communication_mod_trace_with_mode, MinimizeError,
+    SlayTheDataDiagnosticSeverity, VerificationMode,
 };
 
 fn main() {
@@ -234,6 +235,115 @@ fn main() {
                     }
                 }
                 exit(2);
+            }
+        }
+        "slaythedata-plan" => {
+            let mut line_index: Option<usize> = None;
+            let mut json_output = false;
+            let mut path: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--line-index" => {
+                        let Some(value) = args.next() else {
+                            eprintln!(
+                                "usage: sts_verify slaythedata-plan [--line-index N] [--json] <run.json|run.jsonl>"
+                            );
+                            exit(1);
+                        };
+                        line_index = Some(value.parse().unwrap_or_else(|err| {
+                            eprintln!("invalid --line-index {value:?}: {err}");
+                            exit(1);
+                        }));
+                    }
+                    "--json" => json_output = true,
+                    other if other.starts_with('-') => {
+                        eprintln!("unknown slaythedata-plan flag: {other}");
+                        exit(1);
+                    }
+                    other => {
+                        path = Some(other.to_owned());
+                        break;
+                    }
+                }
+            }
+            let Some(path) = path else {
+                eprintln!(
+                    "usage: sts_verify slaythedata-plan [--line-index N] [--json] <run.json|run.jsonl>"
+                );
+                exit(1);
+            };
+            let content = if path == "-" {
+                use std::io::Read;
+                let mut buffer = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buffer)
+                    .expect("read stdin");
+                buffer
+            } else {
+                fs::read_to_string(&path).unwrap_or_else(|err| {
+                    eprintln!("failed to read {path}: {err}");
+                    exit(1);
+                })
+            };
+            let imported = if let Some(line_index) = line_index {
+                import_slaythedata_jsonl_line(&content, line_index)
+            } else {
+                import_slaythedata_run_json(&content)
+            }
+            .unwrap_or_else(|err| {
+                eprintln!("failed to import SlayTheData run: {err}");
+                exit(1);
+            });
+            let plan = slaythedata_replay_plan(&imported);
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&plan).expect("plan serializes")
+                );
+            } else {
+                println!("schema={}", plan.schema);
+                println!("source_kind={:?}", plan.source.kind);
+                println!(
+                    "run_id={}",
+                    plan.source
+                        .run_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default()
+                );
+                if let Some(start) = &plan.run_start {
+                    println!(
+                        "start={} {} {}",
+                        start.character, start.ascension, start.seed_played
+                    );
+                } else {
+                    println!("start=");
+                }
+                println!("ordering={:?}", plan.ordering);
+                println!("steps={}", plan.steps.len());
+                println!("checkpoints={}", plan.checkpoints.len());
+                let errors = plan
+                    .diagnostics
+                    .iter()
+                    .filter(|diagnostic| {
+                        diagnostic.severity == SlayTheDataDiagnosticSeverity::Error
+                    })
+                    .count();
+                let warnings = plan
+                    .diagnostics
+                    .iter()
+                    .filter(|diagnostic| {
+                        diagnostic.severity == SlayTheDataDiagnosticSeverity::Warning
+                    })
+                    .count();
+                println!("diagnostics={}", plan.diagnostics.len());
+                println!("diagnostic_errors={errors}");
+                println!("diagnostic_warnings={warnings}");
+                for diagnostic in &plan.diagnostics {
+                    println!(
+                        "diagnostic severity={:?} code={} path={} message=\"{}\"",
+                        diagnostic.severity, diagnostic.code, diagnostic.path, diagnostic.message
+                    );
+                }
             }
         }
         "minimize" => {

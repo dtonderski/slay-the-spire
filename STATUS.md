@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData CLI slice: added `sts_verify slaythedata-plan`, which imports a
+  raw SlayTheData JSON row or a selected JSONL line and prints the typed
+  replay plan as either compact text or pretty JSON. This gives Rust tooling and
+  future UI integration a direct way to inspect imported runs without going
+  through Python. Checks: `cargo fmt` passed; `cargo check -p sts_verify --bin
+  sts_verify` passed; CLI text and `--json` smoke tests passed on a temporary
+  chunk-export row. Next task: connect plan steps to simulator `RunState`
+  legality/replay checks.
 - SlayTheData replay-plan slice: added verifier-side replay descriptors derived
   from the typed SlayTheData import. `slaythedata_replay_plan` now emits a
   start descriptor when character/ascension/seed are present, floor-grouped
