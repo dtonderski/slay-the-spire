@@ -7736,11 +7736,11 @@ fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Op
 
 fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> MonsterIntent {
     use sts_core::content::monsters::{
-        gremlin_nob_enrage, ACID_SLIME_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
-        CENTURION_ID, CHAMP_DEFENSIVE_BLOCK, CHAMP_DEFENSIVE_METALLICIZE, CHAMP_FACE_SLAP_DAMAGE,
-        CHAMP_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID,
-        GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID,
-        HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPULSOR_ID, SENTRY_ID,
+        champ_strength_amount, gremlin_nob_enrage, ACID_SLIME_ID, BRONZE_AUTOMATON_ID,
+        BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_DEFENSIVE_BLOCK, CHAMP_DEFENSIVE_METALLICIZE,
+        CHAMP_FACE_SLAP_DAMAGE, CHAMP_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, FUNGI_BEAST_ID,
+        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID,
+        HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPULSOR_ID, SENTRY_ID,
         SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLIME_BOSS_A19_SLIMED_COUNT, SLIME_BOSS_ID,
         SLIME_BOSS_SLIMED_COUNT, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK,
         SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKER_ID,
@@ -7790,6 +7790,12 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             amount: gremlin_nob_enrage(ascension),
         },
         "BUFF" if content_id == BYRD_ID => MonsterIntent::StrengthSelf { amount: 1 },
+        "BUFF" if content_id == CHAMP_ID && move_id == 5 => MonsterIntent::StrengthSelf {
+            amount: champ_strength_amount(ascension),
+        },
+        "BUFF" if content_id == CHAMP_ID && move_id == 7 => MonsterIntent::StrengthSelf {
+            amount: champ_strength_amount(ascension) * 3,
+        },
         "STRONG_DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::ApplyPlayerHex { amount: 1 },
         "STRONG_DEBUFF" if content_id == SNAKE_PLANT_ID => {
             MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 }

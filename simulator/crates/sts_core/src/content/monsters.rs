@@ -5083,7 +5083,7 @@ fn champ_face_slap_intent(ascension: u8) -> MonsterIntent {
     }
 }
 
-fn champ_strength_amount(ascension: u8) -> i32 {
+pub fn champ_strength_amount(ascension: u8) -> i32 {
     if ascension >= 19 {
         4
     } else if ascension >= 4 {
