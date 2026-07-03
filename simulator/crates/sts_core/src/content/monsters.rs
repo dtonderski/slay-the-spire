@@ -7591,7 +7591,12 @@ pub fn apply_large_spike_slime_split(
     monsters.insert(slime_index + 2, right);
 }
 
-pub fn apply_slime_boss_split(monsters: &mut Vec<MonsterState>, boss_id: MonsterId, ascension: u8) {
+pub fn apply_slime_boss_split(
+    monsters: &mut Vec<MonsterState>,
+    boss_id: MonsterId,
+    mut rng: Option<&mut StsRng>,
+    ascension: u8,
+) {
     let Some(boss_index) = monsters
         .iter()
         .position(|monster| monster.id == boss_id && monster.content_id == SLIME_BOSS_ID)
@@ -7618,13 +7623,16 @@ pub fn apply_slime_boss_split(monsters: &mut Vec<MonsterState>, boss_id: Monster
     } else {
         SPIKE_SLIME_L_SPIT_DAMAGE
     });
-    spike.intent = MonsterIntent::AttackAddSlimedToDiscard {
-        damage: spike
-            .rolled_attack_damage
-            .expect("Slime Boss split spike has large attack damage"),
-        count: 1,
-    };
-    spike.initial_intent_locked = true;
+    if let Some(rng) = rng.as_deref_mut() {
+        let roll = rng.random_int(99);
+        spike.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
+            spike.hp,
+            &spike.move_history,
+            roll,
+            ascension,
+        );
+        record_target_move(&mut spike);
+    }
     acid.hp = split_hp;
     acid.max_hp = split_hp;
     acid.rolled_attack_damage = Some(if ascension >= 2 {
@@ -7632,12 +7640,12 @@ pub fn apply_slime_boss_split(monsters: &mut Vec<MonsterState>, boss_id: Monster
     } else {
         ACID_SLIME_L_NORMAL_TACKLE_DAMAGE
     });
-    acid.intent = MonsterIntent::Attack {
-        damage: acid
-            .rolled_attack_damage
-            .expect("Slime Boss split acid has large normal tackle damage"),
-    };
-    acid.initial_intent_locked = true;
+    if let Some(rng) = rng.as_deref_mut() {
+        let roll = rng.random_int(99);
+        acid.intent =
+            target_large_acid_slime_next_intent_from_roll(&acid.move_history, roll, rng, ascension);
+        record_target_move(&mut acid);
+    }
 
     monsters[boss_index].hp = 0;
     monsters[boss_index].alive = false;

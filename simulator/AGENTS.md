@@ -42,3 +42,21 @@ infrastructure, parsers/mappers, serialization, deterministic invariants, or a
 small source-backed rule that a trace cannot isolate cleanly. Avoid broad
 gameplay unit tests that simply encode an agent's current interpretation of the
 game; they can make the wrong model look authoritative.
+
+## Verifier Workflow
+
+Use the Rust verifier for simulator and verifier iteration by default. Do not
+use the UI as the test loop for trace mismatches, and do not restart the UI just
+to check a simulator fix.
+
+Preferred checks:
+
+- `cargo check -p sts_core --lib`
+- `cargo check -p sts_verify --lib`
+- `cargo run -p sts_verify --bin sts_verify -- parity --mode seed-start <trace.jsonl>`
+- focused Rust tests for source-backed mechanics when a full trace cannot yet
+  isolate the rule
+
+Only use Python strict replay when it exposes a full-trace replay surface that
+the Rust CLI does not yet expose. Only rebuild the Python extension and restart
+the UI when the user needs to keep playing with newly compiled native code.

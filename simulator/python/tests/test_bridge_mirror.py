@@ -1059,6 +1059,46 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(card["command"], "CHOOSE 1")
         self.assertTrue(card["enabled"])
 
+    def test_status_infers_targeted_fire_potion_actions_for_older_summaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-state",
+                        "ready_for_command": True,
+                        "available_commands": ["potion", "state"],
+                        "potions": [
+                            {
+                                "index": 0,
+                                "name": "Fire Potion",
+                                "id": "Fire Potion",
+                                "can_use": True,
+                            }
+                        ],
+                        "combat": {
+                            "monsters": [
+                                {"index": 0, "name": "Cultist", "gone": False},
+                                {"index": 1, "name": "Louse", "gone": False},
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status = BridgeMirror(root, stale_after_seconds=9999).status()
+
+        actions = status["bridge_actions"]
+        self.assertEqual(
+            [(action["label"], action["command"]) for action in actions],
+            [
+                ("Use Fire Potion -> Cultist", "POTION USE 0 0"),
+                ("Use Fire Potion -> Louse", "POTION USE 0 1"),
+            ],
+        )
+
     def test_bridge_actions_cover_play_end_and_disabled_state(self):
         actions = bridge_actions_from_status(
             {

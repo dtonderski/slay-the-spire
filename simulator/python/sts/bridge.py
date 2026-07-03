@@ -717,24 +717,58 @@ def _summary_with_derived_potion_slots(
     summary: dict[str, Any],
     current_state: dict[str, Any],
 ) -> dict[str, Any]:
-    if not isinstance(summary, dict) or summary.get("open_potion_slots") is not None:
+    if not isinstance(summary, dict):
         return summary
+    enriched = summary
+    if summary.get("potions"):
+        potions = []
+        changed = False
+        for potion in summary.get("potions") or []:
+            if not isinstance(potion, dict):
+                potions.append(potion)
+                continue
+            if potion.get("requires_target") is not None:
+                potions.append(potion)
+                continue
+            updated = potion.copy()
+            updated["requires_target"] = _potion_requires_target(
+                potion.get("id") or potion.get("name")
+            )
+            potions.append(updated)
+            changed = True
+        if changed:
+            enriched = enriched.copy()
+            enriched["potions"] = potions
+    if enriched.get("open_potion_slots") is not None:
+        return enriched
     potions = (
         current_state.get("message", {})
         .get("game_state", {})
         .get("potions")
     )
     if not isinstance(potions, list):
-        return summary
+        return enriched
     occupied = [
         potion for potion in potions
         if isinstance(potion, dict)
         and str(potion.get("name") or potion.get("id") or "").lower() != "potion slot"
     ]
-    enriched = summary.copy()
+    enriched = enriched.copy()
     enriched["potion_capacity"] = len(potions)
     enriched["open_potion_slots"] = len(potions) - len(occupied)
     return enriched
+
+
+def _potion_requires_target(name: Any) -> bool:
+    if not isinstance(name, str):
+        return False
+    normalized = "".join(char for char in name.lower() if char.isalnum())
+    return normalized in {
+        "firepotion",
+        "weakpotion",
+        "fearpotion",
+        "poisonpotion",
+    }
 
 
 def _age_seconds(path: Path, now: float) -> float | None:

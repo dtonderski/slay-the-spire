@@ -2551,6 +2551,7 @@ _SNAPSHOT_RELIC_NAMES = {
     "UnceasingTop",
     "Vajra",
     "VelvetChoker",
+    "WarpedTongs",
     "WarPaint",
     "Whetstone",
     "WhiteBeastStatue",

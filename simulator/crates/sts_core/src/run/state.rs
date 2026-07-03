@@ -548,6 +548,7 @@ impl RunState {
             combat.card_random_rng = Some(rng);
             combat.toolbox_card_reward = Some(choices);
         }
+        crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat);
         combat
     }
 
@@ -1280,7 +1281,8 @@ impl RunState {
             | Relic::Necronomicon
             | Relic::Enchiridion
             | Relic::NilrysCodex
-            | Relic::MutagenicStrength => {}
+            | Relic::MutagenicStrength
+            | Relic::WarpedTongs => {}
         }
     }
 
@@ -1648,6 +1650,7 @@ impl Relic {
             Relic::JuzuBracelet => RelicKey::JuzuBracelet,
             Relic::PrismaticShard => RelicKey::PrismaticShard,
             Relic::MutagenicStrength => RelicKey::MutagenicStrength,
+            Relic::WarpedTongs => RelicKey::WarpedTongs,
             Relic::GoldenIdol => RelicKey::GoldenIdol,
             Relic::BloodyIdol => RelicKey::BloodyIdol,
             Relic::Necronomicon => RelicKey::Necronomicon,
@@ -1809,6 +1812,7 @@ impl Relic {
             RelicKey::JuzuBracelet => Some(Relic::JuzuBracelet),
             RelicKey::PrismaticShard => Some(Relic::PrismaticShard),
             RelicKey::MutagenicStrength => Some(Relic::MutagenicStrength),
+            RelicKey::WarpedTongs => Some(Relic::WarpedTongs),
         }
     }
 }

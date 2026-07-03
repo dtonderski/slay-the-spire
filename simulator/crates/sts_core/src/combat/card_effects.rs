@@ -631,8 +631,7 @@ fn apply_duplication_potion_to_queue(
     queue = immediate_queue;
 
     queue.push_front(InternalAction::ConsumeDuplicationPotion);
-    queue.push_back(InternalAction::PlayCardCopy { card_id });
-    queue.append(&mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
     queue.append(&mut delayed_prevention);
     if let Some(action) = final_move {
         queue.push_back(action);
@@ -665,8 +664,7 @@ fn apply_double_tap_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    queue.push_back(InternalAction::PlayCardCopy { card_id });
-    queue.append(&mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
 
     queue
 }
@@ -695,10 +693,54 @@ fn apply_necronomicon_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    queue.push_back(InternalAction::PlayCardCopy { card_id });
-    queue.append(&mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
 
     queue
+}
+
+fn append_copied_card_effects(
+    queue: &mut VecDeque<InternalAction>,
+    card_id: CardId,
+    duplicated_effects: &mut VecDeque<InternalAction>,
+) {
+    let required_target = copied_card_required_living_target(duplicated_effects);
+    if let Some(target) = required_target {
+        queue.push_back(InternalAction::SkipCopiedCardEffectsIfTargetDead { target });
+    }
+    queue.push_back(InternalAction::PlayCardCopy { card_id });
+    queue.append(duplicated_effects);
+    if required_target.is_some() {
+        queue.push_back(InternalAction::EndCopiedCardEffects);
+    }
+}
+
+fn copied_card_required_living_target(effects: &VecDeque<InternalAction>) -> Option<MonsterId> {
+    let mut target = None;
+    for action in effects {
+        let Some(next) = action_required_living_target(*action) else {
+            continue;
+        };
+        if target.is_some_and(|existing| existing != next) {
+            return None;
+        }
+        target = Some(next);
+    }
+    target
+}
+
+fn action_required_living_target(action: InternalAction) -> Option<MonsterId> {
+    match action {
+        InternalAction::DealDamage { info }
+        | InternalAction::DealDamageAndHealUnblocked { info }
+        | InternalAction::DealFeedDamage { info, .. } => Some(info.target),
+        InternalAction::GainMonsterBlock { target, .. }
+        | InternalAction::ApplyVulnerable { target, .. }
+        | InternalAction::ReduceMonsterStrength { target, .. }
+        | InternalAction::ReduceMonsterStrengthThisTurn { target, .. }
+        | InternalAction::DealUnmodifiedDamage { target, .. }
+        | InternalAction::ApplyWeak { target, .. } => Some(target),
+        _ => None,
+    }
 }
 
 fn unplayable_relic_queue(

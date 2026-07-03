@@ -144,6 +144,7 @@ fn start_player_turn_with_no_rng_discard_limit(
     state.player.temp_strength = 0;
     state.player.temp_thorns = 0;
     state.player.temp_rage_block = 0;
+    state.double_tap_pending = 0;
     if state.player.no_block_turns > 0 {
         state.player.no_block_turns -= 1;
     }
@@ -404,7 +405,12 @@ fn run_monster_turn(state: &mut CombatState) {
                         ascension,
                     );
                 } else if state.monsters[index].content_id == SLIME_BOSS_ID {
-                    apply_slime_boss_split(&mut state.monsters, summoner_id, ascension);
+                    apply_slime_boss_split(
+                        &mut state.monsters,
+                        summoner_id,
+                        state.monster_rng.as_mut(),
+                        ascension,
+                    );
                 } else if state.monsters[index].content_id == REPTOMANCER_ID {
                     apply_reptomancer_dagger_spawn(
                         &mut state.monsters,
@@ -940,6 +946,11 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 record_target_move(monster);
                 continue;
             }
+            if monster.content_id == SLIME_BOSS_ID {
+                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension);
+                record_target_move(monster);
+                continue;
+            }
             let roll = state.monster_rng.as_mut().map(|rng| rng.random_int(99));
             monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
                 crate::MonsterIntent::AttackMultiple {
@@ -1469,6 +1480,16 @@ mod tests {
             0
         );
         assert_eq!(state.monsters[0].move_history, vec![1, 1, 1]);
+    }
+
+    #[test]
+    fn start_player_turn_clears_unused_double_tap() {
+        let mut state = CombatState::initial_fixture();
+        state.double_tap_pending = 1;
+
+        start_player_turn(&mut state);
+
+        assert_eq!(state.double_tap_pending, 0);
     }
 
     #[test]

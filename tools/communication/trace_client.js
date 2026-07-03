@@ -152,6 +152,7 @@ function summarize(message) {
       id: potion.id,
       can_use: potion.can_use,
       can_discard: potion.can_discard,
+      requires_target: potion.requires_target,
     })),
     potion_capacity: potions.length,
     open_potion_slots: openPotionSlots,

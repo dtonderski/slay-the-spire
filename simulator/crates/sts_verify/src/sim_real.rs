@@ -4858,6 +4858,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::GremlinMask => "GremlinMask",
         RelicKey::NlothsMask => "NlothsMask",
         RelicKey::SsserpentHead => "SsserpentHead",
+        RelicKey::WarpedTongs => "WarpedTongs",
         _ => "Unknown Relic",
     }
 }
@@ -4906,6 +4907,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "gremlinmask" | "gremlinvisage" => Some(RelicKey::GremlinMask),
         "nlothsmask" => Some(RelicKey::NlothsMask),
         "ssserpenthead" => Some(RelicKey::SsserpentHead),
+        "warpedtongs" => Some(RelicKey::WarpedTongs),
         "pear" => Some(RelicKey::Pear),
         "eternalfeather" => Some(RelicKey::EternalFeather),
         "championbelt" => Some(RelicKey::ChampionBelt),
@@ -4982,6 +4984,7 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "kunai" => Some(Relic::Kunai),
         "happyflower" => Some(Relic::HappyFlower),
         "incenseburner" => Some(Relic::IncenseBurner),
+        "warpedtongs" => Some(Relic::WarpedTongs),
         _ => None,
     }
 }
@@ -6290,6 +6293,33 @@ fn observed_event_screen(game: &Value, event_rng_seed: u64) -> Option<EventScree
     let choices = choice_list_from_value(game.get("choice_list"));
     if event_id == "Lab" || event_name == "Lab" {
         return Some(event_screen(Event::Lab));
+    }
+    if event_id == "Accursed Blacksmith" || event_name == "Ominous Forge" {
+        let labels = if choices.is_empty() {
+            vec!["Leave".to_owned()]
+        } else {
+            choices
+        };
+        let stage = if labels
+            .iter()
+            .any(|choice| choice.eq_ignore_ascii_case("forge"))
+            || labels
+                .iter()
+                .any(|choice| choice.eq_ignore_ascii_case("rummage"))
+        {
+            0
+        } else {
+            1
+        };
+        return Some(EventScreen {
+            event: Event::AccursedBlacksmith,
+            choices: labels
+                .into_iter()
+                .map(|label| EventChoice { label })
+                .collect(),
+            stage,
+            event_data: 0,
+        });
     }
     if event_id == "Shining Light"
         || event_name == "Shining Light"

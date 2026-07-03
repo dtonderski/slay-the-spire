@@ -156,6 +156,22 @@ fn process_internal_queue(
     let mut event_log = Vec::new();
 
     while let Some(internal_action) = queue.pop_front() {
+        if let InternalAction::SkipCopiedCardEffectsIfTargetDead { target } = internal_action {
+            event_log.push(internal_action);
+            if !living_monster_alive(&next, target) {
+                while let Some(skipped_action) = queue.pop_front() {
+                    event_log.push(skipped_action);
+                    if matches!(skipped_action, InternalAction::EndCopiedCardEffects) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if matches!(internal_action, InternalAction::EndCopiedCardEffects) {
+            event_log.push(internal_action);
+            continue;
+        }
         let follow_ups = apply_internal_action(&mut next, internal_action)?;
         event_log.push(internal_action);
         for follow_up in follow_ups {
@@ -247,6 +263,8 @@ fn apply_internal_action(
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
             Ok(follow_ups)
         }
+        InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
+        | InternalAction::EndCopiedCardEffects => Ok(Vec::new()),
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;
             Ok(Vec::new())
@@ -1471,6 +1489,13 @@ fn push_card_to_pile(state: &mut CombatState, card: CardInstance, to: CardPile) 
 fn living_monster_mut(state: &mut CombatState, target: MonsterId) -> SimResult<&mut MonsterState> {
     living_monster_mut_opt(state, target)
         .ok_or(SimError::IllegalAction("target is not a living monster"))
+}
+
+fn living_monster_alive(state: &CombatState, target: MonsterId) -> bool {
+    state
+        .monsters
+        .iter()
+        .any(|monster| monster.id == target && monster.alive)
 }
 
 fn living_monster_mut_opt(state: &mut CombatState, target: MonsterId) -> Option<&mut MonsterState> {
@@ -3117,5 +3142,37 @@ mod tests {
         apply_monster_death_hooks(&mut ending_state, last_fungi_id);
 
         assert_eq!(ending_state.player.powers.vulnerable, 0);
+    }
+
+    #[test]
+    fn copied_single_target_card_fizzles_when_original_kills_target() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 1;
+        state.player.energy = 3;
+        state.double_tap_pending = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), POMMEL_STRIKE_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            CardInstance::new(CardId::new(4), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Pommel Strike+ should play");
+
+        assert_eq!(next.piles.hand.len(), 2);
+        assert_eq!(next.piles.draw_pile.len(), 2);
     }
 }

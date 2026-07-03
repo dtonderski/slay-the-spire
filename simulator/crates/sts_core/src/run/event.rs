@@ -3,8 +3,8 @@ use crate::{
     combat::initialize_combat_piles_with_relics,
     content::cards::{
         get_card_definition, upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID,
-        DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID, JAX_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+        DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID, JAX_ID, PAIN_ID, REGRET_ID, RITUAL_DAGGER_ID,
+        SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::{
         monsters::{
@@ -577,7 +577,8 @@ const ACT1_EVENTS: [Event; 11] = [
     Event::ShiningLight,
 ];
 
-const ACT1_SHRINES: [Event; 7] = [
+const ACT1_SHRINES: [Event; 8] = [
+    Event::AccursedBlacksmith,
     Event::MatchAndKeep,
     Event::GoldenShrine,
     Event::Transmorgrifier,
@@ -603,7 +604,8 @@ pub const ACT2_EVENTS: [Event; 13] = [
     Event::Vampires,
 ];
 
-pub const ACT2_SHRINES: [Event; 7] = [
+pub const ACT2_SHRINES: [Event; 8] = [
+    Event::AccursedBlacksmith,
     Event::MatchAndKeep,
     Event::WheelOfChange,
     Event::GoldenShrine,
@@ -615,7 +617,8 @@ pub const ACT2_SHRINES: [Event; 7] = [
 
 pub const ACT3_EVENTS: [Event; 1] = [Event::Lab];
 
-pub const ACT3_SHRINES: [Event; 6] = [
+pub const ACT3_SHRINES: [Event; 7] = [
+    Event::AccursedBlacksmith,
     Event::MatchAndKeep,
     Event::WheelOfChange,
     Event::GoldenShrine,
@@ -627,6 +630,7 @@ pub const ACT3_SHRINES: [Event; 6] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     Neow,
+    AccursedBlacksmith,
     GoldenShrine,
     BigFish,
     TheCleric,
@@ -1088,6 +1092,9 @@ pub fn enter_event_screen(run: &mut RunState) {
 pub fn event_screen(event: Event) -> EventScreen {
     match event {
         Event::Neow => make_event_screen(event, neow_talk_choices(), 0),
+        Event::AccursedBlacksmith => {
+            make_event_screen(event, labeled_choices(&["Forge", "Rummage", "Leave"]), 0)
+        }
         Event::GoldenShrine => legacy_fixed_event_screen(),
         Event::Purifier => make_event_screen(
             event,
@@ -1428,6 +1435,33 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             _ => {
                 return Err(SimError::IllegalAction(
                     "event choice is not implemented for Golden Shrine",
+                ));
+            }
+        },
+        Event::AccursedBlacksmith => match screen.stage {
+            0 if choice_index == 0 => {
+                open_event_upgrade_return_to_event_grid(&mut next, Event::AccursedBlacksmith);
+            }
+            0 if choice_index == 1 => {
+                next.gain_relic_key(RelicKey::WarpedTongs);
+                next.gain_deck_card(PAIN_ID);
+                next.event = Some(make_event_screen(
+                    Event::AccursedBlacksmith,
+                    labeled_choices(&["Leave"]),
+                    1,
+                ));
+            }
+            0 if choice_index == 2 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            1 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Accursed Blacksmith",
                 ));
             }
         },

@@ -1,6 +1,7 @@
 use crate::action::InternalAction;
 use crate::card::CardType;
 use crate::combat::CombatState;
+use crate::content::cards::upgrade_card_instance;
 use crate::rng::{JavaRng, StsRng};
 use serde::{Deserialize, Serialize};
 
@@ -529,16 +530,18 @@ pub const JUZU_BRACELET_ID: ContentId = ContentId::new(437);
 pub const PRISMATIC_SHARD_ID: ContentId = ContentId::new(438);
 /// Content id for [Relic::MutagenicStrength].
 pub const MUTAGENIC_STRENGTH_ID: ContentId = ContentId::new(439);
+/// Content id for [Relic::WarpedTongs].
+pub const WARPED_TONGS_ID: ContentId = ContentId::new(440);
 /// Content id for [Relic::GoldenIdol].
-pub const GOLDEN_IDOL_ID: ContentId = ContentId::new(440);
+pub const GOLDEN_IDOL_ID: ContentId = ContentId::new(441);
 /// Content id for [Relic::BloodyIdol].
-pub const BLOODY_IDOL_ID: ContentId = ContentId::new(441);
+pub const BLOODY_IDOL_ID: ContentId = ContentId::new(442);
 /// Content id for [Relic::Necronomicon].
-pub const NECRONOMICON_ID: ContentId = ContentId::new(442);
+pub const NECRONOMICON_ID: ContentId = ContentId::new(443);
 /// Content id for [Relic::Enchiridion].
-pub const ENCHIRIDION_ID: ContentId = ContentId::new(443);
+pub const ENCHIRIDION_ID: ContentId = ContentId::new(444);
 /// Content id for [Relic::NilrysCodex].
-pub const NILRYS_CODEX_ID: ContentId = ContentId::new(444);
+pub const NILRYS_CODEX_ID: ContentId = ContentId::new(445);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -754,6 +757,7 @@ pub enum RelicKey {
     Enchiridion,
     NilrysCodex,
     MutagenicStrength,
+    WarpedTongs,
     GoldenIdol,
     BloodyIdol,
     Circlet,
@@ -1250,6 +1254,7 @@ pub enum Relic {
     JuzuBracelet,
     PrismaticShard,
     MutagenicStrength,
+    WarpedTongs,
     GoldenIdol,
     BloodyIdol,
     Necronomicon,
@@ -1406,6 +1411,7 @@ impl Relic {
             Relic::JuzuBracelet => JUZU_BRACELET_ID,
             Relic::PrismaticShard => PRISMATIC_SHARD_ID,
             Relic::MutagenicStrength => MUTAGENIC_STRENGTH_ID,
+            Relic::WarpedTongs => WARPED_TONGS_ID,
             Relic::GoldenIdol => GOLDEN_IDOL_ID,
             Relic::BloodyIdol => BLOODY_IDOL_ID,
             Relic::Necronomicon => NECRONOMICON_ID,
@@ -1562,6 +1568,7 @@ impl Relic {
             id if id == JUZU_BRACELET_ID => Some(Relic::JuzuBracelet),
             id if id == PRISMATIC_SHARD_ID => Some(Relic::PrismaticShard),
             id if id == MUTAGENIC_STRENGTH_ID => Some(Relic::MutagenicStrength),
+            id if id == WARPED_TONGS_ID => Some(Relic::WarpedTongs),
             id if id == GOLDEN_IDOL_ID => Some(Relic::GoldenIdol),
             id if id == BLOODY_IDOL_ID => Some(Relic::BloodyIdol),
             id if id == NECRONOMICON_ID => Some(Relic::Necronomicon),
@@ -1617,6 +1624,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Toolbox => {}
             Relic::JuzuBracelet => {}
             Relic::PrismaticShard => {}
+            Relic::WarpedTongs => {}
             Relic::GoldenIdol => {}
             Relic::BloodyIdol => {}
             Relic::Necronomicon => {}
@@ -1964,6 +1972,37 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) {
         && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT
     {
         crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW);
+    }
+
+    if state.relics.contains(&Relic::WarpedTongs) {
+        upgrade_random_non_status_hand_card(state);
+    }
+}
+
+fn upgrade_random_non_status_hand_card(state: &mut CombatState) {
+    let mut upgradeable = state
+        .piles
+        .hand
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| {
+            let definition = crate::content::cards::get_card_definition(card.content_id)?;
+            (definition.card_type != CardType::Status && upgrade_card_instance(*card).is_some())
+                .then_some(index)
+        })
+        .collect::<Vec<_>>();
+    if upgradeable.is_empty() {
+        return;
+    }
+
+    if let Some(rng) = state.shuffle_rng.as_mut() {
+        let shuffle_seed = rng.random_long();
+        JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
+    }
+
+    let index = upgradeable[0];
+    if let Some(upgraded) = upgrade_card_instance(state.piles.hand[index]) {
+        state.piles.hand[index] = upgraded;
     }
 }
 

@@ -33,6 +33,10 @@ pub enum InternalAction {
     PlayCardCopy {
         card_id: CardId,
     },
+    SkipCopiedCardEffectsIfTargetDead {
+        target: MonsterId,
+    },
+    EndCopiedCardEffects,
     SpendEnergy {
         amount: i32,
     },
