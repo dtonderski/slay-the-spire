@@ -3,6 +3,20 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Violence/Violence+ against decompiled
+  `Violence.java` and the trusted sts.gg card database baseline, then replaced
+  stale generic audit rows with source-backed facts. Source Violence is a
+  0-cost Exhaust Skill that moves 3/4 random Attacks from draw pile to hand via
+  `DrawPileToHandAction`. Local behavior already modeled the attack-only draw
+  pile movement with hand-cap overflow. No generic simulator mismatch was found
+  in this slice. Checks: `cargo fmt` passed; focused `cargo test -p sts_core
+  --test card_fidelity violence` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (126 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit: verified The Bomb/The Bomb+ against decompiled
   `TheBomb.java` plus `TheBombPower.java` and the trusted sts.gg card database
   baseline, then replaced stale generic audit rows with source-backed facts.

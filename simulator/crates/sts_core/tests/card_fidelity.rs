@@ -842,6 +842,54 @@ fn the_bomb_plus_arms_three_turn_fifty_damage_timer() {
 }
 
 #[test]
+fn violence_plus_draws_four_attacks_from_draw_pile_and_exhausts() {
+    assert_eq!(cards::VIOLENCE.cost, 0);
+    assert!(cards::VIOLENCE.keywords.exhaust);
+    assert_eq!(cards::VIOLENCE_PLUS.cost, 0);
+    assert!(cards::VIOLENCE_PLUS.keywords.exhaust);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.card_random_rng = None;
+    state.shuffle_rng = None;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::VIOLENCE_PLUS_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::SWIFT_STRIKE_ID),
+        CardInstance::new(CardId::new(6), cards::POMMEL_STRIKE_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Violence+ draws attacks from draw pile");
+
+    let hand_content_ids = next
+        .piles
+        .hand
+        .iter()
+        .map(|card| card.content_id)
+        .collect::<Vec<_>>();
+    assert_eq!(hand_content_ids.len(), 4);
+    assert!(hand_content_ids.contains(&cards::STRIKE_R_ID));
+    assert!(hand_content_ids.contains(&cards::BASH_ID));
+    assert!(hand_content_ids.contains(&cards::SWIFT_STRIKE_ID));
+    assert!(hand_content_ids.contains(&cards::POMMEL_STRIKE_ID));
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::VIOLENCE_PLUS_ID
+    );
+}
+
+#[test]
 fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     assert_eq!(cards::ARMAMENTS.values.block, Some(5));
     assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));
