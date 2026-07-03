@@ -37,6 +37,20 @@ struct Act1CorpusEntry {
     allow_observed_state_restoration: bool,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct LiveRegressionManifest {
+    entries: Vec<LiveRegressionEntry>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct LiveRegressionEntry {
+    path: String,
+    external_seed: String,
+    expected_verified: bool,
+    rust_seed_start_unexpected_diffs: usize,
+    rust_seed_start_observed_state_restorations: usize,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct CapturedEncounterPrefix {
     action_step: u32,
@@ -1256,6 +1270,53 @@ fn m35_act1_manifest_entries_pass_seed_start() {
                 "{} restored observed state: {:?}",
                 entry.path,
                 report.observed_state_restorations
+            );
+        }
+    }
+}
+
+#[test]
+fn live_regression_manifest_entries_pass_seed_start() {
+    let Some(manifest_content) = load_corpus_file("live_regressions.json") else {
+        return;
+    };
+    let manifest: LiveRegressionManifest =
+        serde_json::from_str(&manifest_content).expect("live regression manifest parses");
+
+    for entry in manifest.entries {
+        let content = load_corpus_file(&entry.path)
+            .unwrap_or_else(|| panic!("live regression trace is readable: {}", entry.path));
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .unwrap_or_else(|err| panic!("seed-start report for {}: {err}", entry.path));
+        assert_eq!(report.mode, VerificationMode::SeedStart, "{}", entry.path);
+        assert_eq!(
+            report.unexpected_diffs.len(),
+            entry.rust_seed_start_unexpected_diffs,
+            "{} unexpected diff count changed: {:?}",
+            entry.path,
+            report.unexpected_diffs
+        );
+        assert_eq!(
+            report.observed_state_restorations.len(),
+            entry.rust_seed_start_observed_state_restorations,
+            "{} observed-state restoration count changed: {:?}",
+            entry.path,
+            report.observed_state_restorations
+        );
+
+        let seed_start = report
+            .seed_start
+            .unwrap_or_else(|| panic!("seed-start details for {}", entry.path));
+        assert_eq!(
+            seed_start.start_command.external_seed, entry.external_seed,
+            "{} external seed mismatch",
+            entry.path
+        );
+        if entry.expected_verified {
+            assert!(
+                !report.verified.is_empty(),
+                "{} had no verified seed-start transitions",
+                entry.path
             );
         }
     }
