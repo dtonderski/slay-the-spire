@@ -16,12 +16,12 @@ use crate::{
         get_card_definition, searing_blow_card_damage, upgrade_card_instance, upgrade_content_id,
         ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLIND_PLUS_ID,
         BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CARNAGE_ID,
-        CARNAGE_PLUS_ID, CHRYSALIS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-        CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID,
-        DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
-        DROPKICK_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID,
-        FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, HEAVY_BLADE_ID,
-        HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
+        CARNAGE_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
+        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID,
+        DROPKICK_ID, DROPKICK_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID,
+        EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
+        HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
         IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
         MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, OFFERING_ID, PAIN_ID,
         PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
@@ -1830,8 +1830,13 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::DrawCards { count });
             follow_ups.push(InternalAction::SetCannotDraw);
         }
-        CHRYSALIS_ID => {
-            for content_id in card_effects::chrysalis_generated_skills(state, 3) {
+        CHRYSALIS_ID | CHRYSALIS_PLUS_ID => {
+            let count = if definition.id == CHRYSALIS_PLUS_ID {
+                5
+            } else {
+                3
+            };
+            for content_id in card_effects::chrysalis_generated_skills(state, count) {
                 follow_ups.push(InternalAction::AddGeneratedCardToPile {
                     content_id,
                     to: CardPile::DrawPile,

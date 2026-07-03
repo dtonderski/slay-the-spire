@@ -365,6 +365,80 @@ fn havoc_reckless_charge_plus_adds_generated_dazed_and_exhausts() {
 }
 
 #[test]
+fn chrysalis_adds_three_zero_cost_generated_skills_to_draw_pile() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::CHRYSALIS_ID)];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Chrysalis plays without a target");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.draw_pile.len(), 3);
+    assert!(next.piles.draw_pile.iter().all(|card| {
+        card.combat_only && card.temp_cost == Some(0) && !card.temp_cost_turn_only
+    }));
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::CHRYSALIS_ID);
+}
+
+#[test]
+fn havoc_chrysalis_plus_adds_five_zero_cost_generated_skills_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::CHRYSALIS_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc plays Chrysalis+ from the draw pile");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.draw_pile.len(), 6);
+    assert!(next
+        .piles
+        .draw_pile
+        .iter()
+        .any(|card| card.content_id == cards::STRIKE_R_ID));
+    assert_eq!(
+        next.piles
+            .draw_pile
+            .iter()
+            .filter(|card| {
+                card.combat_only && card.temp_cost == Some(0) && !card.temp_cost_turn_only
+            })
+            .count(),
+        5
+    );
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::CHRYSALIS_PLUS_ID
+    );
+}
+
+#[test]
 fn deep_breath_shuffles_discard_before_drawing() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;

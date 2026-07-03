@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Chrysalis/Chrysalis+ against
+  `Chrysalis.java` and fixed upgraded free-play generation. Source generates 3
+  random combat Skills for base and 5 for upgraded, sets positive-cost copies to
+  cost 0 for combat, shuffles them into draw, and Exhausts. Local normal play
+  already modeled the count and combat-long zero-cost generated cards, but
+  Havoc/top-draw free-play only handled base Chrysalis and generated nothing for
+  Chrysalis+. The top-draw path now handles base/upgraded counts together, with
+  focused coverage for base generated zero-cost cards and upgraded Havoc/top-draw
+  generation. Checks: `cargo fmt` and `cargo fmt --check` passed; `cargo test
+  -p sts_core --test card_fidelity` passed (23 tests); active live-regression
+  manifest replay passed via `uv run python -m unittest
+  python.tests.test_live_regression_traces`; `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled Python. Full `cargo test`
+  still fails only in the pre-existing stale `milestone6` monster fixture
+  expectations: `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Card-fidelity audit: verified Apotheosis/Apotheosis+ rows against
   `Apotheosis.java` and `ApotheosisAction.java`. Source constructs a 2-cost
   colorless rare Skill with Exhaust, queues `ApotheosisAction`, and upgrade
