@@ -1015,7 +1015,9 @@
         app.collectorLastError = null;
         await refreshBridgeQuietly();
         await refreshParityQuietly();
-        await refreshCollectorReportQuietly();
+        if (options.refreshReport !== false) {
+          await refreshCollectorReportQuietly();
+        }
         const suggestion = app.collector && app.collector.suggestion;
         if (suggestion && suggestion.status === "blocked") {
           throw new Error(firstDefined(suggestion.detail, suggestion.reason, "Collector blocked."));
@@ -1073,7 +1075,6 @@
     try {
       await refreshBridgeQuietly();
       await refreshCollectorQuietly();
-      await refreshCollectorReportQuietly();
       if (!app.collector || !app.collector.active) {
         app.collectorAutoRun = false;
         renderCollector();
@@ -1086,12 +1087,12 @@
         scheduleCollectorAutoStep(850);
         return;
       }
-      await tickGuidedCollector({ send: false });
-      const suggestion = app.collector && app.collector.suggestion;
-      if (suggestion && suggestion.status === "combat") {
+      if (bridgeLooksLikeCombat()) {
+        await tickGuidedCollector({ send: false, refreshReport: false });
+        const suggestion = app.collector && app.collector.suggestion;
         await sendGuidedCombatAgentMove(suggestion);
       } else {
-        await tickGuidedCollector({ send: true });
+        await tickGuidedCollector({ send: true, refreshReport: false });
       }
       const blocker = app.collector && app.collector.blocker;
       if (app.lastError && !(blocker && isTransientCollectorBlocker(blocker))) {
@@ -1122,21 +1123,39 @@
     const budget = Number.parseInt(firstDefined(suggestion && suggestion.potion_uses_allowed, 0), 10);
     if (Number.isFinite(budget) && budget <= 0) {
       await withTemporaryAllowedPotions([], async () => {
-        await runLiveSearch();
-        await sendBestToGame({ autoPlay: false });
+        if (!canReuseCurrentLiveRecommendation({ allowedPotions: [] })) {
+          await runLiveSearch();
+        }
+        await sendBestToGame({ autoPlay: true });
       });
       return;
     }
-    await runLiveSearch();
-    await sendBestToGame({ autoPlay: false });
+    if (!canReuseCurrentLiveRecommendation()) {
+      await runLiveSearch();
+    }
+    await sendBestToGame({ autoPlay: true });
+  }
+
+  function canReuseCurrentLiveRecommendation(options = {}) {
+    if (options.allowedPotions !== undefined && !searchAllowedPotionsEqual(options.allowedPotions)) {
+      return false;
+    }
+    return liveSendBlockedReason() === null;
+  }
+
+  function searchAllowedPotionsEqual(expected) {
+    const actual = arrayOf(app.search && app.search.config && app.search.config.allowed_potions).map((value) => String(value)).sort();
+    const wanted = arrayOf(expected).map((value) => String(value)).sort();
+    if (actual.length !== wanted.length) return false;
+    return actual.every((value, index) => value === wanted[index]);
   }
 
   async function withTemporaryAllowedPotions(values, work) {
-    if (!el.allowedPotionsList) {
+    if (!el.allowedPotionsPanel) {
       await work();
       return;
     }
-    const inputs = Array.from(el.allowedPotionsList.querySelectorAll("input[type='checkbox']"));
+    const inputs = Array.from(el.allowedPotionsPanel.querySelectorAll("input[type='checkbox']"));
     const previous = inputs.map((input) => input.checked);
     const allowed = new Set(arrayOf(values).map((value) => String(value)));
     try {
@@ -1153,6 +1172,7 @@
 
   function collectorAutoWaitReason() {
     if (app.liveInvariantViolation) return "simulator/live mismatch needs acknowledgement";
+    if (app.liveAutoPlayPlan) return "combat auto-play plan running";
     if (bridgeIdentityWarningText()) return "bridge client identity changed";
     const tcpReason = collectorTcpBlockerReason();
     if (tcpReason) return tcpReason;
