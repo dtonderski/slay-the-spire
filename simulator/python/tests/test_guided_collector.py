@@ -84,6 +84,48 @@ class GuidedCollectorTests(unittest.TestCase):
 
         self.assertEqual(status["rust_preflight"], preflight)
 
+    def test_start_blocks_when_rust_preflight_has_blocked_steps(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [
+                {
+                    "status": "blocked",
+                    "code": "missing_run_state",
+                    "message": "cannot initialize run state",
+                }
+            ],
+            "diagnostics": [],
+        }
+
+        status = collector.start({"script": sample_script(), "rust_preflight": preflight})
+
+        self.assertEqual(status["status"], "blocked")
+        self.assertEqual(status["blocker"]["reason"], "rust_preflight_blocked")
+        self.assertEqual(status["blocker"]["blocked_steps"], 1)
+        self.assertEqual(status["blocker"]["diagnostic_errors"], 0)
+
+    def test_start_blocks_when_rust_preflight_has_error_diagnostics(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [],
+            "diagnostics": [
+                {
+                    "severity": "error",
+                    "code": "unsupported_character",
+                    "message": "unsupported character",
+                }
+            ],
+        }
+
+        status = collector.start({"script": sample_script(), "rust_preflight": preflight})
+
+        self.assertEqual(status["status"], "blocked")
+        self.assertEqual(status["blocker"]["reason"], "rust_preflight_blocked")
+        self.assertEqual(status["blocker"]["blocked_steps"], 0)
+        self.assertEqual(status["blocker"]["diagnostic_errors"], 1)
+
     def ready_event_bridge(self):
         return {
             "connected": True,

@@ -3,6 +3,13 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData preflight gating slice: `GuidedCollector` now treats Rust
+  preflight blocked steps or error diagnostics as hard blockers before sending
+  live commands, while checked/guided reports remain visible and allowed.
+  Checks: `uv run python -m unittest python.tests.test_guided_collector`
+  passed; `uv run python -m unittest python.tests.test_ui_service` passed.
+  Next task: drive imported SlayTheData sessions from preflight-guided replay
+  decisions instead of only gating the existing guided collector flow.
 - SlayTheData preflight UI display slice: `GuidedCollector` now preserves
   Rust `rust_preflight` in collector status, collector run-id starts reuse the
   enriched SlayTheData script payload, and the UI collector panel renders Rust

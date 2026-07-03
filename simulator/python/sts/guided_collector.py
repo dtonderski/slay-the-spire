@@ -51,6 +51,13 @@ class GuidedCollector:
             script=script,
             rust_preflight=rust_preflight if isinstance(rust_preflight, dict) else None,
         )
+        rust_blocker = rust_preflight_blocker(self._run.rust_preflight)
+        if rust_blocker is not None:
+            self._run.status = "blocked"
+            self._run.blocker = rust_blocker
+            self._run.last_suggestion = rust_blocker
+            self._run.history.append(rust_blocker)
+            return self.status()
         support_blocker = guided_script_support_blocker(script)
         if support_blocker is not None:
             self._run.status = "blocked"
@@ -240,6 +247,36 @@ class GuidedCollector:
             self._run.status = "ready"
             self._run.blocker = None
         return self.status() | {"suggestion": suggestion}
+
+
+def rust_preflight_blocker(preflight: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(preflight, dict):
+        return None
+    diagnostics = [item for item in preflight.get("diagnostics") or [] if isinstance(item, dict)]
+    errors = [
+        item
+        for item in diagnostics
+        if str(item.get("severity") or "").lower() == "error"
+    ]
+    steps = [item for item in preflight.get("steps") or [] if isinstance(item, dict)]
+    blocked_steps = [
+        item
+        for item in steps
+        if str(item.get("status") or "").lower() == "blocked"
+    ]
+    if not errors and not blocked_steps:
+        return None
+    detail_source = (errors or blocked_steps)[0]
+    return {
+        "status": "blocked",
+        "reason": "rust_preflight_blocked",
+        "detail": detail_source.get("message")
+        or detail_source.get("code")
+        or "Rust SlayTheData preflight blocked replay",
+        "diagnostic_errors": len(errors),
+        "blocked_steps": len(blocked_steps),
+        "category": "slaythedata_preflight",
+    }
 
 
 def suggest_guided_action(
