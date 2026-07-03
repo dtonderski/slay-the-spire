@@ -1665,7 +1665,13 @@ fn bandage_up_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::HealPlayer { amount: 4 },
+        InternalAction::HealPlayer {
+            amount: if definition.id == BANDAGE_UP_PLUS_ID {
+                6
+            } else {
+                4
+            },
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,

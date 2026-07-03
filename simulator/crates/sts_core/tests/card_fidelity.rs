@@ -72,6 +72,61 @@ fn trip_plus_targets_all_enemies_without_selection() {
 }
 
 #[test]
+fn bandage_up_heals_four_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.max_hp = 60;
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BANDAGE_UP_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Bandage Up plays without a target");
+
+    assert_eq!(next.player.hp, 54);
+    assert!(next.piles.discard_pile.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::BANDAGE_UP_ID);
+}
+
+#[test]
+fn bandage_up_plus_heals_six_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.max_hp = 60;
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BANDAGE_UP_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Bandage Up+ plays without a target");
+
+    assert_eq!(next.player.hp, 56);
+    assert!(next.piles.discard_pile.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::BANDAGE_UP_PLUS_ID
+    );
+}
+
+#[test]
 fn whirlwind_definitions_are_x_cost_all_enemy_attacks() {
     assert_eq!(cards::WHIRLWIND.cost, -1);
     assert_eq!(cards::WHIRLWIND.target, TargetRequirement::AllEnemies);
