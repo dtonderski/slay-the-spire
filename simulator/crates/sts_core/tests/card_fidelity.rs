@@ -117,6 +117,59 @@ fn berserk_plus_applies_one_vulnerable_and_one_berserk() {
 }
 
 #[test]
+fn bloodletting_plus_loses_hp_reduces_blood_for_blood_and_gains_three_energy() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.hp = 50;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::BLOODLETTING_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::BLOOD_FOR_BLOOD_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Bloodletting+ plays without a target");
+
+    assert_eq!(next.player.hp, 47);
+    assert_eq!(next.player.energy, 3);
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::BLOOD_FOR_BLOOD_ID);
+    assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 1);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Blood for Blood spends reduced cost after Bloodletting HP loss");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp - 18);
+    assert_eq!(next.piles.discard_pile.len(), 2);
+}
+
+#[test]
+fn blood_for_blood_upgrade_preserves_combat_cost_reduction() {
+    let mut card = CardInstance::new(CardId::new(1), cards::BLOOD_FOR_BLOOD_ID);
+    card.blood_for_blood_cost_reduction = 2;
+
+    let upgraded = cards::upgrade_card_instance(card).expect("Blood for Blood upgrades");
+
+    assert_eq!(upgraded.content_id, cards::BLOOD_FOR_BLOOD_PLUS_ID);
+    assert_eq!(upgraded.blood_for_blood_cost_reduction, 2);
+}
+
+#[test]
 fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
     assert_eq!(cards::DROPKICK.values.damage, Some(5));
     assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));

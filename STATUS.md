@@ -3,6 +3,26 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit correction: verified Blood for Blood/Blood for Blood+ and
+  Bloodletting/Bloodletting+ against `BloodForBlood.java` and
+  `Bloodletting.java`, then replaced stale generic audit rows with
+  source-backed queue and dynamic-cost facts. Source Blood for Blood reduces
+  current combat cost by 1 each time the player loses HP, preserves already
+  reduced current cost when upgraded, deals 18/22 selected-enemy damage, and
+  discards normally. Source Bloodletting loses 3 HP, then gains 2/3 Energy.
+  Local behavior already matched at generic simulator granularity: HP-loss hooks
+  increment per-card Blood for Blood cost-reduction counters across combat
+  piles, card energy spend uses the clamped reduced cost, and
+  `upgrade_card_instance` preserves the combat reduction counter. Checks:
+  `cargo fmt` passed; focused `cargo test -p sts_core --test card_fidelity
+  bloodletting` passed; focused `cargo test -p sts_core --test card_fidelity
+  blood_for_blood` passed; `cargo test -p sts_core --test card_fidelity`
+  passed (67 tests); `cargo clippy` passed with existing warnings after
+  setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Armaments/Armaments+ against `Armaments.java` and
   `ArmamentsAction.java`, then fixed the upgraded action branch. Source
   Armaments gains 5 Block and runs `ArmamentsAction(upgraded)`: base upgrades
