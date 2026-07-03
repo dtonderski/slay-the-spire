@@ -3,6 +3,15 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: corrected Dark Shackles/Dark Shackles+ rows with
+  source-backed facts from `DarkShackles.java`. Source applies temporary
+  Strength loss by pairing negative Strength with conditional GainStrength only
+  when Artifact did not block the debuff; local `ReduceMonsterStrengthThisTurn`
+  already models that Artifact gate and restoration abstraction for 9/15
+  Strength. No simulator code fix was needed. Checks: `git diff --check`
+  passed with only existing CRLF warnings; active live-regression manifest
+  replay passed via `uv run python -m unittest
+  python.tests.test_live_regression_traces`.
 - Card-fidelity audit: corrected Blind/Blind+ rows with source-backed facts
   from `Blind.java`. Source applies 2 Weak to one enemy for base and to all
   enemies after upgrade; local definitions/effects already match at the generic
