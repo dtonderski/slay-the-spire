@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Reaper/Reaper+, Rupture/Rupture+, and Searing
+  Blow/Searing Blow+ against their decompiled card/power classes and the
+  trusted sts.gg card database baseline, then replaced stale generic audit rows
+  with source-backed facts. Source Reaper deals all-enemy attack damage, heals
+  only unblocked HP damage, and Exhausts; Rupture applies a 1/2 power whose
+  `wasHPLost` hook grants Strength when the player's own card HP loss is
+  positive; Searing Blow stores repeated upgrades per instance and follows the
+  12, 16, 21, ... source damage sequence. No generic simulator mismatch was
+  found in this slice. Checks: `cargo fmt` passed; focused `cargo test -p
+  sts_core --test card_fidelity reaper` passed; focused `cargo test -p
+  sts_core --test card_fidelity rupture` passed; focused `cargo test -p
+  sts_core --test card_fidelity searing` passed; `cargo test -p sts_core
+  --test card_fidelity` passed (111 tests); `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled workspace
+  Python; active live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Power Through/Power Through+, Rage/Rage+, and
   Rampage/Rampage+ against their decompiled card classes and the trusted sts.gg
   card database baseline, then replaced stale generic audit rows with

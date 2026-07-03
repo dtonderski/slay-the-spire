@@ -353,6 +353,99 @@ fn rampage_plus_uses_and_increases_per_instance_damage_bonus() {
 }
 
 #[test]
+fn reaper_plus_heals_for_unblocked_damage_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 40;
+    state.player.max_hp = 80;
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::REAPER_PLUS_ID)];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    state.monsters[0].block = 3;
+    let first_hp = state.monsters[0].hp;
+    let second_hp = state.monsters[1].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Reaper+ plays");
+
+    assert_eq!(next.monsters[0].hp, first_hp - 2);
+    assert_eq!(next.monsters[1].hp, second_hp - 5);
+    assert_eq!(next.player.hp, 47);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::REAPER_PLUS_ID);
+}
+
+#[test]
+fn rupture_plus_grants_strength_when_player_loses_hp_from_card() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::RUPTURE_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::BLOODLETTING_ID),
+    ];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Rupture+ plays");
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Bloodletting triggers Rupture+");
+
+    assert_eq!(next.player.hp, 47);
+    assert_eq!(next.player.powers.rupture, 2);
+    assert_eq!(next.player.powers.strength, 2);
+}
+
+#[test]
+fn searing_blow_repeated_upgrades_use_source_damage_sequence() {
+    let base = CardInstance::new(CardId::new(1), cards::SEARING_BLOW_ID);
+    let plus_one = cards::upgrade_card_instance(base).expect("Searing Blow upgrades once");
+    let plus_two = cards::upgrade_card_instance(plus_one).expect("Searing Blow upgrades twice");
+    assert_eq!(plus_two.content_id, cards::SEARING_BLOW_PLUS_ID);
+    assert_eq!(plus_two.searing_blow_upgrades, 2);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![plus_two];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Searing Blow+2 plays");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 21);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::SEARING_BLOW_PLUS_ID
+    );
+}
+
+#[test]
 fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     assert_eq!(cards::ARMAMENTS.values.block, Some(5));
     assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));
