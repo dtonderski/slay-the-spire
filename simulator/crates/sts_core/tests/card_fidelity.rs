@@ -747,6 +747,42 @@ fn panache_counter_resets_at_start_of_player_turn() {
 }
 
 #[test]
+fn havoc_panic_button_plus_gains_forty_block_and_prevents_block() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::PANIC_BUTTON_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc plays Panic Button+ from the draw pile");
+
+    assert_eq!(next.player.block, 40);
+    assert_eq!(next.player.no_block_turns, 2);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::PANIC_BUTTON_PLUS_ID
+    );
+}
+
+#[test]
 fn havoc_reckless_charge_plus_adds_generated_dazed_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

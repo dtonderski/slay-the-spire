@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Panic Button/Panic Button+ against
+  `PanicButton.java` and `NoBlockPower.java`, then fixed the top-draw
+  free-play upgraded path. Source Panic Button is a 0-cost colorless Uncommon
+  Skill that Exhausts, gains 30/40 Block, then applies NoBlock for 2 turns;
+  upgrade only adds 10 block. Local normal play already used the correct block
+  values and no-block duration, but the Havoc/Mayhem top-draw path only handled
+  base Panic Button. The simulator now dispatches both Panic Button ids in the
+  top-draw path and uses the upgraded 40 block value for Panic Button+.
+  Checks: `cargo fmt` passed; `cargo test -p sts_core --test card_fidelity
+  havoc_panic_button_plus_gains_forty_block_and_prevents_block` passed; `cargo
+  test -p sts_core --test card_fidelity` passed (37 tests); `cargo clippy`
+  passed with existing warnings after setting `PYO3_PYTHON` to the bundled
+  Python. Full `cargo test` with bundled `PYO3_PYTHON` still builds the suite
+  and remains blocked by `py_sts`/`sts_omni` exiting with
+  `STATUS_DLL_NOT_FOUND`. Active live-regression replay was run and currently
+  fails on `trace-2026-07-02T23-24-13-178Z.jsonl` with `steps` 467 vs expected
+  450; the worktree trace corpus has unrelated local appended records and was
+  not staged for this slice.
 - Card-fidelity fix: verified Panache/Panache+ against `Panache.java` and
   `PanachePower.java`, then fixed two generic simulator mismatches. Source
   Panache is a 0-cost colorless Rare Power that applies `PanachePower` with
