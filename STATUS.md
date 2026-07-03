@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData preflight command-hint slice: checked Rust preflight steps now
+  carry an optional typed bridge command hint, currently for legal Neow choices
+  and uniquely resolved map choices. Guided/blocked steps intentionally omit
+  commands so lossy SlayTheData boundaries stay explicit. Checks: `cargo fmt`
+  passed; `cargo test -p sts_verify --test slaythedata` passed; `cargo check
+  -p sts_verify --lib` passed; `cargo check -p sts_verify --bin sts_verify`
+  passed. Next task: consume these Rust command hints in the guided/live
+  imported-session path before falling back to Python script matching.
 - SlayTheData preflight gating slice: `GuidedCollector` now treats Rust
   preflight blocked steps or error diagnostics as hard blockers before sending
   live commands, while checked/guided reports remain visible and allowed.

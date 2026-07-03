@@ -53,6 +53,20 @@ pub struct SlayTheDataPreflightStep {
     pub status: SlayTheDataPreflightStatus,
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bridge_command: Option<SlayTheDataBridgeCommandHint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataBridgeCommandHint {
+    pub descriptor: SlayTheDataBridgeDescriptor,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "PascalCase")]
+pub enum SlayTheDataBridgeDescriptor {
+    ChooseVisibleOption { option_slot: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -614,7 +628,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
 
     let mut steps = Vec::with_capacity(plan.steps.len());
     for step in &plan.steps {
-        let (status, code, message) = match &step.kind {
+        let (status, code, message, bridge_command) = match &step.kind {
             SlayTheDataReplayStepKind::NeowTalk => {
                 if let Some(current) = run.as_ref() {
                     let actions = legal_event_actions(current);
@@ -631,12 +645,14 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                     "legal_neow_talk".to_owned(),
                                     "Neow talk is legal from the initialized simulator state"
                                         .to_owned(),
+                                    Some(choose_visible_hint(0)),
                                 )
                             }
                             Err(error) => (
                                 SlayTheDataPreflightStatus::Blocked,
                                 "neow_talk_apply_failed".to_owned(),
                                 format!("Neow talk was legal but failed to apply: {error}"),
+                                None,
                             ),
                         }
                     } else {
@@ -647,6 +663,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 "Neow talk is not legal from phase {:?}; legal event actions: {:?}",
                                 current.phase, actions
                             ),
+                            None,
                         )
                     }
                 } else {
@@ -654,6 +671,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                         SlayTheDataPreflightStatus::Blocked,
                         "missing_run_state".to_owned(),
                         "cannot check Neow talk without an initialized simulator run".to_owned(),
+                        None,
                     )
                 }
             }
@@ -674,6 +692,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                             "matched SlayTheData Neow bonus {:?} cost {:?} to generated option slot {}",
                                             bonus, cost, option.slot
                                         ),
+                                        Some(choose_visible_hint(option.slot)),
                                     )
                                 }
                                 Err(error) => (
@@ -683,6 +702,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                         "matched Neow option slot {} but failed to apply it: {error}",
                                         option.slot
                                     ),
+                                    None,
                                 ),
                             }
                         } else {
@@ -693,6 +713,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                     "matched Neow option slot {} but it is not legal from phase {:?}",
                                     option.slot, current.phase
                                 ),
+                                None,
                             )
                         }
                     }
@@ -700,12 +721,14 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                         SlayTheDataPreflightStatus::Blocked,
                         "neow_option_not_available".to_owned(),
                         message,
+                        None,
                     ),
                 },
                 None => (
                     SlayTheDataPreflightStatus::Blocked,
                     "missing_run_state".to_owned(),
                     "cannot check Neow bonus without an initialized simulator run".to_owned(),
+                    None,
                 ),
             },
             SlayTheDataReplayStepKind::NeowLeave => {
@@ -720,12 +743,14 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                     "legal_neow_leave".to_owned(),
                                     "Neow leave is legal after the selected immediate Neow option"
                                         .to_owned(),
+                                    Some(choose_visible_hint(0)),
                                 )
                             }
                             Err(error) => (
                                 SlayTheDataPreflightStatus::Blocked,
                                 "neow_leave_apply_failed".to_owned(),
                                 format!("Neow leave was legal but failed to apply: {error}"),
+                                None,
                             ),
                         }
                     } else {
@@ -736,6 +761,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 "Neow leave is pending because the selected option moved the simulator to phase {:?}",
                                 current.phase
                             ),
+                            None,
                         )
                     }
                 } else {
@@ -743,6 +769,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                         SlayTheDataPreflightStatus::Blocked,
                         "missing_run_state".to_owned(),
                         "cannot check Neow leave without an initialized simulator run".to_owned(),
+                        None,
                     )
                 }
             }
@@ -755,27 +782,35 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                         .filter(|action| map_action_matches_symbol(current, *action, symbol))
                         .collect();
                     match matches.as_slice() {
-                        [action] => match apply_map_action_on_run(current, *action) {
-                            Ok(next) => {
-                                run = Some(next);
-                                (
-                                    SlayTheDataPreflightStatus::Checked,
-                                    "legal_map_room".to_owned(),
+                        [action] => {
+                            let action_slot = actions
+                                .iter()
+                                .position(|candidate| candidate == action)
+                                .unwrap_or(0);
+                            match apply_map_action_on_run(current, *action) {
+                                Ok(next) => {
+                                    run = Some(next);
+                                    (
+                                        SlayTheDataPreflightStatus::Checked,
+                                        "legal_map_room".to_owned(),
+                                        format!(
+                                            "route symbol {symbol:?} uniquely matched legal map action {:?}",
+                                            action
+                                        ),
+                                        Some(choose_visible_hint(action_slot)),
+                                    )
+                                }
+                                Err(error) => (
+                                    SlayTheDataPreflightStatus::Blocked,
+                                    "map_action_apply_failed".to_owned(),
                                     format!(
-                                        "route symbol {symbol:?} uniquely matched legal map action {:?}",
+                                        "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
                                         action
                                     ),
-                                )
-                            }
-                            Err(error) => (
-                                SlayTheDataPreflightStatus::Blocked,
-                                "map_action_apply_failed".to_owned(),
-                                format!(
-                                    "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
-                                    action
+                                    None,
                                 ),
-                            ),
-                        },
+                            }
+                        }
                         [] => (
                             SlayTheDataPreflightStatus::Blocked,
                             "map_symbol_not_legal".to_owned(),
@@ -783,6 +818,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 "route symbol {symbol:?} matched no legal map actions from phase {:?}",
                                 current.phase
                             ),
+                            None,
                         ),
                         _ => (
                             SlayTheDataPreflightStatus::Guided,
@@ -791,6 +827,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 "route symbol {symbol:?} matched {} legal map actions; SlayTheData does not include map x/y",
                                 matches.len()
                             ),
+                            None,
                         ),
                     }
                 }
@@ -801,11 +838,13 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                         "route symbol {symbol:?} cannot be checked until phase {:?} resolves back to the map",
                         current.phase
                     ),
+                    None,
                 ),
                 None => (
                     SlayTheDataPreflightStatus::Blocked,
                     "missing_run_state".to_owned(),
                     "cannot check map route without an initialized simulator run".to_owned(),
+                    None,
                 ),
             },
             SlayTheDataReplayStepKind::CardReward { picked, skipped } => (
@@ -815,6 +854,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     "card reward choice picked={:?} skipped={skipped}; concrete reward screen mapping is pending",
                     picked.as_ref().map(|card| card.raw.as_str())
                 ),
+                None,
             ),
             SlayTheDataReplayStepKind::EventChoice {
                 event_name,
@@ -826,6 +866,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     "event {:?} choice {:?} is high-level guidance until event choice label mapping is connected",
                     event_name, player_choice
                 ),
+                None,
             ),
             SlayTheDataReplayStepKind::ShopPurchase { item, .. } => (
                 SlayTheDataPreflightStatus::Guided,
@@ -833,6 +874,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                 format!(
                     "shop purchase {item:?} is high-level guidance until shop slot mapping is connected"
                 ),
+                None,
             ),
             SlayTheDataReplayStepKind::Campfire { key, target_card } => (
                 SlayTheDataPreflightStatus::Guided,
@@ -842,6 +884,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     key,
                     target_card.as_ref().map(|card| card.raw.as_str())
                 ),
+                None,
             ),
             SlayTheDataReplayStepKind::BossRelic { act, picked } => (
                 SlayTheDataPreflightStatus::Guided,
@@ -850,6 +893,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     "act {act} boss relic {:?} is high-level guidance until boss reward screen mapping is connected",
                     picked
                 ),
+                None,
             ),
             SlayTheDataReplayStepKind::PotionBudget { uses_allowed } => (
                 SlayTheDataPreflightStatus::Guided,
@@ -857,6 +901,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                 format!(
                     "combat agent may spend up to {uses_allowed} potion use(s) on this floor; SlayTheData lacks timing, target, and potion identity"
                 ),
+                None,
             ),
         };
         steps.push(SlayTheDataPreflightStep {
@@ -865,6 +910,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             status,
             code,
             message,
+            bridge_command,
         });
     }
 
@@ -876,6 +922,13 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
         start_phase: run.map(|run| phase_name(run.phase)),
         steps,
         diagnostics,
+    }
+}
+
+fn choose_visible_hint(option_slot: usize) -> SlayTheDataBridgeCommandHint {
+    SlayTheDataBridgeCommandHint {
+        descriptor: SlayTheDataBridgeDescriptor::ChooseVisibleOption { option_slot },
+        command: format!("CHOOSE {option_slot}"),
     }
 }
 

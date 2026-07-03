@@ -1,7 +1,8 @@
 use sts_verify::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, slaythedata_replay_plan,
-    slaythedata_replay_preflight, SlayTheDataDiagnosticSeverity, SlayTheDataPreflightStatus,
-    SlayTheDataReplayOrdering, SlayTheDataReplayStepKind, SlayTheDataSourceKind,
+    slaythedata_replay_preflight, SlayTheDataBridgeDescriptor, SlayTheDataDiagnosticSeverity,
+    SlayTheDataPreflightStatus, SlayTheDataReplayOrdering, SlayTheDataReplayStepKind,
+    SlayTheDataSourceKind,
 };
 
 #[test]
@@ -246,10 +247,32 @@ fn preflight_checks_neow_talk_against_simulator_state() {
     );
     assert_eq!(report.steps[0].status, SlayTheDataPreflightStatus::Checked);
     assert_eq!(report.steps[0].code, "legal_neow_talk");
+    assert_eq!(
+        report.steps[0]
+            .bridge_command
+            .as_ref()
+            .map(|hint| &hint.descriptor),
+        Some(&SlayTheDataBridgeDescriptor::ChooseVisibleOption { option_slot: 0 })
+    );
+    assert_eq!(
+        report.steps[0]
+            .bridge_command
+            .as_ref()
+            .map(|hint| hint.command.as_str()),
+        Some("CHOOSE 0")
+    );
     assert_eq!(report.steps[1].status, SlayTheDataPreflightStatus::Checked);
     assert_eq!(report.steps[1].code, "legal_neow_bonus");
+    assert!(report.steps[1].bridge_command.is_some());
     assert_eq!(report.steps[2].status, SlayTheDataPreflightStatus::Checked);
     assert_eq!(report.steps[2].code, "legal_neow_leave");
+    assert_eq!(
+        report.steps[2]
+            .bridge_command
+            .as_ref()
+            .map(|hint| hint.command.as_str()),
+        Some("CHOOSE 0")
+    );
 }
 
 #[test]
@@ -299,4 +322,5 @@ fn preflight_reports_ambiguous_map_symbol_without_map_coordinates() {
         .find(|step| step.code == "ambiguous_map_symbol")
         .expect("ambiguous route step");
     assert_eq!(route_step.status, SlayTheDataPreflightStatus::Guided);
+    assert!(route_step.bridge_command.is_none());
 }
