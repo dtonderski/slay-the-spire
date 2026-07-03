@@ -3,7 +3,16 @@
 ## What Exists
 
 ### Tooling
-- SlayTheData live resume slice: the UI auto-play/start-guided path now
+- SlayTheData current-seed attach slice: SlayTheData candidate selection now
+  accepts an exact `seed_played` filter, and the UI guided collector panel has a
+  `Find current seed` action that reads the live bridge seed/ascension/floor
+  and searches matching SlayTheData runs without restarting the game. The
+  collector stop button is now labeled `Unhook` and clears selected audit state
+  so a fresh run/script can be loaded while leaving the bridge/game alone.
+  Checks: `uv run python -m unittest python.tests.test_ui_service
+  python.tests.test_slaythedata_index` passed; `node --check
+  simulator/python/sts/ui_static/app.js` passed. UI service restarted at
+  `http://127.0.0.1:8799/`.- SlayTheData live resume slice: the UI auto-play/start-guided path now
   resumes from an already-active live bridge state instead of sending `START`
   again when the bridge is already in-game. The collector also accepts checked
   Rust `compatible_map_room` preflight map hints as sendable map decisions, so

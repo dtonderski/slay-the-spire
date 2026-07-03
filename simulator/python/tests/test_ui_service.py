@@ -948,6 +948,7 @@ class UiServiceTests(unittest.TestCase):
                     "min_event_choices": ["1"],
                     "min_shop_purchases": ["1"],
                     "min_potion_usage": ["0"],
+                    "seed_played": ["LIVE01"],
                     "safe_neow": ["1"],
                     "limit": ["3"],
                     "ranked": ["0"],
@@ -956,10 +957,12 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["candidates"], [{"id": 1}])
         self.assertEqual(result["filters"]["character"], "IRONCLAD")
+        self.assertEqual(result["filters"]["seed_played"], "LIVE01")
         self.assertFalse(result["filters"]["ranked"])
         select.assert_called_once_with(
             character="IRONCLAD",
             ascension=0,
+            seed_played="LIVE01",
             min_floor_reached=10,
             max_floor_reached=55,
             min_path_length=10,

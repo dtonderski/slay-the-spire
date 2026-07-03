@@ -1496,6 +1496,7 @@ def _guided_collect_report(report_path: Path = DEFAULT_GUIDED_REPORT_PATH) -> di
 def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
     character = _query_string(query, "character", "IRONCLAD").upper()
     ascension = _query_int(query, "ascension", 0)
+    seed_played = _query_optional_string(query, "seed_played")
     min_floor = _query_int(query, "min_floor", 45)
     max_floor = _query_optional_int(query, "max_floor")
     min_path_length = _query_optional_int(query, "min_path_length")
@@ -1510,6 +1511,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
     rows = select_guided_collection_candidates(
         character=character,
         ascension=ascension,
+        seed_played=seed_played,
         min_floor_reached=min_floor,
         max_floor_reached=max_floor,
         min_path_length=min_path_length,
@@ -1528,6 +1530,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
         "filters": {
             "character": character,
             "ascension": ascension,
+            "seed_played": seed_played,
             "min_floor": min_floor,
             "max_floor": max_floor,
             "min_path_length": min_path_length,
@@ -1776,6 +1779,13 @@ def _query_string(query: dict[str, list[str]], name: str, default: str) -> str:
     if not values:
         return default
     return values[0] or default
+
+
+def _query_optional_string(query: dict[str, list[str]], name: str) -> str | None:
+    values = query.get(name)
+    if not values or values[0] == "":
+        return None
+    return values[0]
 
 
 def _query_bool(query: dict[str, list[str]], name: str, default: bool) -> bool:

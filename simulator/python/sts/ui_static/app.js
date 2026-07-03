@@ -119,6 +119,7 @@
       "collectorPayloadInput",
       "slaythedataCandidateSelect",
       "findSlaythedataRunsButton",
+      "findCurrentSeedRunsButton",
       "auditSlaythedataRunButton",
       "loadSlaythedataRunButton",
       "startCollectorButton",
@@ -185,6 +186,7 @@
     el.startGuidedAutoRunButton.addEventListener("click", () => startGuidedLiveRun({ armAuto: true, loadSelected: true }));
     el.collectorReportPanel.addEventListener("dblclick", () => refreshCollectorReport().catch(showError));
     el.findSlaythedataRunsButton.addEventListener("click", findSlaythedataRuns);
+    el.findCurrentSeedRunsButton.addEventListener("click", findSlaythedataRunsForCurrentSeed);
     el.auditSlaythedataRunButton.addEventListener("click", auditSlaythedataSelection);
     el.loadSlaythedataRunButton.addEventListener("click", loadSelectedSlaythedataRun);
     el.slaythedataCandidateSelect.addEventListener("change", () => {
@@ -708,15 +710,14 @@
     });
   }
 
-  async function findSlaythedataRuns() {
+  async function findSlaythedataRuns(options = {}) {
     const character = (el.startCharacterSelect.value || "IRONCLAD").trim().toUpperCase();
     const ascension = boundedInteger(el.startAscensionInput.value, 0, 0, 20);
     const params = new URLSearchParams({
       character,
       ascension: String(ascension),
-      min_floor: "45",
-      max_floor: "55",
-      min_path_length: "45",
+      min_floor: String(firstDefined(options.minFloor, 45)),
+      min_path_length: String(firstDefined(options.minPathLength, 45)),
       min_card_choices: "8",
       min_event_choices: "1",
       min_shop_purchases: "1",
@@ -725,6 +726,12 @@
       ranked: "0",
       preflight: "1",
     });
+    if (options.maxFloor !== null) {
+      params.set("max_floor", String(firstDefined(options.maxFloor, 55)));
+    }
+    if (options.seedPlayed) {
+      params.set("seed_played", String(options.seedPlayed));
+    }
     await singleFlight("Finding SlayTheData runs", async () => {
       await refreshSlaythedataStatusQuietly();
       const result = await requestJson(`/api/slaythedata/candidates?${params.toString()}`);
@@ -742,6 +749,30 @@
     });
   }
 
+  async function findSlaythedataRunsForCurrentSeed() {
+    await refreshBridgeQuietly();
+    const live = currentLiveRunIdentity();
+    if (!live.seed) {
+      showError("Current bridge state does not expose a seed yet.");
+      return;
+    }
+    if (live.character && el.startCharacterSelect) {
+      const option = Array.from(el.startCharacterSelect.options).find((entry) => entry.value === live.character);
+      if (option) el.startCharacterSelect.value = live.character;
+    }
+    if (live.ascension !== null && el.startAscensionInput) {
+      el.startAscensionInput.value = String(live.ascension);
+    }
+    if (el.startSeedInput) {
+      el.startSeedInput.value = live.seed;
+    }
+    await findSlaythedataRuns({
+      seedPlayed: live.seed,
+      minFloor: Math.max(1, live.floor || 1),
+      minPathLength: 1,
+      maxFloor: null,
+    });
+  }
   async function loadSelectedSlaythedataRun() {
     const runId = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value;
     if (!runId) {
@@ -852,6 +883,42 @@
     return floor !== null || !!screenType || !!roomPhase || choices.length > 0 || !!summary.combat || !!(observed && observed.combat_state);
   }
 
+  function currentLiveRunIdentity() {
+    const summary = (app.bridge && app.bridge.summary) || {};
+    const observed = observedBridgeGameState(app.bridge && app.bridge.current_state) || {};
+    const run = summary.run && typeof summary.run === "object" ? summary.run : {};
+    const seed = firstDefined(
+      summary.seed,
+      summary.seed_played,
+      summary.seedPlayed,
+      run.seed,
+      run.seed_played,
+      observed.seed,
+      observed.seed_played,
+      observed.seedPlayed,
+      "",
+    );
+    const character = String(firstDefined(
+      summary.character,
+      summary.character_chosen,
+      run.character,
+      run.character_chosen,
+      observed.character,
+      observed.character_chosen,
+      "IRONCLAD",
+    )).trim().toUpperCase();
+    const ascension = boundedInteger(firstDefined(
+      summary.ascension,
+      summary.ascension_level,
+      run.ascension,
+      run.ascension_level,
+      observed.ascension,
+      observed.ascension_level,
+      0,
+    ), 0, 0, 20);
+    const floor = boundedInteger(firstDefined(summary.floor, run.floor, observed.floor, 1), 1, 1, 60);
+    return { seed: seed ? String(seed) : "", character, ascension, floor };
+  }
   function selectedSlaythedataCandidate() {
     const runId = app.slaythedataSelectedRunId || (el.slaythedataCandidateSelect && el.slaythedataCandidateSelect.value);
     if (!runId) return null;
@@ -1029,6 +1096,7 @@
       pauseCollectorAutoRun();
       app.collector = await requestJson("/api/collector/stop", { method: "POST", body: {} });
       app.collectorLastError = null;
+      app.slaythedataSelectionAudit = null;
       await refreshCollectorReportQuietly();
     });
   }
@@ -1566,6 +1634,7 @@
     renderCollectorPicker();
     el.startCollectorButton.disabled = app.inFlight;
     el.findSlaythedataRunsButton.disabled = app.inFlight;
+    el.findCurrentSeedRunsButton.disabled = app.inFlight || !app.bridge || !app.bridge.connected;
     el.auditSlaythedataRunButton.disabled = app.inFlight;
     el.loadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
     el.startGuidedLiveRunButton.disabled = !!guidedStartBlocker;
@@ -1581,6 +1650,7 @@
     el.sendCollectorButton.title = canTick ? "Send one safe guided action." : "Collector cannot send right now.";
     el.autoCollectorButton.title = canTick ? "Keep sending safe guided actions until blocked." : "Collector cannot auto-run right now.";
     el.pauseCollectorButton.title = app.collectorAutoRun ? "Pause guided auto-collection." : "Auto-collection is not running.";
+    el.findCurrentSeedRunsButton.title = "Find SlayTheData candidates whose seed matches the current live bridge state.";
     el.auditSlaythedataRunButton.title = "Export and audit the selected run, or auto-select the first support-clean run without touching the live bridge.";
 
     clear(el.collectorStatusPanel);

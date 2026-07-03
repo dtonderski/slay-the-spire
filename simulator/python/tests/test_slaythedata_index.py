@@ -249,6 +249,53 @@ class SlayTheDataIndexTests(unittest.TestCase):
         self.assertEqual(rows[0]["seed_played"], "D")
         self.assertTrue(rows[0]["victory"])
 
+    def test_select_guided_collection_candidates_can_filter_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 20, 0, 0, 0, 0, "LIVE01", 0, 20, 3, 2, 1, 0),
+                    (2, "IRONCLAD", 0, 20, 0, 0, 0, 0, "OTHER", 0, 20, 3, 2, 1, 0),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,)])
+            conn.commit()
+            conn.close()
+
+            rows = select_guided_collection_candidates(
+                db,
+                seed_played="LIVE01",
+                min_floor_reached=1,
+                limit=10,
+            )
+
+        self.assertEqual([row["id"] for row in rows], [1])
+        self.assertEqual(rows[0]["seed_played"], "LIVE01")
+
     def test_candidate_selection_can_require_long_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "runs.sqlite3"

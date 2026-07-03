@@ -48,6 +48,7 @@ def select_guided_collection_candidates(
     *,
     character: str = "IRONCLAD",
     ascension: int = 0,
+    seed_played: str | None = None,
     min_floor_reached: int = 1,
     max_floor_reached: int | None = None,
     min_path_length: int | None = None,
@@ -65,6 +66,7 @@ def select_guided_collection_candidates(
     where, params = guided_collection_where(
         character=character,
         ascension=ascension,
+        seed_played=seed_played,
         min_floor_reached=min_floor_reached,
         max_floor_reached=max_floor_reached,
         min_path_length=min_path_length,
@@ -273,6 +275,7 @@ def guided_collection_where(
     *,
     character: str = "IRONCLAD",
     ascension: int = 0,
+    seed_played: str | None = None,
     min_floor_reached: int = 1,
     max_floor_reached: int | None = None,
     min_path_length: int | None = None,
@@ -292,6 +295,9 @@ def guided_collection_where(
         "is_trial = 0",
     ]
     params: list[Any] = [character, ascension, min_floor_reached]
+    if seed_played:
+        clauses.append("seed_played = ?")
+        params.append(str(seed_played))
     if max_floor_reached is not None:
         clauses.append("floor_reached <= ?")
         params.append(max_floor_reached)
