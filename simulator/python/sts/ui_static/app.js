@@ -1086,7 +1086,13 @@
         scheduleCollectorAutoStep(850);
         return;
       }
-      await tickGuidedCollector({ send: true });
+      await tickGuidedCollector({ send: false });
+      const suggestion = app.collector && app.collector.suggestion;
+      if (suggestion && suggestion.status === "combat") {
+        await sendGuidedCombatAgentMove(suggestion);
+      } else {
+        await tickGuidedCollector({ send: true });
+      }
       const blocker = app.collector && app.collector.blocker;
       if (app.lastError && !(blocker && isTransientCollectorBlocker(blocker))) {
         app.collectorAutoRun = false;
@@ -1109,6 +1115,39 @@
         app.collectorLastError = readableError(error);
       }
       renderCollector();
+    }
+  }
+
+  async function sendGuidedCombatAgentMove(suggestion) {
+    const budget = Number.parseInt(firstDefined(suggestion && suggestion.potion_uses_allowed, 0), 10);
+    if (Number.isFinite(budget) && budget <= 0) {
+      await withTemporaryAllowedPotions([], async () => {
+        await runLiveSearch();
+        await sendBestToGame({ autoPlay: false });
+      });
+      return;
+    }
+    await runLiveSearch();
+    await sendBestToGame({ autoPlay: false });
+  }
+
+  async function withTemporaryAllowedPotions(values, work) {
+    if (!el.allowedPotionsList) {
+      await work();
+      return;
+    }
+    const inputs = Array.from(el.allowedPotionsList.querySelectorAll("input[type='checkbox']"));
+    const previous = inputs.map((input) => input.checked);
+    const allowed = new Set(arrayOf(values).map((value) => String(value)));
+    try {
+      for (const input of inputs) {
+        input.checked = allowed.has(input.value);
+      }
+      await work();
+    } finally {
+      inputs.forEach((input, index) => {
+        input.checked = previous[index];
+      });
     }
   }
 
