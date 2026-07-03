@@ -78,6 +78,9 @@ pub struct CombatState {
     /// Sharp Hide.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_player_spikes_damage: i32,
+    /// Gold gained by combat-only effects such as Hand of Greed before the run wrapper transfers it.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub combat_gold_gained: i32,
     /// During the combined end-player-turn/monster-turn/start-player-turn transition, only the
     /// discard prefix that existed after hand discard is eligible for immediate reshuffles.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -451,6 +454,7 @@ impl CombatState {
             double_tap_pending: 0,
             bomb_timers: Vec::new(),
             pending_player_spikes_damage: 0,
+            combat_gold_gained: 0,
             discard_reshuffle_limit: None,
         }
     }

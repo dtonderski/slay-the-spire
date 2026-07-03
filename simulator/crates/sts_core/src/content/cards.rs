@@ -2205,7 +2205,7 @@ pub const HAND_OF_GREED: CardDefinition = CardDefinition {
     values: CardValues {
         damage: Some(20),
         block: None,
-        vulnerable: None,
+        vulnerable: Some(20),
     },
     keywords: CARD_KEYWORDS_NONE,
 };
@@ -2235,7 +2235,7 @@ pub const HAND_OF_GREED_PLUS: CardDefinition = CardDefinition {
     values: CardValues {
         damage: Some(25),
         block: None,
-        vulnerable: None,
+        vulnerable: Some(25),
     },
     keywords: CARD_KEYWORDS_NONE,
 };

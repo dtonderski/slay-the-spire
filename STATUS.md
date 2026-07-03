@@ -3,6 +3,22 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Hand of Greed/Hand of Greed+ against
+  `HandOfGreed.java` and `GreedAction.java`, then fixed fatal-gold behavior.
+  Source deals targeted damage and grants 20/25 gold only when the target dies
+  and is not half-dead or a Minion; local previously routed both forms through
+  the plain attack path and never awarded gold. The simulator now records
+  combat gold gained by Hand of Greed, excludes Minion kills, and transfers the
+  gained amount into run gold through the combat wrapper. Checks: `cargo fmt`
+  passed; `cargo test -p sts_core --test card_fidelity hand_of_greed` passed
+  (3 tests); `cargo test -p sts_core --test card_fidelity` passed (29 tests);
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled Python. Active live-regression replay in the dirty main workspace
+  currently fails because local `trace-2026-07-02T23-24-13-178Z.jsonl` /
+  manifest state expects 302 steps while replay produces 308; in a temporary
+  clean worktree with this slice applied, `cargo test -p sts_core --test
+  card_fidelity` passed and `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed against the committed corpus.
 - Card-fidelity fix: verified Forethought/Forethought+ against
   `Forethought.java` and `ForethoughtAction.java`, then fixed draw-pile
   placement. Source moves selected cards to the bottom of the draw pile and sets

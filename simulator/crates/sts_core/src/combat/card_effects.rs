@@ -120,14 +120,14 @@ pub(super) fn play_card_queue(
             target.expect("validated Bite has a target"),
             definition,
         ),
-        CLASH_ID
-        | CLASH_PLUS_ID
-        | SWIFT_STRIKE_ID
-        | SWIFT_STRIKE_PLUS_ID
-        | HAND_OF_GREED_ID
-        | HAND_OF_GREED_PLUS_ID => generic_attack_queue(
+        CLASH_ID | CLASH_PLUS_ID | SWIFT_STRIKE_ID | SWIFT_STRIKE_PLUS_ID => generic_attack_queue(
             card_id,
             target.expect("validated generic attack has a target"),
+            definition,
+        ),
+        HAND_OF_GREED_ID | HAND_OF_GREED_PLUS_ID => hand_of_greed_queue(
+            card_id,
+            target.expect("validated Hand of Greed has a target"),
             definition,
         ),
         WILD_STRIKE_ID | WILD_STRIKE_PLUS_ID => wild_strike_queue(
@@ -839,6 +839,30 @@ fn generic_attack_queue(
                 target,
                 amount: definition.values.damage.unwrap_or(0),
             },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn hand_of_greed_queue(
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealHandOfGreedDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: definition.values.damage.unwrap_or(0),
+            },
+            gold: definition.values.vulnerable.unwrap_or(0),
         },
         InternalAction::MoveCard {
             card_id,

@@ -1,12 +1,13 @@
 use sts_core::{
-    apply_combat_action,
+    apply_combat_action, apply_combat_action_on_run,
     card::{CardType, TargetRequirement},
     combat::transition::{choose_hand_select, confirm_hand_select},
     content::{
         cards,
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
     },
-    legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
+    legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId, RunPhase,
+    RunState,
 };
 
 #[test]
@@ -258,6 +259,82 @@ fn forethought_places_selected_card_on_bottom_of_draw_pile() {
     assert_eq!(next.piles.draw_pile[1].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::FORETHOUGHT_ID);
+}
+
+#[test]
+fn hand_of_greed_gains_gold_when_it_kills_non_minion() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAND_OF_GREED_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 20;
+    state.monsters[0].max_hp = 20;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Hand of Greed kills the target");
+
+    assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.combat_gold_gained, 20);
+}
+
+#[test]
+fn hand_of_greed_does_not_gain_gold_when_it_kills_minion() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAND_OF_GREED_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 20;
+    state.monsters[0].max_hp = 20;
+    state.monsters[0].powers.minion = 1;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Hand of Greed kills the minion");
+
+    assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.combat_gold_gained, 0);
+}
+
+#[test]
+fn hand_of_greed_gold_transfers_to_run_gold() {
+    let mut run = RunState::combat_fixture();
+    run.gold = 99;
+    let combat = run.combat.as_mut().expect("combat fixture");
+    combat.player.energy = 2;
+    combat.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::HAND_OF_GREED_PLUS_ID,
+    )];
+    combat.piles.discard_pile.clear();
+    combat.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    combat.monsters[0].hp = 25;
+    combat.monsters[0].max_hp = 25;
+
+    let next = apply_combat_action_on_run(
+        &run,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Hand of Greed+ transfers gold to run");
+
+    assert_eq!(next.gold, 124);
+    assert_eq!(next.phase, RunPhase::Reward);
+    assert!(next.reward.is_some());
+    assert!(next.combat.is_none());
 }
 
 #[test]

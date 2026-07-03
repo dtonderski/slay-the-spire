@@ -1390,6 +1390,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let mut next_combat = transition.state;
     let mut next = run.clone();
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
+    apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat);
     if let Some(rng) = next_combat.card_random_rng.as_ref() {
         next.store_rng_counter(RunRngStream::CardRandom, rng);
     }
@@ -1428,6 +1429,18 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+fn apply_combat_gold_gain_to_run(
+    run: &mut RunState,
+    before: &crate::combat::CombatState,
+    after: &mut crate::combat::CombatState,
+) {
+    let delta = (after.combat_gold_gained - before.combat_gold_gained).max(0);
+    if delta > 0 {
+        run.gain_gold(delta);
+    }
+    after.combat_gold_gained = before.combat_gold_gained + delta;
 }
 
 fn apply_looter_theft_to_run_gold(

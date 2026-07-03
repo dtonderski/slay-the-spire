@@ -54,6 +54,10 @@ pub enum InternalAction {
     DealDamage {
         info: DamageInfo,
     },
+    DealHandOfGreedDamage {
+        info: DamageInfo,
+        gold: i32,
+    },
     DealDamageAndHealUnblocked {
         info: DamageInfo,
     },

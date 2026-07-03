@@ -7053,6 +7053,7 @@ fn run_from_observed_combat_impl(
         duplication_potion_stacks: 0,
         double_tap_pending,
         pending_player_spikes_damage: 0,
+        combat_gold_gained: 0,
         discard_reshuffle_limit: None,
     };
 
