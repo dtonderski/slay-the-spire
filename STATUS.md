@@ -3,6 +3,26 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: corrected Transmutation/Transmutation+ audit rows and
+  fixed printed X-cost metadata. Decompiled `Transmutation.java` uses source
+  cost `-1`, exhausts, and queues `TransmutationAction` with current
+  energy/free-play semantics; local play behavior already spent current energy,
+  applied Chemical X bonus uses, generated temp-cost-0 random colorless cards,
+  and exhausted, but the definitions still advertised cost 0. Transmutation
+  definitions now use `cost: -1`, with focused definition coverage for base and
+  upgraded forms. Checks: `cargo fmt --check` passed; `cargo test -p sts_core
+  --test card_fidelity` passed (17 tests); active live-regression manifest
+  replay passed via `uv run python -m unittest
+  python.tests.test_live_regression_traces`; `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled Python. Full
+  `cargo test` still fails only in the pre-existing stale `milestone6` monster
+  fixture expectations: `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Card-fidelity fix: corrected Whirlwind/Whirlwind+ audit rows and fixed
   printed X-cost metadata. Decompiled `Whirlwind.java` uses source cost `-1`
   and queues `WhirlwindAction` with current energy/free-play semantics; local

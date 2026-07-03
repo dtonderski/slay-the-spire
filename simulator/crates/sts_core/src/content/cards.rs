@@ -2587,7 +2587,7 @@ pub const TRANSMUTATION: CardDefinition = CardDefinition {
     id: TRANSMUTATION_ID,
     key: "TRANSMUTATION",
     name: "Transmutation",
-    cost: 0,
+    cost: -1,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
     values: CardValues {
@@ -2608,7 +2608,7 @@ pub const TRANSMUTATION_PLUS: CardDefinition = CardDefinition {
     id: TRANSMUTATION_PLUS_ID,
     key: "TRANSMUTATION+",
     name: "Transmutation+",
-    cost: 0,
+    cost: -1,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
     values: CardValues {

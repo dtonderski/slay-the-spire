@@ -48,6 +48,19 @@ fn whirlwind_definitions_are_x_cost_all_enemy_attacks() {
 }
 
 #[test]
+fn transmutation_definitions_are_x_cost_exhausting_skills() {
+    assert_eq!(cards::TRANSMUTATION.cost, -1);
+    assert_eq!(cards::TRANSMUTATION.card_type, CardType::Skill);
+    assert_eq!(cards::TRANSMUTATION.target, TargetRequirement::None);
+    assert!(cards::TRANSMUTATION.keywords.exhaust);
+
+    assert_eq!(cards::TRANSMUTATION_PLUS.cost, -1);
+    assert_eq!(cards::TRANSMUTATION_PLUS.card_type, CardType::Skill);
+    assert_eq!(cards::TRANSMUTATION_PLUS.target, TargetRequirement::None);
+    assert!(cards::TRANSMUTATION_PLUS.keywords.exhaust);
+}
+
+#[test]
 fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
