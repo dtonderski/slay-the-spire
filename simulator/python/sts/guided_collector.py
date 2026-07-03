@@ -14,6 +14,7 @@ from uuid import uuid4
 from sts.bridge import command_for_descriptor
 from sts.slaythedata_policy import (
     build_guided_run_script,
+    floor_decision,
     guided_script_support_blocker,
     identity_blocker,
     match_map_choice,
@@ -391,13 +392,16 @@ def suggest_guided_action(
             "detail": "combat decisions are delegated to the combat search policy",
         }
 
-    choices = _visible_choices(summary, bridge_status)
-    if not choices:
-        return _blocked("no_visible_choices", "bridge status has no visible choices to match")
-
     decision_category = str(category or _infer_category(summary, bridge_status))
     if decision_category == "unsupported":
         return _blocked("unsupported_screen", "could not infer a SlayTheData decision category")
+
+    choices = _visible_choices(summary, bridge_status)
+    if not choices:
+        proceed = _proceed_suggestion_if_available(summary, floor, act, decision_category, ordinal)
+        if proceed is not None:
+            return proceed
+        return _blocked("no_visible_choices", "bridge status has no visible choices to match")
 
     if decision_category == "map":
         match = match_map_choice(
@@ -408,6 +412,10 @@ def suggest_guided_action(
             map_nodes=_map_nodes(bridge_status),
         )
     else:
+        if decision_category == "event":
+            event_blocker = _observed_event_identity_blocker(script, bridge_status, floor, ordinal)
+            if event_blocker is not None:
+                return event_blocker
         match = match_visible_choice(
             script,
             floor=floor,
@@ -416,6 +424,16 @@ def suggest_guided_action(
             ordinal=ordinal,
             act=act,
         )
+        if decision_category == "event" and match.get("status") == "blocked":
+            agent_choice = _agent_event_choice_fallback(
+                floor=floor,
+                act=act,
+                choice_labels=choices,
+                ordinal=ordinal,
+                reason=str(match.get("reason") or "event_choice_unmatched"),
+            )
+            if agent_choice is not None:
+                match = agent_choice
     return match | {
         "source": "guided_fallback",
         "fallback": True,
@@ -434,6 +452,8 @@ def send_guided_suggestion(
     send_command: Callable[..., dict[str, Any]] | None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if suggestion.get("status") == "blocked":
+        return suggestion
     if suggestion.get("status") != "matched":
         return suggestion | _blocked("not_sendable", "only matched non-combat suggestions can be sent")
     if send_command is None:
@@ -453,6 +473,7 @@ def send_guided_suggestion(
         send_kwargs = {
             "source_state_id": source_state_id,
             "wait_for_state_update": True,
+            "update_timeout_seconds": 35.0,
         }
         if metadata is not None:
             send_kwargs["metadata"] = metadata
@@ -522,6 +543,8 @@ def send_guided_non_combat_suggestion(
     payload: dict[str, Any],
     send_non_combat: Callable[..., dict[str, Any]] | None,
 ) -> dict[str, Any]:
+    if suggestion.get("status") == "blocked":
+        return suggestion
     if suggestion.get("status") != "matched":
         return suggestion | _blocked("not_sendable", "only matched non-combat suggestions can be sent")
     if send_non_combat is None:
@@ -580,7 +603,7 @@ def _guided_provenance(run: CollectorRun, suggestion: dict[str, Any]) -> dict[st
 
 
 def _next_script_ordinal(run: CollectorRun, bridge_status: dict[str, Any], category: str) -> int:
-    if category in {"map", "reward", "unsupported"}:
+    if category in {"map", "reward", "card_reward", "unsupported"}:
         return 0
     summary = bridge_status.get("summary") if isinstance(bridge_status.get("summary"), dict) else {}
     floor = _current_floor(summary, bridge_status)
@@ -665,6 +688,123 @@ def _map_nodes(bridge_status: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _proceed_suggestion_if_available(
+    summary: dict[str, Any],
+    floor: int,
+    act: int | None,
+    category: str,
+    ordinal: int,
+) -> dict[str, Any] | None:
+    if category not in {"reward", "card_reward"}:
+        return None
+    available = {str(command).lower() for command in summary.get("available_commands") or []}
+    if "proceed" not in available:
+        return None
+    return {
+        "status": "matched",
+        "descriptor": {"kind": "Proceed"},
+        "command": "PROCEED",
+        "target": "proceed",
+        "matched_label": "Proceed",
+        "source": "guided_fallback",
+        "fallback": True,
+        "floor": floor,
+        "act": act,
+        "visible_choices": [],
+        "category": category,
+        "ordinal": ordinal,
+        "match_evidence": "available_proceed_command",
+    }
+
+
+def _agent_event_choice_fallback(
+    *,
+    floor: int,
+    act: int | None,
+    choice_labels: list[str],
+    ordinal: int,
+    reason: str,
+) -> dict[str, Any] | None:
+    if not choice_labels:
+        return None
+    normalized = [choice.strip().lower() for choice in choice_labels]
+    slot = normalized.index("leave") if "leave" in normalized else 0
+    return {
+        "status": "matched",
+        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": slot},
+        "target": "agent_event_choice",
+        "matched_label": choice_labels[slot],
+        "floor": floor,
+        "act": act,
+        "category": "event",
+        "ordinal": ordinal,
+        "fallback": True,
+        "lossy": True,
+        "lossy_reason": f"SlayTheData event choice could not be matched: {reason}",
+        "match_evidence": "agent_event_fallback",
+    }
+
+
+def _observed_event_identity_blocker(
+    script: dict[str, Any],
+    bridge_status: dict[str, Any],
+    floor: int,
+    ordinal: int,
+) -> dict[str, Any] | None:
+    decision = floor_decision(script, floor)
+    if not decision:
+        return None
+    events = [event for event in decision.get("events") or [] if isinstance(event, dict)]
+    if ordinal >= len(events):
+        return None
+    expected = str(events[ordinal].get("event_name") or "").strip()
+    if not expected:
+        return None
+    observed = _observed_event_name(bridge_status)
+    if not observed:
+        return None
+    if _event_names_match(expected, observed):
+        return None
+    return _blocked(
+        "event_identity_mismatch",
+        f"SlayTheData expected event {expected!r} on floor {floor}, observed {observed!r}",
+    ) | {
+        "floor": floor,
+        "ordinal": ordinal,
+        "expected_event": expected,
+        "observed_event": observed,
+    }
+
+
+def _observed_event_name(bridge_status: dict[str, Any]) -> str | None:
+    game_state = _game_state(bridge_status)
+    screen_state = game_state.get("screen_state") if isinstance(game_state.get("screen_state"), dict) else {}
+    for value in (
+        screen_state.get("event_name"),
+        screen_state.get("event_id"),
+        bridge_status.get("summary", {}).get("event_name")
+        if isinstance(bridge_status.get("summary"), dict)
+        else None,
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return None
+
+
+def _event_names_match(expected: str, observed: str) -> bool:
+    expected_token = _normalized_token(expected)
+    observed_token = _normalized_token(observed)
+    if expected_token == observed_token:
+        return True
+    aliases = {
+        "goldenwing": "wingstatue",
+        "thecleric": "cleric",
+        "neowevent": "neow",
+    }
+    return aliases.get(expected_token, expected_token) == aliases.get(observed_token, observed_token)
+
+
 def _infer_category(summary: dict[str, Any], bridge_status: dict[str, Any]) -> str:
     game_state = _game_state(bridge_status)
     screen_state = game_state.get("screen_state") if isinstance(game_state.get("screen_state"), dict) else {}
@@ -726,6 +866,10 @@ def _parse_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalized_token(value: Any) -> str:
+    return "".join(ch.lower() for ch in str(value) if ch.isalnum())
 
 
 def _blocked(reason: str, detail: str) -> dict[str, Any]:

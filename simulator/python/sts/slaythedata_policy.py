@@ -693,13 +693,14 @@ def _reward_target(decision: dict[str, Any], choice_labels: list[str]) -> str | 
     if exact_relic is not None:
         return exact_relic
     potions = decision.get("potions") if isinstance(decision.get("potions"), dict) else {}
-    exact_potion = _first_visible_reward_identity(potions.get("obtained"), "key", choice_labels)
+    expected_potions = potions.get("obtained")
+    exact_potion = _first_visible_reward_identity(expected_potions, "key", choice_labels)
     if exact_potion is not None:
         return exact_potion
     if decision.get("relics_obtained") and "relic" in visible:
         return "relic"
-    if potions.get("obtained") and "potion" in visible:
-        return "potion"
+    if expected_potions and "potion" in visible:
+        return None
     if decision.get("card_rewards") and "card" in visible:
         return "card"
     if "stolen_gold" in visible:

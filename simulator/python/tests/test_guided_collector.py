@@ -1,6 +1,11 @@
 import unittest
 
-from sts.guided_collector import GuidedCollector, send_guided_suggestion, suggest_guided_action
+from sts.guided_collector import (
+    GuidedCollector,
+    send_guided_non_combat_suggestion,
+    send_guided_suggestion,
+    suggest_guided_action,
+)
 from sts.slaythedata_policy import build_guided_run_script
 
 
@@ -525,6 +530,51 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
         self.assertEqual(result["match_evidence"], "agent_event_fallback")
 
+    def test_suggest_guided_action_blocks_event_identity_mismatch(self):
+        bridge = self.ready_event_bridge()
+        bridge["current_state"] = {
+            "message": {
+                "game_state": {
+                    "floor": 2,
+                    "screen_type": "EVENT",
+                    "choice_list": ["Heal", "Purify", "Leave"],
+                    "screen_state": {
+                        "event_name": "The Cleric",
+                        "event_id": "The Cleric",
+                    },
+                }
+            }
+        }
+        bridge["summary"]["choices"] = ["Heal", "Purify", "Leave"]
+
+        result = suggest_guided_action(sample_script(), bridge)
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "event_identity_mismatch")
+        self.assertEqual(result["expected_event"], "Golden Shrine")
+        self.assertEqual(result["observed_event"], "The Cleric")
+
+    def test_suggest_guided_action_allows_matching_event_identity(self):
+        bridge = self.ready_event_bridge()
+        bridge["current_state"] = {
+            "message": {
+                "game_state": {
+                    "floor": 2,
+                    "screen_type": "EVENT",
+                    "choice_list": ["Pray", "Leave"],
+                    "screen_state": {
+                        "event_name": "Golden Shrine",
+                        "event_id": "Golden Shrine",
+                    },
+                }
+            }
+        }
+
+        result = suggest_guided_action(sample_script(), bridge)
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
     def test_suggest_guided_action_infers_neow_event_choice(self):
         result = suggest_guided_action(
             sample_script(),
@@ -673,6 +723,25 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["category"], "card_reward")
         self.assertEqual(result["descriptor"], {"kind": "SkipVisibleReward"})
 
+    def test_collector_card_reward_does_not_advance_ordinal_from_send_history(self):
+        collector = GuidedCollector()
+        collector.start({"script": skipped_card_reward_script()})
+        run = collector._run
+        self.assertIsNotNone(run)
+        run.history.extend(
+            [
+                {"status": "sent_non_combat", "category": "card_reward", "floor": 1, "ordinal": 0},
+                {"status": "sent_non_combat", "category": "card_reward", "floor": 1, "ordinal": 1},
+            ]
+        )
+
+        result = collector.tick(self.ready_card_reward_bridge())
+
+        self.assertEqual(result["suggestion"]["status"], "matched")
+        self.assertEqual(result["suggestion"]["category"], "card_reward")
+        self.assertEqual(result["suggestion"]["ordinal"], 0)
+        self.assertEqual(result["suggestion"]["descriptor"], {"kind": "SkipVisibleReward"})
+
     def test_suggest_guided_action_matches_neow_floor_zero_card_reward(self):
         result = suggest_guided_action(neow_card_reward_script(), self.ready_neow_card_reward_bridge())
 
@@ -726,7 +795,25 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "sent")
         self.assertEqual(result["command"], "CHOOSE 0")
         self.assertEqual(result["source_state_id"], "bridge-state")
-        self.assertEqual(calls, [("CHOOSE 0", "bridge-state", True, 30.0)])
+        self.assertEqual(calls, [("CHOOSE 0", "bridge-state", True, 35.0)])
+
+    def test_send_guided_non_combat_preserves_blocked_match_reason(self):
+        suggestion = {
+            "status": "blocked",
+            "reason": "target_not_visible",
+            "detail": "'Inflame' is not visible",
+            "category": "card_reward",
+        }
+
+        result = send_guided_non_combat_suggestion(
+            suggestion,
+            self.ready_card_reward_bridge(),
+            payload={"send": True},
+            send_non_combat=lambda **_kwargs: self.fail("blocked suggestions should not be sent"),
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "target_not_visible")
 
     def test_send_guided_suggestion_blocks_when_tcp_observed_update_is_missing(self):
         suggestion = suggest_guided_action(sample_script(), self.ready_event_bridge())

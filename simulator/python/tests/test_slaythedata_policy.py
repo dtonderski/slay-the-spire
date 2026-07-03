@@ -498,6 +498,25 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         self.assertEqual(potion["target"], "Fire Potion")
         self.assertEqual(potion["match_evidence"], "named_identity")
 
+    def test_match_visible_choice_blocks_generic_potion_when_named_potion_is_expected(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "potions_obtained": [{"floor": 2, "key": "Fire Potion"}],
+                }
+            }
+        )
+
+        result = match_visible_choice(
+            script,
+            floor=2,
+            choice_labels=["Gold", "Potion"],
+            category="reward",
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "missing_target")
+
     def test_match_visible_choice_selects_shop_purchase_then_leave(self):
         script = build_guided_run_script(
             {
