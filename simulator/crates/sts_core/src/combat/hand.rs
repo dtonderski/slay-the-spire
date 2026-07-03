@@ -1,7 +1,7 @@
 use crate::{
     combat::{transition::apply_on_exhaust_effects, CombatState},
     content::cards::{
-        get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID, DOUBT_ID, REGRET_ID, SHAME_ID,
+        get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID, DECAY_ID, DOUBT_ID, REGRET_ID, SHAME_ID,
     },
     ids::CardId,
 };
@@ -9,6 +9,7 @@ use crate::{
 pub fn resolve_end_of_turn_hand(state: &mut CombatState) {
     let hand_size_for_regret = state.piles.hand.len() as i32;
     apply_burn_damage_in_hand(state);
+    apply_decay_damage_in_hand(state);
     apply_regret_damage_in_hand(state, hand_size_for_regret);
     exhaust_unplayed_ethereal_cards(state);
 }
@@ -49,6 +50,24 @@ fn apply_burn_damage_in_hand(state: &mut CombatState) {
     let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, burn_damage);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
     state.piles.discard_pile.extend(burns);
+}
+
+fn apply_decay_damage_in_hand(state: &mut CombatState) {
+    let mut remaining = Vec::with_capacity(state.piles.hand.len());
+    let mut decays = Vec::new();
+
+    for card in state.piles.hand.drain(..) {
+        if card.content_id == DECAY_ID {
+            decays.push(card);
+        } else {
+            remaining.push(card);
+        }
+    }
+    state.piles.hand = remaining;
+
+    let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, decays.len() as i32 * 2);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+    state.piles.discard_pile.extend(decays);
 }
 
 fn apply_regret_damage_in_hand(state: &mut CombatState, hand_size: i32) {

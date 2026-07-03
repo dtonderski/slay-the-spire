@@ -3,6 +3,23 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Decay and Normality against decompiled
+  `Decay.java`/`Normality.java` and the trusted sts.gg card database baseline,
+  then replaced their stale generic audit rows with source-backed facts. Fixed
+  generic simulator mismatches: Decay now applies its source end-turn 2
+  blockable player damage and moves to discard, and Normality now blocks further
+  card play while in hand once 3 cards have already been played this turn.
+  Checks: `cargo fmt` passed; focused `cargo test -p sts_core --test
+  card_fidelity decay` passed; focused `cargo test -p sts_core --test
+  card_fidelity normality` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (130 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`. Next blocker/fix candidate found while
+  auditing this block: Parasite removal should reduce max HP across deck-removal
+  paths.
 - SlayTheData import contract slice: added
   `simulator/docs/slaythedata_import_replay.md` to document the boundary
   between high-level SlayTheData run histories, strict CommunicationMod parity

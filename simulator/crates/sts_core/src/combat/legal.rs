@@ -4,9 +4,9 @@ use crate::{
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID,
-        TRANSMUTATION_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, NORMALITY_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
+        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -48,6 +48,10 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         }
 
         if !is_affordable(state, card.id, definition) {
+            continue;
+        }
+
+        if normality_blocks_card_play(state) {
             continue;
         }
 
@@ -144,6 +148,9 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
         CombatAction::PlayCard { card_id, target } => {
             if !can_play_card_with_relics(state) {
                 return Err(SimError::IllegalAction("card play limit reached"));
+            }
+            if normality_blocks_card_play(state) {
+                return Err(SimError::IllegalAction("Normality card play limit reached"));
             }
 
             let definition = card_definition_for_hand_card(state, card_id)?;
@@ -313,6 +320,15 @@ fn is_x_cost(definition: &CardDefinition) -> bool {
 
 fn is_clash(definition: &CardDefinition) -> bool {
     definition.id == CLASH_ID || definition.id == CLASH_PLUS_ID
+}
+
+fn normality_blocks_card_play(state: &CombatState) -> bool {
+    state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == NORMALITY_ID)
+        && state.relic_counters.cards_played_this_turn >= 3
 }
 
 fn living_monster_ids(state: &CombatState) -> impl Iterator<Item = MonsterId> + '_ {

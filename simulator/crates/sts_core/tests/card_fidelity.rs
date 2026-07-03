@@ -2,6 +2,7 @@ use sts_core::{
     apply_combat_action, apply_combat_action_on_run,
     card::{CardType, TargetRequirement},
     combat::{
+        hand::resolve_end_of_turn_hand,
         transition::{
             apply_play_top_draw_card_action, choose_draw_select, choose_exhaust_select,
             choose_hand_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
@@ -25,6 +26,55 @@ fn wound_definition_matches_unplayable_status_source() {
     assert_eq!(cards::WOUND.values.damage, None);
     assert!(cards::WOUND.keywords.unplayable);
     assert!(!cards::WOUND.keywords.exhaust);
+}
+
+#[test]
+fn decay_deals_two_blockable_end_turn_damage_and_discards() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.block = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DECAY_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let mut next = state.clone();
+    resolve_end_of_turn_hand(&mut next);
+
+    assert_eq!(next.player.hp, 49);
+    assert_eq!(next.player.block, 0);
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::DECAY_ID);
+}
+
+#[test]
+fn normality_in_hand_blocks_fourth_card_play() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    state.relic_counters.cards_played_this_turn = 3;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::NORMALITY_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let legal_actions = legal_combat_actions(&state);
+    assert!(!legal_actions.contains(&CombatAction::PlayCard {
+        card_id: CardId::new(2),
+        target: Some(MonsterId::new(1)),
+    }));
+
+    let error = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect_err("Normality blocks the fourth card play while in hand");
+
+    assert!(matches!(error, sts_core::SimError::IllegalAction(_)));
 }
 
 #[test]
