@@ -3598,14 +3598,6 @@ fn mind_blast_queue(
     ]))
 }
 
-pub(super) fn current_combat_pile_card_count(state: &CombatState) -> i32 {
-    let count = state.piles.hand.len()
-        + state.piles.draw_pile.len()
-        + state.piles.discard_pile.len()
-        + state.piles.exhaust_pile.len();
-    i32::try_from(count).expect("combat pile count fits in i32")
-}
-
 fn master_of_strategy_queue(
     card_id: CardId,
     definition: &CardDefinition,

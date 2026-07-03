@@ -23,11 +23,11 @@ use crate::{
         EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
         HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
         IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
-        MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, OFFERING_ID, PAIN_ID,
-        PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
-        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
+        MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
+        OFFERING_ID, PAIN_ID, PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
+        PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
+        POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID,
+        REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID,
         SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
         SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
@@ -1718,8 +1718,6 @@ fn apply_play_top_draw_card(
 
     let mut follow_ups = crate::relic::apply_on_card_play_relics(state, definition.card_type);
     follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
-    let current_pile_count_with_top_card = card_effects::current_combat_pile_card_count(state) + 1;
-
     match definition.id {
         STRIKE_R_ID
         | STRIKE_R_PLUS_ID
@@ -1884,13 +1882,14 @@ fn apply_play_top_draw_card(
                 });
             }
         }
-        MIND_BLAST_ID => {
+        MIND_BLAST_ID | MIND_BLAST_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
             follow_ups.push(InternalAction::DealDamage {
                 info: DamageInfo {
                     source: DamageSource::Card(card_id),
                     target,
-                    amount: current_pile_count_with_top_card,
+                    amount: i32::try_from(state.piles.draw_pile.len())
+                        .expect("draw pile count fits in i32"),
                 },
             });
         }

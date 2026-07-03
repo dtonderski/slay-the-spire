@@ -3,6 +3,23 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Mind Blast/Mind Blast+ against
+  `MindBlast.java` and `PlayTopCardAction.java`, then fixed the top-draw
+  free-play damage path. Source removes the top draw-pile card before
+  `card.applyPowers()`, and Mind Blast's `applyPowers` sets base damage to the
+  remaining `drawPile.size()` before normal attack damage modifiers. Local
+  normal hand play already used current draw-pile size, but the Havoc/Mayhem
+  top-draw path used total combat pile count plus the top card and omitted the
+  upgraded Mind Blast+ id. The simulator now handles both base and upgraded
+  Mind Blast in the top-draw path using the remaining draw-pile size only.
+  Checks: `cargo fmt` passed; `cargo test -p sts_core --test card_fidelity
+  havoc_mind_blast_plus_uses_remaining_draw_pile_size_only` passed; `cargo
+  test -p sts_core --test card_fidelity` passed (33 tests); `cargo clippy`
+  passed with existing warnings after setting `PYO3_PYTHON` to the bundled
+  Python; active live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `py_sts`/`sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Metamorphosis/Metamorphosis+ against
   `Metamorphosis.java` and `MakeTempCardInDrawPileAction.java`, then fixed
   generated attack insertion/cost fidelity. Source rolls 3/5 random combat

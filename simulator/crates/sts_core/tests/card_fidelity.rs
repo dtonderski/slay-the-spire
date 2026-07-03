@@ -608,6 +608,53 @@ fn reckless_charge_adds_generated_dazed_to_draw_pile() {
 }
 
 #[test]
+fn havoc_mind_blast_plus_uses_remaining_draw_pile_size_only() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::HAVOC_ID),
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::MIND_BLAST_PLUS_ID),
+    ];
+    state.piles.discard_pile = vec![
+        CardInstance::new(CardId::new(5), cards::BASH_ID),
+        CardInstance::new(CardId::new(6), cards::ANGER_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 20;
+    state.monsters[0].max_hp = 20;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Havoc plays Mind Blast+ from the draw pile");
+
+    assert_eq!(next.monsters[0].hp, 19);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 3);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert!(next
+        .piles
+        .discard_pile
+        .iter()
+        .any(|card| card.content_id == cards::HAVOC_ID));
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::MIND_BLAST_PLUS_ID));
+}
+
+#[test]
 fn havoc_reckless_charge_plus_adds_generated_dazed_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
