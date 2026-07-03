@@ -3,6 +3,22 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified J.A.X./J.A.X.+ against `JAX.java`. Source is
+  a 0-cost colorless Special Skill targeting self with no keywords; play loses
+  3 HP, then grants 2 Strength, and upgrade only raises the Strength gain to 3.
+  Local definitions/effects already matched the generic combat behavior,
+  including card-source HP loss hooks for Blood for Blood/Rupture/relics, so no
+  simulator code fix was needed. Remaining blocker: local reward metadata cannot
+  express STS Special rarity because `CardRarity` currently only has
+  Common/Uncommon/Rare and maps event cards such as J.A.X. to Rare. Checks:
+  `git diff --check -- STATUS.md simulator/docs/audit/card_fidelity_audit.md`
+  passed with only existing CRLF warnings; `cargo test -p sts_core --test
+  card_fidelity` passed (29 tests). Active live-regression replay in the dirty
+  main workspace still fails on local
+  `trace-2026-07-02T23-24-13-178Z.jsonl`; in a temporary clean worktree with
+  this slice applied, `cargo test -p sts_core --test card_fidelity` passed (29
+  tests) and `uv run python -m unittest python.tests.test_live_regression_traces`
+  passed against the committed corpus.
 - Card-fidelity fix: verified Hand of Greed/Hand of Greed+ against
   `HandOfGreed.java` and `GreedAction.java`, then fixed fatal-gold behavior.
   Source deals targeted damage and grants 20/25 gold only when the target dies
