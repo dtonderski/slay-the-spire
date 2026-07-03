@@ -179,6 +179,55 @@ fn transmutation_definitions_are_x_cost_exhausting_skills() {
 }
 
 #[test]
+fn discovery_plus_keeps_cost_one_and_removes_exhaust() {
+    assert_eq!(cards::DISCOVERY.cost, 1);
+    assert!(cards::DISCOVERY.keywords.exhaust);
+
+    assert_eq!(cards::DISCOVERY_PLUS.cost, 1);
+    assert!(!cards::DISCOVERY_PLUS.keywords.exhaust);
+}
+
+#[test]
+fn discovery_plus_spends_one_energy_and_delays_non_exhausting_source() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DISCOVERY_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Discovery+ plays without a target");
+
+    assert_eq!(next.player.energy, 0);
+    assert!(next.piles.hand.is_empty());
+    assert!(next.piles.exhaust_pile.is_empty());
+    assert!(next.discovery_card_reward.is_some());
+    assert_eq!(
+        next.discovery_source_card
+            .as_ref()
+            .map(|card| card.content_id),
+        Some(cards::DISCOVERY_PLUS_ID)
+    );
+
+    sts_core::combat::transition::close_discovery_card_reward_source(&mut next)
+        .expect("closing Discovery reward moves the source card");
+
+    assert!(next.piles.exhaust_pile.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::DISCOVERY_PLUS_ID
+    );
+}
+
+#[test]
 fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

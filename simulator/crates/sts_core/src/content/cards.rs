@@ -2058,11 +2058,11 @@ pub const DISCOVERY_PLUS: CardDefinition = CardDefinition {
     id: DISCOVERY_PLUS_ID,
     key: "DISCOVERY+",
     name: "Discovery+",
-    cost: 0,
+    cost: 1,
     card_type: CardType::Skill,
     target: TargetRequirement::None,
     values: DISCOVERY.values,
-    keywords: DISCOVERY.keywords,
+    keywords: CARD_KEYWORDS_NONE,
 };
 
 pub const APOTHEOSIS_PLUS: CardDefinition = CardDefinition {

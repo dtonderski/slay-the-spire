@@ -3,6 +3,31 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Discovery/Discovery+ against `Discovery.java` and
+  `DiscoveryAction.java`, then fixed upgraded definition fidelity. Source
+  Discovery costs 1, Exhausts, opens 3 unique random combat-card choices, and
+  makes the selected generated card cost 0 for the turn; upgrade only removes
+  Exhaust and updates description, leaving cost at 1. Local Discovery+ previously
+  cost 0 and retained Exhaust through shared base keywords. Discovery+ now costs
+  1 with no Exhaust keyword, and focused tests cover the definition facts plus
+  delayed source-card movement to discard after the Discovery reward closes.
+  Checks: `cargo fmt` and `cargo fmt --check` passed; `cargo test -p sts_core
+  --test card_fidelity` passed (25 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled Python. Active
+  live-regression manifest replay currently fails on dirty worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  after appended post-baseline state rows, with a final Gremlin Leader combat
+  state diff unrelated to Discovery; replaying the committed clean copy of that
+  same trace from a temp file still verified `true` with `trace_exhausted`, 295
+  steps, final phase `combat`. Full `cargo test` still fails only in the
+  pre-existing stale `milestone6` monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Card-fidelity fix: verified Chrysalis/Chrysalis+ against
   `Chrysalis.java` and fixed upgraded free-play generation. Source generates 3
   random combat Skills for base and 5 for upgraded, sets positive-cost copies to
