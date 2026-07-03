@@ -3,6 +3,28 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Secret Technique/Secret Technique+ against
+  `SecretTechnique.java` and Secret Weapon/Secret Weapon+ against
+  `SecretWeapon.java`, then fixed their top-draw free-play path. Source Secret
+  Technique/Weapon are 0-cost colorless Rare Skills that require a Skill/Attack
+  in draw pile, queue `SkillFromDeckToHandAction(1)`/`AttackFromDeckToHandAction(1)`,
+  and Exhaust; upgrades only remove Exhaust. Local normal hand play already
+  enforced the draw-pile type requirement and opened local draw selection, but
+  the Havoc/Mayhem/top-draw path omitted the selection for all four ids. The
+  simulator now opens the appropriate draw selection when these cards are played
+  from the draw pile and resolves the source correctly after it has already
+  moved to exhaust/discard. Checks: `cargo fmt` passed; `cargo test -p sts_core
+  --test card_fidelity top_draw_secret` passed (2 tests); `cargo test -p
+  sts_core --test card_fidelity` passed (46 tests); `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled workspace Python.
+  Full `cargo test` with bundled `PYO3_PYTHON` still builds the suite and
+  remains blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`. Active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` currently fails on the dirty
+  worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `verified=False` versus manifest `expected_verified=true`; the trace has
+  local appended commands and was not staged for this slice.
 - Card-fidelity fix: verified Sadistic Nature/Sadistic Nature+ against
   `SadisticNature.java` and `SadisticPower.java`, then fixed the top-draw
   free-play path. Source Sadistic Nature is a 0-cost colorless Rare Power that

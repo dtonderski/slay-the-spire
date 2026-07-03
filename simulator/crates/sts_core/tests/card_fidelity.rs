@@ -3,8 +3,8 @@ use sts_core::{
     card::{CardType, TargetRequirement},
     combat::{
         transition::{
-            apply_play_top_draw_card_action, choose_exhaust_select, choose_hand_select,
-            confirm_exhaust_select, confirm_hand_select,
+            apply_play_top_draw_card_action, choose_draw_select, choose_exhaust_select,
+            choose_hand_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
         },
         turn::start_player_turn,
     },
@@ -980,6 +980,70 @@ fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
         .iter()
         .any(|card| card.content_id == cards::PURITY_PLUS_ID));
     assert!(next.exhaust_select.is_none());
+}
+
+#[test]
+fn top_draw_secret_technique_fetches_skill_and_exhausts_source() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.hand.clear();
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(1), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::SECRET_TECHNIQUE_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_play_top_draw_card_action(&state, None)
+        .expect("top-draw Secret Technique opens draw selection");
+    assert!(next.draw_select.is_some());
+
+    choose_draw_select(&mut next, 0).expect("select Defend skill");
+    confirm_draw_select(&mut next).expect("confirm Secret Technique draw selection");
+
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert!(next.piles.discard_pile.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::SECRET_TECHNIQUE_ID
+    );
+    assert!(next.draw_select.is_none());
+}
+
+#[test]
+fn top_draw_secret_weapon_plus_fetches_attack_and_discards_source() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.hand.clear();
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(1), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::SECRET_WEAPON_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_play_top_draw_card_action(&state, None)
+        .expect("top-draw Secret Weapon+ opens draw selection");
+    assert!(next.draw_select.is_some());
+
+    choose_draw_select(&mut next, 0).expect("select Strike attack");
+    confirm_draw_select(&mut next).expect("confirm Secret Weapon+ draw selection");
+
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::SECRET_WEAPON_PLUS_ID
+    );
+    assert!(next.piles.exhaust_pile.is_empty());
+    assert!(next.draw_select.is_none());
 }
 
 #[test]

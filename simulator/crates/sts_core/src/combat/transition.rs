@@ -31,6 +31,7 @@ use crate::{
         PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
         REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID,
         SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
         SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
         THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID,
@@ -1747,6 +1748,13 @@ fn card_printed_cost(card: &CardInstance) -> i8 {
         .unwrap_or(0)
 }
 
+fn draw_pile_has_card_type(state: &CombatState, card_type: CardType) -> bool {
+    state.piles.draw_pile.iter().any(|card| {
+        get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == card_type)
+    })
+}
+
 fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) {
     for card in &mut state.piles.hand {
         if card.id == excluded_card_id {
@@ -2184,6 +2192,22 @@ fn apply_play_top_draw_card(
                 definition.id == ENLIGHTENMENT_PLUS_ID,
             ));
         }
+        SECRET_TECHNIQUE_ID | SECRET_TECHNIQUE_PLUS_ID => {
+            if draw_pile_has_card_type(state, CardType::Skill) {
+                follow_ups.push(InternalAction::AwaitDrawSelect {
+                    source_card_id: card_id,
+                    purpose: crate::combat::DrawSelectPurpose::SecretTechniqueSkillToHand,
+                });
+            }
+        }
+        SECRET_WEAPON_ID | SECRET_WEAPON_PLUS_ID => {
+            if draw_pile_has_card_type(state, CardType::Attack) {
+                follow_ups.push(InternalAction::AwaitDrawSelect {
+                    source_card_id: card_id,
+                    purpose: crate::combat::DrawSelectPurpose::SecretWeaponAttackToHand,
+                });
+            }
+        }
         OFFERING_ID => {
             follow_ups.push(InternalAction::LoseHp {
                 amount: 6,
@@ -2424,6 +2448,8 @@ fn draw_select_source_definition(
         .piles
         .hand
         .iter()
+        .chain(state.piles.exhaust_pile.iter())
+        .chain(state.piles.discard_pile.iter())
         .find(|card| card.id == source_card_id)
         .and_then(|card| get_card_definition(card.content_id))
         .ok_or(SimError::IllegalAction("draw select source card missing"))
@@ -2434,7 +2460,15 @@ fn move_draw_select_source_card(
     source_card_id: CardId,
     _source_definition: &'static crate::card::CardDefinition,
 ) -> SimResult<()> {
-    move_delayed_played_source_with_strange_spoon(state, source_card_id)
+    if state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id == source_card_id)
+    {
+        move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    }
+    Ok(())
 }
 
 fn move_selected_draw_card_to_hand_or_discard(state: &mut CombatState, index: usize) {
