@@ -13,8 +13,8 @@ use sts_core::{
         cards,
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
     },
-    legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId, RunPhase,
-    RunState, StsRng,
+    legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
+    MonsterIntent, RunPhase, RunState, StsRng,
 };
 
 #[test]
@@ -443,6 +443,99 @@ fn searing_blow_repeated_upgrades_use_source_damage_sequence() {
         next.piles.discard_pile[0].content_id,
         cards::SEARING_BLOW_PLUS_ID
     );
+}
+
+#[test]
+fn spot_weakness_plus_grants_strength_only_against_attacking_target() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::SPOT_WEAKNESS_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::SPOT_WEAKNESS_ID),
+    ];
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    state.monsters[0].intent = MonsterIntent::Attack { damage: 6 };
+    state.monsters[1].intent = MonsterIntent::Block { block: 8 };
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Spot Weakness+ plays against attacking target");
+    assert_eq!(next.player.powers.strength, 4);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: Some(MonsterId::new(2)),
+        },
+    )
+    .expect("Spot Weakness plays against non-attacking target");
+    assert_eq!(next.player.powers.strength, 4);
+}
+
+#[test]
+fn thunderclap_plus_deals_damage_then_applies_one_vulnerable_to_all_enemies() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::THUNDERCLAP_PLUS_ID,
+    )];
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    let starting_hp = state
+        .monsters
+        .iter()
+        .map(|monster| monster.hp)
+        .collect::<Vec<_>>();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Thunderclap+ plays");
+
+    assert_eq!(next.monsters[0].hp, starting_hp[0] - 7);
+    assert_eq!(next.monsters[1].hp, starting_hp[1] - 7);
+    assert!(next
+        .monsters
+        .iter()
+        .all(|monster| monster.powers.vulnerable == 1));
+}
+
+#[test]
+fn uppercut_plus_deals_damage_then_applies_two_weak_and_vulnerable() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::UPPERCUT_PLUS_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Uppercut+ plays");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 13);
+    assert_eq!(next.monsters[0].powers.weak, 2);
+    assert_eq!(next.monsters[0].powers.vulnerable, 2);
 }
 
 #[test]

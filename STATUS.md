@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Spot Weakness/Spot Weakness+, Thunderclap+,
+  and Uppercut/Uppercut+ against their decompiled card/action classes and the
+  trusted sts.gg card database baseline, then replaced stale generic audit rows
+  with source-backed facts. Source Spot Weakness grants Strength only if the
+  selected target's intent has base damage; Thunderclap+ deals 7 all-enemy
+  damage then applies 1 Vulnerable to monsters; Uppercut deals 13 selected-enemy
+  damage then applies Weak and Vulnerable, with the upgraded form raising both
+  debuffs to 2. No generic simulator mismatch was found in this slice. Checks:
+  `cargo fmt` passed; focused `cargo test -p sts_core --test card_fidelity
+  spot_weakness` passed; focused `cargo test -p sts_core --test
+  card_fidelity thunderclap` passed; focused `cargo test -p sts_core --test
+  card_fidelity uppercut` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (117 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Second Wind/Second Wind+, Sever Soul/Sever Soul+,
   and Shockwave/Shockwave+ against their decompiled card/action classes and the
   trusted sts.gg card database baseline, then replaced stale generic audit rows
