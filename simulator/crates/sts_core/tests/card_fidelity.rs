@@ -1123,6 +1123,117 @@ fn feel_no_pain_plus_grants_four_block_when_a_card_exhausts() {
 }
 
 #[test]
+fn second_wind_plus_gains_block_once_per_exhausted_non_attack_card() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.player.powers.juggernaut = 5;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::SECOND_WIND_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::BASH_ID),
+        CardInstance::new(CardId::new(4), cards::WOUND_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Second Wind+ plays");
+
+    assert_eq!(next.player.block, 14);
+    assert_eq!(next.monsters[0].hp, starting_hp - 10);
+    assert_eq!(
+        next.piles
+            .exhaust_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::DEFEND_R_ID, cards::WOUND_ID]
+    );
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::SECOND_WIND_PLUS_ID
+    );
+}
+
+#[test]
+fn sever_soul_plus_exhausts_non_attacks_before_dealing_damage() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.player.powers.feel_no_pain = 4;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::SEVER_SOUL_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::BASH_ID),
+        CardInstance::new(CardId::new(4), cards::WOUND_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Sever Soul+ plays");
+
+    assert_eq!(next.player.block, 8);
+    assert_eq!(next.monsters[0].hp, starting_hp - 22);
+    assert_eq!(
+        next.piles
+            .exhaust_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::DEFEND_R_ID, cards::WOUND_ID]
+    );
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::SEVER_SOUL_PLUS_ID
+    );
+}
+
+#[test]
+fn shockwave_plus_applies_five_weak_and_vulnerable_to_all_enemies_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::SHOCKWAVE_PLUS_ID)];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Shockwave+ plays");
+
+    assert!(next
+        .monsters
+        .iter()
+        .all(|monster| monster.powers.weak == 5 && monster.powers.vulnerable == 5));
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::SHOCKWAVE_PLUS_ID
+    );
+}
+
+#[test]
 fn fire_breathing_plus_damages_all_enemies_when_status_is_drawn() {
     let mut state = CombatState::initial_fixture();
     state.player.powers.fire_breathing = 10;

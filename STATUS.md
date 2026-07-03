@@ -3,6 +3,26 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Second Wind/Second Wind+, Sever Soul/Sever Soul+,
+  and Shockwave/Shockwave+ against their decompiled card/action classes and the
+  trusted sts.gg card database baseline, then replaced stale generic audit rows
+  with source-backed facts. Source Second Wind uses `BlockPerNonAttackAction`,
+  which exhausts each non-Attack card in hand and queues one Gain Block action
+  per exhausted card; Sever Soul exhausts non-Attacks before selected-enemy
+  damage; Shockwave applies Weak then Vulnerable to each monster and Exhausts.
+  Fixed generic simulator mismatch: Second Wind now gains Block once per
+  exhausted card instead of collapsing the total into one block action, so
+  per-block-gain effects such as Juggernaut trigger with source-backed
+  cardinality. Checks: `cargo fmt` passed; focused `cargo test -p sts_core
+  --test card_fidelity second_wind` passed; focused `cargo test -p sts_core
+  --test card_fidelity sever_soul` passed; focused `cargo test -p sts_core
+  --test card_fidelity shockwave` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (114 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit: verified Reaper/Reaper+, Rupture/Rupture+, and Searing
   Blow/Searing Blow+ against their decompiled card/power classes and the
   trusted sts.gg card database baseline, then replaced stale generic audit rows

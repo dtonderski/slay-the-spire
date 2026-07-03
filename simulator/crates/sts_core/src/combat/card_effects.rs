@@ -2569,7 +2569,8 @@ fn second_wind_queue(
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     let exhaust_targets = non_attack_hand_cards_except(state, card_id);
-    let block = definition.values.block.unwrap_or(0) * exhaust_targets.len() as i32;
+    let exhaust_count = exhaust_targets.len();
+    let block_per_card = definition.values.block.unwrap_or(0);
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -2583,8 +2584,12 @@ fn second_wind_queue(
             to: CardPile::ExhaustPile,
         });
     }
-    if block > 0 {
-        queue.push_back(InternalAction::GainBlock { amount: block });
+    if block_per_card > 0 {
+        for _ in 0..exhaust_count {
+            queue.push_back(InternalAction::GainBlock {
+                amount: block_per_card,
+            });
+        }
     }
     queue.push_back(InternalAction::MoveCard {
         card_id,
