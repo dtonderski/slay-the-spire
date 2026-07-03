@@ -174,6 +174,43 @@ pub fn start_player_turn(state: &mut CombatState) {
     state.phase = CombatPhase::WaitingForPlayer;
 }
 
+pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {
+    for monster in &mut state.monsters {
+        if monster.alive {
+            if monster.powers.vulnerable > 0 {
+                monster.powers.vulnerable -= 1;
+            }
+            if monster.powers.weak > 0 {
+                monster.powers.weak -= 1;
+            }
+            if monster.powers.malleable_base > 0 {
+                monster.powers.malleable = monster.powers.malleable_base;
+            }
+            apply_end_of_monster_turn_powers(monster);
+            if monster.content_id == BYRD_ID && monster.powers.flight > 0 {
+                monster.powers.flight = target_byrd_flight_amount(state.ascension);
+            }
+            if monster.temp_strength_down > 0 {
+                monster.powers.strength += monster.temp_strength_down;
+                monster.temp_strength_down = 0;
+            }
+        }
+    }
+
+    if state.player.powers.vulnerable > 0 && state.player.vulnerable_just_applied {
+        state.player.vulnerable_just_applied = false;
+    } else if state.player.powers.vulnerable > 0 {
+        state.player.powers.vulnerable -= 1;
+    } else {
+        state.player.vulnerable_just_applied = false;
+    }
+    if state.player.powers.intangible > 0 {
+        state.player.powers.intangible -= 1;
+    }
+
+    apply_turn_transition_block_loss(state);
+}
+
 fn apply_start_of_turn_brutality(state: &mut CombatState) {
     for _ in 0..state.player.powers.brutality.max(0) {
         let hp_loss = crate::combat::hp_loss::lose_player_hp(state, 1);

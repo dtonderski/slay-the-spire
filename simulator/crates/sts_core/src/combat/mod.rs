@@ -31,4 +31,4 @@ pub use transition::{
     confirm_draw_select, confirm_hand_select, draw_select_ui_to_draw_index,
     hand_select_ui_to_hand_index, open_gambling_chip_select, CombatTransition,
 };
-pub use turn::end_player_turn;
+pub use turn::{end_player_turn, finish_monster_turn_after_player_revival, start_player_turn};

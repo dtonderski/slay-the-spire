@@ -1,6 +1,9 @@
 use crate::{
     card::{CardInstance, CardRarity},
-    combat::{apply_combat_action_with_events, CombatPhase},
+    combat::{
+        apply_combat_action_with_events, finish_monster_turn_after_player_revival,
+        start_player_turn, CombatPhase,
+    },
     content::cards::{
         upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID, SHRUG_IT_OFF_ID,
     },
@@ -1421,7 +1424,16 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     if next_combat.card_random_rng.is_some() {
         next_combat.card_random_rng = Some(next.card_random_rng());
     }
-    apply_fairy_if_lethal(&mut next, &mut next_combat);
+    let revived = apply_fairy_if_lethal(&mut next, &mut next_combat);
+    if revived
+        && matches!(action, CombatAction::EndTurn)
+        && next_combat.phase == CombatPhase::WaitingForPlayer
+        && next_combat.monsters.iter().any(|monster| monster.alive)
+        && next_combat.piles.hand.is_empty()
+    {
+        finish_monster_turn_after_player_revival(&mut next_combat);
+        start_player_turn(&mut next_combat);
+    }
     next.combat = Some(next_combat.clone());
     next.player_hp = next_combat.player.hp;
     next.player_max_hp = next_combat.player.max_hp;
@@ -1583,9 +1595,9 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
         .collect()
 }
 
-fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatState) {
+fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatState) -> bool {
     if combat.player.hp > 0 && combat.phase != CombatPhase::Lost {
-        return;
+        return false;
     }
 
     if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
@@ -1593,15 +1605,15 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
         combat.player.hp =
             (combat.player.max_hp * crate::relic::LIZARD_TAIL_HEAL_PERCENT / 100).max(1);
         combat.phase = CombatPhase::WaitingForPlayer;
-        return;
+        return true;
     }
 
-    let Some(slot) = run
-        .potions
-        .iter()
-        .position(|potion| *potion == Potion::Fairy)
+    let Some((slot, _)) = run
+        .occupied_potion_slots()
+        .into_iter()
+        .find(|(_, potion)| *potion == Potion::Fairy)
     else {
-        return;
+        return false;
     };
 
     run.take_potion_slot(slot)
@@ -1613,6 +1625,7 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
     };
     combat.player.hp = (combat.player.max_hp * FAIRY_HEAL_PERCENT * multiplier / 100).max(1);
     combat.phase = CombatPhase::WaitingForPlayer;
+    true
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
