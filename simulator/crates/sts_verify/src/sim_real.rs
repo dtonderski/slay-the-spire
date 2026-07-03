@@ -7831,6 +7831,9 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
         "DEBUFF" if content_id == GREEN_LOUSE_ID => MonsterIntent::ApplyPlayerWeak {
             amount: GREEN_LOUSE_WEAK,
         },
+        "DEBUFF" if content_id == CHAMP_ID && move_id == 6 => {
+            MonsterIntent::ApplyPlayerWeak { amount: 2 }
+        }
         "DEBUFF"
             if content_id == ACID_SLIME_ID
                 && (str_field(monster, "id") == Some("AcidSlime_L")
