@@ -3,6 +3,18 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Apparition/Apparition+ rows against
+  `Apparition.java`. Source constructs the base card as a 1-cost Colorless
+  Special Skill targeting self with Exhaust and Ethereal, applies 1 Intangible,
+  and upgrade only removes Ethereal. Local combat definitions and effect queue
+  already match the generic play behavior (`GainIntangible { amount: 1 }` and
+  Exhaust destination), so no simulator code fix was needed. Remaining blocker:
+  local reward metadata cannot express STS Special rarity because `CardRarity`
+  currently only has Common/Uncommon/Rare and maps these event cards to Rare.
+  Checks: `git diff --check -- STATUS.md
+  simulator/docs/audit/card_fidelity_audit.md` passed with only existing CRLF
+  warnings; active live-regression manifest replay passed via `uv run python -m
+  unittest python.tests.test_live_regression_traces`.
 - Card-fidelity fix: corrected Bite audit row and fixed healing fidelity.
   Decompiled `Bite.java` deals 7 damage, then heals fixed `magicNumber` 2
   regardless of unblocked damage; local Bite previously used unblocked-damage
