@@ -482,7 +482,8 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.gold -= cost;
             next.break_maw_bank_on_shop_spend();
             next.shop_remove_count += 1;
-            next.deck.retain(|deck_card| deck_card.id != card.id);
+            next.remove_deck_card(card.id)
+                .expect("shop remove selected a deck card");
             let remove_cost = super::shop::shop_remove_cost_for_run(&next);
             if let Some(shop) = next.shop.as_mut() {
                 shop.remove_available = false;
@@ -492,14 +493,16 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         }
         GridPurpose::EventRemove => {
             let card = selected_grid_card(grid)?;
-            next.deck.retain(|deck_card| deck_card.id != card.id);
+            next.remove_deck_card(card.id)
+                .expect("event remove selected a deck card");
             next.card_grid = None;
             next.phase = RunPhase::Idle;
             next.event = None;
         }
         GridPurpose::EventRemoveReturnToEvent { event } => {
             let card = selected_grid_card(grid)?;
-            next.deck.retain(|deck_card| deck_card.id != card.id);
+            next.remove_deck_card(card.id)
+                .expect("event remove selected a deck card");
             next.card_grid = None;
             next.phase = RunPhase::Event;
             next.event = Some(EventScreen {
@@ -624,7 +627,8 @@ fn remove_grid_card(run: &mut RunState, card: CardInstance, purpose: GridPurpose
         GridPurpose::EmptyCage { remaining } | GridPurpose::NeowRemove { remaining } => remaining,
         _ => unreachable!("remove grid purpose required"),
     };
-    run.deck.retain(|deck_card| deck_card.id != card.id);
+    run.remove_deck_card(card.id)
+        .expect("remove grid selected a deck card");
     if remaining > 1 && !run.deck.is_empty() {
         run.card_grid = Some(CardGridScreen {
             cards: run.deck.clone(),
@@ -674,7 +678,8 @@ fn confirm_multi_remove_grid(run: &mut RunState, purpose: GridPurpose) -> SimRes
         .collect::<SimResult<Vec<_>>>()?;
 
     for card in cards {
-        run.deck.retain(|deck_card| deck_card.id != card.id);
+        run.remove_deck_card(card.id)
+            .expect("multi-remove selected a deck card");
     }
     run.card_grid = None;
     if matches!(purpose, GridPurpose::NeowRemove { .. }) {
@@ -789,7 +794,8 @@ fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) {
         .collect::<Vec<_>>();
 
     for card in cards {
-        run.deck.retain(|deck_card| deck_card.id != card.id);
+        run.remove_deck_card(card.id)
+            .expect("transform selected a deck card");
     }
     for card in transformed {
         run.add_deck_card(card);
@@ -813,7 +819,8 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) {
     run.misc_rng_counter = rng.counter();
 
     for card in cards {
-        run.deck.retain(|deck_card| deck_card.id != card.id);
+        run.remove_deck_card(card.id)
+            .expect("transform selected a deck card");
     }
     for card in transformed {
         run.add_deck_card(card);
@@ -837,7 +844,8 @@ fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) {
     run.misc_rng_counter = rng.counter();
 
     for card in cards {
-        run.deck.retain(|deck_card| deck_card.id != card.id);
+        run.remove_deck_card(card.id)
+            .expect("transform selected a deck card");
     }
     for card in transformed {
         run.add_deck_card(card);

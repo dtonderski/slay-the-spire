@@ -209,7 +209,8 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             next.rest_room_complete = true;
         }
         RestAction::RemoveCard { card_id } => {
-            next.deck.retain(|card| card.id != card_id);
+            next.remove_deck_card(card_id)
+                .expect("rest remove validated before apply");
             next.rest_room_complete = true;
         }
         RestAction::Proceed => {

@@ -878,6 +878,13 @@ impl RunState {
         self.apply_card_added_relics(content_id);
     }
 
+    pub fn remove_deck_card(&mut self, card_id: CardId) -> Option<CardInstance> {
+        let index = self.deck.iter().position(|card| card.id == card_id)?;
+        let card = self.deck.remove(index);
+        self.apply_card_removed_effects(card.content_id);
+        Some(card)
+    }
+
     fn should_omamori_prevent_card(&self, content_id: ContentId) -> bool {
         self.relics.contains(&Relic::Omamori)
             && is_curse_content_id(content_id)
@@ -912,6 +919,13 @@ impl RunState {
         if self.relics.contains(&Relic::DarkstonePeriapt) && is_curse_content_id(content_id) {
             self.player_max_hp += DARKSTONE_PERIAPT_MAX_HP;
             self.player_hp += DARKSTONE_PERIAPT_MAX_HP;
+        }
+    }
+
+    fn apply_card_removed_effects(&mut self, content_id: ContentId) {
+        if content_id == crate::content::cards::PARASITE_ID {
+            self.player_max_hp = (self.player_max_hp - 3).max(1);
+            self.player_hp = self.player_hp.min(self.player_max_hp);
         }
     }
 

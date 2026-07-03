@@ -2,13 +2,13 @@ use sts_core::{
     apply_event_action, apply_map_action_on_run, apply_rest_action, apply_run_action,
     content::cards::upgrade_content_id,
     content::cards::ANGER_ID,
-    content::cards::{STRIKE_R_ID, STRIKE_R_PLUS_ID},
+    content::cards::{PARASITE_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
     enter_event_screen, enter_fixed_event_screen, leave_shop_room, legal_event_actions,
-    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, Event,
-    EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction,
-    RunPhase, RunState, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, SHOP_ANGER_PRICE,
-    SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
+    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, CardId,
+    CardInstance, Event, EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction,
+    RoomKind, RunAction, RunPhase, RunState, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD,
+    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
 };
 
 fn reach_shop_via_left_branch() -> RunState {
@@ -451,4 +451,33 @@ fn remove_card_at_rest_drops_strike_from_deck() {
     assert!(!after.deck.iter().any(|card| card.id == strike_id));
     assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
     assert_eq!(after.phase, RunPhase::Idle);
+}
+
+#[test]
+fn removing_parasite_at_rest_loses_three_max_hp() {
+    let mut run = RunState::map_fixture();
+    run.relics.push(Relic::PeacePipe);
+    run.player_max_hp = 50;
+    run.player_hp = 50;
+    let parasite_id = CardId::new(run.next_card_instance_id());
+    run.deck.push(CardInstance::new(parasite_id, PARASITE_ID));
+    run = apply_map_action_on_run(
+        &run,
+        MapAction::ChooseNode {
+            node_id: MapNodeId::new(2),
+        },
+    )
+    .expect("enter rest");
+
+    let after = apply_rest_action(
+        &run,
+        RestAction::RemoveCard {
+            card_id: parasite_id,
+        },
+    )
+    .expect("remove Parasite applies");
+
+    assert_eq!(after.player_max_hp, 47);
+    assert_eq!(after.player_hp, 47);
+    assert!(!after.deck.iter().any(|card| card.content_id == PARASITE_ID));
 }

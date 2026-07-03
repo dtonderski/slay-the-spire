@@ -13,6 +13,21 @@
   sts_verify --test slaythedata` passed. Next task: connect these descriptors
   to verifier legality checks against `RunState` and then surface imported
   sessions in the UI.
+- Card-fidelity fix: verified Parasite against decompiled `Parasite.java` and
+  the trusted sts.gg card database baseline, then replaced its stale generic
+  audit row with source-backed facts. Fixed generic simulator mismatch:
+  run-level deck removal/transform paths now use a shared deck-card removal
+  helper that applies Parasite's source max-HP loss and clamps current HP to the
+  new max. Checks: `cargo fmt` passed; focused `cargo test -p sts_core --test
+  milestone9 removing_parasite` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (130 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`. Full `cargo test -p sts_core --test
+  milestone9` currently has two unrelated event/Golden Shrine failures in the
+  dirty worktree; the new Parasite regression itself passes.
 - Card-fidelity fix: verified Decay and Normality against decompiled
   `Decay.java`/`Normality.java` and the trusted sts.gg card database baseline,
   then replaced their stale generic audit rows with source-backed facts. Fixed
