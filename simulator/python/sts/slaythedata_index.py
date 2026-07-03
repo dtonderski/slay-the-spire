@@ -127,6 +127,60 @@ def select_guided_collection_candidates(
     ]
 
 
+def select_seed_matching_candidates(
+    db_path: str | Path = DEFAULT_SLAYTHEDATA_DB,
+    *,
+    seed_played: str,
+    character: str = "IRONCLAD",
+    ascension: int = 0,
+    min_floor_reached: int = 1,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Return exportable runs matching the exact live seed using a seed-first query."""
+
+    ensure_slaythedata_lookup_indexes(db_path)
+    conn = _connect_readonly(db_path)
+    try:
+        query = """
+            SELECT id, seed_played, floor_reached, victory, path_length,
+                   card_choice_count, event_choice_count, shop_purchase_count,
+                   potion_usage_count
+            FROM runs INDEXED BY idx_runs_live_seed_lookup
+            WHERE seed_played = ?
+              AND character_chosen = ?
+              AND ascension_level = ?
+              AND floor_reached >= ?
+              AND id IN (SELECT run_id FROM chunk_runs)
+            ORDER BY floor_reached DESC, path_length DESC, id ASC
+            LIMIT ?
+        """
+        rows = _sqlite_fetchall_with_step_limit(
+            conn,
+            query,
+            [str(seed_played), character, int(ascension), int(min_floor_reached), int(limit)],
+            max_steps=2_000,
+        )
+        if rows is None:
+            raise TimeoutError("SlayTheData seed candidate query timed out")
+    finally:
+        conn.close()
+    return [
+        {
+            "id": row[0],
+            "seed_played": row[1],
+            "floor_reached": row[2],
+            "victory": bool(row[3]),
+            "path_length": row[4],
+            "card_choice_count": row[5],
+            "event_choice_count": row[6],
+            "shop_purchase_count": row[7],
+            "potion_usage_count": row[8],
+            "guided_score": row[5] + row[6] * 2 + row[7] * 3 + row[8],
+        }
+        for row in rows
+    ]
+
+
 def ensure_slaythedata_lookup_indexes(db_path: str | Path = DEFAULT_SLAYTHEDATA_DB) -> None:
     """Create lightweight lookup indexes required by interactive UI filters."""
 

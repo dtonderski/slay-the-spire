@@ -21,6 +21,7 @@ from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_
 from sts.self_play import _action_for_communication_command, _summary
 from sts.slaythedata_index import (
     export_guided_run_row,
+    select_seed_matching_candidates,
     select_guided_collection_candidates,
     slaythedata_index_status,
 )
@@ -632,6 +633,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "slaythedata", "candidates"]:
                 self._send_json(_slaythedata_candidates_from_query(query))
+                return
+            if parts == ["api", "slaythedata", "seed-candidates"]:
+                self._send_json(_slaythedata_seed_candidates_from_query(query))
                 return
             if parts == ["api", "slaythedata", "status"]:
                 self._send_json(_slaythedata_status_from_query(query))
@@ -1542,6 +1546,34 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
             "limit": limit,
             "ranked": ranked,
             "preflight": include_preflight,
+        },
+    }
+
+
+def _slaythedata_seed_candidates_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
+    character = _query_string(query, "character", "IRONCLAD").upper()
+    ascension = _query_int(query, "ascension", 0)
+    seed_played = _query_optional_string(query, "seed_played")
+    if not seed_played:
+        raise ValueError("seed_played is required")
+    min_floor = _query_int(query, "min_floor", 1)
+    limit = _query_int(query, "limit", 5)
+    rows = select_seed_matching_candidates(
+        seed_played=seed_played,
+        character=character,
+        ascension=ascension,
+        min_floor_reached=min_floor,
+        limit=limit,
+    )
+    return {
+        "candidates": rows,
+        "filters": {
+            "character": character,
+            "ascension": ascension,
+            "seed_played": seed_played,
+            "min_floor": min_floor,
+            "limit": limit,
+            "preflight": False,
         },
     }
 

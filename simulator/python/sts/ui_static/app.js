@@ -123,6 +123,7 @@
       "findCurrentSeedRunsButton",
       "auditSlaythedataRunButton",
       "loadSlaythedataRunButton",
+      "downloadSlaythedataRunButton",
       "startCollectorButton",
       "startGuidedLiveRunButton",
       "startGuidedAutoRunButton",
@@ -190,6 +191,7 @@
     el.findCurrentSeedRunsButton.addEventListener("click", findSlaythedataRunsForCurrentSeed);
     el.auditSlaythedataRunButton.addEventListener("click", auditSlaythedataSelection);
     el.loadSlaythedataRunButton.addEventListener("click", loadSelectedSlaythedataRun);
+    el.downloadSlaythedataRunButton.addEventListener("click", downloadSelectedSlaythedataRun);
     el.slaythedataCandidateSelect.addEventListener("change", () => {
       app.slaythedataSelectedRunId = el.slaythedataCandidateSelect.value;
       applySelectedSlaythedataRunToStartControls();
@@ -780,14 +782,29 @@
     if (el.startSeedInput) {
       el.startSeedInput.value = live.seed;
     }
-    await findSlaythedataRuns({
-      seedPlayed: live.seed,
-      minFloor: Math.max(1, live.floor || 1),
-      minPathLength: 1,
-      maxFloor: null,
-      limit: 5,
-      includePreflight: false,
-      skipStatusRefresh: true,
+    const params = new URLSearchParams({
+      character: live.character,
+      ascension: String(live.ascension),
+      seed_played: live.seed,
+      min_floor: String(Math.max(1, live.floor || 1)),
+      limit: "5",
+    });
+    await singleFlight("Finding current SlayTheData seed", async () => {
+      try {
+        app.slaythedataSearchStatus = "Finding exact seed matches...";
+        renderCollector();
+        const result = await requestJson(`/api/slaythedata/seed-candidates?${params.toString()}`);
+        app.slaythedataCandidates = arrayOf(result.candidates);
+        const selectedCandidate = app.slaythedataCandidates[0];
+        app.slaythedataSelectedRunId = selectedCandidate ? String(selectedCandidate.id) : "";
+        app.slaythedataSelectionAudit = null;
+        applySelectedSlaythedataRunToStartControls();
+        app.slaythedataLastError = null;
+        renderCollectorPicker();
+      } finally {
+        app.slaythedataSearchStatus = null;
+        renderCollector();
+      }
     });
   }
   async function loadSelectedSlaythedataRun() {
@@ -808,6 +825,20 @@
     });
   }
 
+  async function downloadSelectedSlaythedataRun() {
+    const runId = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value;
+    if (!runId) {
+      showError("Find and select a SlayTheData run first.");
+      return;
+    }
+    await singleFlight("Downloading SlayTheData run", async () => {
+      const payload = await requestJson("/api/slaythedata/export", {
+        method: "POST",
+        body: { run_id: Number(runId) },
+      });
+      downloadJson(`slaythedata-run-${runId}.json`, payload);
+    });
+  }
   async function auditSlaythedataSelection() {
     const selectedRunId = app.slaythedataSelectedRunId || (el.slaythedataCandidateSelect && el.slaythedataCandidateSelect.value);
     const body = {
@@ -1654,6 +1685,7 @@
     el.findCurrentSeedRunsButton.disabled = app.inFlight || !app.bridge || !app.bridge.connected;
     el.auditSlaythedataRunButton.disabled = app.inFlight;
     el.loadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
+    el.downloadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
     el.startGuidedLiveRunButton.disabled = !!guidedStartBlocker;
     el.startGuidedAutoRunButton.disabled = !!guidedAutoStartBlocker || app.collectorAutoRun;
     el.previewCollectorButton.disabled = !canTick;
@@ -1669,6 +1701,7 @@
     el.pauseCollectorButton.title = app.collectorAutoRun ? "Pause guided auto-collection." : "Auto-collection is not running.";
     el.findCurrentSeedRunsButton.title = "Find SlayTheData candidates whose seed matches the current live bridge state.";
     el.auditSlaythedataRunButton.title = "Export and audit the selected run, or auto-select the first support-clean run without touching the live bridge.";
+    el.downloadSlaythedataRunButton.title = "Download the selected SlayTheData script and Rust preflight JSON.";
 
     clear(el.collectorStatusPanel);
     if (app.collectorLastError) {
@@ -3391,6 +3424,18 @@
     span.className = "empty-text";
     span.textContent = text;
     node.appendChild(span);
+  }
+
+  function downloadJson(filename, payload) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function firstDefined(...values) {

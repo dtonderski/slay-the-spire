@@ -18,6 +18,7 @@ from sts.ui_service import (
     _send_ui_bridge_command,
     _slaythedata_candidates_from_query,
     _slaythedata_export_from_payload,
+    _slaythedata_seed_candidates_from_query,
     _slaythedata_select_audit_from_payload,
     _slaythedata_status_from_query,
     _start_guided_live_run,
@@ -985,6 +986,31 @@ class UiServiceTests(unittest.TestCase):
         self.assertTrue(result["filters"]["safe_neow"])
         self.assertEqual(result["candidates"], [])
         self.assertTrue(select.call_args.kwargs["require_guided_safe_neow"])
+
+    def test_slaythedata_seed_candidates_query_uses_fast_seed_selector(self):
+        with patch(
+            "sts.ui_service.select_seed_matching_candidates",
+            return_value=[{"id": 7, "seed_played": "LIVE01"}],
+        ) as select:
+            result = _slaythedata_seed_candidates_from_query(
+                {
+                    "character": ["ironclad"],
+                    "ascension": ["0"],
+                    "seed_played": ["LIVE01"],
+                    "min_floor": ["3"],
+                    "limit": ["5"],
+                }
+            )
+
+        self.assertEqual(result["candidates"], [{"id": 7, "seed_played": "LIVE01"}])
+        self.assertEqual(result["filters"]["seed_played"], "LIVE01")
+        select.assert_called_once_with(
+            seed_played="LIVE01",
+            character="IRONCLAD",
+            ascension=0,
+            min_floor_reached=3,
+            limit=5,
+        )
 
     def test_slaythedata_candidates_can_include_rust_preflight_blockers(self):
         with patch(

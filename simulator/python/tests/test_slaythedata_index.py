@@ -11,6 +11,7 @@ from sts.slaythedata_index import (
     export_guided_run_row,
     export_guided_run_script,
     select_guided_collection_candidates,
+    select_seed_matching_candidates,
     slaythedata_index_status,
 )
 from sts.slaythedata_policy import _NEOW_BONUS_TEXT
@@ -323,6 +324,45 @@ class SlayTheDataIndexTests(unittest.TestCase):
             conn.close()
 
         self.assertIn("idx_runs_live_seed_lookup", indexes)
+
+    def test_select_seed_matching_candidates_uses_exact_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    path_length INTEGER,
+                    victory INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER PRIMARY KEY);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 20, 0, "LIVE01", 20, 0, 3, 2, 1, 0),
+                    (2, "IRONCLAD", 0, 30, 0, "OTHER", 30, 1, 3, 2, 1, 0),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,)])
+            conn.commit()
+            conn.close()
+
+            rows = select_seed_matching_candidates(db, seed_played="LIVE01", min_floor_reached=1)
+
+        self.assertEqual([row["id"] for row in rows], [1])
+        self.assertEqual(rows[0]["seed_played"], "LIVE01")
 
     def test_candidate_selection_can_require_long_paths(self):
         with tempfile.TemporaryDirectory() as tmp:

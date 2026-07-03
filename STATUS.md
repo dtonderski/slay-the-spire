@@ -3,6 +3,15 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData dedicated seed endpoint/download slice: current live-seed lookup
+  now uses `/api/slaythedata/seed-candidates`, a minimal exact-seed endpoint
+  backed by the seed lookup index, instead of the generic guided candidate
+  query. The guided collector panel also has `Download JSON` for the selected
+  run, exporting the same script/preflight payload that `Load selected` uses.
+  Checks: `uv run python -m unittest python.tests.test_slaythedata_index
+  python.tests.test_ui_service` passed; `node --check
+  simulator/python/sts/ui_static/app.js` passed. UI service restarted at
+  `http://127.0.0.1:8799/`.
 - SlayTheData seed index/progress slice: exact live-seed candidate lookup now
   ensures a generated SQLite lookup index exists before querying, and the
   indexer schema creates the same composite seed lookup index for future DB
