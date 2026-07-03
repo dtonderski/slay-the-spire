@@ -1594,15 +1594,69 @@ fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) {
         return;
     }
 
-    let index = if let Some(rng) = state.card_random_rng.as_mut() {
-        rng.random_int((state.piles.hand.len() - 1) as i32) as usize
-    } else {
-        0
+    let better_possible = state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card_cost_for_turn(card) > 0);
+    let possible = state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card_printed_cost(card) > 0);
+    if !better_possible && !possible {
+        return;
+    }
+
+    let Some(index) = random_madness_candidate_index(state, better_possible) else {
+        return;
     };
 
     let card = &mut state.piles.hand[index];
     card.temp_cost = Some(amount);
     card.temp_cost_turn_only = false;
+}
+
+fn random_madness_candidate_index(state: &mut CombatState, better_possible: bool) -> Option<usize> {
+    if state.card_random_rng.is_none() {
+        return state
+            .piles
+            .hand
+            .iter()
+            .position(|card| madness_card_matches(card, better_possible));
+    }
+
+    loop {
+        let index = if let Some(rng) = state.card_random_rng.as_mut() {
+            rng.random_int((state.piles.hand.len() - 1) as i32) as usize
+        } else {
+            unreachable!("handled missing Madness card_random_rng");
+        };
+        if madness_card_matches(&state.piles.hand[index], better_possible) {
+            return Some(index);
+        }
+    }
+}
+
+fn madness_card_matches(card: &CardInstance, better_possible: bool) -> bool {
+    if better_possible {
+        card_cost_for_turn(card) > 0
+    } else {
+        card_printed_cost(card) > 0
+    }
+}
+
+fn card_cost_for_turn(card: &CardInstance) -> i8 {
+    card.temp_cost
+        .map(|cost| cost as i8)
+        .or_else(|| get_card_definition(card.content_id).map(|definition| definition.cost))
+        .unwrap_or(0)
+}
+
+fn card_printed_cost(card: &CardInstance) -> i8 {
+    get_card_definition(card.content_id)
+        .map(|definition| definition.cost)
+        .unwrap_or(0)
 }
 
 fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) {

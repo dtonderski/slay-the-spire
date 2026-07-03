@@ -338,6 +338,49 @@ fn hand_of_greed_gold_transfers_to_run_gold() {
 }
 
 #[test]
+fn madness_prefers_cards_with_positive_cost_for_turn() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    let mut strike = CardInstance::new(CardId::new(2), cards::STRIKE_R_ID);
+    strike.temp_cost = Some(0);
+    strike.temp_cost_turn_only = true;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::MADNESS_ID),
+        strike,
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Madness plays");
+
+    let strike = next
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == CardId::new(2))
+        .expect("Strike remains in hand");
+    let defend = next
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == CardId::new(3))
+        .expect("Defend remains in hand");
+    assert_eq!(strike.temp_cost, Some(0));
+    assert!(strike.temp_cost_turn_only);
+    assert_eq!(defend.temp_cost, Some(0));
+    assert!(!defend.temp_cost_turn_only);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::MADNESS_ID);
+}
+
+#[test]
 fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

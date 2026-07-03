@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Madness/Madness+ against `Madness.java` and
+  `MadnessAction.java`, then fixed eligible-card selection. Source first
+  prefers hand cards with `costForTurn > 0`, repeatedly rolling
+  `cardRandomRng` over the hand until it hits an eligible card, and only falls
+  back to positive printed-cost cards when no positive current-turn-cost cards
+  exist. Local Madness previously selected any random hand card and could waste
+  the effect on an already-0 current-turn-cost card while a better candidate
+  existed. Local Madness now mirrors the source eligibility split, uses
+  rejection sampling when `card_random_rng` is present, sets the chosen card's
+  combat-long temp cost to 0, and keeps source Exhaust/cost metadata unchanged.
+  Checks: `cargo fmt` passed. Main-workspace `cargo test`/`cargo clippy` are
+  currently blocked by unrelated dirty `CombatState`/`turn.rs` edits where
+  `turn.rs` references `discard_reshuffle_limit` but the dirty `state.rs` shape
+  does not expose that field; active live-regression replay in the dirty main
+  workspace still fails on local `trace-2026-07-02T23-24-13-178Z.jsonl`. In a
+  temporary clean worktree with this slice applied, `cargo test -p sts_core
+  --test card_fidelity madness` passed (1 test), `cargo test -p sts_core --test
+  card_fidelity` passed (30 tests), `cargo clippy` passed with existing warnings
+  after setting `PYO3_PYTHON` to the bundled Python, and `uv run python -m
+  unittest python.tests.test_live_regression_traces` passed against the
+  committed corpus.
 - Card-fidelity audit: verified Jack of All Trades/Jack of All Trades+ against
   `JackOfAllTrades.java` and `MakeTempCardInHandAction.java`. Source is a
   0-cost colorless uncommon Skill with Exhaust that adds one random colorless
