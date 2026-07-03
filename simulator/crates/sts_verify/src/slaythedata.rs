@@ -3,9 +3,10 @@ use serde_json::Value;
 use std::{collections::BTreeMap, error::Error, fmt};
 use sts_core::{
     apply_event_action, apply_map_action_on_run, apply_run_action,
-    content::cards::get_card_definition, generate_neow_options, legal_event_actions,
-    legal_map_actions_on_run, EventAction, GeneratedNeowOption, MapAction, NeowDrawback,
-    NeowRewardType, RoomKind, RunAction, RunPhase, RunState,
+    content::{cards::get_card_definition, monsters::get_monster_definition},
+    generate_neow_options, legal_event_actions, legal_map_actions_on_run, EventAction,
+    GeneratedNeowOption, MapAction, NeowDrawback, NeowRewardType, RoomKind, RunAction, RunPhase,
+    RunState,
 };
 
 use crate::try_sts_seed_string_to_long;
@@ -111,6 +112,9 @@ pub enum SlayTheDataReplayStepKind {
     MapRoom {
         symbol: String,
     },
+    CombatEncounter {
+        enemies: Option<String>,
+    },
     CardReward {
         picked: Option<SlayTheDataCardName>,
         skipped: bool,
@@ -205,12 +209,21 @@ pub struct SlayTheDataRoute {
 pub struct SlayTheDataFloorDecision {
     pub floor: u32,
     pub route: Option<String>,
+    pub combats: Vec<SlayTheDataCombatEncounter>,
     pub card_rewards: Vec<SlayTheDataCardReward>,
     pub relics_obtained: Vec<SlayTheDataNamedFloorItem>,
     pub events: Vec<SlayTheDataEventChoice>,
     pub shop_purchases: Vec<SlayTheDataShopPurchase>,
     pub campfires: Vec<SlayTheDataCampfireChoice>,
     pub potions: SlayTheDataPotionFloorDecision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataCombatEncounter {
+    pub ordinal: usize,
+    pub enemies: Option<String>,
+    pub damage: Option<i32>,
+    pub turns: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -386,6 +399,7 @@ pub fn import_slaythedata_run_value(
     import_shop_purchases(event, &mut floors);
     import_campfires(event, &mut floors);
     import_potions(event, &mut floors);
+    import_combat_encounters(event, &mut floors);
     import_route(event, &mut floors);
 
     let mut imported = SlayTheDataRunImport {
@@ -488,6 +502,15 @@ pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataRe
                 ordinal: steps.len(),
                 kind: SlayTheDataReplayStepKind::MapRoom {
                     symbol: route.clone(),
+                },
+            });
+        }
+        for combat in &floor.combats {
+            steps.push(SlayTheDataReplayStep {
+                floor: floor.floor,
+                ordinal: steps.len(),
+                kind: SlayTheDataReplayStepKind::CombatEncounter {
+                    enemies: combat.enemies.clone(),
                 },
             });
         }
@@ -834,6 +857,34 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 ),
                             }
                         }
+                        [ConstrainedMapAction {
+                            action,
+                            action_slot,
+                            evidence,
+                        }, ..] => match apply_map_action_on_run(current, *action) {
+                            Ok(next) => {
+                                run = Some(next);
+                                (
+                                    SlayTheDataPreflightStatus::Checked,
+                                    "compatible_map_room".to_owned(),
+                                    format!(
+                                        "route symbol {symbol:?} matched {} legal map actions; {} replay-compatible candidates remained after {evidence}, choosing slot {action_slot}",
+                                        matches.len(),
+                                        constrained_match.len()
+                                    ),
+                                    Some(choose_visible_hint(*action_slot)),
+                                )
+                            }
+                            Err(error) => (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "map_action_apply_failed".to_owned(),
+                                format!(
+                                    "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
+                                    action
+                                ),
+                                None,
+                            ),
+                        },
                         [] if matches.len() == 1 => {
                             let action = matches[0];
                             let action_slot = actions
@@ -879,8 +930,9 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                             SlayTheDataPreflightStatus::Guided,
                             "ambiguous_map_symbol".to_owned(),
                             format!(
-                                "route symbol {symbol:?} matched {} legal map actions and SlayTheData evidence did not select exactly one branch",
-                                matches.len()
+                                "route symbol {symbol:?} matched {} legal map actions and SlayTheData evidence selected {} branch candidate(s), not exactly one",
+                                matches.len(),
+                                constrained_match.len()
                             ),
                             None,
                         ),
@@ -955,6 +1007,15 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     ),
                 }
             }
+            SlayTheDataReplayStepKind::CombatEncounter { enemies } => (
+                SlayTheDataPreflightStatus::Guided,
+                "combat_encounter_evidence".to_owned(),
+                format!(
+                    "recorded combat encounter {:?} is used as map-branch evidence; combat actions are delegated to the combat agent",
+                    enemies
+                ),
+                None,
+            ),
             SlayTheDataReplayStepKind::EventChoice {
                 event_name,
                 player_choice,
@@ -1158,6 +1219,7 @@ fn floor_has_candidate_evidence(plan: &SlayTheDataReplayPlan, floor: u32) -> boo
             && matches!(
                 step.kind,
                 SlayTheDataReplayStepKind::EventChoice { .. }
+                    | SlayTheDataReplayStepKind::CombatEncounter { .. }
                     | SlayTheDataReplayStepKind::CardReward { .. }
                     | SlayTheDataReplayStepKind::ShopPurchase { .. }
                     | SlayTheDataReplayStepKind::Campfire { .. }
@@ -1233,6 +1295,16 @@ fn slaythedata_map_candidate_evidence(
             None
         }
         RunPhase::Combat => {
+            let combat = next.combat.as_ref()?;
+            for step in &floor_steps {
+                if let SlayTheDataReplayStepKind::CombatEncounter { enemies } = &step.kind {
+                    if let Some(enemies) = enemies {
+                        if combat_encounter_matches(combat, enemies) {
+                            return Some(format!("recorded combat encounter {enemies:?}"));
+                        }
+                    }
+                }
+            }
             if floor_steps.iter().any(|step| {
                 matches!(
                     step.kind,
@@ -1252,6 +1324,66 @@ fn event_name_matches(event: sts_core::Event, slaythedata_name: &str) -> bool {
     normalized_event_name(event).iter().any(|candidate| {
         normalize_slaythedata_label(candidate) == normalize_slaythedata_label(slaythedata_name)
     })
+}
+
+fn combat_encounter_matches(combat: &sts_core::CombatState, slaythedata_enemies: &str) -> bool {
+    let target = normalize_slaythedata_label(slaythedata_enemies);
+    combat_encounter_labels(combat)
+        .iter()
+        .any(|label| normalize_slaythedata_label(label) == target)
+}
+
+fn combat_encounter_labels(combat: &sts_core::CombatState) -> Vec<String> {
+    let names: Vec<String> = combat
+        .monsters
+        .iter()
+        .filter_map(|monster| {
+            get_monster_definition(monster.content_id).map(|definition| definition.name.to_owned())
+        })
+        .collect();
+    let mut labels = Vec::new();
+    if names.is_empty() {
+        return labels;
+    }
+    labels.push(names.join(" and "));
+    labels.push(names.join(", "));
+
+    if names.len() == 1 {
+        labels.push(names[0].clone());
+    }
+    if names.len() == 2 && names.iter().all(|name| name.contains("Louse")) {
+        labels.push("2 Louse".to_owned());
+    }
+    if names.len() == 3 && names.iter().all(|name| name == "Sentry") {
+        labels.push("3 Sentries".to_owned());
+    }
+    if names.iter().all(|name| name.contains("Slime")) {
+        labels.push("Small Slimes".to_owned());
+    }
+    if names.len() == 2
+        && names.iter().any(|name| name == "Centurion")
+        && names
+            .iter()
+            .any(|name| name == "Mystic" || name == "Healer")
+    {
+        labels.push("Centurion and Healer".to_owned());
+    }
+    if names.len() == 2
+        && names.iter().any(|name| name == "Shelled Parasite")
+        && names.iter().any(|name| name == "Fungi Beast")
+    {
+        labels.push("Shelled Parasite and Fungi".to_owned());
+    }
+    if names.len() == 2
+        && names.iter().any(|name| name == "Chosen")
+        && names.iter().any(|name| name == "Byrd")
+    {
+        labels.push("Chosen and Byrds".to_owned());
+    }
+    if names.len() == 3 && names.iter().all(|name| name == "Darkling") {
+        labels.push("3 Darklings".to_owned());
+    }
+    labels
 }
 
 fn normalized_event_name(event: sts_core::Event) -> Vec<String> {
@@ -1540,6 +1672,25 @@ fn import_event_choices(
     }
 }
 
+fn import_combat_encounters(
+    event: &serde_json::Map<String, Value>,
+    floors: &mut BTreeMap<u32, SlayTheDataFloorDecision>,
+) {
+    for (ordinal, combat) in array(event.get("damage_taken")).iter().enumerate() {
+        let Some(floor) = parse_positive_floor(combat.get("floor")) else {
+            continue;
+        };
+        floor_entry(floors, floor)
+            .combats
+            .push(SlayTheDataCombatEncounter {
+                ordinal,
+                enemies: optional_string(combat.get("enemies")),
+                damage: parse_i32(combat.get("damage")),
+                turns: parse_i32(combat.get("turns")),
+            });
+    }
+}
+
 fn import_shop_purchases(
     event: &serde_json::Map<String, Value>,
     floors: &mut BTreeMap<u32, SlayTheDataFloorDecision>,
@@ -1611,11 +1762,19 @@ fn import_route(
     event: &serde_json::Map<String, Value>,
     floors: &mut BTreeMap<u32, SlayTheDataFloorDecision>,
 ) {
-    for (index, route) in string_list(event.get("path_per_floor"))
-        .into_iter()
-        .enumerate()
-    {
-        floor_entry(floors, index as u32 + 1).route = Some(route);
+    let mut route = string_list(event.get("path_taken"));
+    if route.is_empty() {
+        route = string_list(event.get("path_per_floor"));
+    }
+    for (index, route) in route.into_iter().enumerate() {
+        floor_entry(floors, index as u32 + 1).route = Some(normalize_route_atom(&route));
+    }
+}
+
+fn normalize_route_atom(route: &str) -> String {
+    match route.trim().to_ascii_uppercase().as_str() {
+        "BOSS" => "B".to_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -1724,6 +1883,7 @@ fn floor_entry(
         .or_insert_with(|| SlayTheDataFloorDecision {
             floor,
             route: None,
+            combats: Vec::new(),
             card_rewards: Vec::new(),
             relics_obtained: Vec::new(),
             events: Vec::new(),
@@ -1788,7 +1948,10 @@ fn parse_i32(value: Option<&Value>) -> Option<i32> {
 
 fn parse_i64(value: Option<&Value>) -> Option<i64> {
     match value? {
-        Value::Number(number) => number.as_i64(),
+        Value::Number(number) => number.as_i64().or_else(|| {
+            let float = number.as_f64()?;
+            (float.fract() == 0.0).then_some(float as i64)
+        }),
         Value::String(text) => text.parse().ok(),
         _ => None,
     }

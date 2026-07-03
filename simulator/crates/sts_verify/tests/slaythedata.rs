@@ -507,13 +507,17 @@ fn preflight_checks_map_symbol_without_map_coordinates() {
 }
 
 #[test]
-fn preflight_blocks_ambiguous_first_map_route_when_history_does_not_identify_branch() {
+fn preflight_resolves_first_map_route_with_combat_and_event_history() {
     let json = serde_json::json!({
         "character_chosen": "IRONCLAD",
         "ascension_level": 0,
         "seed_played": "-3574229841928219368",
         "neow_bonus": "THREE_ENEMY_KILL",
         "neow_cost": "NONE",
+        "path_taken": [
+            "M", "?", "?", "?", "$", "E", "R", "M", "T", "E", "R", "E", "M", "?",
+            "R", "BOSS", "BOSS"
+        ],
         "path_per_floor": [
             "M", "?", "?", "M", "$", "E", "R", "M", "T", "E", "R", "E", "M", "?",
             "R", "B", "B"
@@ -522,12 +526,62 @@ fn preflight_blocks_ambiguous_first_map_route_when_history_does_not_identify_bra
             {
                 "event_name": "Golden Wing",
                 "player_choice": "Card Removal",
-                "floor": 2
+                "floor": 2.0
             },
             {
                 "event_name": "Wheel of Change",
                 "player_choice": "Gold",
-                "floor": 3
+                "floor": 3.0
+            }
+        ],
+        "damage_taken": [
+            {
+                "damage": 0,
+                "enemies": "Small Slimes",
+                "floor": 1.0,
+                "turns": 1
+            },
+            {
+                "damage": 0,
+                "enemies": "2 Louse",
+                "floor": 4.0,
+                "turns": 1
+            },
+            {
+                "damage": 0,
+                "enemies": "Gremlin Nob",
+                "floor": 6.0,
+                "turns": 1
+            },
+            {
+                "damage": 2,
+                "enemies": "Cultist",
+                "floor": 8,
+                "turns": 4
+            },
+            {
+                "damage": 27,
+                "enemies": "Lagavulin",
+                "floor": 10,
+                "turns": 8
+            },
+            {
+                "damage": 22,
+                "enemies": "3 Sentries",
+                "floor": 12,
+                "turns": 5
+            },
+            {
+                "damage": 10,
+                "enemies": "Exordium Wildlife",
+                "floor": 13,
+                "turns": 3
+            },
+            {
+                "damage": 28,
+                "enemies": "The Guardian",
+                "floor": 16,
+                "turns": 11
             }
         ],
         "floor_reached": 1,
@@ -558,10 +612,13 @@ fn preflight_blocks_ambiguous_first_map_route_when_history_does_not_identify_bra
         .expect("floor 1 map step");
     assert_eq!(
         map_step.status,
-        SlayTheDataPreflightStatus::Guided,
+        SlayTheDataPreflightStatus::Checked,
         "{}",
         map_step.message
     );
-    assert_eq!(map_step.code, "ambiguous_map_symbol");
-    assert!(map_step.bridge_command.is_none());
+    assert!(matches!(
+        map_step.code.as_str(),
+        "legal_map_room" | "compatible_map_room"
+    ));
+    assert!(map_step.bridge_command.is_some());
 }
