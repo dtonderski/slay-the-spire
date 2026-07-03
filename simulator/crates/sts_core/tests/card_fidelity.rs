@@ -146,6 +146,83 @@ fn havoc_battle_trance_plus_draws_four_sets_no_draw_and_exhausts() {
 }
 
 #[test]
+fn reckless_charge_adds_generated_dazed_to_draw_pile() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::RECKLESS_CHARGE_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Reckless Charge plays and shuffles Dazed into the draw pile");
+
+    assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 7);
+    assert_eq!(next.piles.draw_pile.len(), 3);
+    assert!(next
+        .piles
+        .draw_pile
+        .iter()
+        .any(|card| { card.content_id == cards::DAZED_ID && card.combat_only }));
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::RECKLESS_CHARGE_ID
+    );
+}
+
+#[test]
+fn havoc_reckless_charge_plus_adds_generated_dazed_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::RECKLESS_CHARGE_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Havoc plays Reckless Charge+ from the draw pile");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, state.monsters[0].hp - 10);
+    assert_eq!(next.piles.draw_pile.len(), 2);
+    assert!(next
+        .piles
+        .draw_pile
+        .iter()
+        .any(|card| { card.content_id == cards::DAZED_ID && card.combat_only }));
+    assert!(next
+        .piles
+        .draw_pile
+        .iter()
+        .any(|card| card.content_id == cards::STRIKE_R_ID));
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::RECKLESS_CHARGE_PLUS_ID
+    );
+}
+
+#[test]
 fn deep_breath_shuffles_discard_before_drawing() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;

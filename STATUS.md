@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: corrected Reckless Charge/Reckless Charge+ audit rows and
+  fixed the generic simulator Dazed insertion path. Decompiled
+  `RecklessCharge.java` deals selected-enemy damage, then queues
+  `MakeTempCardInDrawPileAction(new Dazed(), 1, true, true)`; local normal play
+  and Havoc/top-draw free-play previously used plain draw-pile insertion, which
+  created a non-generated Dazed at a deterministic pile position. The simulator
+  now uses generated random-spot draw-pile insertion for both paths, with
+  focused tests for base normal play and upgraded top-draw play. Checks:
+  `cargo fmt --check` passed; `cargo test -p sts_core --test card_fidelity`
+  passed (15 tests); active live-regression manifest replay passed via
+  `uv run python -m unittest python.tests.test_live_regression_traces`;
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled Python. Full `cargo test` still fails only in the pre-existing
+  stale `milestone6` monster fixture expectations:
+  `acid_slime_combat_executes_weak_attack_cycle`,
+  `gremlin_nob_fixture_has_expected_hp_and_opening_intent`,
+  `gremlin_nob_enrage_applies_anger_when_player_plays_skill`,
+  `gremlin_nob_enrage_bonus_is_applied_once_to_next_attack`,
+  `slime_boss_fixture_has_expected_hp_and_slam_intent`,
+  `slime_boss_splits_into_acid_slimes_at_half_hp`, and
+  `spike_slime_combat_executes_spit_lick_cycle`.
 - Latest bridge-control fix: full potion belts no longer wedge the live UI on
   "Waiting for command ack" after selecting a potion reward. The trace client
   now summarizes potion capacity/open slots, the bridge action list disables

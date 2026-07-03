@@ -1597,9 +1597,8 @@ fn apply_play_top_draw_card(
                 },
             });
             if definition.id == RECKLESS_CHARGE_ID || definition.id == RECKLESS_CHARGE_PLUS_ID {
-                follow_ups.push(InternalAction::AddCardToPile {
+                follow_ups.push(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
                     content_id: DAZED_ID,
-                    to: CardPile::DrawPile,
                 });
             }
             if definition.id == WILD_STRIKE_ID || definition.id == WILD_STRIKE_PLUS_ID {

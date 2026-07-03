@@ -1736,9 +1736,8 @@ fn reckless_charge_queue(
                 amount: definition.values.damage.unwrap_or(0),
             },
         },
-        InternalAction::AddCardToPile {
+        InternalAction::AddGeneratedCardToDrawPileRandomSpot {
             content_id: DAZED_ID,
-            to: CardPile::DrawPile,
         },
         InternalAction::MoveCard {
             card_id,
