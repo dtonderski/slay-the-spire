@@ -893,11 +893,7 @@ pub const DEMON_FORM_PLUS: CardDefinition = CardDefinition {
     cost: 3,
     card_type: CardType::Power,
     target: TargetRequirement::None,
-    values: CardValues {
-        damage: Some(3),
-        block: None,
-        vulnerable: None,
-    },
+    values: DEMON_FORM.values,
     keywords: CARD_KEYWORDS_NONE,
 };
 

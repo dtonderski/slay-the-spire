@@ -3551,13 +3551,21 @@ fn demon_form_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainRitual {
-            amount: definition.values.damage.unwrap_or(2),
+            amount: demon_form_strength_gain(definition),
         },
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
         },
     ]))
+}
+
+fn demon_form_strength_gain(definition: &CardDefinition) -> i32 {
+    if definition.id == DEMON_FORM_PLUS_ID {
+        3
+    } else {
+        2
+    }
 }
 
 fn fire_breathing_queue(

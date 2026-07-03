@@ -45,6 +45,38 @@ fn twin_strike_definitions_target_one_enemy_twice() {
 }
 
 #[test]
+fn demon_form_definitions_have_no_damage_and_grant_ritual() {
+    assert_eq!(cards::DEMON_FORM.values.damage, None);
+    assert_eq!(cards::DEMON_FORM_PLUS.values.damage, None);
+
+    let mut base = CombatState::initial_fixture();
+    base.player.energy = 3;
+    base.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DEMON_FORM_ID)];
+    let next = apply_combat_action(
+        &base,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Demon Form grants Ritual");
+    assert_eq!(next.player.powers.ritual, 2);
+
+    let mut upgraded = CombatState::initial_fixture();
+    upgraded.player.energy = 3;
+    upgraded.piles.hand = vec![CardInstance::new(CardId::new(2), cards::DEMON_FORM_PLUS_ID)];
+    let next = apply_combat_action(
+        &upgraded,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Demon Form+ grants upgraded Ritual");
+    assert_eq!(next.player.powers.ritual, 3);
+}
+
+#[test]
 fn trip_plus_targets_all_enemies_without_selection() {
     assert_eq!(cards::TRIP.target, TargetRequirement::Enemy);
     assert_eq!(cards::TRIP.values.vulnerable, Some(2));

@@ -3,6 +3,25 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Demon Form/Demon Form+ against
+  `DemonForm.java`, then removed a local definition artifact. Source Demon Form
+  is a 3-cost red Rare Power with `magicNumber` 2, applies `DemonFormPower` for
+  that amount, and upgrades only by increasing `magicNumber` to 3. It has no
+  damage value. Local play already granted Ritual/Demon Form strength-at-turn
+  power amounts 2/3, but Demon Form+ encoded the upgraded amount as
+  `values.damage = Some(3)`. The simulator now leaves both printed damage
+  fields empty and derives the effect amount from the Demon Form content id.
+  Checks: `cargo fmt` passed; `cargo test -p sts_core --test card_fidelity
+  demon_form` passed; `cargo test -p sts_core --test card_fidelity` passed (51
+  tests); `cargo clippy` passed with existing warnings after setting
+  `PYO3_PYTHON` to the bundled workspace Python. Full `cargo test` with bundled
+  `PYO3_PYTHON` still builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`. Active live-regression replay `uv run
+  python -m unittest python.tests.test_live_regression_traces` currently fails
+  on the dirty worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 478 versus manifest `expected_steps` 467; the trace has local
+  appended commands and was not staged for this slice.
 - Card-fidelity fix: verified Forethought/Forethought+ against
   `Forethought.java` and `ForethoughtAction.java`, then finished the
   source-backed selection branches. Source Forethought is a 0-cost colorless
