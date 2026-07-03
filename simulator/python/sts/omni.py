@@ -9,6 +9,7 @@ from sts.sts_omni import (
     OmniCombatEnv,
     OmniRunEnv,
     RustSearchRecommendation,
+    slaythedata_preflight_json,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "OmniCombatEnv",
     "OmniRunEnv",
     "RustSearchRecommendation",
+    "slaythedata_preflight_json",
 ]

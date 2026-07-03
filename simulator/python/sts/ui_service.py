@@ -1280,15 +1280,20 @@ def _guided_script_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     exported_run = payload.get("exported_run")
     if isinstance(exported_run, dict):
-        return {"script": build_guided_run_script(exported_run)}
+        return {
+            "script": build_guided_run_script(exported_run),
+            "rust_preflight": _slaythedata_rust_preflight_for_exported_run(exported_run),
+        }
 
     path = payload.get("path")
     if isinstance(path, str) and path.strip():
+        line_index = int(payload.get("line_index", 0))
         return {
             "script": load_guided_run_script(
                 path,
-                line_index=int(payload.get("line_index", 0)),
-            )
+                line_index=line_index,
+            ),
+            "rust_preflight": _slaythedata_rust_preflight_for_path(path, line_index=line_index),
         }
 
     raise ValueError("expected exported_run or path")
@@ -1533,6 +1538,42 @@ def _slaythedata_export_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if run_id is None:
         raise ValueError("run_id is required")
     return {"script": export_guided_run_script(int(run_id))}
+
+
+def _slaythedata_rust_preflight_for_exported_run(exported_run: dict[str, Any]) -> dict[str, Any]:
+    try:
+        content = json.dumps(exported_run)
+        return json.loads(omni.slaythedata_preflight_json(content, None))
+    except Exception as error:  # pragma: no cover - defensive for optional native diagnostics
+        return {
+            "schema": 1,
+            "diagnostics": [
+                {
+                    "severity": "error",
+                    "code": "rust_preflight_error",
+                    "path": "$",
+                    "message": str(error),
+                }
+            ],
+        }
+
+
+def _slaythedata_rust_preflight_for_path(path: str, *, line_index: int) -> dict[str, Any]:
+    try:
+        content = Path(path).read_text(encoding="utf-8")
+        return json.loads(omni.slaythedata_preflight_json(content, line_index))
+    except Exception as error:  # pragma: no cover - defensive for optional native diagnostics
+        return {
+            "schema": 1,
+            "diagnostics": [
+                {
+                    "severity": "error",
+                    "code": "rust_preflight_error",
+                    "path": "$",
+                    "message": str(error),
+                }
+            ],
+        }
 
 
 def _slaythedata_select_audit_from_payload(payload: dict[str, Any]) -> dict[str, Any]:

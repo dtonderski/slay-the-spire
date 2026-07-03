@@ -249,23 +249,26 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["metadata"], {"source": "ui_manual"})
 
     def test_guided_script_payload_accepts_exported_slaythedata_run(self):
-        result = _guided_script_from_payload(
-            {
-                "exported_run": {
-                    "run_id": 7,
-                    "event": {
-                        "character_chosen": "IRONCLAD",
-                        "ascension_level": 0,
-                        "seed_played": "ABC",
-                        "card_choices": [{"floor": 1, "picked": "Inflame"}],
-                    },
-                }
+        exported_run = {
+            "run_id": 7,
+            "event": {
+                "character_chosen": "IRONCLAD",
+                "ascension_level": 0,
+                "seed_played": "ABC",
+                "card_choices": [{"floor": 1, "picked": "Inflame"}],
             }
-        )
+        }
+        with patch(
+            "sts.ui_service.omni.slaythedata_preflight_json",
+            return_value='{"schema":1,"steps":[],"diagnostics":[]}',
+        ) as preflight:
+            result = _guided_script_from_payload({"exported_run": exported_run})
 
         self.assertEqual(result["script"]["source"]["run_id"], 7)
         self.assertEqual(result["script"]["config"]["seed_played"], "ABC")
         self.assertEqual(result["script"]["floor_decisions"][0]["card_rewards"][0]["picked"], "Inflame")
+        self.assertEqual(result["rust_preflight"]["schema"], 1)
+        preflight.assert_called_once()
 
     def test_guided_script_payload_rejects_missing_source(self):
         with self.assertRaises(ValueError):
@@ -277,6 +280,24 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result, {"script": {"schema": 1}})
         export.assert_called_once_with(123)
+
+    def test_guided_script_payload_accepts_path_and_reports_rust_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "runs.jsonl"
+            path.write_text(
+                '{"character_chosen":"IRONCLAD","ascension_level":0,"seed_played":"FIRST"}\n'
+                '{"character_chosen":"IRONCLAD","ascension_level":0,"seed_played":"SECOND"}\n',
+                encoding="utf-8",
+            )
+            with patch(
+                "sts.ui_service.omni.slaythedata_preflight_json",
+                return_value='{"schema":1,"numeric_seed":2,"steps":[],"diagnostics":[]}',
+            ) as preflight:
+                result = _guided_script_from_payload({"path": str(path), "line_index": 1})
+
+        self.assertEqual(result["script"]["config"]["seed_played"], "SECOND")
+        self.assertEqual(result["rust_preflight"]["numeric_seed"], 2)
+        self.assertEqual(preflight.call_args.args[1], 1)
 
     def test_collector_start_payload_accepts_slaythedata_run_id(self):
         with patch("sts.ui_service.export_guided_run_script", return_value={"schema": 1}) as export:

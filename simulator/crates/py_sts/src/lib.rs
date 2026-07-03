@@ -498,7 +498,21 @@ fn sts_omni(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyRustSearchRecommendation>()?;
     module.add_class::<PyOmniCombatEnv>()?;
     module.add_class::<PyOmniRunEnv>()?;
+    module.add_function(wrap_pyfunction!(slaythedata_preflight_json, module)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn slaythedata_preflight_json(content: &str, line_index: Option<usize>) -> PyResult<String> {
+    let imported = if let Some(line_index) = line_index {
+        sts_verify::import_slaythedata_jsonl_line(content, line_index)
+    } else {
+        sts_verify::import_slaythedata_run_json(content)
+    }
+    .map_err(|error| PyValueError::new_err(format!("SlayTheData import failed: {error}")))?;
+    let plan = sts_verify::slaythedata_replay_plan(&imported);
+    let report = sts_verify::slaythedata_replay_preflight(&plan);
+    to_json(&report)
 }
 
 fn exact_legal_actions(state: &CombatState) -> Vec<PyExactCombatAction> {

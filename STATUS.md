@@ -3,6 +3,18 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData UI preflight bridge slice: added native
+  `slaythedata_preflight_json` to the Python extension and exposed it through
+  `sts.omni`. The UI service now attaches `rust_preflight` when loading a
+  SlayTheData script from a direct exported run or JSONL path, so imported-run
+  diagnostics come from the Rust verifier contract while the existing guided
+  collector flow remains intact. Checks: `cargo fmt` passed; `cargo test -p
+  sts_verify --test slaythedata` passed; `PYO3_PYTHON=.venv/Scripts/python.exe
+  cargo check -p py_sts --lib` passed; `uv run maturin develop --release`
+  passed after restarting the UI; `uv run python -m unittest
+  python.tests.test_ui_service` passed; direct `omni.slaythedata_preflight_json`
+  smoke test passed. Next task: enrich DB run-id exports and UI display with
+  the same preflight report.
 - SlayTheData map preflight slice: route-symbol steps now inspect
   `legal_map_actions_on_run` and apply `apply_map_action_on_run` only when the
   symbol uniquely identifies a legal next map node. Ambiguous symbols such as
