@@ -790,6 +790,58 @@ fn swift_strike_plus_is_zero_cost_strike_damage() {
 }
 
 #[test]
+fn the_bomb_plus_arms_three_turn_fifty_damage_timer() {
+    assert_eq!(cards::THE_BOMB.cost, 2);
+    assert_eq!(cards::THE_BOMB.values.damage, Some(40));
+    assert_eq!(cards::THE_BOMB_PLUS.cost, 2);
+    assert_eq!(cards::THE_BOMB_PLUS.values.damage, Some(50));
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::THE_BOMB_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    state.monsters[0].hp = 60;
+    state.monsters[1].hp = 70;
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("The Bomb+ arms a timer");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.bomb_timers.len(), 1);
+    assert_eq!(next.bomb_timers[0].turns_remaining, 3);
+    assert_eq!(next.bomb_timers[0].damage, 50);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::THE_BOMB_PLUS_ID
+    );
+
+    apply_end_of_player_turn_powers(&mut next);
+    assert_eq!(next.bomb_timers[0].turns_remaining, 2);
+    assert_eq!(next.monsters[0].hp, 60);
+    assert_eq!(next.monsters[1].hp, 70);
+
+    apply_end_of_player_turn_powers(&mut next);
+    assert_eq!(next.bomb_timers[0].turns_remaining, 1);
+    assert_eq!(next.monsters[0].hp, 60);
+    assert_eq!(next.monsters[1].hp, 70);
+
+    apply_end_of_player_turn_powers(&mut next);
+    assert!(next.bomb_timers.is_empty());
+    assert_eq!(next.monsters[0].hp, 10);
+    assert_eq!(next.monsters[1].hp, 20);
+}
+
+#[test]
 fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     assert_eq!(cards::ARMAMENTS.values.block, Some(5));
     assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));

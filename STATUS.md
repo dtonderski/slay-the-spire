@@ -3,6 +3,19 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified The Bomb/The Bomb+ against decompiled
+  `TheBomb.java` plus `TheBombPower.java` and the trusted sts.gg card database
+  baseline, then replaced stale generic audit rows with source-backed facts.
+  Source The Bomb applies a 3-turn Bomb power for 40/50 delayed all-enemy
+  damage; local behavior already modeled that as independent end-turn bomb
+  timers. No generic simulator mismatch was found in this slice. Checks:
+  `cargo fmt` passed; focused `cargo test -p sts_core --test card_fidelity
+  the_bomb` passed; `cargo test -p sts_core --test card_fidelity` passed (125
+  tests); `cargo clippy` passed with existing warnings after setting
+  `PYO3_PYTHON` to the bundled workspace Python; active live-regression replay
+  `uv run python -m unittest python.tests.test_live_regression_traces` passed.
+  Full `cargo test` with bundled `PYO3_PYTHON` builds the suite and remains
+  blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Swift Strike/Swift Strike+ and Thinking
   Ahead/Thinking Ahead+ against their decompiled card classes and the trusted
   sts.gg card database baseline, then replaced stale generic audit rows with
