@@ -3,6 +3,26 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Panache/Panache+ against `Panache.java` and
+  `PanachePower.java`, then fixed two generic simulator mismatches. Source
+  Panache is a 0-cost colorless Rare Power that applies `PanachePower` with
+  damage 10/14; the power tracks a remaining-card counter initialized to 5,
+  decrements on each card used, triggers all-enemy THORNS damage when it reaches
+  0, resets after triggering, and resets to 5 at start of turn. Local normal
+  hand play already granted the correct damage amount, but the local
+  cards-played counter did not reset at start of turn and the Havoc/Mayhem
+  top-draw path omitted Panache/Panache+ entirely. The simulator now resets the
+  local Panache counter at player turn start and grants Panache from top-draw
+  play for both base and upgraded forms. Checks: `cargo fmt` passed; `cargo
+  test -p sts_core --test card_fidelity panache` passed; `cargo test -p
+  sts_core --test card_fidelity` passed (36 tests); `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled Python. Full
+  `cargo test` with bundled `PYO3_PYTHON` still builds the suite and remains
+  blocked by `py_sts`/`sts_omni` exiting with `STATUS_DLL_NOT_FOUND`. Active
+  live-regression replay was run and currently fails on
+  `trace-2026-07-02T23-24-13-178Z.jsonl` with `verified=False` where the
+  manifest expects `True`; the worktree copy of that trace has unrelated local
+  appended `state` records and was not staged for this slice.
 - Card-fidelity fix: verified Panacea/Panacea+ against `Panacea.java`, then
   fixed the top-draw free-play upgraded path. Source Panacea is a 0-cost
   colorless Uncommon Skill targeting self, Exhausts, and applies Artifact equal

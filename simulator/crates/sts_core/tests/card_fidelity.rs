@@ -1,7 +1,10 @@
 use sts_core::{
     apply_combat_action, apply_combat_action_on_run,
     card::{CardType, TargetRequirement},
-    combat::transition::{choose_hand_select, confirm_hand_select},
+    combat::{
+        transition::{choose_hand_select, confirm_hand_select},
+        turn::start_player_turn,
+    },
     content::{
         cards,
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
@@ -686,6 +689,61 @@ fn havoc_panacea_plus_grants_two_artifact_and_exhausts() {
         next.piles.exhaust_pile[0].content_id,
         cards::PANACEA_PLUS_ID
     );
+}
+
+#[test]
+fn havoc_panache_plus_grants_fourteen_damage_power() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::PANACHE_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc plays Panache+ from the draw pile");
+
+    assert_eq!(next.player.powers.panache, 14);
+    assert_eq!(next.player.powers.panache_cards_played, 0);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::PANACHE_PLUS_ID
+    );
+}
+
+#[test]
+fn panache_counter_resets_at_start_of_player_turn() {
+    let mut state = CombatState::initial_fixture();
+    state.player.powers.panache = 10;
+    state.player.powers.panache_cards_played = 4;
+    state.piles.hand.clear();
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(1), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(5), cards::STRIKE_R_ID),
+    ];
+
+    start_player_turn(&mut state);
+
+    assert_eq!(state.player.powers.panache_cards_played, 0);
+    assert_eq!(state.piles.hand.len(), 5);
 }
 
 #[test]

@@ -138,6 +138,7 @@ pub fn start_player_turn(state: &mut CombatState) {
     state.player.temp_strength = 0;
     state.player.temp_thorns = 0;
     state.player.temp_rage_block = 0;
+    state.player.powers.panache_cards_played = 0;
     state.double_tap_pending = 0;
     if state.player.no_block_turns > 0 {
         state.player.no_block_turns -= 1;
