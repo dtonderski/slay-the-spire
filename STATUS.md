@@ -3,6 +3,20 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Armaments/Armaments+ against `Armaments.java` and
+  `ArmamentsAction.java`, then fixed the upgraded action branch. Source
+  Armaments gains 5 Block and runs `ArmamentsAction(upgraded)`: base upgrades
+  one card via auto-select/selection, while upgraded immediately upgrades every
+  upgradeable card in hand without selection. Local Armaments+ previously reused
+  the base one-card hand-selection branch. The simulator now upgrades all other
+  hand cards for Armaments+ and moves the source normally. Checks: `cargo fmt`
+  passed; focused `cargo test -p sts_core --test card_fidelity armaments_plus`
+  passed; `cargo test -p sts_core --test card_fidelity` passed (65 tests);
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled workspace Python; active live-regression replay `uv run python -m
+  unittest python.tests.test_live_regression_traces` passed. Full `cargo test`
+  with bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Exhume/Exhume+ and Fiend Fire/Fiend Fire+
   against their decompiled card/action classes, then fixed Exhume generic
   action fidelity. Source Exhume is playable even when no valid card can be

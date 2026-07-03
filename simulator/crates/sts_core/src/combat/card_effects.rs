@@ -972,6 +972,16 @@ fn armaments_queue(
         },
     ]);
 
+    if definition.id == ARMAMENTS_PLUS_ID {
+        queue.push_back(InternalAction::UpgradeHandCardsExcept { card_id });
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        });
+        return Ok(queue);
+    }
+
     if has_upgradeable_other_hand_card(state, card_id) {
         queue.push_back(InternalAction::AwaitHandSelect {
             source_card_id: card_id,

@@ -61,6 +61,40 @@ fn barricade_power_is_idempotent_when_replayed() {
 }
 
 #[test]
+fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
+    assert_eq!(cards::ARMAMENTS.values.block, Some(5));
+    assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::ARMAMENTS_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Armaments+ plays without opening hand selection");
+
+    assert_eq!(next.player.block, 5);
+    assert!(next.hand_select.is_none());
+    assert_eq!(next.piles.hand[0].content_id, cards::STRIKE_R_PLUS_ID);
+    assert_eq!(next.piles.hand[1].content_id, cards::DEFEND_R_PLUS_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::ARMAMENTS_PLUS_ID
+    );
+}
+
+#[test]
 fn berserk_plus_applies_one_vulnerable_and_one_berserk() {
     assert_eq!(cards::BERSERK.values.vulnerable, Some(2));
     assert_eq!(cards::BERSERK_PLUS.values.vulnerable, Some(1));
