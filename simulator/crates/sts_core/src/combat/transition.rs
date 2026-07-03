@@ -2391,7 +2391,7 @@ fn confirm_forethought_select(
         .ok_or(SimError::IllegalAction("Forethought source card missing"))?;
     let mut card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
     card.temp_cost = Some(0);
-    state.piles.draw_pile.push(card);
+    state.piles.draw_pile.insert(0, card);
     let source_destination = delayed_source_card_destination(state, source_definition);
     move_card(state, source_card_id, CardPile::Hand, source_destination)?;
     if source_destination == CardPile::ExhaustPile {

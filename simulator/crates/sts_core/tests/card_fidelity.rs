@@ -1,6 +1,7 @@
 use sts_core::{
     apply_combat_action,
     card::{CardType, TargetRequirement},
+    combat::transition::{choose_hand_select, confirm_hand_select},
     content::{
         cards,
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
@@ -225,6 +226,38 @@ fn discovery_plus_spends_one_energy_and_delays_non_exhausting_source() {
         next.piles.discard_pile[0].content_id,
         cards::DISCOVERY_PLUS_ID
     );
+}
+
+#[test]
+fn forethought_places_selected_card_on_bottom_of_draw_pile() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::FORETHOUGHT_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+    ];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), cards::STRIKE_R_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Forethought opens hand selection");
+
+    choose_hand_select(&mut next, 0).expect("select the only non-source hand card");
+    confirm_hand_select(&mut next).expect("confirm Forethought hand selection");
+
+    assert_eq!(next.piles.draw_pile.len(), 2);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::BASH_ID);
+    assert_eq!(next.piles.draw_pile[0].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[1].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::FORETHOUGHT_ID);
 }
 
 #[test]

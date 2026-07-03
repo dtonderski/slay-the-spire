@@ -3,6 +3,23 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Forethought/Forethought+ against
+  `Forethought.java` and `ForethoughtAction.java`, then fixed draw-pile
+  placement. Source moves selected cards to the bottom of the draw pile and sets
+  positive-cost moved cards free to play once; local confirm previously pushed
+  the selected card to the simulator draw-pile top. Local Forethought now inserts
+  the selected zero-cost card at the bottom of the bottom-first draw pile, with
+  focused coverage preserving the prior top card as the next draw. Remaining
+  blockers: base Forethought still requires another hand card and opens
+  selection where source would do nothing or auto-move the only remaining hand
+  card, and upgraded Forethought still uses the simulator's single-card
+  hand-select model instead of source any-number selection. Checks: `cargo fmt`
+  passed in the main workspace; in a temporary clean worktree with this slice
+  applied, `cargo test -p sts_core --test card_fidelity` passed (26 tests) and
+  `uv run python -m unittest python.tests.test_live_regression_traces` passed.
+  Main-workspace `cargo test -p sts_core --test card_fidelity` is currently
+  blocked by unrelated dirty `run/map.rs`/`content/monsters.rs` changes that
+  remove `target_monster_hp_range_for_game_id`/`target_game_monster_id`.
 - Card-fidelity audit: verified Enlightenment/Enlightenment+ against
   `Enlightenment.java` and `EnlightenmentAction.java`. Source costs 0, has no
   keywords, and sets hand cards with `costForTurn > 1` to cost 1 for the turn;
