@@ -2604,6 +2604,7 @@ def _summary(env: Any) -> dict[str, Any]:
         "floor": run.get("current_floor"),
         "act": run.get("current_act"),
         "potions": run.get("potions") or [],
+        "empty_potion_slots": _simulator_relevant_empty_potion_slots(run),
         "potion_count": len(run.get("potions") or []),
         "relics": run.get("relics") or [],
         "relic_count": len(run.get("relics") or []),
@@ -3290,6 +3291,15 @@ def _observed_summary_diffs(env: Any, observed: dict[str, Any]) -> list[dict[str
                     "observed": observed_summary.get("potions") or [],
                 }
             )
+    if observed_summary.get("empty_potion_slots") is not None:
+        if simulator.get("empty_potion_slots") != observed_summary.get("empty_potion_slots"):
+            diffs.append(
+                {
+                    "field": "empty_potion_slots",
+                    "simulator": simulator.get("empty_potion_slots") or [],
+                    "observed": observed_summary.get("empty_potion_slots") or [],
+                }
+            )
     if simulator.get("phase") == "combat" and observed_summary.get("phase") == "combat":
         sim_combat = simulator.get("combat") or {}
         obs_combat = observed_summary.get("combat") or {}
@@ -3521,6 +3531,7 @@ def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
     potion_names = [
         str(potion.get("name") or potion.get("id") or "unknown") for potion in observed_potions
     ]
+    empty_potion_slots = _observed_relevant_empty_potion_slots(observed)
     potion_count = len(observed_potions)
     relic_count = (
         len(_observed_snapshot_relics(observed)) if isinstance(observed.get("relics"), list) else None
@@ -3533,6 +3544,7 @@ def _observed_summary(observed: dict[str, Any]) -> dict[str, Any]:
         "floor": observed.get("floor"),
         "act": observed.get("act"),
         "potions": potion_names,
+        "empty_potion_slots": empty_potion_slots,
         "potion_count": potion_count,
         "relic_count": relic_count,
         "map": _observed_map_summary(observed),
@@ -3788,6 +3800,43 @@ def _observed_real_potions(observed: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         potions.append(potion)
     return potions
+
+
+def _simulator_relevant_empty_potion_slots(run: dict[str, Any]) -> list[int]:
+    potion_count = len(run.get("potions") or [])
+    if potion_count == 0:
+        return []
+    empty_slots = sorted(
+        slot for slot in (run.get("empty_potion_slots") or []) if isinstance(slot, int)
+    )
+    occupied_seen = 0
+    last_occupied_slot = None
+    slot = 0
+    while occupied_seen < potion_count:
+        if slot not in empty_slots:
+            occupied_seen += 1
+            last_occupied_slot = slot
+        slot += 1
+    if last_occupied_slot is None:
+        return []
+    return [slot for slot in empty_slots if slot < last_occupied_slot]
+
+
+def _observed_relevant_empty_potion_slots(observed: dict[str, Any]) -> list[int]:
+    empty_slots = []
+    occupied_slots = []
+    for index, potion in enumerate(observed.get("potions") or []):
+        if not isinstance(potion, dict):
+            continue
+        name = str(potion.get("name") or potion.get("id") or "")
+        if name.lower() == "potion slot":
+            empty_slots.append(index)
+        else:
+            occupied_slots.append(index)
+    if not occupied_slots:
+        return []
+    last_occupied_slot = max(occupied_slots)
+    return [slot for slot in empty_slots if slot < last_occupied_slot]
 
 
 def _blocker(

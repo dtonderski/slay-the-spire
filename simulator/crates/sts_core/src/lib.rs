@@ -48,7 +48,7 @@ pub use map::{
     TargetMapChoiceStep, TargetMapTopology, TargetRoomTypeCounts,
 };
 pub use potion::{
-    Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_WEAK,
+    Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_VULNERABLE,
     FIRE_POTION_DAMAGE, FIRE_POTION_ID, GAMBLERS_BREW_POTION_ID, GAMBLE_POTION_ID, MAX_POTIONS,
 };
 pub use power::{MonsterPowers, PlayerPowers};

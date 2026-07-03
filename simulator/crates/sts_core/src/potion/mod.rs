@@ -5,7 +5,7 @@ pub const MAX_POTIONS: usize = 3;
 
 pub const FIRE_POTION_DAMAGE: i32 = 20;
 pub const BLOCK_POTION_BLOCK: i32 = 12;
-pub const FEAR_POTION_WEAK: i32 = 3;
+pub const FEAR_POTION_VULNERABLE: i32 = 3;
 pub const BLOOD_POTION_HEAL_PERCENT: i32 = 20;
 pub const ANCIENT_POTION_ARTIFACT: i32 = 1;
 pub const HEART_OF_IRON_METALLICIZE: i32 = 6;

@@ -25,12 +25,12 @@ use crate::{
     potion::{
         Potion, ANCIENT_POTION_ARTIFACT, BLOCK_POTION_BLOCK, BLOOD_POTION_HEAL_PERCENT,
         CULTIST_POTION_RITUAL, DEXTERITY_POTION_DEXTERITY, ENERGY_POTION_ENERGY,
-        ESSENCE_OF_STEEL_PLATED_ARMOR, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_WEAK,
+        ESSENCE_OF_STEEL_PLATED_ARMOR, EXPLOSIVE_POTION_DAMAGE, FEAR_POTION_VULNERABLE,
         FIRE_POTION_DAMAGE, FLEX_POTION_TEMP_STRENGTH, FRUIT_JUICE_MAX_HP,
         HEART_OF_IRON_METALLICIZE, LIQUID_BRONZE_THORNS, REGEN_POTION_REGEN, SNECKO_OIL_DRAW,
         SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
-    power::apply_monster_weak,
+    power::{apply_monster_vulnerable, apply_monster_weak},
     rng::StsRng,
     run::reward::{
         apply_dead_branch_for_exhaust_count, target_random_combat_potion, target_random_potion,
@@ -527,7 +527,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         .iter_mut()
                         .find(|monster| monster.id == target)
                         .expect("validated potion target");
-                    apply_monster_weak(&mut monster.powers, FEAR_POTION_WEAK * multiplier);
+                    apply_monster_vulnerable(
+                        &mut monster.powers,
+                        FEAR_POTION_VULNERABLE * multiplier,
+                    );
                 }
                 Potion::Blood => {
                     if let Some(combat) = next.combat.as_mut() {

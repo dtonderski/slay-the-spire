@@ -20,8 +20,9 @@ use crate::{
         apply_gremlin_leader_rally_target, apply_heal_all_monsters, apply_large_acid_slime_split,
         apply_large_spike_slime_split, apply_monster_intent_with_card_rng,
         apply_reptomancer_dagger_spawn, apply_slime_boss_split, apply_strength_all_monsters,
-        clear_lagavulin_metallicize_if_awake, heal_monster_to_definition_cap,
-        living_monster_missing_hp, prepare_monster_intent_for_ascension, record_target_move,
+        champ_strength_amount, clear_lagavulin_metallicize_if_awake,
+        heal_monster_to_definition_cap, living_monster_missing_hp,
+        prepare_monster_intent_for_ascension, record_target_move,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_automaton_next_intent, target_bronze_orb_next_intent_from_roll,
         target_byrd_flight_amount, target_byrd_go_airborne_intent,
@@ -326,6 +327,18 @@ fn run_monster_turn(state: &mut CombatState) {
             }
             crate::MonsterIntent::StrengthAllMonsters { amount } => {
                 apply_strength_all_monsters(&mut state.monsters, amount);
+                state.monsters[index].moves_executed += 1;
+                prepare_next_intent_for_actor(state, actor_id);
+                continue;
+            }
+            crate::MonsterIntent::StrengthSelf { amount }
+                if state.monsters[index].content_id == CHAMP_ID
+                    && amount >= champ_strength_amount(ascension) * 3 =>
+            {
+                state.monsters[index].powers.vulnerable = 0;
+                state.monsters[index].powers.weak = 0;
+                state.monsters[index].temp_strength_down = 0;
+                state.monsters[index].powers.strength += amount;
                 state.monsters[index].moves_executed += 1;
                 prepare_next_intent_for_actor(state, actor_id);
                 continue;
