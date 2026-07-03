@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData map preflight slice: route-symbol steps now inspect
+  `legal_map_actions_on_run` and apply `apply_map_action_on_run` only when the
+  symbol uniquely identifies a legal next map node. Ambiguous symbols such as
+  Act 1's first-floor `M` choices are reported as guided
+  `ambiguous_map_symbol` diagnostics instead of guessed path picks. Checks:
+  `cargo fmt` passed; `cargo test -p sts_verify --test slaythedata` passed;
+  `cargo check -p sts_verify --lib` passed; `cargo check -p sts_verify --bin
+  sts_verify` passed; `sts_verify slaythedata-preflight` smoke test with a
+  route symbol passed. Next task: add concrete imported-run fixtures that reach
+  non-combat reward/shop/event boundaries where SlayTheData has enough detail.
 - SlayTheData Neow preflight slice: mapped SlayTheData `neow_bonus` and
   `neow_cost` labels to core `NeowRewardType`/`NeowDrawback`, then applied the
   matched generated Neow option through real event legality. Immediate Neow

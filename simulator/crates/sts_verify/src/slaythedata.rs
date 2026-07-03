@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, error::Error, fmt};
 use sts_core::{
-    apply_event_action, generate_neow_options, legal_event_actions, EventAction,
-    GeneratedNeowOption, NeowDrawback, NeowRewardType, RunPhase, RunState,
+    apply_event_action, apply_map_action_on_run, generate_neow_options, legal_event_actions,
+    legal_map_actions_on_run, EventAction, GeneratedNeowOption, MapAction, NeowDrawback,
+    NeowRewardType, RoomKind, RunPhase, RunState,
 };
 
 use crate::sts_seed_string_to_long;
@@ -745,13 +746,68 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     )
                 }
             }
-            SlayTheDataReplayStepKind::MapRoom { symbol } => (
-                SlayTheDataPreflightStatus::Guided,
-                "guided_map_room".to_owned(),
-                format!(
-                    "route symbol {symbol:?} is available as high-level guidance; exact map-node replay is not connected yet"
+            SlayTheDataReplayStepKind::MapRoom { symbol } => match run.as_ref() {
+                Some(current) if current.phase == RunPhase::Idle => {
+                    let actions = legal_map_actions_on_run(current);
+                    let matches: Vec<_> = actions
+                        .iter()
+                        .copied()
+                        .filter(|action| map_action_matches_symbol(current, *action, symbol))
+                        .collect();
+                    match matches.as_slice() {
+                        [action] => match apply_map_action_on_run(current, *action) {
+                            Ok(next) => {
+                                run = Some(next);
+                                (
+                                    SlayTheDataPreflightStatus::Checked,
+                                    "legal_map_room".to_owned(),
+                                    format!(
+                                        "route symbol {symbol:?} uniquely matched legal map action {:?}",
+                                        action
+                                    ),
+                                )
+                            }
+                            Err(error) => (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "map_action_apply_failed".to_owned(),
+                                format!(
+                                    "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
+                                    action
+                                ),
+                            ),
+                        },
+                        [] => (
+                            SlayTheDataPreflightStatus::Blocked,
+                            "map_symbol_not_legal".to_owned(),
+                            format!(
+                                "route symbol {symbol:?} matched no legal map actions from phase {:?}",
+                                current.phase
+                            ),
+                        ),
+                        _ => (
+                            SlayTheDataPreflightStatus::Guided,
+                            "ambiguous_map_symbol".to_owned(),
+                            format!(
+                                "route symbol {symbol:?} matched {} legal map actions; SlayTheData does not include map x/y",
+                                matches.len()
+                            ),
+                        ),
+                    }
+                }
+                Some(current) => (
+                    SlayTheDataPreflightStatus::Guided,
+                    "pending_room_resolution".to_owned(),
+                    format!(
+                        "route symbol {symbol:?} cannot be checked until phase {:?} resolves back to the map",
+                        current.phase
+                    ),
                 ),
-            ),
+                None => (
+                    SlayTheDataPreflightStatus::Blocked,
+                    "missing_run_state".to_owned(),
+                    "cannot check map route without an initialized simulator run".to_owned(),
+                ),
+            },
             SlayTheDataReplayStepKind::CardReward { picked, skipped } => (
                 SlayTheDataPreflightStatus::Guided,
                 "guided_card_reward".to_owned(),
@@ -884,6 +940,30 @@ fn slaythedata_neow_drawback(value: &str) -> Option<NeowDrawback> {
         "CURSE" => Some(NeowDrawback::Curse),
         "PERCENT_DAMAGE" => Some(NeowDrawback::PercentDamage),
         _ => None,
+    }
+}
+
+fn map_action_matches_symbol(run: &RunState, action: MapAction, symbol: &str) -> bool {
+    map_action_room_kind(run, action).is_some_and(|kind| room_kind_symbol(kind) == symbol.trim())
+}
+
+fn map_action_room_kind(run: &RunState, action: MapAction) -> Option<RoomKind> {
+    let MapAction::ChooseNode { node_id } = action;
+    run.map
+        .as_ref()
+        .and_then(|map| map.map.node(node_id))
+        .map(|node| node.room_kind)
+}
+
+fn room_kind_symbol(kind: RoomKind) -> &'static str {
+    match kind {
+        RoomKind::Combat => "M",
+        RoomKind::Elite => "E",
+        RoomKind::Event => "?",
+        RoomKind::Rest => "R",
+        RoomKind::Shop => "$",
+        RoomKind::Treasure => "T",
+        RoomKind::Boss => "B",
     }
 }
 

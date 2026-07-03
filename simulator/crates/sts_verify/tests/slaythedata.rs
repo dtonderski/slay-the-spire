@@ -275,3 +275,28 @@ fn preflight_blocks_steps_when_run_state_cannot_be_initialized() {
     assert_eq!(report.steps[0].status, SlayTheDataPreflightStatus::Blocked);
     assert_eq!(report.steps[0].code, "missing_run_state");
 }
+
+#[test]
+fn preflight_reports_ambiguous_map_symbol_without_map_coordinates() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "PLAN01",
+            "neow_bonus": "TEN_PERCENT_HP_BONUS",
+            "neow_cost": "NONE",
+            "path_per_floor": ["M"]
+        }"#,
+    )
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    let route_step = report
+        .steps
+        .iter()
+        .find(|step| step.code == "ambiguous_map_symbol")
+        .expect("ambiguous route step");
+    assert_eq!(route_step.status, SlayTheDataPreflightStatus::Guided);
+}
