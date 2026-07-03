@@ -333,6 +333,80 @@ fn base_forethought_auto_places_only_other_card_on_bottom_of_draw_pile() {
 }
 
 #[test]
+fn forethought_plus_places_multiple_selected_cards_on_bottom_of_draw_pile() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::FORETHOUGHT_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::ANGER_ID),
+    ];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(5), cards::STRIKE_R_ID)];
+    state.piles.discard_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Forethought+ opens any-number hand selection");
+
+    choose_hand_select(&mut next, 0).expect("select Bash");
+    choose_hand_select(&mut next, 1).expect("select Defend");
+    confirm_hand_select(&mut next).expect("confirm Forethought+ hand selection");
+
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::ANGER_ID);
+    assert_eq!(next.piles.draw_pile.len(), 3);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.draw_pile[0].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[1].content_id, cards::BASH_ID);
+    assert_eq!(next.piles.draw_pile[1].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[2].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::FORETHOUGHT_PLUS_ID
+    );
+}
+
+#[test]
+fn forethought_plus_can_confirm_zero_selected_cards() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::FORETHOUGHT_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+    ];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), cards::STRIKE_R_ID)];
+    state.piles.discard_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Forethought+ opens any-number hand selection");
+
+    confirm_hand_select(&mut next).expect("Forethought+ can choose zero cards");
+
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::BASH_ID);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::FORETHOUGHT_PLUS_ID
+    );
+}
+
+#[test]
 fn hand_of_greed_gains_gold_when_it_kills_non_minion() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 2;

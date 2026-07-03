@@ -1838,9 +1838,14 @@ fn forethought_queue(
             card_id: target_card_id,
         });
     } else {
+        let purpose = if definition.id == FORETHOUGHT_PLUS_ID {
+            HandSelectPurpose::ForethoughtPutAnyOnDraw
+        } else {
+            HandSelectPurpose::ForethoughtPutOnDraw
+        };
         queue.push_back(InternalAction::AwaitHandSelect {
             source_card_id: card_id,
-            purpose: HandSelectPurpose::ForethoughtPutOnDraw,
+            purpose,
         });
     }
 

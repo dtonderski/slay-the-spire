@@ -961,6 +961,7 @@ fn apply_internal_action(
                 purpose,
                 source_card_id,
                 selected_hand_index: None,
+                selected_hand_indices: Vec::new(),
             });
             Ok(Vec::new())
         }
@@ -2278,7 +2279,19 @@ pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult
         .hand_select
         .as_mut()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    hand_select.selected_hand_index = Some(hand_index);
+    if hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw {
+        if let Some(position) = hand_select
+            .selected_hand_indices
+            .iter()
+            .position(|index| *index == hand_index)
+        {
+            hand_select.selected_hand_indices.remove(position);
+        } else {
+            hand_select.selected_hand_indices.push(hand_index);
+        }
+    } else {
+        hand_select.selected_hand_index = Some(hand_index);
+    }
     Ok(())
 }
 
@@ -2312,7 +2325,9 @@ fn hand_select_allows_card(
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => true,
         HandSelectPurpose::ArmamentsUpgrade => upgrade_card_instance(*card).is_some(),
-        HandSelectPurpose::ForethoughtPutOnDraw => true,
+        HandSelectPurpose::ForethoughtPutOnDraw | HandSelectPurpose::ForethoughtPutAnyOnDraw => {
+            true
+        }
         HandSelectPurpose::DualWieldCopy => dual_wield_select_allows_card(card),
     }
 }
@@ -2322,26 +2337,44 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
         .hand_select
         .take()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    let index = hand_select
-        .selected_hand_index
-        .ok_or(SimError::IllegalAction("hand select choice is required"))?;
     match hand_select.purpose {
-        HandSelectPurpose::WarcryPutOnDraw => {
-            confirm_warcry_select(state, hand_select.source_card_id, index)
-        }
-        HandSelectPurpose::ThinkingAheadPutOnDraw => {
-            confirm_thinking_ahead_select(state, hand_select.source_card_id, index)
-        }
-        HandSelectPurpose::ArmamentsUpgrade => {
-            confirm_armaments_select(state, hand_select.source_card_id, index)
-        }
-        HandSelectPurpose::ForethoughtPutOnDraw => {
-            confirm_forethought_select(state, hand_select.source_card_id, index)
-        }
-        HandSelectPurpose::DualWieldCopy => {
-            confirm_dual_wield_select(state, hand_select.source_card_id, index)
-        }
+        HandSelectPurpose::WarcryPutOnDraw => confirm_warcry_select(
+            state,
+            hand_select.source_card_id,
+            required_hand_select_index(&hand_select)?,
+        ),
+        HandSelectPurpose::ThinkingAheadPutOnDraw => confirm_thinking_ahead_select(
+            state,
+            hand_select.source_card_id,
+            required_hand_select_index(&hand_select)?,
+        ),
+        HandSelectPurpose::ArmamentsUpgrade => confirm_armaments_select(
+            state,
+            hand_select.source_card_id,
+            required_hand_select_index(&hand_select)?,
+        ),
+        HandSelectPurpose::ForethoughtPutOnDraw => confirm_forethought_select(
+            state,
+            hand_select.source_card_id,
+            required_hand_select_index(&hand_select)?,
+        ),
+        HandSelectPurpose::ForethoughtPutAnyOnDraw => confirm_forethought_multi_select(
+            state,
+            hand_select.source_card_id,
+            hand_select.selected_hand_indices,
+        ),
+        HandSelectPurpose::DualWieldCopy => confirm_dual_wield_select(
+            state,
+            hand_select.source_card_id,
+            required_hand_select_index(&hand_select)?,
+        ),
     }
+}
+
+fn required_hand_select_index(hand_select: &crate::combat::HandSelectState) -> SimResult<usize> {
+    hand_select
+        .selected_hand_index
+        .ok_or(SimError::IllegalAction("hand select choice is required"))
 }
 
 pub fn choose_draw_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
@@ -2663,21 +2696,70 @@ fn confirm_forethought_select(
     move_forethought_card_to_draw_bottom(state, source_card_id, card_id)
 }
 
+fn confirm_forethought_multi_select(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    indices: Vec<usize>,
+) -> SimResult<()> {
+    let mut card_ids = Vec::with_capacity(indices.len());
+    for index in indices {
+        let card_id = state
+            .piles
+            .hand
+            .get(index)
+            .ok_or(SimError::IllegalAction("hand select index out of range"))?
+            .id;
+        if card_id == source_card_id {
+            return Err(SimError::IllegalAction("cannot choose Forethought"));
+        }
+        card_ids.push(card_id);
+    }
+
+    let source_definition = forethought_source_definition(state, source_card_id)?;
+    for card_id in card_ids {
+        move_forethought_selected_card_to_draw_bottom(state, card_id)?;
+    }
+    move_forethought_source_card(state, source_card_id, source_definition)
+}
+
 fn move_forethought_card_to_draw_bottom(
     state: &mut CombatState,
     source_card_id: CardId,
     card_id: CardId,
 ) -> SimResult<()> {
-    let source_definition = state
+    let source_definition = forethought_source_definition(state, source_card_id)?;
+    move_forethought_selected_card_to_draw_bottom(state, card_id)?;
+    move_forethought_source_card(state, source_card_id, source_definition)
+}
+
+fn forethought_source_definition(
+    state: &CombatState,
+    source_card_id: CardId,
+) -> SimResult<&'static crate::card::CardDefinition> {
+    state
         .piles
         .hand
         .iter()
         .find(|card| card.id == source_card_id)
         .and_then(|card| get_card_definition(card.content_id))
-        .ok_or(SimError::IllegalAction("Forethought source card missing"))?;
+        .ok_or(SimError::IllegalAction("Forethought source card missing"))
+}
+
+fn move_forethought_selected_card_to_draw_bottom(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<()> {
     let mut card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
     card.temp_cost = Some(0);
     state.piles.draw_pile.insert(0, card);
+    Ok(())
+}
+
+fn move_forethought_source_card(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    source_definition: &'static crate::card::CardDefinition,
+) -> SimResult<()> {
     let source_destination = delayed_source_card_destination(state, source_definition);
     move_card(state, source_card_id, CardPile::Hand, source_destination)?;
     if source_destination == CardPile::ExhaustPile {

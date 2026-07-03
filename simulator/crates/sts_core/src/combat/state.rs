@@ -98,7 +98,10 @@ pub struct HandSelectState {
     #[serde(default)]
     pub purpose: HandSelectPurpose,
     pub source_card_id: CardId,
+    #[serde(default)]
     pub selected_hand_index: Option<usize>,
+    #[serde(default)]
+    pub selected_hand_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -107,6 +110,7 @@ pub enum HandSelectPurpose {
     WarcryPutOnDraw,
     ArmamentsUpgrade,
     ForethoughtPutOnDraw,
+    ForethoughtPutAnyOnDraw,
     ThinkingAheadPutOnDraw,
     DualWieldCopy,
 }

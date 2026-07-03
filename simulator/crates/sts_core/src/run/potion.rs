@@ -12,6 +12,7 @@ use crate::{
     },
     combat::{
         apply_burning_blood, CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose,
+        HandSelectPurpose,
     },
     content::cards::{get_card_definition, upgrade_card_instance},
     content::shop_pool::{
@@ -165,7 +166,9 @@ pub fn validate_hand_select_confirm(run: &RunState) -> SimResult<()> {
         .hand_select
         .as_ref()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    if hand_select.selected_hand_index.is_none() {
+    if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw
+        && hand_select.selected_hand_index.is_none()
+    {
         return Err(SimError::IllegalAction("hand select choice is required"));
     }
     Ok(())
