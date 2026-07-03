@@ -13,8 +13,9 @@ use crate::{
         HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, searing_blow_card_damage, upgrade_card_instance, upgrade_content_id,
-        ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLIND_PLUS_ID,
+        get_card_definition, ritual_dagger_card_damage, ritual_dagger_card_growth,
+        searing_blow_card_damage, upgrade_card_instance, upgrade_content_id, ANGER_ID,
+        ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLIND_PLUS_ID,
         BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CARNAGE_ID,
         CARNAGE_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
@@ -28,9 +29,9 @@ use crate::{
         PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
         PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID,
+        SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
         SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
@@ -562,6 +563,67 @@ fn apply_internal_action(
                 if !minion {
                     state.player.max_hp += max_hp_gain;
                     state.player.hp += max_hp_gain;
+                }
+                apply_monster_death_hooks(state, info.target);
+            }
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+            Ok(follow_ups)
+        }
+        InternalAction::DealRitualDaggerDamage { info, growth } => {
+            if living_monster_mut_opt(state, info.target).is_none() {
+                return Ok(Vec::new());
+            }
+            let player_powers = state.player.powers;
+            let temp_strength = state.player.temp_strength;
+            let relics = state.relics.clone();
+            let (
+                spikes,
+                monster_content_id,
+                still_alive,
+                minion,
+                hand_drill_applies,
+                malleable_block,
+            ) = {
+                let monster = living_monster_mut(state, info.target)?;
+                let spikes = monster.powers.spikes;
+                let monster_content_id = monster.content_id;
+                let damage = deal_damage_info_to_monster_with_result(
+                    monster,
+                    info,
+                    player_powers,
+                    temp_strength,
+                    &relics,
+                );
+                wake_lagavulin_on_damage(monster, damage.hp_damage);
+                guardian_on_hp_damage(monster, damage.hp_damage);
+                (
+                    spikes,
+                    monster_content_id,
+                    monster.alive,
+                    monster.powers.minion > 0,
+                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                    damage.malleable_block,
+                )
+            };
+            let mut follow_ups = Vec::new();
+            push_malleable_block_follow_up(
+                &mut follow_ups,
+                info.target,
+                still_alive,
+                malleable_block,
+            );
+            if still_alive && hand_drill_applies {
+                apply_player_vulnerable_debuff(
+                    state,
+                    info.target,
+                    crate::relic::HAND_DRILL_VULNERABLE,
+                )?;
+            }
+            check_slime_boss_split(state, info.target);
+            if !still_alive {
+                if !minion {
+                    let DamageSource::Card(source_card_id) = info.source;
+                    add_ritual_dagger_damage_bonus(state, source_card_id, growth);
                 }
                 apply_monster_death_hooks(state, info.target);
             }
@@ -1793,6 +1855,18 @@ fn apply_play_top_draw_card(
                 }
             }
         }
+        RITUAL_DAGGER_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealRitualDaggerDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: ritual_dagger_card_damage(&card)
+                        .unwrap_or_else(|| definition.values.damage.unwrap_or(0)),
+                },
+                growth: ritual_dagger_card_growth(&card).unwrap_or(3),
+            });
+        }
         IRON_WAVE_ID | IRON_WAVE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
             follow_ups.push(InternalAction::DealDamage {
@@ -2200,7 +2274,7 @@ fn hand_select_allows_card(
 
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => true,
-        HandSelectPurpose::ArmamentsUpgrade => upgrade_content_id(card.content_id).is_some(),
+        HandSelectPurpose::ArmamentsUpgrade => upgrade_card_instance(*card).is_some(),
         HandSelectPurpose::ForethoughtPutOnDraw => true,
         HandSelectPurpose::DualWieldCopy => dual_wield_select_allows_card(card),
     }
@@ -3201,6 +3275,23 @@ fn find_hand_card_mut(state: &mut CombatState, card_id: CardId) -> SimResult<&mu
         .iter_mut()
         .find(|card| card.id == card_id)
         .ok_or(SimError::UnknownCard(card_id))
+}
+
+fn find_combat_card_mut(state: &mut CombatState, card_id: CardId) -> Option<&mut CardInstance> {
+    state
+        .piles
+        .hand
+        .iter_mut()
+        .chain(state.piles.discard_pile.iter_mut())
+        .chain(state.piles.draw_pile.iter_mut())
+        .chain(state.piles.exhaust_pile.iter_mut())
+        .find(|card| card.id == card_id)
+}
+
+fn add_ritual_dagger_damage_bonus(state: &mut CombatState, card_id: CardId, amount: i32) {
+    if let Some(card) = find_combat_card_mut(state, card_id) {
+        card.ritual_dagger_damage_bonus += amount.max(0);
+    }
 }
 
 fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<CardInstance> {

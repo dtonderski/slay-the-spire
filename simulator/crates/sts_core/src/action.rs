@@ -58,6 +58,10 @@ pub enum InternalAction {
         info: DamageInfo,
         gold: i32,
     },
+    DealRitualDaggerDamage {
+        info: DamageInfo,
+        growth: i32,
+    },
     DealDamageAndHealUnblocked {
         info: DamageInfo,
     },

@@ -81,6 +81,9 @@ pub struct CardInstance {
     /// Combat-local Blood for Blood cost reduction for this specific card instance.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub blood_for_blood_cost_reduction: i32,
+    /// Persistent Ritual Dagger damage gained from fatal non-minion kills.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub ritual_dagger_damage_bonus: i32,
     /// Generic card upgrade count for cards whose upgraded form is not modeled as a
     /// separate content id, such as Hexaghost-upgraded Burns.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
@@ -103,6 +106,7 @@ impl CardInstance {
             combat_only: false,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
+            ritual_dagger_damage_bonus: 0,
             upgrades: 0,
             searing_blow_upgrades: 0,
         }
@@ -119,6 +123,7 @@ impl CardInstance {
             combat_only: true,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
+            ritual_dagger_damage_bonus: 0,
             upgrades: 0,
             searing_blow_upgrades: 0,
         }

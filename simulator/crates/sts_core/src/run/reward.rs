@@ -1401,6 +1401,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let mut next = run.clone();
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat);
+    sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
     if let Some(rng) = next_combat.card_random_rng.as_ref() {
         next.store_rng_counter(RunRngStream::CardRandom, rng);
     }
@@ -1439,6 +1440,25 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+fn sync_ritual_dagger_damage_to_deck(run: &mut RunState, combat: &crate::combat::CombatState) {
+    for deck_card in &mut run.deck {
+        let Some(combat_card) = combat
+            .piles
+            .hand
+            .iter()
+            .chain(combat.piles.draw_pile.iter())
+            .chain(combat.piles.discard_pile.iter())
+            .chain(combat.piles.exhaust_pile.iter())
+            .find(|card| card.id == deck_card.id)
+        else {
+            continue;
+        };
+        if combat_card.ritual_dagger_damage_bonus > deck_card.ritual_dagger_damage_bonus {
+            deck_card.ritual_dagger_damage_bonus = combat_card.ritual_dagger_damage_bonus;
+        }
+    }
 }
 
 fn apply_combat_gold_gain_to_run(

@@ -344,6 +344,137 @@ fn hand_of_greed_gold_transfers_to_run_gold() {
 }
 
 #[test]
+fn ritual_dagger_gains_three_damage_on_fatal_non_minion_kill() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 15;
+    state.monsters[0].max_hp = 15;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Ritual Dagger kills the target");
+
+    assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::RITUAL_DAGGER_ID
+    );
+    assert_eq!(next.piles.exhaust_pile[0].ritual_dagger_damage_bonus, 3);
+}
+
+#[test]
+fn ritual_dagger_does_not_grow_on_minion_kill() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID)];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 15;
+    state.monsters[0].max_hp = 15;
+    state.monsters[0].powers.minion = 1;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Ritual Dagger kills the minion");
+
+    assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.piles.exhaust_pile[0].ritual_dagger_damage_bonus, 0);
+}
+
+#[test]
+fn upgraded_ritual_dagger_grows_by_five_without_changing_content_id() {
+    let upgraded =
+        cards::upgrade_card_instance(CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID))
+            .expect("Ritual Dagger is upgradeable");
+    assert_eq!(upgraded.content_id, cards::RITUAL_DAGGER_ID);
+    assert_eq!(upgraded.upgrades, 1);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![upgraded];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 15;
+    state.monsters[0].max_hp = 15;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("upgraded Ritual Dagger kills the target");
+
+    assert_eq!(next.piles.exhaust_pile[0].ritual_dagger_damage_bonus, 5);
+    assert_eq!(next.piles.exhaust_pile[0].upgrades, 1);
+}
+
+#[test]
+fn ritual_dagger_damage_growth_transfers_to_run_deck() {
+    let mut run = RunState::combat_fixture();
+    run.deck = vec![CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID)];
+    let combat = run.combat.as_mut().expect("combat fixture");
+    combat.player.energy = 1;
+    combat.piles.hand = run.deck.clone();
+    combat.piles.draw_pile.clear();
+    combat.piles.discard_pile.clear();
+    combat.piles.exhaust_pile.clear();
+    combat.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    combat.monsters[0].hp = 15;
+    combat.monsters[0].max_hp = 15;
+
+    let next = apply_combat_action_on_run(
+        &run,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Ritual Dagger kill updates the run deck");
+
+    assert_eq!(next.deck[0].ritual_dagger_damage_bonus, 3);
+}
+
+#[test]
+fn top_draw_ritual_dagger_grows_on_fatal_non_minion_kill() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.hand.clear();
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 15;
+    state.monsters[0].max_hp = 15;
+
+    let next = apply_play_top_draw_card_action(&state, Some(MonsterId::new(1)))
+        .expect("top-draw Ritual Dagger kills the target");
+
+    assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::RITUAL_DAGGER_ID
+    );
+    assert_eq!(next.piles.exhaust_pile[0].ritual_dagger_damage_bonus, 3);
+}
+
+#[test]
 fn madness_prefers_cards_with_positive_cost_for_turn() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

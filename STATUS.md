@@ -3,6 +3,29 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Ritual Dagger against `RitualDagger.java`, then
+  fixed its fatal-growth behavior. Source Ritual Dagger is a 1-cost colorless
+  Special Attack with Exhaust, `misc`/base damage 15, and magicNumber 3; its
+  action deals normal card damage and, on a fatal non-minion kill, permanently
+  increases the source card's damage by magicNumber. Upgrade keeps the same card
+  id and only increases the fatal-growth amount from 3 to 5. Local play
+  previously used the generic attack/exhaust path, never grew damage, had no
+  same-id upgrade handling, and omitted Havoc/Mayhem top-draw growth. The
+  simulator now tracks per-instance Ritual Dagger damage bonus, supports same-id
+  upgrade state, grows only on fatal non-minion kills, syncs growth back to the
+  run deck by card id, and handles top-draw play. Checks: `cargo fmt` passed;
+  `cargo test -p sts_core --test card_fidelity ritual_dagger` passed (5 tests);
+  `cargo test -p sts_core --test card_fidelity` passed (43 tests); `cargo
+  clippy` passed with existing warnings after setting `PYO3_PYTHON` to the
+  bundled workspace Python. Full `cargo test` with bundled `PYO3_PYTHON` still
+  builds the suite and remains blocked by `sts_omni` exiting with
+  `STATUS_DLL_NOT_FOUND`. Active live-regression replay
+  `uv run python -m unittest python.tests.test_live_regression_traces` currently
+  fails on dirty worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `verified=False` versus manifest `expected_verified=true`; the trace has
+  local appended `state` commands past the committed end and was not staged for
+  this slice.
 - Card-fidelity fix: verified Purity/Purity+ against `Purity.java`, then
   fixed the top-draw free-play selection path. Source Purity is a 0-cost
   colorless Uncommon Skill with Exhaust and `magicNumber` 3/5; it queues

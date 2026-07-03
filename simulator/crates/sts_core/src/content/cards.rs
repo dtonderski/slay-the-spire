@@ -4910,7 +4910,31 @@ pub fn searing_blow_card_damage(card: &CardInstance) -> Option<i32> {
 }
 
 #[must_use]
+pub fn ritual_dagger_card_damage(card: &CardInstance) -> Option<i32> {
+    if card.content_id == RITUAL_DAGGER_ID {
+        Some(RITUAL_DAGGER.values.damage.unwrap_or(15) + card.ritual_dagger_damage_bonus)
+    } else {
+        None
+    }
+}
+
+#[must_use]
+pub fn ritual_dagger_card_growth(card: &CardInstance) -> Option<i32> {
+    if card.content_id == RITUAL_DAGGER_ID {
+        Some(if card.upgrades > 0 { 5 } else { 3 })
+    } else {
+        None
+    }
+}
+
+#[must_use]
 pub fn upgrade_card_instance(card: CardInstance) -> Option<CardInstance> {
+    if card.content_id == RITUAL_DAGGER_ID && card.upgrades == 0 {
+        let mut upgraded = card;
+        upgraded.upgrades = 1;
+        return Some(upgraded);
+    }
+
     let upgraded_content_id = upgrade_content_id(card.content_id)?;
     let mut upgraded = card;
     upgraded.content_id = upgraded_content_id;

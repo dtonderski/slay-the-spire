@@ -6,16 +6,17 @@ use crate::{
         CombatState, HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, is_curse_content_id, searing_blow_card_damage, upgrade_content_id,
-        ANGER_ID, ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, APPARITION_ID,
-        APPARITION_PLUS_ID, ARMAMENTS_ID, ARMAMENTS_PLUS_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID,
-        BARRICADE_ID, BARRICADE_PLUS_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID,
-        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BERSERK_PLUS_ID, BITE_ID, BLIND_ID, BLIND_PLUS_ID,
-        BLOODLETTING_ID, BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID,
-        BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID,
-        BURNING_PACT_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID,
-        CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID,
+        get_card_definition, is_curse_content_id, ritual_dagger_card_damage,
+        ritual_dagger_card_growth, searing_blow_card_damage, upgrade_content_id, ANGER_ID,
+        ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, APPARITION_ID, APPARITION_PLUS_ID,
+        ARMAMENTS_ID, ARMAMENTS_PLUS_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID, BARRICADE_ID,
+        BARRICADE_PLUS_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
+        BERSERK_ID, BERSERK_PLUS_ID, BITE_ID, BLIND_ID, BLIND_PLUS_ID, BLOODLETTING_ID,
+        BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID,
+        BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID,
+        CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
+        CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, CORRUPTION_ID,
+        CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID,
         DARK_SHACKLES_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID,
         DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID, DISARM_PLUS_ID,
         DISCOVERY_ID, DISCOVERY_PLUS_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID,
@@ -39,18 +40,18 @@ use crate::{
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
         PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID,
         RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID,
-        RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID,
-        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_DAMAGE, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS,
-        THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID,
-        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID,
-        TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID,
-        VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
+        RITUAL_DAGGER_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECOND_WIND_PLUS_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHOCKWAVE_ID,
+        SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THE_BOMB_DAMAGE,
+        THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID,
+        THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID,
+        TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID,
+        UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -128,6 +129,11 @@ pub(super) fn play_card_queue(
         HAND_OF_GREED_ID | HAND_OF_GREED_PLUS_ID => hand_of_greed_queue(
             card_id,
             target.expect("validated Hand of Greed has a target"),
+            definition,
+        ),
+        RITUAL_DAGGER_ID => ritual_dagger_queue(
+            card,
+            target.expect("validated Ritual Dagger has a target"),
             definition,
         ),
         WILD_STRIKE_ID | WILD_STRIKE_PLUS_ID => wild_strike_queue(
@@ -866,6 +872,31 @@ fn hand_of_greed_queue(
         },
         InternalAction::MoveCard {
             card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn ritual_dagger_queue(
+    card: &CardInstance,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id: card.id },
+        InternalAction::SpendCardEnergy { card_id: card.id },
+        InternalAction::DealRitualDaggerDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card.id),
+                target,
+                amount: ritual_dagger_card_damage(card)
+                    .unwrap_or_else(|| definition.values.damage.unwrap_or(0)),
+            },
+            growth: ritual_dagger_card_growth(card).unwrap_or(3),
+        },
+        InternalAction::MoveCard {
+            card_id: card.id,
             from: CardPile::Hand,
             to: card_move_destination(definition),
         },
