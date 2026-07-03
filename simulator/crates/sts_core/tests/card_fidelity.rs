@@ -7,7 +7,7 @@ use sts_core::{
             apply_play_top_draw_card_action, choose_draw_select, choose_exhaust_select,
             choose_hand_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
         },
-        turn::start_player_turn,
+        turn::{end_player_turn, start_player_turn},
         turn_powers::apply_end_of_player_turn_powers,
     },
     content::{
@@ -46,6 +46,44 @@ fn decay_deals_two_blockable_end_turn_damage_and_discards() {
     assert!(next.piles.hand.is_empty());
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::DECAY_ID);
+}
+
+#[test]
+fn regret_loses_hp_equal_to_end_turn_hand_size_and_discards() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::REGRET_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+
+    let mut next = state.clone();
+    resolve_end_of_turn_hand(&mut next);
+
+    assert_eq!(next.player.hp, 47);
+    assert_eq!(next.piles.hand.len(), 2);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::REGRET_ID);
+}
+
+#[test]
+fn doubt_and_shame_apply_one_end_turn_debuff_each_and_discard() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::DOUBT_ID),
+        CardInstance::new(CardId::new(2), cards::SHAME_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.draw_pile.clear();
+    state.monsters.clear();
+    state.relics.clear();
+
+    let state = end_player_turn(&state);
+
+    assert_eq!(state.player.powers.weak, 1);
+    assert_eq!(state.player.powers.frail, 1);
 }
 
 #[test]

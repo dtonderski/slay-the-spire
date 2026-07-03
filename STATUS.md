@@ -3,6 +3,21 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Doubt, Regret, and Shame against decompiled
+  `Doubt.java`, `Regret.java`, and `Shame.java` plus the trusted sts.gg card
+  database baseline, then replaced their stale generic audit rows with
+  source-backed facts. Local behavior already modeled the generic end-turn
+  Weak, hand-size HP loss, and Frail effects; added focused regression coverage
+  for those source facts. No generic simulator mismatch was found in this slice.
+  Checks: `cargo fmt` passed; focused `cargo test -p sts_core --test
+  card_fidelity regret` passed; focused `cargo test -p sts_core --test
+  card_fidelity doubt_and_shame` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (132 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - SlayTheData replay-preflight slice: added `sts_verify::slaythedata_replay_preflight`
   and `sts_verify slaythedata-preflight`. The report decodes the SlayTheData
   seed, initializes an Ironclad simulator run when supported, checks the Neow
