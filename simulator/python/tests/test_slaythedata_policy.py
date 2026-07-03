@@ -295,6 +295,34 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         repeated = next(entry for entry in audit if entry["reason"] == "ambiguous_repeated_grid_floor")
         self.assertEqual(repeated["grid_target_count"], 2)
 
+    def test_guided_script_support_audit_ignores_automatic_event_upgrades(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "event_choices": [
+                        {
+                            "floor": 29,
+                            "event_name": "Back to Basics",
+                            "player_choice": "Simplicity",
+                            "cards_upgraded": [
+                                "Strike_R",
+                                "Strike_R",
+                                "Strike_R",
+                                "Strike_R",
+                                "Strike_R",
+                                "Defend_R",
+                                "Defend_R",
+                                "Defend_R",
+                                "Defend_R",
+                            ],
+                        }
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(guided_script_support_audit(script), [])
+
     def test_identity_blocker_rejects_visible_character_or_ascension_mismatch(self):
         script = build_guided_run_script(
             {

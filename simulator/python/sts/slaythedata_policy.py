@@ -613,7 +613,7 @@ def _grid_support_blockers_for_floor(decision: dict[str, Any]) -> list[dict[str,
     for entry in _list(decision.get("events")):
         if not isinstance(entry, dict):
             continue
-        for key in ("cards_removed", "cards_upgraded", "cards_obtained"):
+        for key in _event_grid_followup_keys(entry):
             values = [value for value in _list(entry.get(key)) if value]
             if not values:
                 continue
@@ -645,6 +645,29 @@ def _grid_support_blockers_for_floor(decision: dict[str, Any]) -> list[dict[str,
             | {"floor": floor, "grid_target_count": len(targets)}
         )
     return blockers
+
+
+def _event_grid_followup_keys(entry: dict[str, Any]) -> tuple[str, ...]:
+    event = _normalized_token(str(entry.get("event_name") or ""))
+    choice = _normalized_token(str(entry.get("player_choice") or ""))
+    if event in {"thecleric", "purifier"}:
+        return ("cards_removed",)
+    if event == "livingwall":
+        if choice in {"forget", "remove"}:
+            return ("cards_removed",)
+        if choice in {"transform"}:
+            return ()
+        if choice in {"upgrade", "grow"}:
+            return ("cards_upgraded",)
+    if event == "backtobasics":
+        return ("cards_removed",) if choice in {"elegance", "remove"} else ()
+    if event == "upgradeshrine":
+        return ("cards_upgraded",)
+    if event == "thelibrary":
+        return ("cards_obtained",)
+    if event == "wheelofchange":
+        return ("cards_removed",)
+    return ()
 
 
 def _shop_leave_visible(choice_labels: list[str]) -> bool:
