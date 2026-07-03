@@ -342,6 +342,129 @@ fn clothesline_plus_deals_damage_then_applies_three_weak() {
 }
 
 #[test]
+fn combust_stacks_hp_loss_count_and_damage_amount() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::COMBUST_ID),
+        CardInstance::new(CardId::new(2), cards::COMBUST_PLUS_ID),
+    ];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Combust plays");
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Combust+ stacks");
+
+    assert_eq!(next.player.powers.combust, 2);
+    assert_eq!(next.player.powers.combust_damage, 12);
+}
+
+#[test]
+fn corruption_power_is_idempotent_when_replayed() {
+    assert_eq!(cards::CORRUPTION.cost, 3);
+    assert_eq!(cards::CORRUPTION_PLUS.cost, 2);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 5;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::CORRUPTION_ID),
+        CardInstance::new(CardId::new(2), cards::CORRUPTION_PLUS_ID),
+    ];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Corruption plays");
+    assert_eq!(next.player.powers.corruption, 1);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Corruption+ replays without stacking");
+
+    assert_eq!(next.player.powers.corruption, 1);
+}
+
+#[test]
+fn corruption_makes_skills_free_and_exhaust_on_use() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.powers.corruption = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DEFEND_R_ID)];
+    state.piles.exhaust_pile.clear();
+
+    assert!(
+        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        })
+    );
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Corruption makes Defend free");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.player.block, 5);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::DEFEND_R_ID);
+}
+
+#[test]
+fn dark_embrace_stacks_one_draw_per_exhaust() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::DARK_EMBRACE_ID),
+        CardInstance::new(CardId::new(2), cards::DARK_EMBRACE_PLUS_ID),
+    ];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Dark Embrace plays");
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Dark Embrace+ stacks");
+
+    assert_eq!(next.player.powers.dark_embrace, 2);
+}
+
+#[test]
 fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
     assert_eq!(cards::DROPKICK.values.damage, Some(5));
     assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));

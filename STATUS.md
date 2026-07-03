@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Combust/Combust+, Corruption/Corruption+, and Dark
+  Embrace/Dark Embrace+ against their decompiled card and power classes, then
+  fixed Corruption replay fidelity. Source Corruption scans existing player
+  powers and only applies `CorruptionPower` if it is not already present; local
+  replay previously incremented a Corruption counter. The simulator now treats
+  Corruption as idempotent while preserving the generic Skill cost-0 and
+  exhaust-on-use behavior. Combust and Dark Embrace audit rows were corrected to
+  source-backed stack facts; local behavior already matched their generic
+  simulator semantics. Checks: `cargo fmt` passed; focused `cargo test -p
+  sts_core --test card_fidelity combust` passed; focused `cargo test -p
+  sts_core --test card_fidelity corruption` passed; focused `cargo test -p
+  sts_core --test card_fidelity dark_embrace` passed; `cargo test -p sts_core
+  --test card_fidelity` passed (77 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit correction: verified Clash/Clash+, Cleave/Cleave+, and
   Clothesline/Clothesline+ against their decompiled card classes, then replaced
   stale generic audit rows with source-backed facts. Source Clash is playable

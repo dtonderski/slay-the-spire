@@ -882,7 +882,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainCorruption { amount } => {
-            state.player.powers.corruption += amount;
+            state.player.powers.corruption = state.player.powers.corruption.max(amount);
             Ok(Vec::new())
         }
         InternalAction::GainSadisticNature { amount } => {
