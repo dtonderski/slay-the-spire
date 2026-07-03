@@ -36,6 +36,42 @@ fn pummel_plus_definition_keeps_damage_and_exhausts() {
 }
 
 #[test]
+fn carnage_plus_keeps_ethereal_when_upgraded() {
+    assert_eq!(cards::CARNAGE.values.damage, Some(20));
+    assert!(cards::CARNAGE.keywords.ethereal);
+
+    assert_eq!(cards::CARNAGE_PLUS.values.damage, Some(28));
+    assert!(cards::CARNAGE_PLUS.keywords.ethereal);
+}
+
+#[test]
+fn disarm_plus_keeps_exhaust_and_reduces_three_strength() {
+    assert!(cards::DISARM.keywords.exhaust);
+    assert!(cards::DISARM_PLUS.keywords.exhaust);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DISARM_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Disarm+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].powers.strength, -3);
+    assert!(next.piles.discard_pile.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::DISARM_PLUS_ID);
+}
+
+#[test]
 fn twin_strike_definitions_target_one_enemy_twice() {
     assert_eq!(cards::TWIN_STRIKE.target, TargetRequirement::Enemy);
     assert_eq!(cards::TWIN_STRIKE.values.damage, Some(5));

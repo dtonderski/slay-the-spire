@@ -3,6 +3,25 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit correction: verified Carnage/Carnage+ against
+  `Carnage.java` and Disarm/Disarm+ against `Disarm.java`, then corrected stale
+  audit rows for inherited upgraded keywords. Source Carnage is Ethereal in the
+  constructor and upgrade only increases damage from 20 to 28; source Disarm is
+  Exhaust and upgrade only increases Strength loss from 2 to 3. Local
+  definitions/effects already matched those facts, so this slice adds
+  regression coverage without changing simulator behavior. Checks: `cargo fmt`
+  passed; `cargo test -p sts_core --test card_fidelity carnage_plus` passed;
+  `cargo test -p sts_core --test card_fidelity disarm_plus` passed; `cargo
+  test -p sts_core --test card_fidelity` passed (53 tests); `cargo clippy`
+  passed with existing warnings after setting `PYO3_PYTHON` to the bundled
+  workspace Python. Full `cargo test` with bundled `PYO3_PYTHON` still builds
+  the suite and remains blocked by `sts_omni` exiting with
+  `STATUS_DLL_NOT_FOUND`. Active live-regression replay `uv run python -m
+  unittest python.tests.test_live_regression_traces` still fails on the dirty
+  worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 478 versus manifest `expected_steps` 467; the trace has local
+  appended commands and was not staged for this slice.
 - Card-fidelity fix: verified Demon Form/Demon Form+ against
   `DemonForm.java`, then removed a local definition artifact. Source Demon Form
   is a 3-cost red Rare Power with `magicNumber` 2, applies `DemonFormPower` for
