@@ -21,12 +21,13 @@ use sts_core::run::neow::{
     generate_neow_colorless_reward_with_card_rng_counter,
 };
 use sts_core::{
-    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_map_action_on_run,
-    apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
-    apply_neow_simple_reward, apply_rest_action, apply_run_action, apply_shop_action, cancel_grid,
-    city_room_kinds_on_path, confirm_grid, enter_boss_relic_reward_screen,
-    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen, enter_event_screen,
-    enter_normal_combat_reward_screen, enter_shop_room, event_screen, exordium_room_kinds_on_path,
+    affordable_shop_picks, apply_combat_action_on_run, apply_event_action,
+    apply_initial_monster_ai_rolls, apply_map_action_on_run, apply_neow_boss_swap,
+    apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
+    apply_rest_action, apply_run_action, apply_shop_action, cancel_grid, city_room_kinds_on_path,
+    confirm_grid, enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
+    enter_elite_combat_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
+    enter_shop_room, event_screen, exordium_room_kinds_on_path,
     generate_exordium_map_choices_after_path, generate_exordium_map_topology,
     generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
     generate_neow_three_potions, generate_neow_transform_reward,
@@ -5585,8 +5586,29 @@ fn seed_start_run_from_combat_entry(
                 combat.shuffle_rng = Some(fallback_rng);
             }
         }
+        combat.monster_rng = Some(observed_combat_entry_monster_rng(
+            combat,
+            numeric_seed,
+            floor,
+        ));
     }
     Some(run)
+}
+
+fn observed_combat_entry_monster_rng(
+    combat: &CombatState,
+    numeric_seed: i64,
+    floor: u32,
+) -> StsRng {
+    let mut rng = StsRng::new(numeric_seed + i64::from(floor));
+    let mut entry = combat.clone();
+    for monster in &mut entry.monsters {
+        monster.move_history.clear();
+        monster.moves_executed = 0;
+        monster.initial_intent_locked = false;
+    }
+    apply_initial_monster_ai_rolls(&mut entry, &mut rng);
+    rng
 }
 
 fn seed_start_carry_persistent_run_state(run: &mut RunState, prev: &RunState) {

@@ -63,9 +63,10 @@ pub use relic::{
 pub use rng::{JavaRng, RngDraw, RngStream, SimulatorRng, StsRng};
 pub use run::{
     advance_card_rng_for_combat_entry, affordable_shop_picks, apply_combat_action_on_run,
-    apply_event_action, apply_map_action_on_run, apply_neow_boss_swap, apply_neow_relic_reward,
-    apply_neow_simple_drawback, apply_neow_simple_reward, apply_potion_action, apply_rest_action,
-    apply_run_action, apply_shop_action, cancel_grid, card_reward_choices, confirm_grid,
+    apply_event_action, apply_initial_monster_ai_rolls, apply_map_action_on_run,
+    apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
+    apply_neow_simple_reward, apply_potion_action, apply_rest_action, apply_run_action,
+    apply_shop_action, cancel_grid, card_reward_choices, confirm_grid,
     enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
     enter_elite_combat_reward_screen, enter_elite_relic_reward_screen, enter_event_screen,
     enter_fixed_event_screen, enter_legacy_fixed_event_screen, enter_normal_combat_reward_screen,

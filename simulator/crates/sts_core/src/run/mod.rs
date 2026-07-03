@@ -20,7 +20,7 @@ pub use grid::{
     open_pandoras_box_grid, open_rest_smith_grid, open_shop_remove_grid, select_grid_card,
     CardGridScreen, GridPurpose,
 };
-pub use map::{apply_map_action_on_run, legal_map_actions_on_run};
+pub use map::{apply_initial_monster_ai_rolls, apply_map_action_on_run, legal_map_actions_on_run};
 pub use neow::{
     apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
     apply_neow_simple_reward, generate_neow_card_reward, generate_neow_card_reward_with_rng,

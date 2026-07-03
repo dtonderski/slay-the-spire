@@ -235,7 +235,7 @@ fn add_mark_of_pain_wounds_to_draw_pile(run: &mut RunState, combat: &mut CombatS
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
 }
 
-fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
+pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
     let living_monster_count = combat
         .monsters
         .iter()
@@ -707,27 +707,22 @@ fn target_spawn_monster_state(
                 damage,
                 count: if spawn.name.ends_with("(L)") { 2 } else { 1 },
             };
-            monster.initial_intent_locked = true;
         }
     } else if spawn.intent == "ApplyPlayerFrailAndWeak" {
         monster.intent = crate::MonsterIntent::ApplyPlayerFrailAndWeak {
             frail: observed_spike_slime_frail_amount(spawn, ascension),
             weak: 0,
         };
-        monster.initial_intent_locked = true;
     } else if spawn.intent == "AddDazedToDiscard" {
         monster.intent = crate::MonsterIntent::AddDazedToDiscard { count: 2 };
-        monster.initial_intent_locked = true;
     } else if spawn.intent == "AddDazedToDraw" {
         monster.intent = crate::MonsterIntent::AddDazedToDraw { count: 2 };
-        monster.initial_intent_locked = true;
     } else if spawn.intent == "AddBurnToDiscardAndDraw" {
         monster.intent = crate::MonsterIntent::AddBurnToDiscardAndDraw {
             count: 1,
             damage: spawn.rolled_attack_damage.unwrap_or(10),
         };
         monster.rolled_attack_damage = None;
-        monster.initial_intent_locked = true;
     } else if spawn.intent == "StrengthAndBlock" {
         let (strength, block) = if spawn.name == "Spiker" {
             (0, 0)
@@ -735,11 +730,9 @@ fn target_spawn_monster_state(
             (3, 6)
         };
         monster.intent = crate::MonsterIntent::StrengthAndBlock { strength, block };
-        monster.initial_intent_locked = true;
     } else if spawn.intent == "Attack" {
         if let Some(damage) = spawn.rolled_attack_damage {
             monster.intent = crate::MonsterIntent::Attack { damage };
-            monster.initial_intent_locked = true;
         }
         if spawn.name == "Sentry" {
             monster.moves_executed = 1;
