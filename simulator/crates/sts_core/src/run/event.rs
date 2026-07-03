@@ -1118,7 +1118,10 @@ pub fn event_screen(event: Event) -> EventScreen {
                     label: "Heal".to_owned(),
                 },
                 EventChoice {
-                    label: "Remove Curse".to_owned(),
+                    label: "Purify".to_owned(),
+                },
+                EventChoice {
+                    label: "Leave".to_owned(),
                 },
             ],
             0,
@@ -1617,9 +1620,33 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
         },
-        Event::TheCleric if choice_index == 0 => {
+        Event::TheCleric if screen.stage > 0 && choice_index == 0 => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        Event::TheCleric if screen.stage == 0 && choice_index == 0 => {
+            if next.gold < 35 {
+                return Err(SimError::IllegalAction("not enough gold"));
+            }
+            next.gold -= 35;
             let heal = next.player_max_hp * 25 / 100;
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
+            next.event = Some(make_event_screen(
+                Event::TheCleric,
+                vec![EventChoice {
+                    label: "Leave".to_owned(),
+                }],
+                1,
+            ));
+        }
+        Event::TheCleric if screen.stage == 0 && choice_index == 1 => {
+            if next.gold < 50 {
+                return Err(SimError::IllegalAction("not enough gold"));
+            }
+            next.gold -= 50;
+            open_event_remove_return_to_event_grid(&mut next, Event::TheCleric);
+        }
+        Event::TheCleric if screen.stage == 0 && choice_index == 2 => {
             next.phase = RunPhase::Idle;
             next.event = None;
         }

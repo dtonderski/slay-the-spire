@@ -372,18 +372,11 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
         return Err(SimError::IllegalAction("grid index out of range"));
     }
 
-    if let Some(required_count) = grid_multi_select_count(grid.purpose) {
+    if grid_multi_select_count(grid.purpose).is_some() {
         let mut next = run.clone();
-        let selected_count = {
-            let grid = next.card_grid.as_mut().expect("grid present");
-            if grid.selected_indices.contains(&index) {
-                return Ok(next);
-            }
+        let grid = next.card_grid.as_mut().expect("grid present");
+        if !grid.selected_indices.contains(&index) {
             grid.selected_indices.push(index);
-            grid.selected_indices.len()
-        };
-        if selected_count >= required_count {
-            confirm_multi_select_grid(&mut next)?;
         }
         return Ok(next);
     }
@@ -558,33 +551,10 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
 fn grid_multi_select_count(purpose: GridPurpose) -> Option<usize> {
     match purpose {
         GridPurpose::Astrolabe => Some(ASTROLABE_TRANSFORM_COUNT),
-        GridPurpose::NeowRemove { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowTransform { count } => Some(usize::from(count)),
         GridPurpose::EventTransform { count } => Some(usize::from(count)),
         GridPurpose::EventTransformReturnToEvent { count, .. } => Some(usize::from(count)),
         _ => None,
-    }
-}
-
-fn confirm_multi_select_grid(run: &mut RunState) -> SimResult<()> {
-    let purpose = run
-        .card_grid
-        .as_ref()
-        .ok_or(SimError::IllegalAction("no card grid is open"))?
-        .purpose;
-    match purpose {
-        GridPurpose::Astrolabe => confirm_astrolabe_grid(run),
-        GridPurpose::NeowRemove { remaining } if remaining > 1 => {
-            confirm_multi_remove_grid(run, purpose)
-        }
-        GridPurpose::NeowTransform { count } => confirm_neow_transform_grid(run, count),
-        GridPurpose::EventTransform { count } => confirm_event_transform_grid(run, count),
-        GridPurpose::EventTransformReturnToEvent { event, count } => {
-            confirm_event_transform_grid(run, count)?;
-            return_to_event_leave_screen(run, event);
-            Ok(())
-        }
-        _ => Err(SimError::IllegalAction("grid is not multi-select")),
     }
 }
 
@@ -647,45 +617,6 @@ fn remove_grid_card(run: &mut RunState, card: CardInstance, purpose: GridPurpose
     } else {
         run.card_grid = None;
     }
-}
-
-fn confirm_multi_remove_grid(run: &mut RunState, purpose: GridPurpose) -> SimResult<()> {
-    let grid = run
-        .card_grid
-        .as_ref()
-        .ok_or(SimError::IllegalAction("no card grid is open"))?;
-    let required = match purpose {
-        GridPurpose::EmptyCage { remaining } | GridPurpose::NeowRemove { remaining } => {
-            usize::from(remaining)
-        }
-        _ => unreachable!("remove grid purpose required"),
-    };
-    if grid.selected_indices.len() < required {
-        return Err(SimError::IllegalAction(
-            "remove grid requires more selected cards",
-        ));
-    }
-    let cards = grid
-        .selected_indices
-        .iter()
-        .take(required)
-        .map(|index| {
-            grid.cards
-                .get(*index)
-                .copied()
-                .ok_or(SimError::IllegalAction("grid index out of range"))
-        })
-        .collect::<SimResult<Vec<_>>>()?;
-
-    for card in cards {
-        run.remove_deck_card(card.id)
-            .expect("multi-remove selected a deck card");
-    }
-    run.card_grid = None;
-    if matches!(purpose, GridPurpose::NeowRemove { .. }) {
-        finish_neow_grid_reward(run);
-    }
-    Ok(())
 }
 
 fn confirm_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
