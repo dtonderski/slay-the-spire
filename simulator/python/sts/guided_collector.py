@@ -412,6 +412,17 @@ def suggest_guided_action(
             map_nodes=_map_nodes(bridge_status),
         )
     else:
+        if decision_category == "reward":
+            live_reward = _auto_take_live_reward_choice(
+                choices,
+                summary,
+                bridge_status,
+                floor=floor,
+                act=act,
+                ordinal=ordinal,
+            )
+            if live_reward is not None:
+                return live_reward
         if decision_category == "event":
             event_blocker = _observed_event_identity_blocker(script, bridge_status, floor, ordinal)
             if event_blocker is not None:
@@ -744,6 +755,143 @@ def _proceed_suggestion_if_available(
         "ordinal": ordinal,
         "match_evidence": "available_proceed_command",
     }
+
+
+def _auto_take_live_reward_choice(
+    choice_labels: list[str],
+    summary: dict[str, Any],
+    bridge_status: dict[str, Any],
+    *,
+    floor: int,
+    act: int | None,
+    ordinal: int,
+) -> dict[str, Any] | None:
+    gold_slot = _reward_slot_by_kind(choice_labels, bridge_status, "gold")
+    if gold_slot is not None:
+        return _live_reward_suggestion(
+            "gold",
+            choice_labels[gold_slot],
+            gold_slot,
+            floor=floor,
+            act=act,
+            ordinal=ordinal,
+            lossy=False,
+        )
+    if _open_potion_slots(summary, bridge_status) <= 0:
+        return None
+    potion_slot = _reward_slot_by_kind(choice_labels, bridge_status, "potion")
+    if potion_slot is None:
+        return None
+    return _live_reward_suggestion(
+        "potion",
+        choice_labels[potion_slot],
+        potion_slot,
+        floor=floor,
+        act=act,
+        ordinal=ordinal,
+        lossy=True,
+    )
+
+
+def _live_reward_suggestion(
+    target: str,
+    matched_label: str,
+    slot: int,
+    *,
+    floor: int,
+    act: int | None,
+    ordinal: int,
+    lossy: bool,
+) -> dict[str, Any]:
+    result = {
+        "status": "matched",
+        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": slot},
+        "target": target,
+        "matched_label": matched_label,
+        "source": "reward_auto_take",
+        "fallback": True,
+        "floor": floor,
+        "act": act,
+        "visible_choices": [],
+        "category": "reward",
+        "ordinal": ordinal,
+        "match_evidence": "live_reward_auto_take",
+    }
+    if lossy:
+        result |= {
+            "lossy": True,
+            "lossy_reason": "Potion rewards are auto-collected from the live game state for guided combat-state collection",
+        }
+    return result
+
+
+def _reward_slot_by_kind(
+    choice_labels: list[str],
+    bridge_status: dict[str, Any],
+    kind: str,
+) -> int | None:
+    rewards = _reward_entries(bridge_status)
+    if rewards:
+        for index, reward in enumerate(rewards):
+            if _reward_entry_kind(reward) == kind and index < len(choice_labels):
+                return index
+    for index, label in enumerate(choice_labels):
+        if _canonical_visible_reward_kind(label) == kind:
+            return index
+    return None
+
+
+def _reward_entries(bridge_status: dict[str, Any]) -> list[dict[str, Any]]:
+    screen_state = _game_state(bridge_status).get("screen_state")
+    rewards = screen_state.get("rewards") if isinstance(screen_state, dict) else None
+    if not isinstance(rewards, list):
+        return []
+    return [reward for reward in rewards if isinstance(reward, dict)]
+
+
+def _reward_entry_kind(reward: dict[str, Any]) -> str:
+    reward_type = str(reward.get("reward_type") or "").lower()
+    if isinstance(reward.get("potion"), dict) or reward_type == "potion":
+        return "potion"
+    if reward.get("gold") is not None or reward_type == "gold":
+        return "gold"
+    if reward_type == "card":
+        return "card"
+    if isinstance(reward.get("relic"), dict) or reward_type == "relic":
+        return "relic"
+    return reward_type
+
+
+def _canonical_visible_reward_kind(label: Any) -> str:
+    token = _normalized_token(label)
+    if "potion" in token:
+        return "potion"
+    if "gold" in token:
+        return "gold"
+    if "card" in token:
+        return "card"
+    if "relic" in token:
+        return "relic"
+    return token
+
+
+def _open_potion_slots(summary: dict[str, Any], bridge_status: dict[str, Any]) -> int:
+    for value in (
+        summary.get("open_potion_slots"),
+        _game_state(bridge_status).get("open_potion_slots"),
+    ):
+        parsed = _parse_int(value)
+        if parsed is not None:
+            return parsed
+    potions = _game_state(bridge_status).get("potions")
+    if isinstance(potions, list):
+        return sum(
+            1
+            for potion in potions
+            if isinstance(potion, dict)
+            and str(potion.get("name") or potion.get("id") or "").lower() == "potion slot"
+        )
+    return 0
 
 
 def _agent_event_choice_fallback(

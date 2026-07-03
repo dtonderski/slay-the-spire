@@ -700,25 +700,67 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(grid["category"], "grid")
         self.assertEqual(grid["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
 
-    def test_suggest_guided_action_matches_generic_reward_choice(self):
+    def test_suggest_guided_action_auto_takes_live_gold_reward_first(self):
         result = suggest_guided_action(sample_script(), self.ready_reward_bridge())
 
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["category"], "reward")
-        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 2})
+        self.assertEqual(result["source"], "reward_auto_take")
+        self.assertEqual(result["target"], "gold")
+        self.assertNotIn("lossy", result)
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
-    def test_suggest_guided_action_blocks_named_potion_reward_mismatch(self):
+    def test_suggest_guided_action_auto_takes_live_potion_reward_when_slot_is_open(self):
         bridge = self.ready_reward_bridge()
-        bridge["summary"]["choices"] = ["gold", "potion", "card"]
+        bridge["summary"]["choices"] = ["potion", "card"]
+        bridge["summary"]["open_potion_slots"] = 2
         bridge["current_state"] = {
             "message": {
                 "game_state": {
                     "floor": 1,
                     "screen_type": "COMBAT_REWARD",
-                    "choice_list": ["gold", "potion", "card"],
+                    "choice_list": ["potion", "card"],
                     "screen_state": {
                         "rewards": [
-                            {"reward_type": "GOLD", "gold": 20},
+                            {
+                                "reward_type": "POTION",
+                                "potion": {"name": "Blood Potion", "id": "BloodPotion"},
+                            },
+                            {"reward_type": "CARD"},
+                        ],
+                    },
+                }
+            }
+        }
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "potions_obtained": [{"floor": 1, "key": "Poison Potion"}],
+                }
+            }
+        )
+
+        result = suggest_guided_action(script, bridge)
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["source"], "reward_auto_take")
+        self.assertEqual(result["target"], "potion")
+        self.assertEqual(result["matched_label"], "Blood Potion")
+        self.assertTrue(result["lossy"])
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
+    def test_suggest_guided_action_does_not_auto_take_potion_reward_when_belt_is_full(self):
+        bridge = self.ready_reward_bridge()
+        bridge["summary"]["choices"] = ["potion", "card"]
+        bridge["summary"]["open_potion_slots"] = 0
+        bridge["current_state"] = {
+            "message": {
+                "game_state": {
+                    "floor": 1,
+                    "screen_type": "COMBAT_REWARD",
+                    "choice_list": ["potion", "card"],
+                    "screen_state": {
+                        "rewards": [
                             {
                                 "reward_type": "POTION",
                                 "potion": {"name": "Blood Potion", "id": "BloodPotion"},
