@@ -319,11 +319,12 @@ const BANDIT_LEADER_A2_STAB_DAMAGE: i32 = 12;
 const BANDIT_LEADER_WEAK: i32 = 2;
 const CHAMP_HEAVY_SLASH_DAMAGE: i32 = 16;
 const CHAMP_A4_HEAVY_SLASH_DAMAGE: i32 = 18;
-const CHAMP_FACE_SLAP_DAMAGE: i32 = 12;
+pub const CHAMP_FACE_SLAP_DAMAGE: i32 = 12;
 const CHAMP_A4_FACE_SLAP_DAMAGE: i32 = 14;
 const CHAMP_EXECUTE_DAMAGE: i32 = 10;
 const CHAMP_EXECUTE_HITS: i32 = 2;
-const CHAMP_DEFENSIVE_BLOCK: i32 = 15;
+pub const CHAMP_DEFENSIVE_BLOCK: i32 = 15;
+pub const CHAMP_DEFENSIVE_METALLICIZE: i32 = 5;
 const COLLECTOR_FIREBALL_DAMAGE: i32 = 18;
 const COLLECTOR_A4_FIREBALL_DAMAGE: i32 = 21;
 const COLLECTOR_BUFF_BLOCK: i32 = 35;
@@ -5018,6 +5019,92 @@ fn chosen_poke_intent(ascension: u8) -> MonsterIntent {
     }
 }
 
+pub fn target_champ_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    hp: i32,
+    max_hp: i32,
+    ascension: u8,
+) -> MonsterIntent {
+    if hp < max_hp / 2 && !move_history.contains(&7) {
+        return MonsterIntent::StrengthSelf {
+            amount: champ_strength_amount(ascension) * 3,
+        };
+    }
+    if move_history.contains(&7)
+        && !last_move(move_history, 3)
+        && !last_move_before(move_history, 3)
+    {
+        return MonsterIntent::AttackMultiple {
+            damage: CHAMP_EXECUTE_DAMAGE,
+            hits: CHAMP_EXECUTE_HITS,
+        };
+    }
+    if turns_since_champ_taunt(move_history) >= 3 && !move_history.contains(&7) {
+        return MonsterIntent::ApplyPlayerWeak { amount: 2 };
+    }
+    if !last_move(move_history, 2) && champ_defensive_stance_count(move_history) < 2 && roll <= 15 {
+        return MonsterIntent::StrengthAndBlock {
+            strength: CHAMP_DEFENSIVE_METALLICIZE,
+            block: CHAMP_DEFENSIVE_BLOCK,
+        };
+    }
+    if !last_move(move_history, 5) && !last_move(move_history, 2) && roll <= 30 {
+        return MonsterIntent::StrengthSelf {
+            amount: champ_strength_amount(ascension),
+        };
+    }
+    if !last_move(move_history, 4) && roll <= 55 {
+        return champ_face_slap_intent(ascension);
+    }
+    if !last_move(move_history, 1) {
+        MonsterIntent::Attack {
+            damage: asc_damage(
+                ascension,
+                CHAMP_HEAVY_SLASH_DAMAGE,
+                CHAMP_A4_HEAVY_SLASH_DAMAGE,
+                4,
+            ),
+        }
+    } else {
+        champ_face_slap_intent(ascension)
+    }
+}
+
+fn champ_face_slap_intent(ascension: u8) -> MonsterIntent {
+    MonsterIntent::AttackApplyPlayerVulnerable {
+        damage: asc_damage(
+            ascension,
+            CHAMP_FACE_SLAP_DAMAGE,
+            CHAMP_A4_FACE_SLAP_DAMAGE,
+            4,
+        ),
+        vulnerable: 2,
+    }
+}
+
+fn champ_strength_amount(ascension: u8) -> i32 {
+    if ascension >= 19 {
+        4
+    } else if ascension >= 4 {
+        3
+    } else {
+        2
+    }
+}
+
+fn champ_defensive_stance_count(move_history: &[u8]) -> usize {
+    move_history.iter().filter(|move_id| **move_id == 2).count()
+}
+
+fn turns_since_champ_taunt(move_history: &[u8]) -> usize {
+    move_history
+        .iter()
+        .rev()
+        .take_while(|move_id| **move_id != 6)
+        .count()
+}
+
 fn snake_plant_chompy_damage(ascension: u8) -> i32 {
     if ascension >= 2 {
         SNAKE_PLANT_A2_CHOMPY_DAMAGE
@@ -5619,6 +5706,23 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
             MonsterIntent::AttackApplyPlayerVulnerable { .. } => Some(3),
             MonsterIntent::ApplyPlayerHex { .. } => Some(4),
             MonsterIntent::AttackMultiple { .. } => Some(5),
+            _ => None,
+        };
+    }
+    if content_id == CHAMP_ID {
+        return match intent {
+            MonsterIntent::Attack { .. } => Some(1),
+            MonsterIntent::StrengthAndBlock { .. } => Some(2),
+            MonsterIntent::AttackMultiple { .. } => Some(3),
+            MonsterIntent::AttackApplyPlayerVulnerable { .. } => Some(4),
+            MonsterIntent::StrengthSelf { amount } => {
+                if amount >= 6 {
+                    Some(7)
+                } else {
+                    Some(5)
+                }
+            }
+            MonsterIntent::ApplyPlayerWeak { .. } => Some(6),
             _ => None,
         };
     }
@@ -6600,7 +6704,7 @@ fn public_backlog_monster_intent(
                 ),
             },
             1 => MonsterIntent::StrengthAndBlock {
-                strength: 2,
+                strength: CHAMP_DEFENSIVE_METALLICIZE,
                 block: CHAMP_DEFENSIVE_BLOCK,
             },
             2 => MonsterIntent::AttackMultiple {
@@ -9033,6 +9137,9 @@ pub fn apply_monster_intent_with_card_rng(
             if monster.content_id == SPIKER_ID {
                 monster.powers.spiker_thorns_buffs += 1;
                 monster.powers.spikes += SPIKER_THORNS_BUFF;
+            } else if monster.content_id == CHAMP_ID {
+                monster.block += block;
+                monster.powers.metallicize += strength;
             } else {
                 monster.powers.strength += strength;
                 monster.block += block;

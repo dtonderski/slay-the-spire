@@ -26,10 +26,10 @@ use crate::{
         target_bronze_automaton_next_intent, target_bronze_orb_next_intent_from_roll,
         target_byrd_flight_amount, target_byrd_go_airborne_intent,
         target_byrd_next_intent_from_roll, target_centurion_next_intent_from_roll,
-        target_chosen_next_intent_from_roll, target_collector_next_intent_from_roll,
-        target_exploder_next_intent_from_roll, target_fungi_beast_next_intent_from_roll,
-        target_giant_head_next_intent_from_roll, target_gremlin_leader_next_intent_from_roll,
-        target_gremlin_nob_next_intent_from_roll,
+        target_champ_next_intent_from_roll, target_chosen_next_intent_from_roll,
+        target_collector_next_intent_from_roll, target_exploder_next_intent_from_roll,
+        target_fungi_beast_next_intent_from_roll, target_giant_head_next_intent_from_roll,
+        target_gremlin_leader_next_intent_from_roll, target_gremlin_nob_next_intent_from_roll,
         target_gremlin_wizard_direct_next_intent_after_turn, target_grounded_byrd_next_intent,
         target_healer_next_intent_from_roll, target_jaw_worm_next_intent_from_roll,
         target_lagavulin_direct_wake_attack_intent, target_large_acid_slime_next_intent_from_roll,
@@ -45,14 +45,14 @@ use crate::{
         target_spheric_guardian_next_intent_from_roll, target_spiker_next_intent_from_roll,
         target_spire_growth_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
         ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
-        CENTURION_ID, CHOSEN_ID, DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
-        GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID,
-        GREMLIN_NOB_ID, GREMLIN_TSUNDERE_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID,
-        JAW_WORM_ID, LAGAVULIN_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID,
-        ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
-        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
-        SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIKE_SLIME_S_A7_HP_RANGE,
-        SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
+        CENTURION_ID, CHAMP_ID, CHOSEN_ID, DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID,
+        GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_TSUNDERE_ID, GREMLIN_WIZARD_ID, HEALER_ID,
+        HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID,
+        NEMESIS_ID, ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID,
+        REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID,
+        SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
+        SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
     },
     ids::MonsterId,
     rng::{SimulatorRng, StsRng},
@@ -341,6 +341,15 @@ fn run_monster_turn(state: &mut CombatState) {
                     monster.block += block;
                     monster.moves_executed += 1;
                 }
+                prepare_next_intent_for_actor(state, actor_id);
+                continue;
+            }
+            crate::MonsterIntent::StrengthAndBlock { strength, block }
+                if state.monsters[index].content_id == CHAMP_ID =>
+            {
+                state.monsters[index].block += block;
+                state.monsters[index].powers.metallicize += strength;
+                state.monsters[index].moves_executed += 1;
                 prepare_next_intent_for_actor(state, actor_id);
                 continue;
             }
@@ -710,6 +719,9 @@ fn apply_painful_stabs_after_player_damage(
             .piles
             .discard_pile
             .push(crate::CardInstance::new(next_id, WOUND_ID));
+        if let Some(limit) = state.discard_reshuffle_limit.as_mut() {
+            *limit += 1;
+        }
     }
 }
 
@@ -1062,6 +1074,18 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                     target_chosen_next_intent_from_roll(
                         &monster.move_history,
                         roll,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
+            } else if monster.content_id == CHAMP_ID {
+                if let Some(roll) = roll {
+                    target_champ_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        monster.hp,
+                        monster.max_hp,
                         state.ascension,
                     )
                 } else {
@@ -1428,7 +1452,6 @@ fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CardId;
     use crate::content::cards::STRIKE_R_ID;
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -1442,6 +1465,7 @@ mod tests {
         LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
         SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
     };
+    use crate::CardId;
 
     #[test]
     fn magnetism_generated_card_overflows_full_hand_to_discard() {

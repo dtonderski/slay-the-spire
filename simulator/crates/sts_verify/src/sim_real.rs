@@ -7737,7 +7737,8 @@ fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Op
 fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> MonsterIntent {
     use sts_core::content::monsters::{
         gremlin_nob_enrage, ACID_SLIME_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
-        CENTURION_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID,
+        CENTURION_ID, CHAMP_DEFENSIVE_BLOCK, CHAMP_DEFENSIVE_METALLICIZE, CHAMP_FACE_SLAP_DAMAGE,
+        CHAMP_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID,
         GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID,
         HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPULSOR_ID, SENTRY_ID,
         SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLIME_BOSS_A19_SLIMED_COUNT, SLIME_BOSS_ID,
@@ -7881,6 +7882,12 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             damage: damage.max(0),
             vulnerable: 2,
         },
+        "ATTACK_DEBUFF" if content_id == CHAMP_ID && move_id == 4 => {
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: CHAMP_FACE_SLAP_DAMAGE,
+                vulnerable: 2,
+            }
+        }
         "ATTACK_DEBUFF" if content_id == SNECKO_ID && ascension >= 17 => {
             MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
                 damage: damage.max(0),
@@ -7947,6 +7954,12 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             strength: 3,
             block: 9,
         },
+        "DEFEND_BUFF" if content_id == CHAMP_ID && move_id == 2 => {
+            MonsterIntent::StrengthAndBlock {
+                strength: CHAMP_DEFENSIVE_METALLICIZE,
+                block: CHAMP_DEFENSIVE_BLOCK,
+            }
+        }
         "DEFEND" | "BLOCK" if matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) => {
             MonsterIntent::StrengthAndBlock {
                 strength: 3,

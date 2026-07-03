@@ -9,8 +9,8 @@ use crate::{
         target_acid_slime_entry_intent_from_roll, target_beyond_encounter_spawn_for_key,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_orb_next_intent_from_roll, target_byrd_next_intent_from_roll,
-        target_centurion_next_intent_from_roll, target_chosen_next_intent_from_roll,
-        target_city_normal_encounter_spawn_at_combat_index,
+        target_centurion_next_intent_from_roll, target_champ_next_intent_from_roll,
+        target_chosen_next_intent_from_roll, target_city_normal_encounter_spawn_at_combat_index,
         target_elite_encounter_spawn_at_combat_index, target_exploder_next_intent_from_roll,
         target_fungi_beast_next_intent_from_roll, target_gremlin_leader_next_intent_from_roll,
         target_healer_next_intent_from_roll, target_jaw_worm_next_intent_from_roll,
@@ -23,7 +23,7 @@ use crate::{
         target_snake_plant_next_intent_from_roll, target_snecko_next_intent_from_roll,
         target_spike_slime_entry_intent_from_roll, TargetEncounterSpawn, ACID_SLIME_ID,
         ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID,
-        BYRD_ID, CENTURION_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, DECA_ID, EXPLODER_ID,
+        BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, DECA_ID, EXPLODER_ID,
         FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
         GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID,
         RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
@@ -298,6 +298,14 @@ fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
         } else if monster.content_id == CHOSEN_ID {
             monster.intent =
                 target_chosen_next_intent_from_roll(&monster.move_history, roll, combat.ascension);
+        } else if monster.content_id == CHAMP_ID {
+            monster.intent = target_champ_next_intent_from_roll(
+                &monster.move_history,
+                roll,
+                monster.hp,
+                monster.max_hp,
+                combat.ascension,
+            );
         } else if monster.content_id == BYRD_ID && monster.moves_executed == 0 {
             monster.intent = target_byrd_next_intent_from_roll(
                 &monster.move_history,
