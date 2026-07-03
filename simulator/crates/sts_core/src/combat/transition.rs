@@ -971,6 +971,16 @@ fn apply_internal_action(
             source_card_id,
             purpose,
         } => {
+            if purpose == HandSelectPurpose::WarcryPutOnDraw
+                && !state
+                    .piles
+                    .hand
+                    .iter()
+                    .any(|card| card.id != source_card_id)
+            {
+                finish_warcry_source(state, source_card_id)?;
+                return Ok(Vec::new());
+            }
             state.hand_select = Some(crate::combat::HandSelectState {
                 purpose,
                 source_card_id,
@@ -2579,6 +2589,10 @@ fn confirm_warcry_select(
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
     state.piles.draw_pile.push(card);
+    finish_warcry_source(state, source_card_id)
+}
+
+fn finish_warcry_source(state: &mut CombatState, source_card_id: CardId) -> SimResult<()> {
     let source = remove_card_from_pile(state, source_card_id, CardPile::Hand)?;
     let definition = get_card_definition(source.content_id)
         .ok_or(SimError::UnknownContent(source.content_id))?;

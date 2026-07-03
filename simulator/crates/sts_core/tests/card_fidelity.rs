@@ -539,6 +539,106 @@ fn uppercut_plus_deals_damage_then_applies_two_weak_and_vulnerable() {
 }
 
 #[test]
+fn true_grit_plus_gains_block_then_exhausts_selected_card() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::TRUE_GRIT_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("True Grit+ opens exhaust selection");
+    assert_eq!(next.player.block, 9);
+    assert!(next.exhaust_select.is_some());
+
+    choose_exhaust_select(&mut next, 1).expect("select Defend");
+    confirm_exhaust_select(&mut next).expect("confirm True Grit+ selection");
+
+    assert!(next.exhaust_select.is_none());
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::TRUE_GRIT_PLUS_ID
+    );
+}
+
+#[test]
+fn warcry_plus_can_draw_into_the_card_put_on_top() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WARCRY_PLUS_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry+ draws before choosing a card");
+
+    assert!(next.hand_select.is_some());
+    let selected_content_id = next
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id != CardId::new(1))
+        .expect("drawn card is selectable")
+        .content_id;
+    choose_hand_select(&mut next, 0).expect("select drawn card");
+    confirm_hand_select(&mut next).expect("confirm Warcry+ selection");
+
+    assert!(next.hand_select.is_none());
+    assert_eq!(
+        next.piles
+            .draw_pile
+            .last()
+            .expect("selected card returns to draw pile")
+            .content_id,
+        selected_content_id
+    );
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_PLUS_ID);
+}
+
+#[test]
+fn warcry_with_no_card_after_draw_exhausts_without_opening_selection() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WARCRY_ID)];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry plays with no card to put back");
+
+    assert!(next.hand_select.is_none());
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_ID);
+}
+
+#[test]
 fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     assert_eq!(cards::ARMAMENTS.values.block, Some(5));
     assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));

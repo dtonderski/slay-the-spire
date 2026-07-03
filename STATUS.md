@@ -3,6 +3,23 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified True Grit/True Grit+ and Warcry/Warcry+
+  against their decompiled card/action classes and the trusted sts.gg card
+  database baseline, then replaced stale generic audit rows with source-backed
+  facts. Source True Grit gains Block before exhausting a random card in base
+  form or a selected card when upgraded; Warcry draws 1/2 first, then puts one
+  card from hand on top of the draw pile, and Exhausts. Fixed generic simulator
+  mismatch: Warcry no longer requires another card to already be in hand before
+  drawing, and it exhausts cleanly without opening selection if draw-first still
+  leaves no eligible card. Checks: `cargo fmt` passed; focused `cargo test -p
+  sts_core --test card_fidelity true_grit` passed; focused `cargo test -p
+  sts_core --test card_fidelity warcry` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (120 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit: verified Spot Weakness/Spot Weakness+, Thunderclap+,
   and Uppercut/Uppercut+ against their decompiled card/action classes and the
   trusted sts.gg card database baseline, then replaced stale generic audit rows

@@ -2989,16 +2989,10 @@ fn warcry_draw_count(definition: &CardDefinition) -> usize {
 }
 
 fn warcry_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    if lowest_other_hand_card(state, card_id).is_none() {
-        return Err(SimError::IllegalAction(
-            "Warcry requires another card in hand",
-        ));
-    }
-
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
