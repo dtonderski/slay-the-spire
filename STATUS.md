@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Inflame/Inflame+, Juggernaut/Juggernaut+, and
+  Metallicize/Metallicize+ against their decompiled card/power classes and the
+  trusted sts.gg card database baseline, then replaced stale generic audit rows
+  with source-backed facts. Source Inflame applies Strength 2/3; Metallicize
+  applies a 3/4 end-turn Block power; Juggernaut applies a 5/7 power whose
+  `onGainedBlock` queues random-enemy THORNS damage. Fixed the generic
+  Juggernaut mismatch: block-gain damage now consumes `card_random_rng` to
+  choose a random living enemy instead of targeting the first living monster.
+  Checks: `cargo fmt` passed; focused `cargo test -p sts_core --test
+  card_fidelity inflame` passed; focused `cargo test -p sts_core --test
+  card_fidelity metallicize` passed; focused `cargo test -p sts_core --test
+  card_fidelity juggernaut` passed after correcting the test fixture energy;
+  `cargo test -p sts_core --test card_fidelity` passed (102 tests); `cargo
+  clippy` passed with existing warnings after setting `PYO3_PYTHON` to the
+  bundled workspace Python; active live-regression replay `uv run python -m
+  unittest python.tests.test_live_regression_traces` passed. Full `cargo test`
+  with bundled `PYO3_PYTHON` builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Iron Wave/Iron Wave+, Perfected
   Strike/Perfected Strike+, and Pommel Strike/Pommel Strike+ against their
   decompiled card classes and the trusted sts.gg card database baseline, then

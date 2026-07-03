@@ -7,6 +7,7 @@ use sts_core::{
             choose_hand_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
         },
         turn::start_player_turn,
+        turn_powers::apply_end_of_player_turn_powers,
     },
     content::{
         cards,
@@ -58,6 +59,107 @@ fn barricade_power_is_idempotent_when_replayed() {
     .expect("second Barricade plays without stacking the power");
 
     assert_eq!(next.player.powers.barricade, 1);
+}
+
+#[test]
+fn inflame_plus_applies_three_strength_and_removes_power_card() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::INFLAME_PLUS_ID)];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Inflame+ plays");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.player.powers.strength, 3);
+    assert!(next.piles.hand.is_empty());
+    assert!(next.piles.discard_pile.is_empty());
+}
+
+#[test]
+fn metallicize_plus_grants_four_end_turn_block() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::METALLICIZE_PLUS_ID,
+    )];
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Metallicize+ plays");
+
+    assert_eq!(next.player.powers.metallicize, 4);
+    assert_eq!(next.player.block, 0);
+
+    apply_end_of_player_turn_powers(&mut next);
+
+    assert_eq!(next.player.block, 4);
+}
+
+#[test]
+fn juggernaut_plus_deals_unmodified_damage_when_block_is_gained() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::JUGGERNAUT_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+    ];
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    state.card_random_rng = Some(StsRng::new(4242));
+    let starting_hp = state
+        .monsters
+        .iter()
+        .map(|monster| monster.hp)
+        .collect::<Vec<_>>();
+    let mut expected_rng = StsRng::new(4242);
+    let expected_target_index = expected_rng.random_int(1) as usize;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Juggernaut+ plays");
+    assert_eq!(next.player.powers.juggernaut, 7);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Defend plays after Juggernaut+");
+
+    assert_eq!(next.player.block, 5);
+    for (index, monster) in next.monsters.iter().enumerate() {
+        let expected_damage = if index == expected_target_index { 7 } else { 0 };
+        assert_eq!(monster.hp, starting_hp[index] - expected_damage);
+    }
+    assert_eq!(
+        next.card_random_rng
+            .as_ref()
+            .expect("test installs card rng")
+            .counter(),
+        expected_rng.counter()
+    );
 }
 
 #[test]

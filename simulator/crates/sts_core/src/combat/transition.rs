@@ -1322,13 +1322,13 @@ fn apply_player_vulnerable_debuff(
 }
 
 fn juggernaut_follow_up_for_positive_block_gain(
-    state: &CombatState,
+    state: &mut CombatState,
     gained: i32,
 ) -> Vec<InternalAction> {
     if gained <= 0 || state.player.powers.juggernaut <= 0 {
         return Vec::new();
     }
-    first_living_monster_id(state)
+    random_living_monster_id(state)
         .map(|target| {
             vec![InternalAction::DealUnmodifiedDamage {
                 target,
@@ -1363,15 +1363,6 @@ pub(crate) fn apply_player_direct_block_gain(state: &mut CombatState, amount: i3
     }
     state.player.block += amount;
     apply_juggernaut_after_direct_block_gain(state, amount);
-}
-
-fn first_living_monster_id(state: &CombatState) -> Option<MonsterId> {
-    state
-        .monsters
-        .iter()
-        .filter(|monster| monster.alive)
-        .min_by_key(|monster| monster.id.get())
-        .map(|monster| monster.id)
 }
 
 fn random_living_monster_id(state: &mut CombatState) -> Option<MonsterId> {
