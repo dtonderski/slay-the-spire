@@ -24,7 +24,7 @@ use crate::{
         HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
         IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
         MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
-        OFFERING_ID, PAIN_ID, PANACEA_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
+        OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID, PANIC_BUTTON_ID, PERFECTED_STRIKE_ID,
         PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
         POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID,
         REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
@@ -2108,8 +2108,13 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::GainEnergy { amount: 2 });
             follow_ups.push(InternalAction::DrawCards { count: 3 });
         }
-        PANACEA_ID => {
-            follow_ups.push(InternalAction::GainArtifact { amount: 1 });
+        PANACEA_ID | PANACEA_PLUS_ID => {
+            let amount = if definition.id == PANACEA_PLUS_ID {
+                2
+            } else {
+                1
+            };
+            follow_ups.push(InternalAction::GainArtifact { amount });
         }
         POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => {
             follow_ups.push(InternalAction::GainBlock {

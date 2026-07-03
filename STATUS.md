@@ -3,6 +3,23 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Panacea/Panacea+ against `Panacea.java`, then
+  fixed the top-draw free-play upgraded path. Source Panacea is a 0-cost
+  colorless Uncommon Skill targeting self, Exhausts, and applies Artifact equal
+  to `magicNumber`; upgrade increases Artifact from 1 to 2. Local normal play
+  already used the correct 1/2 Artifact amounts, but the Havoc/Mayhem top-draw
+  path only handled base Panacea. The simulator now dispatches both Panacea ids
+  in the top-draw path and grants the upgraded 2 Artifact amount for Panacea+.
+  Checks: `cargo fmt` passed; `cargo test -p sts_core --test card_fidelity
+  havoc_panacea_plus_grants_two_artifact_and_exhausts` passed; `cargo test -p
+  sts_core --test card_fidelity` passed (34 tests); `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled Python. Full
+  `cargo test` with bundled `PYO3_PYTHON` still builds the suite and remains
+  blocked by `py_sts`/`sts_omni` exiting with `STATUS_DLL_NOT_FOUND`. Active
+  live-regression replay was run and currently fails on
+  `trace-2026-07-02T23-24-13-178Z.jsonl` with `verified=False` where the
+  manifest expects `True`; the worktree copy of that trace has unrelated local
+  appended `state` records and was not staged for this slice.
 - Card-fidelity fix: verified Mind Blast/Mind Blast+ against
   `MindBlast.java` and `PlayTopCardAction.java`, then fixed the top-draw
   free-play damage path. Source removes the top draw-pile card before
