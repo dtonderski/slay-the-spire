@@ -1916,15 +1916,15 @@ fn apply_play_top_draw_card(
         }
         IRON_WAVE_ID | IRON_WAVE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
             follow_ups.push(InternalAction::DealDamage {
                 info: DamageInfo {
                     source: DamageSource::Card(card_id),
                     target,
                     amount: definition.values.damage.unwrap_or(0),
                 },
-            });
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
             });
         }
         BODY_SLAM_ID | BODY_SLAM_PLUS_ID => {

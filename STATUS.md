@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Iron Wave/Iron Wave+, Perfected
+  Strike/Perfected Strike+, and Pommel Strike/Pommel Strike+ against their
+  decompiled card classes and the trusted sts.gg card database baseline, then
+  replaced stale generic audit rows with source-backed facts. Source Iron Wave
+  gains Block before dealing damage; Perfected Strike counts Strike-tagged cards
+  in hand, draw pile, and discard pile only; Pommel Strike deals 9/10 damage
+  then draws 1/2. Fixed generic simulator gaps: Iron Wave now gains Block
+  before attack damage in normal and Havoc/top-draw play, and Perfected Strike
+  no longer counts exhaust-pile Strike cards. Checks: `cargo fmt` passed;
+  focused `cargo test -p sts_core --test card_fidelity iron_wave` passed;
+  focused `cargo test -p sts_core --test card_fidelity perfected_strike`
+  passed; focused `cargo test -p sts_core --test card_fidelity pommel_strike`
+  passed; `cargo test -p sts_core --test card_fidelity` passed (99 tests);
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled workspace Python; active live-regression replay `uv run python -m
+  unittest python.tests.test_live_regression_traces` passed. Full `cargo test`
+  with bundled `PYO3_PYTHON` builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Entrench/Entrench+, Flame Barrier/Flame Barrier+,
   and Flex/Flex+ against their decompiled card classes and the trusted sts.gg
   card database baseline, then replaced stale generic audit rows with

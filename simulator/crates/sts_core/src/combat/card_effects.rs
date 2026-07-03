@@ -914,15 +914,15 @@ fn iron_wave_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
+        InternalAction::GainBlock {
+            amount: definition.values.block.unwrap_or(0),
+        },
         InternalAction::DealDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
                 amount: definition.values.damage.unwrap_or(0),
             },
-        },
-        InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
         },
         InternalAction::MoveCard {
             card_id,
@@ -1293,7 +1293,6 @@ fn combat_strike_named_card_count(state: &CombatState) -> usize {
         .iter()
         .chain(state.piles.draw_pile.iter())
         .chain(state.piles.discard_pile.iter())
-        .chain(state.piles.exhaust_pile.iter())
         .filter(|card| {
             get_card_definition(card.content_id)
                 .map(is_strike_named_definition)

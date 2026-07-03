@@ -513,6 +513,70 @@ fn dark_embrace_stacks_one_draw_per_exhaust() {
 }
 
 #[test]
+fn perfected_strike_plus_counts_hand_draw_and_discard_strikes_not_exhaust() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::PERFECTED_STRIKE_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), cards::POMMEL_STRIKE_ID)];
+    state.piles.discard_pile = vec![CardInstance::new(CardId::new(4), cards::STRIKE_R_ID)];
+    state.piles.exhaust_pile = vec![CardInstance::new(CardId::new(5), cards::STRIKE_R_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Perfected Strike+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 18);
+    assert_eq!(
+        next.piles.discard_pile[1].content_id,
+        cards::PERFECTED_STRIKE_PLUS_ID
+    );
+}
+
+#[test]
+fn pommel_strike_plus_deals_ten_and_draws_two() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::POMMEL_STRIKE_PLUS_ID,
+    )];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Pommel Strike+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 10);
+    assert_eq!(next.piles.hand.len(), 2);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::POMMEL_STRIKE_PLUS_ID
+    );
+}
+
+#[test]
 fn defend_plus_gains_eight_block_and_discards() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
@@ -888,6 +952,35 @@ fn immolate_plus_deals_all_enemies_and_generates_combat_only_burn() {
     assert_eq!(
         next.piles.discard_pile[1].content_id,
         cards::IMMOLATE_PLUS_ID
+    );
+}
+
+#[test]
+fn iron_wave_plus_gains_block_before_spikes_reflect_damage() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.hp = 50;
+    state.player.block = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::IRON_WAVE_PLUS_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].powers.spikes = 7;
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Iron Wave+ plays against a spiked enemy");
+
+    assert_eq!(next.player.hp, 50);
+    assert_eq!(next.player.block, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp - 7);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::IRON_WAVE_PLUS_ID
     );
 }
 
