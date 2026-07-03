@@ -3,6 +3,23 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit correction: verified Evolve/Evolve+, Feel No Pain/Feel No
+  Pain+, and Fire Breathing/Fire Breathing+ against their decompiled card and
+  power classes, then replaced stale generic audit rows with source-backed
+  trigger facts. Source Evolve draws 1/2 extra cards when a Status is drawn,
+  Feel No Pain grants 3/4 Block whenever a card exhausts, and Fire Breathing
+  deals 6/10 damage to all enemies when a Status or Curse is drawn. Local
+  behavior already matched at generic simulator granularity through the draw and
+  exhaust hooks. Checks: `cargo fmt` passed; focused `cargo test -p sts_core
+  --test card_fidelity evolve_plus` passed; focused `cargo test -p sts_core
+  --test card_fidelity feel_no_pain` passed; focused `cargo test -p sts_core
+  --test card_fidelity fire_breathing` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (83 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Defend/Defend+, Double Tap/Double Tap+, and Dual
   Wield/Dual Wield+ against their decompiled card/action classes, then fixed
   Dual Wield generic fidelity. Source Dual Wield creates 1/2 temporary

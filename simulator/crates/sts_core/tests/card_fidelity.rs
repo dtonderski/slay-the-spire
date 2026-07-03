@@ -575,6 +575,82 @@ fn dual_wield_plus_creates_two_temporary_copies_and_discards_source() {
 }
 
 #[test]
+fn evolve_plus_draws_two_extra_cards_when_status_is_drawn() {
+    let mut state = CombatState::initial_fixture();
+    state.player.powers.evolve = 2;
+    state.piles.hand.clear();
+    state.piles.discard_pile.clear();
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(1), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(5), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(6), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(7), cards::WOUND_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    start_player_turn(&mut state);
+
+    assert_eq!(state.piles.hand.len(), 7);
+    assert!(state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == cards::WOUND_ID));
+    assert!(state.piles.draw_pile.is_empty());
+}
+
+#[test]
+fn feel_no_pain_plus_grants_four_block_when_a_card_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.player.powers.feel_no_pain = 4;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::SLIMED_ID)];
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Slimed exhausts itself");
+
+    assert_eq!(next.player.block, 4);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::SLIMED_ID);
+}
+
+#[test]
+fn fire_breathing_plus_damages_all_enemies_when_status_is_drawn() {
+    let mut state = CombatState::initial_fixture();
+    state.player.powers.fire_breathing = 10;
+    state.piles.hand.clear();
+    state.piles.discard_pile.clear();
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), cards::WOUND_ID)];
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    let starting_hp = state
+        .monsters
+        .iter()
+        .map(|monster| monster.hp)
+        .collect::<Vec<_>>();
+
+    start_player_turn(&mut state);
+
+    assert_eq!(state.monsters[0].hp, starting_hp[0] - 10);
+    assert_eq!(state.monsters[1].hp, starting_hp[1] - 10);
+    assert_eq!(state.piles.hand.len(), 1);
+    assert_eq!(state.piles.hand[0].content_id, cards::WOUND_ID);
+}
+
+#[test]
 fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
     assert_eq!(cards::DROPKICK.values.damage, Some(5));
     assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));
