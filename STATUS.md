@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit correction: verified Clash/Clash+, Cleave/Cleave+, and
+  Clothesline/Clothesline+ against their decompiled card classes, then replaced
+  stale generic audit rows with source-backed facts. Source Clash is playable
+  only when every card in hand is an Attack and deals 14/18 selected-enemy
+  damage. Source Cleave deals 8/11 damage to all enemies. Source Clothesline
+  deals 12/14 damage, then applies 2/3 Weak. Local behavior already matched at
+  generic simulator granularity: Clash legality checks the full hand's card
+  types, Cleave uses the all-enemy damage path, and Clothesline queues
+  damage-then-Weak against the selected target. Checks: `cargo fmt` passed;
+  focused `cargo test -p sts_core --test card_fidelity clash` passed; focused
+  `cargo test -p sts_core --test card_fidelity cleave` passed; focused `cargo
+  test -p sts_core --test card_fidelity clothesline` passed; `cargo test -p
+  sts_core --test card_fidelity` passed (73 tests); `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled workspace Python;
+  active live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit correction: verified Body Slam/Body Slam+,
   Brutality/Brutality+, and Burning Pact/Burning Pact+ against their decompiled
   card classes, then replaced stale generic audit rows with source-backed facts.

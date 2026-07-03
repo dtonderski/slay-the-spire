@@ -256,6 +256,92 @@ fn burning_pact_plus_exhausts_one_other_card_then_draws_three() {
 }
 
 #[test]
+fn clash_requires_every_card_in_hand_to_be_an_attack() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::CLASH_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    assert!(
+        !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        })
+    );
+
+    state.piles.hand[1] = CardInstance::new(CardId::new(2), cards::STRIKE_R_ID);
+
+    assert!(
+        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        })
+    );
+}
+
+#[test]
+fn cleave_plus_deals_eleven_damage_to_all_living_enemies() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::CLEAVE_PLUS_ID)];
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    let starting_hp = state
+        .monsters
+        .iter()
+        .map(|monster| monster.hp)
+        .collect::<Vec<_>>();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Cleave+ plays without a target");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp[0] - 11);
+    assert_eq!(next.monsters[1].hp, starting_hp[1] - 11);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::CLEAVE_PLUS_ID);
+}
+
+#[test]
+fn clothesline_plus_deals_damage_then_applies_three_weak() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::CLOTHESLINE_PLUS_ID,
+    )];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Clothesline+ plays against an enemy");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp - 14);
+    assert_eq!(next.monsters[0].powers.weak, 3);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::CLOTHESLINE_PLUS_ID
+    );
+}
+
+#[test]
 fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
     assert_eq!(cards::DROPKICK.values.damage, Some(5));
     assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));
