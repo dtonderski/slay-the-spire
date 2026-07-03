@@ -7053,6 +7053,7 @@ fn run_from_observed_combat_impl(
         duplication_potion_stacks: 0,
         double_tap_pending,
         pending_player_spikes_damage: 0,
+        discard_reshuffle_limit: None,
     };
 
     Some(RunState {
@@ -7875,6 +7876,10 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
                 vulnerable: 2,
             }
         }
+        "ATTACK_DEBUFF" if content_id == CHOSEN_ID => MonsterIntent::AttackApplyPlayerVulnerable {
+            damage: damage.max(0),
+            vulnerable: 2,
+        },
         "ATTACK_DEBUFF" if content_id == SNECKO_ID && ascension >= 17 => {
             MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
                 damage: damage.max(0),

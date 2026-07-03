@@ -78,6 +78,10 @@ pub struct CombatState {
     /// Sharp Hide.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_player_spikes_damage: i32,
+    /// During the combined end-player-turn/monster-turn/start-player-turn transition, only the
+    /// discard prefix that existed after hand discard is eligible for immediate reshuffles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discard_reshuffle_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -447,6 +451,7 @@ impl CombatState {
             double_tap_pending: 0,
             bomb_timers: Vec::new(),
             pending_player_spikes_damage: 0,
+            discard_reshuffle_limit: None,
         }
     }
 

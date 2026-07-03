@@ -7,6 +7,7 @@ use crate::{
         draw::{
             apply_confusion_cost_randomization, apply_fire_breathing_on_draw,
             draw_cards_with_sts_rng, draw_cards_without_shuffle, evolve_extra_draw_count,
+            shuffle_discard_into_draw, shuffle_discard_into_draw_sts,
         },
         hand::{discard_end_of_turn_hand, resolve_end_of_turn_doubt, resolve_end_of_turn_hand},
         piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
@@ -54,7 +55,7 @@ use crate::{
         SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
     },
     ids::MonsterId,
-    rng::{JavaRng, StsRng},
+    rng::{SimulatorRng, StsRng},
     TargetRequirement,
 };
 
@@ -70,11 +71,6 @@ const HAND_SIZE: usize = 5;
 pub fn end_player_turn(state: &CombatState) -> CombatState {
     let mut next = state.clone();
     let started_with_living_monster = state.monsters.iter().any(|monster| monster.alive);
-    let no_rng_discard_len_before_end_turn = if state.shuffle_rng.is_none() {
-        Some(state.piles.discard_pile.len())
-    } else {
-        None
-    };
 
     apply_end_of_player_turn_powers(&mut next);
     resolve_end_of_turn_hand(&mut next);
@@ -87,9 +83,11 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
         return next;
     }
     discard_end_of_turn_hand(&mut next);
+    next.discard_reshuffle_limit = Some(next.piles.discard_pile.len());
     apply_pending_player_spikes_damage(&mut next);
     if next.player.hp <= 0 {
         next.phase = CombatPhase::Lost;
+        next.discard_reshuffle_limit = None;
         return next;
     }
     clear_living_monster_block(&mut next);
@@ -99,13 +97,16 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
     if next.player.hp <= 0 {
         next.player.hp = 0;
         next.phase = CombatPhase::Lost;
+        next.discard_reshuffle_limit = None;
         return next;
     }
     if finish_combat_if_over(&mut next, started_with_living_monster) {
+        next.discard_reshuffle_limit = None;
         return next;
     }
 
-    start_player_turn_with_no_rng_discard_limit(&mut next, no_rng_discard_len_before_end_turn);
+    start_player_turn(&mut next);
+    next.discard_reshuffle_limit = None;
     next
 }
 
@@ -128,13 +129,6 @@ fn clear_living_monster_block(state: &mut CombatState) {
 }
 
 pub fn start_player_turn(state: &mut CombatState) {
-    start_player_turn_with_no_rng_discard_limit(state, None);
-}
-
-fn start_player_turn_with_no_rng_discard_limit(
-    state: &mut CombatState,
-    no_rng_discard_len_before_end_turn: Option<usize>,
-) {
     crate::relic::reset_turn_relic_counters(state);
     reset_turn_only_temp_costs(state);
     if !crate::relic::preserves_energy_between_turns(&state.relics) {
@@ -160,7 +154,7 @@ fn start_player_turn_with_no_rng_discard_limit(
         return;
     }
     apply_start_of_turn_magnetism(state);
-    draw_next_hand_without_shuffle(state, no_rng_discard_len_before_end_turn);
+    draw_next_hand_without_shuffle(state);
     crate::relic::apply_start_of_player_turn_post_draw_relics(state);
     apply_start_of_turn_mayhem(state);
     if state.player.hp <= 0 {
@@ -751,25 +745,19 @@ fn apply_attack_heal_self_thorns_after_heal(
     }
 }
 
-fn draw_next_hand_without_shuffle(
-    state: &mut CombatState,
-    no_rng_discard_len_before_end_turn: Option<usize>,
-) {
+fn draw_next_hand_without_shuffle(state: &mut CombatState) {
     if let Some(mut rng) = state.shuffle_rng.take() {
         draw_next_hand_with_sts_rng(state, &mut rng);
         state.shuffle_rng = Some(rng);
     } else {
-        draw_next_hand_without_rng(state, no_rng_discard_len_before_end_turn);
+        draw_next_hand_without_rng(state);
     }
 }
 
 fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::StsRng) {
     for _ in 0..target_hand_size(state) {
         if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
-            state.piles.draw_pile.append(&mut state.piles.discard_pile);
-            let shuffle_seed = rng.random_long();
-            JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
-            crate::relic::apply_shuffle_relics(state);
+            shuffle_discard_into_draw_sts(state, rng);
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -787,24 +775,11 @@ fn draw_next_hand_with_sts_rng(state: &mut CombatState, rng: &mut crate::rng::St
     }
 }
 
-fn draw_next_hand_without_rng(
-    state: &mut CombatState,
-    no_rng_discard_len_before_end_turn: Option<usize>,
-) {
-    let mut no_rng_discard_remaining = no_rng_discard_len_before_end_turn;
+fn draw_next_hand_without_rng(state: &mut CombatState) {
     for _ in 0..target_hand_size(state) {
         if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
-            if let Some(limit) = no_rng_discard_remaining {
-                if limit == 0 {
-                    break;
-                }
-                let available = limit.min(state.piles.discard_pile.len());
-                state.piles.draw_pile = state.piles.discard_pile.drain(..available).collect();
-                no_rng_discard_remaining = Some(limit - available);
-                crate::relic::apply_shuffle_relics(state);
-            } else {
-                break;
-            }
+            let mut rng = SimulatorRng::new(0);
+            shuffle_discard_into_draw(state, &mut rng);
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -1104,7 +1079,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
             } else if monster.content_id == ACID_SLIME_ID
-                && monster.hp > ACID_SLIME_M_A7_HP_RANGE.max
+                && acid_slime_uses_large_move_table(monster)
             {
                 if let Some(roll) = roll {
                     if let Some(rng) = state.monster_rng.as_mut() {
@@ -1364,7 +1339,8 @@ fn is_half_dead_darkling(monster: &crate::MonsterState) -> bool {
 }
 
 fn acid_slime_uses_medium_move_table(monster: &crate::MonsterState) -> bool {
-    monster.hp > ACID_SLIME_S_A7_HP_RANGE.max
+    acid_slime_uses_large_move_table(monster)
+        || monster.hp > ACID_SLIME_S_A7_HP_RANGE.max
         || monster.move_history.contains(&2)
         || matches!(
             monster.intent,
@@ -1374,6 +1350,14 @@ fn acid_slime_uses_medium_move_table(monster: &crate::MonsterState) -> bool {
             monster.intent,
             crate::MonsterIntent::Attack { damage }
                 if damage >= crate::content::monsters::ACID_SLIME_M_NORMAL_TACKLE_DAMAGE
+        )
+}
+
+fn acid_slime_uses_large_move_table(monster: &crate::MonsterState) -> bool {
+    monster.max_hp > ACID_SLIME_M_A7_HP_RANGE.max
+        || matches!(
+            monster.rolled_attack_damage,
+            Some(damage) if damage >= crate::content::monsters::ACID_SLIME_L_NORMAL_TACKLE_DAMAGE
         )
 }
 
