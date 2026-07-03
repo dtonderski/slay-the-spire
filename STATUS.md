@@ -3,6 +3,28 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit correction: verified Ghostly Armor/Ghostly Armor+,
+  Impervious/Impervious+, Infernal Blade/Infernal Blade+, and
+  Intimidate/Intimidate+ against their decompiled red card classes, then
+  corrected stale audit rows for inherited upgraded Ethereal/Exhaust keywords.
+  Source upgrades change only block, cost, or magic values for these cards; the
+  constructor keywords remain active on upgraded forms. Local definitions/effects
+  already matched those keyword facts, so this slice adds regression coverage
+  without changing simulator behavior. Checks: `cargo fmt` passed; focused
+  `cargo test -p sts_core --test card_fidelity ghostly_armor_plus` passed;
+  focused `cargo test -p sts_core --test card_fidelity impervious_plus` passed;
+  focused `cargo test -p sts_core --test card_fidelity infernal_blade_plus`
+  passed; focused `cargo test -p sts_core --test card_fidelity intimidate_plus`
+  passed; `cargo test -p sts_core --test card_fidelity` passed (57 tests);
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled workspace Python. Full `cargo test` with bundled `PYO3_PYTHON`
+  still builds the suite and remains blocked by `sts_omni` exiting with
+  `STATUS_DLL_NOT_FOUND`. Active live-regression replay `uv run python -m
+  unittest python.tests.test_live_regression_traces` still fails on the dirty
+  worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 478 versus manifest `expected_steps` 467; the trace has local
+  appended commands and was not staged for this slice.
 - Card-fidelity audit correction: verified Carnage/Carnage+ against
   `Carnage.java` and Disarm/Disarm+ against `Disarm.java`, then corrected stale
   audit rows for inherited upgraded keywords. Source Carnage is Ethereal in the

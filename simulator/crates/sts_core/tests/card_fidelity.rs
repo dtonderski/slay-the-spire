@@ -72,6 +72,112 @@ fn disarm_plus_keeps_exhaust_and_reduces_three_strength() {
 }
 
 #[test]
+fn ghostly_armor_plus_keeps_ethereal_and_gains_thirteen_block() {
+    assert_eq!(cards::GHOSTLY_ARMOR.values.block, Some(10));
+    assert!(cards::GHOSTLY_ARMOR.keywords.ethereal);
+
+    assert_eq!(cards::GHOSTLY_ARMOR_PLUS.values.block, Some(13));
+    assert!(cards::GHOSTLY_ARMOR_PLUS.keywords.ethereal);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::GHOSTLY_ARMOR_PLUS_ID,
+    )];
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Ghostly Armor+ plays without a target");
+
+    assert_eq!(next.player.block, 13);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::GHOSTLY_ARMOR_PLUS_ID
+    );
+}
+
+#[test]
+fn impervious_plus_keeps_exhaust_and_gains_forty_block() {
+    assert_eq!(cards::IMPERVIOUS.values.block, Some(30));
+    assert!(cards::IMPERVIOUS.keywords.exhaust);
+
+    assert_eq!(cards::IMPERVIOUS_PLUS.values.block, Some(40));
+    assert!(cards::IMPERVIOUS_PLUS.keywords.exhaust);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.player.block = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::IMPERVIOUS_PLUS_ID)];
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Impervious+ plays without a target");
+
+    assert_eq!(next.player.block, 40);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::IMPERVIOUS_PLUS_ID
+    );
+}
+
+#[test]
+fn infernal_blade_plus_keeps_exhaust_when_cost_reduces_to_zero() {
+    assert_eq!(cards::INFERNAL_BLADE.cost, 1);
+    assert!(cards::INFERNAL_BLADE.keywords.exhaust);
+
+    assert_eq!(cards::INFERNAL_BLADE_PLUS.cost, 0);
+    assert!(cards::INFERNAL_BLADE_PLUS.keywords.exhaust);
+}
+
+#[test]
+fn intimidate_plus_keeps_exhaust_and_applies_two_weak_to_all_enemies() {
+    assert!(cards::INTIMIDATE.keywords.exhaust);
+    assert!(cards::INTIMIDATE_PLUS.keywords.exhaust);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::INTIMIDATE_PLUS_ID)];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Intimidate+ plays without a target");
+
+    assert_eq!(next.monsters[0].powers.weak, 2);
+    assert_eq!(next.monsters[1].powers.weak, 2);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::INTIMIDATE_PLUS_ID
+    );
+}
+
+#[test]
 fn twin_strike_definitions_target_one_enemy_twice() {
     assert_eq!(cards::TWIN_STRIKE.target, TargetRequirement::Enemy);
     assert_eq!(cards::TWIN_STRIKE.values.damage, Some(5));
