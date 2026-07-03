@@ -126,6 +126,81 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(status["blocker"]["blocked_steps"], 0)
         self.assertEqual(status["blocker"]["diagnostic_errors"], 1)
 
+    def test_tick_prefers_checked_rust_preflight_command_hint(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [
+                {
+                    "floor": 0,
+                    "ordinal": 0,
+                    "status": "checked",
+                    "code": "legal_neow_talk",
+                    "bridge_command": {
+                        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 0},
+                        "command": "CHOOSE 0",
+                    },
+                },
+                {
+                    "floor": 0,
+                    "ordinal": 1,
+                    "status": "checked",
+                    "code": "legal_neow_bonus",
+                    "bridge_command": {
+                        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 1},
+                        "command": "CHOOSE 1",
+                    },
+                },
+            ],
+            "diagnostics": [],
+        }
+        collector.start({"script": sample_script(), "rust_preflight": preflight})
+        calls = []
+
+        first = collector.tick(
+            self.ready_neow_bridge(["talk"]),
+            {"send": True},
+            send_command=lambda command, **kwargs: calls.append((command, kwargs)) or {
+                "ok": True,
+                "command_id": "cmd-1",
+                "command": command,
+            },
+        )
+        second = collector.tick(self.ready_neow_bridge(["ignore", "gain max hp"]))
+
+        self.assertEqual(first["suggestion"]["source"], "rust_preflight")
+        self.assertEqual(first["suggestion"]["command"], "CHOOSE 0")
+        self.assertEqual(calls[0][0], "CHOOSE 0")
+        self.assertEqual(second["suggestion"]["source"], "rust_preflight")
+        self.assertEqual(second["suggestion"]["command"], "CHOOSE 1")
+        self.assertEqual(second["suggestion"]["matched_label"], "gain max hp")
+
+    def test_tick_ignores_rust_preflight_hint_when_slot_is_not_visible(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [
+                {
+                    "floor": 0,
+                    "ordinal": 0,
+                    "status": "checked",
+                    "code": "legal_neow_talk",
+                    "bridge_command": {
+                        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 3},
+                        "command": "CHOOSE 3",
+                    },
+                }
+            ],
+            "diagnostics": [],
+        }
+        collector.start({"script": sample_script(), "rust_preflight": preflight})
+
+        result = collector.tick(self.ready_neow_bridge(["talk"]))
+
+        self.assertEqual(result["suggestion"]["status"], "matched")
+        self.assertNotEqual(result["suggestion"].get("source"), "rust_preflight")
+        self.assertEqual(result["suggestion"]["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
     def ready_event_bridge(self):
         return {
             "connected": True,

@@ -3,6 +3,15 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData preflight hint consumer slice: `GuidedCollector` now prefers
+  checked Rust `bridge_command` hints for matching live Neow/map screens before
+  falling back to Python guided-script matching, and consumes hints only after
+  sent commands. Checks: `uv run python -m unittest
+  python.tests.test_guided_collector` passed; `uv run python -m unittest
+  python.tests.test_ui_service` passed; `uv run maturin develop --release`
+  passed after restarting the UI service; direct `omni.slaythedata_preflight_json`
+  smoke test emitted command hints; UI root returned HTTP 200. Next task: expand
+  Rust-backed hints beyond Neow/map where source-shaped legality is available.
 - SlayTheData preflight command-hint slice: checked Rust preflight steps now
   carry an optional typed bridge command hint, currently for legal Neow choices
   and uniquely resolved map choices. Guided/blocked steps intentionally omit

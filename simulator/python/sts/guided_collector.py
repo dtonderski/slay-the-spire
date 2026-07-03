@@ -120,12 +120,18 @@ class GuidedCollector:
             else _next_script_ordinal(self._run, bridge_status, category)
         )
 
-        suggestion = suggest_guided_action(
-            self._run.script,
+        suggestion = rust_preflight_suggestion(
+            self._run,
             bridge_status,
             category=category,
-            ordinal=ordinal,
         )
+        if suggestion is None:
+            suggestion = suggest_guided_action(
+                self._run.script,
+                bridge_status,
+                category=category,
+                ordinal=ordinal,
+            )
         if payload.get("send"):
             send_payload = payload | {"provenance": _guided_provenance(self._run, suggestion)}
             if suggestion.get("status") == "combat":
@@ -277,6 +283,75 @@ def rust_preflight_blocker(preflight: dict[str, Any] | None) -> dict[str, Any] |
         "blocked_steps": len(blocked_steps),
         "category": "slaythedata_preflight",
     }
+
+
+def rust_preflight_suggestion(
+    run: CollectorRun,
+    bridge_status: dict[str, Any],
+    *,
+    category: str,
+) -> dict[str, Any] | None:
+    preflight = run.rust_preflight
+    if not isinstance(preflight, dict):
+        return None
+    summary = bridge_status.get("summary") if isinstance(bridge_status.get("summary"), dict) else {}
+    floor = _current_floor(summary, bridge_status)
+    choices = _visible_choices(summary, bridge_status)
+    sent_step_ordinals = {
+        entry.get("preflight_step_ordinal")
+        for entry in run.history
+        if isinstance(entry, dict)
+        and entry.get("status") in {"sent", "sent_non_combat"}
+        and entry.get("source") == "rust_preflight"
+    }
+    for step in preflight.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        step_ordinal = step.get("ordinal")
+        if step_ordinal in sent_step_ordinals:
+            continue
+        hint = step.get("bridge_command") if isinstance(step.get("bridge_command"), dict) else None
+        descriptor = hint.get("descriptor") if isinstance(hint, dict) and isinstance(hint.get("descriptor"), dict) else None
+        if descriptor is None:
+            continue
+        if str(step.get("status") or "").lower() != "checked":
+            continue
+        if not _rust_preflight_step_matches_category(step, category, floor):
+            continue
+        slot = _parse_int(descriptor.get("option_slot"))
+        if slot is None:
+            continue
+        if choices and not (0 <= slot < len(choices)):
+            continue
+        return {
+            "status": "matched",
+            "source": "rust_preflight",
+            "descriptor": descriptor,
+            "command": hint.get("command"),
+            "target": step.get("code"),
+            "matched_label": choices[slot] if choices and 0 <= slot < len(choices) else hint.get("command"),
+            "floor": floor,
+            "category": category,
+            "ordinal": 0,
+            "preflight_step_ordinal": step_ordinal,
+            "preflight_code": step.get("code"),
+            "match_evidence": "rust_preflight_checked_command",
+        }
+    return None
+
+
+def _rust_preflight_step_matches_category(
+    step: dict[str, Any],
+    category: str,
+    floor: int | None,
+) -> bool:
+    code = str(step.get("code") or "")
+    step_floor = _parse_int(step.get("floor"))
+    if category == "neow":
+        return step_floor == 0 and code.startswith("legal_neow_")
+    if category == "map" and code == "legal_map_room":
+        return floor is None or step_floor in {floor, floor + 1}
+    return False
 
 
 def suggest_guided_action(
