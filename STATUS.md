@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: corrected Wild Strike/Wild Strike+ rows with
+  source-backed facts from `WildStrike.java`. Source deals selected-enemy
+  damage, then queues `MakeTempCardInDrawPileAction(new Wound(), 1, true,
+  true)`; upgrade adds 5 damage. Local normal play and Havoc/top-draw free-play
+  already use generated random-spot Wound insertion, so no simulator code fix
+  was needed. Checks: `git diff --check` passed with only existing CRLF
+  warnings; active live-regression manifest replay passed via
+  `uv run python -m unittest python.tests.test_live_regression_traces`.
 - Card-fidelity fix: corrected Reckless Charge/Reckless Charge+ audit rows and
   fixed the generic simulator Dazed insertion path. Decompiled
   `RecklessCharge.java` deals selected-enemy damage, then queues
