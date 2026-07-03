@@ -2280,16 +2280,20 @@ fn apply_play_top_draw_card(
             });
         }
         POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => {
+            follow_ups.push(InternalAction::AddGeneratedCardToPile {
+                content_id: WOUND_ID,
+                to: CardPile::Hand,
+                temp_cost: None,
+                temp_cost_turn_only: false,
+            });
+            follow_ups.push(InternalAction::AddGeneratedCardToPile {
+                content_id: WOUND_ID,
+                to: CardPile::Hand,
+                temp_cost: None,
+                temp_cost_turn_only: false,
+            });
             follow_ups.push(InternalAction::GainBlock {
                 amount: definition.values.block.unwrap_or(0),
-            });
-            follow_ups.push(InternalAction::AddCardToPile {
-                content_id: WOUND_ID,
-                to: CardPile::Hand,
-            });
-            follow_ups.push(InternalAction::AddCardToPile {
-                content_id: WOUND_ID,
-                to: CardPile::Hand,
             });
         }
         _ if definition.values.block.is_some() => {

@@ -249,6 +249,110 @@ fn seeing_red_plus_gains_two_energy_and_exhausts_at_zero_cost() {
 }
 
 #[test]
+fn power_through_plus_adds_two_generated_wounds_then_gains_twenty_block() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::POWER_THROUGH_PLUS_ID,
+    )];
+    for id in 2..=9 {
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(id), cards::STRIKE_R_ID));
+    }
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Power Through+ plays");
+
+    assert_eq!(next.player.block, 20);
+    let hand_wounds = next
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.content_id == cards::WOUND_ID)
+        .collect::<Vec<_>>();
+    assert_eq!(hand_wounds.len(), 1);
+    assert!(hand_wounds[0].combat_only);
+    assert_eq!(next.piles.discard_pile.len(), 2);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::WOUND_ID);
+    assert!(next.piles.discard_pile[0].combat_only);
+    assert_eq!(
+        next.piles.discard_pile[1].content_id,
+        cards::POWER_THROUGH_PLUS_ID
+    );
+}
+
+#[test]
+fn rage_plus_grants_five_block_when_next_attack_is_played() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::RAGE_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Rage+ plays");
+    assert_eq!(next.player.temp_rage_block, 5);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Strike plays after Rage+");
+
+    assert_eq!(next.player.block, 5);
+    assert_eq!(next.monsters[0].hp, starting_hp - 6);
+}
+
+#[test]
+fn rampage_plus_uses_and_increases_per_instance_damage_bonus() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    let mut rampage = CardInstance::new(CardId::new(1), cards::RAMPAGE_PLUS_ID);
+    rampage.rampage_damage_bonus = 8;
+    state.piles.hand = vec![rampage];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Rampage+ plays");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 16);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::RAMPAGE_PLUS_ID
+    );
+    assert_eq!(next.piles.discard_pile[0].rampage_damage_bonus, 16);
+}
+
+#[test]
 fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     assert_eq!(cards::ARMAMENTS.values.block, Some(5));
     assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));

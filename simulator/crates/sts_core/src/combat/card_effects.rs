@@ -1421,16 +1421,20 @@ fn power_through_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
+        InternalAction::AddGeneratedCardToPile {
+            content_id: WOUND_ID,
+            to: CardPile::Hand,
+            temp_cost: None,
+            temp_cost_turn_only: false,
+        },
+        InternalAction::AddGeneratedCardToPile {
+            content_id: WOUND_ID,
+            to: CardPile::Hand,
+            temp_cost: None,
+            temp_cost_turn_only: false,
+        },
         InternalAction::GainBlock {
             amount: definition.values.block.unwrap_or(0),
-        },
-        InternalAction::AddCardToPile {
-            content_id: WOUND_ID,
-            to: CardPile::Hand,
-        },
-        InternalAction::AddCardToPile {
-            content_id: WOUND_ID,
-            to: CardPile::Hand,
         },
         InternalAction::MoveCard {
             card_id,

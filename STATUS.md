@@ -3,6 +3,25 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Power Through/Power Through+, Rage/Rage+, and
+  Rampage/Rampage+ against their decompiled card classes and the trusted sts.gg
+  card database baseline, then replaced stale generic audit rows with
+  source-backed facts. Source Power Through creates two temporary Wounds in
+  hand before gaining 15/20 Block; Rage applies a 3/5 one-turn power that gains
+  Block when Attacks are played; Rampage deals 8 plus its per-instance combat
+  bonus, then increases that instance by 5/8. Fixed generic simulator gaps:
+  Power Through now creates generated combat-only Wounds instead of normal card
+  instances, and queues those generated Wounds before Block in normal and
+  Havoc/top-draw play. Checks: `cargo fmt` passed; focused `cargo test -p
+  sts_core --test card_fidelity power_through` passed; focused `cargo test -p
+  sts_core --test card_fidelity rage` passed; focused `cargo test -p sts_core
+  --test card_fidelity rampage` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (108 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit: verified Limit Break/Limit Break+, Offering/Offering+,
   and Seeing Red/Seeing Red+ against their decompiled card classes and the
   trusted sts.gg card database baseline, then replaced stale generic audit rows
