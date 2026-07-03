@@ -27,7 +27,7 @@ use crate::{
         OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
         PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
-        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
+        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
         REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SEARING_BLOW_ID,
         SEARING_BLOW_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID,
         SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
@@ -1990,6 +1990,14 @@ fn apply_play_top_draw_card(
             });
             follow_ups.push(InternalAction::PreventBlockGain { turns: 2 });
         }
+        PURITY_ID | PURITY_PLUS_ID => {
+            if !state.piles.hand.is_empty() {
+                follow_ups.push(InternalAction::AwaitExhaustSelect {
+                    source_card_id: card_id,
+                    purpose: crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3,
+                });
+            }
+        }
         CLOTHESLINE_ID | CLOTHESLINE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
             follow_ups.push(InternalAction::DealDamage {
@@ -3015,10 +3023,17 @@ fn confirm_purity_select(
         state.piles.exhaust_pile.push(card);
         apply_on_exhaust_effects(state, card.id);
     }
-    let source_destination = purity_source_destination(state);
-    move_card(state, source_card_id, CardPile::Hand, source_destination)?;
-    if source_destination == CardPile::ExhaustPile {
-        apply_on_exhaust_effects(state, source_card_id);
+    if state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id == source_card_id)
+    {
+        let source_destination = purity_source_destination(state);
+        move_card(state, source_card_id, CardPile::Hand, source_destination)?;
+        if source_destination == CardPile::ExhaustPile {
+            apply_on_exhaust_effects(state, source_card_id);
+        }
     }
     Ok(())
 }
@@ -3052,8 +3067,12 @@ fn purity_select_cap(state: &CombatState, source_card_id: CardId) -> SimResult<u
         .piles
         .hand
         .iter()
+        .chain(state.piles.exhaust_pile.iter())
+        .chain(state.piles.discard_pile.iter())
         .find(|card| card.id == source_card_id)
-        .ok_or(SimError::IllegalAction("Purity source card is not in hand"))?;
+        .ok_or(SimError::IllegalAction(
+            "Purity source card is not available",
+        ))?;
     Ok(if source.content_id == PURITY_PLUS_ID {
         5
     } else {

@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Purity/Purity+ against `Purity.java`, then
+  fixed the top-draw free-play selection path. Source Purity is a 0-cost
+  colorless Uncommon Skill with Exhaust and `magicNumber` 3/5; it queues
+  `ExhaustAction(magicNumber, false, true, true)` to choose and exhaust up to
+  that many cards in hand, and upgrade only increases the selection cap by 2.
+  Local normal hand play already used the correct 3/5 cap and Exhaust keyword,
+  but the Havoc/Mayhem top-draw path exhausted the Purity source without
+  opening the selection. The simulator now opens Purity's exhaust selection
+  when played from the draw pile and resolves the source correctly even after it
+  has already moved out of hand. Checks: `cargo fmt` passed; `cargo test -p
+  sts_core --test card_fidelity
+  top_draw_purity_plus_exhausts_up_to_five_hand_cards` passed; `cargo test -p
+  sts_core --test card_fidelity` passed (38 tests); `cargo clippy` passed with
+  existing warnings after setting `PYO3_PYTHON` to the bundled Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `py_sts`/`sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Panic Button/Panic Button+ against
   `PanicButton.java` and `NoBlockPower.java`, then fixed the top-draw
   free-play upgraded path. Source Panic Button is a 0-cost colorless Uncommon

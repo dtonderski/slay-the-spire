@@ -2,7 +2,10 @@ use sts_core::{
     apply_combat_action, apply_combat_action_on_run,
     card::{CardType, TargetRequirement},
     combat::{
-        transition::{choose_hand_select, confirm_hand_select},
+        transition::{
+            apply_play_top_draw_card_action, choose_exhaust_select, choose_hand_select,
+            confirm_exhaust_select, confirm_hand_select,
+        },
         turn::start_player_turn,
     },
     content::{
@@ -780,6 +783,39 @@ fn havoc_panic_button_plus_gains_forty_block_and_prevents_block() {
         next.piles.exhaust_pile[0].content_id,
         cards::PANIC_BUTTON_PLUS_ID
     );
+}
+
+#[test]
+fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::BASH_ID),
+        CardInstance::new(CardId::new(4), cards::ANGER_ID),
+        CardInstance::new(CardId::new(5), cards::SHRUG_IT_OFF_ID),
+    ];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(6), cards::PURITY_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_play_top_draw_card_action(&state, None)
+        .expect("top-draw Purity+ opens exhaust selection");
+    assert!(next.exhaust_select.is_some());
+
+    for ui_index in 0..5 {
+        choose_exhaust_select(&mut next, ui_index).expect("select next hand card");
+    }
+    confirm_exhaust_select(&mut next).expect("confirm Purity+ exhaust selection");
+
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 6);
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::PURITY_PLUS_ID));
+    assert!(next.exhaust_select.is_none());
 }
 
 #[test]
