@@ -1,5 +1,6 @@
 use sts_verify::{
-    import_slaythedata_jsonl_line, import_slaythedata_run_json, SlayTheDataDiagnosticSeverity,
+    import_slaythedata_jsonl_line, import_slaythedata_run_json, slaythedata_replay_plan,
+    SlayTheDataDiagnosticSeverity, SlayTheDataReplayOrdering, SlayTheDataReplayStepKind,
     SlayTheDataSourceKind,
 };
 
@@ -146,4 +147,79 @@ fn imports_selected_jsonl_line() {
     let imported = import_slaythedata_jsonl_line(rows, 1).expect("imports second row");
 
     assert_eq!(imported.config.seed_played.as_deref(), Some("SECOND"));
+}
+
+#[test]
+fn derives_floor_grouped_replay_plan_from_import() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "event": {
+                "character_chosen": "IRONCLAD",
+                "ascension_level": 0,
+                "seed_played": "PLAN01",
+                "neow_bonus": "TEN_PERCENT_HP_BONUS",
+                "neow_cost": "NONE",
+                "path_per_floor": ["M", "?"],
+                "card_choices": [{"floor": 1, "picked": "Inflame"}],
+                "event_choices": [{"floor": 2, "event_name": "Golden Shrine", "player_choice": "Pray"}],
+                "items_purchased": ["Shrug It Off"],
+                "item_purchase_floors": [3],
+                "campfire_choices": [{"floor": 4, "key": "SMITH", "data": "Bash+"}],
+                "potions_floor_usage": [1],
+                "boss_relics": [{"picked": "Black Blood"}],
+                "master_deck": ["Bash", "Inflame"],
+                "relics": ["Burning Blood"],
+                "floor_reached": 4,
+                "gold": 99
+            }
+        }"#,
+    )
+    .expect("imports");
+
+    let plan = slaythedata_replay_plan(&imported);
+
+    assert_eq!(plan.ordering, SlayTheDataReplayOrdering::FloorGrouped);
+    assert_eq!(plan.run_start.as_ref().unwrap().seed_played, "PLAN01");
+    assert!(matches!(
+        plan.steps[0].kind,
+        SlayTheDataReplayStepKind::NeowTalk
+    ));
+    assert!(matches!(
+        plan.steps[1].kind,
+        SlayTheDataReplayStepKind::NeowBonus { .. }
+    ));
+    assert!(matches!(
+        plan.steps[3].kind,
+        SlayTheDataReplayStepKind::MapRoom { .. }
+    ));
+    assert!(plan
+        .steps
+        .iter()
+        .any(|step| matches!(step.kind, SlayTheDataReplayStepKind::CardReward { .. })));
+    assert!(plan.steps.iter().any(|step| matches!(
+        step.kind,
+        SlayTheDataReplayStepKind::PotionBudget { uses_allowed: 1 }
+    )));
+    assert!(plan.steps.iter().any(|step| matches!(
+        step.kind,
+        SlayTheDataReplayStepKind::BossRelic { act: 1, .. }
+    )));
+    assert!(plan
+        .checkpoints
+        .iter()
+        .any(|checkpoint| checkpoint.floor == Some(4)));
+}
+
+#[test]
+fn replay_plan_reports_missing_start_identity() {
+    let imported = import_slaythedata_run_json(r#"{"character_chosen":"IRONCLAD"}"#)
+        .expect("imports partial row");
+
+    let plan = slaythedata_replay_plan(&imported);
+
+    assert!(plan.run_start.is_none());
+    assert!(plan
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "missing_run_start_identity"));
 }

@@ -18,6 +18,96 @@ pub struct SlayTheDataRunImport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataReplayPlan {
+    pub schema: u32,
+    pub source: SlayTheDataSource,
+    pub run_start: Option<SlayTheDataRunStart>,
+    pub ordering: SlayTheDataReplayOrdering,
+    pub steps: Vec<SlayTheDataReplayStep>,
+    pub checkpoints: Vec<SlayTheDataCheckpoint>,
+    pub diagnostics: Vec<SlayTheDataDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataRunStart {
+    pub character: String,
+    pub ascension: i32,
+    pub seed_played: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlayTheDataReplayOrdering {
+    FloorGrouped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataReplayStep {
+    pub floor: u32,
+    pub ordinal: usize,
+    pub kind: SlayTheDataReplayStepKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SlayTheDataReplayStepKind {
+    NeowTalk,
+    NeowBonus {
+        bonus: Option<String>,
+        cost: Option<String>,
+    },
+    NeowLeave,
+    MapRoom {
+        symbol: String,
+    },
+    CardReward {
+        picked: Option<SlayTheDataCardName>,
+        skipped: bool,
+    },
+    EventChoice {
+        event_name: Option<String>,
+        player_choice: Option<String>,
+    },
+    ShopPurchase {
+        item: String,
+        base_item: String,
+    },
+    Campfire {
+        key: Option<String>,
+        target_card: Option<SlayTheDataCardName>,
+    },
+    BossRelic {
+        act: u32,
+        picked: Option<String>,
+    },
+    PotionBudget {
+        uses_allowed: u32,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataCheckpoint {
+    pub floor: Option<u32>,
+    pub kind: SlayTheDataCheckpointKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SlayTheDataCheckpointKind {
+    RunStart,
+    FloorStart {
+        route: Option<String>,
+    },
+    FinalObserved {
+        floor_reached: Option<i32>,
+        victory: bool,
+        deck_count: usize,
+        relic_count: usize,
+        gold: Option<i32>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlayTheDataSource {
     pub kind: SlayTheDataSourceKind,
     pub run_id: Option<i64>,
@@ -293,6 +383,165 @@ pub fn import_slaythedata_run_value(
     };
     imported.diagnostics = diagnostics_for(&imported);
     Ok(imported)
+}
+
+pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataReplayPlan {
+    let mut diagnostics = imported.diagnostics.clone();
+    let run_start = match (
+        imported.config.character.clone(),
+        imported.config.ascension,
+        imported.config.seed_played.clone(),
+    ) {
+        (Some(character), Some(ascension), Some(seed_played)) => Some(SlayTheDataRunStart {
+            character,
+            ascension,
+            seed_played,
+        }),
+        _ => {
+            diagnostics.push(SlayTheDataDiagnostic {
+                severity: SlayTheDataDiagnosticSeverity::Error,
+                code: "missing_run_start_identity".to_owned(),
+                path: "$.config".to_owned(),
+                message: "character, ascension, and seed_played are required to start replay from SlayTheData".to_owned(),
+            });
+            None
+        }
+    };
+
+    let mut steps = Vec::new();
+    if imported.config.neow_bonus.is_some() || imported.config.neow_cost.is_some() {
+        steps.push(SlayTheDataReplayStep {
+            floor: 0,
+            ordinal: steps.len(),
+            kind: SlayTheDataReplayStepKind::NeowTalk,
+        });
+        steps.push(SlayTheDataReplayStep {
+            floor: 0,
+            ordinal: steps.len(),
+            kind: SlayTheDataReplayStepKind::NeowBonus {
+                bonus: imported.config.neow_bonus.clone(),
+                cost: imported.config.neow_cost.clone(),
+            },
+        });
+        steps.push(SlayTheDataReplayStep {
+            floor: 0,
+            ordinal: steps.len(),
+            kind: SlayTheDataReplayStepKind::NeowLeave,
+        });
+    }
+
+    for floor in &imported.floor_decisions {
+        if let Some(route) = &floor.route {
+            steps.push(SlayTheDataReplayStep {
+                floor: floor.floor,
+                ordinal: steps.len(),
+                kind: SlayTheDataReplayStepKind::MapRoom {
+                    symbol: route.clone(),
+                },
+            });
+        }
+        for reward in &floor.card_rewards {
+            steps.push(SlayTheDataReplayStep {
+                floor: floor.floor,
+                ordinal: steps.len(),
+                kind: SlayTheDataReplayStepKind::CardReward {
+                    picked: reward.picked.clone(),
+                    skipped: reward.skipped,
+                },
+            });
+        }
+        for event in &floor.events {
+            steps.push(SlayTheDataReplayStep {
+                floor: floor.floor,
+                ordinal: steps.len(),
+                kind: SlayTheDataReplayStepKind::EventChoice {
+                    event_name: event.event_name.clone(),
+                    player_choice: event.player_choice.clone(),
+                },
+            });
+        }
+        for purchase in &floor.shop_purchases {
+            steps.push(SlayTheDataReplayStep {
+                floor: floor.floor,
+                ordinal: steps.len(),
+                kind: SlayTheDataReplayStepKind::ShopPurchase {
+                    item: purchase.item.clone(),
+                    base_item: purchase.base_item.clone(),
+                },
+            });
+        }
+        for campfire in &floor.campfires {
+            steps.push(SlayTheDataReplayStep {
+                floor: floor.floor,
+                ordinal: steps.len(),
+                kind: SlayTheDataReplayStepKind::Campfire {
+                    key: campfire.key.clone(),
+                    target_card: campfire.data.clone(),
+                },
+            });
+        }
+        if floor.potions.uses_allowed > 0 {
+            steps.push(SlayTheDataReplayStep {
+                floor: floor.floor,
+                ordinal: steps.len(),
+                kind: SlayTheDataReplayStepKind::PotionBudget {
+                    uses_allowed: floor.potions.uses_allowed,
+                },
+            });
+        }
+    }
+    for choice in &imported.boss_relic_choices {
+        steps.push(SlayTheDataReplayStep {
+            floor: choice.act * 17,
+            ordinal: steps.len(),
+            kind: SlayTheDataReplayStepKind::BossRelic {
+                act: choice.act,
+                picked: choice.picked.clone(),
+            },
+        });
+    }
+
+    let mut checkpoints = Vec::new();
+    if run_start.is_some() {
+        checkpoints.push(SlayTheDataCheckpoint {
+            floor: Some(0),
+            kind: SlayTheDataCheckpointKind::RunStart,
+        });
+    }
+    checkpoints.extend(
+        imported
+            .floor_decisions
+            .iter()
+            .map(|floor| SlayTheDataCheckpoint {
+                floor: Some(floor.floor),
+                kind: SlayTheDataCheckpointKind::FloorStart {
+                    route: floor.route.clone(),
+                },
+            }),
+    );
+    checkpoints.push(SlayTheDataCheckpoint {
+        floor: imported
+            .final_observed
+            .floor_reached
+            .and_then(|floor| u32::try_from(floor).ok()),
+        kind: SlayTheDataCheckpointKind::FinalObserved {
+            floor_reached: imported.final_observed.floor_reached,
+            victory: imported.final_observed.victory,
+            deck_count: imported.final_observed.master_deck.len(),
+            relic_count: imported.final_observed.relics.len(),
+            gold: imported.final_observed.gold,
+        },
+    });
+
+    SlayTheDataReplayPlan {
+        schema: SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
+        source: imported.source.clone(),
+        run_start,
+        ordering: SlayTheDataReplayOrdering::FloorGrouped,
+        steps,
+        checkpoints,
+        diagnostics,
+    }
 }
 
 fn import_card_rewards(

@@ -35,12 +35,14 @@ pub use sim_real::{
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,
-    SlayTheDataBossRelicChoice, SlayTheDataCampfireChoice, SlayTheDataCardName,
-    SlayTheDataCardReward, SlayTheDataDiagnostic, SlayTheDataDiagnosticSeverity,
-    SlayTheDataEventChoice, SlayTheDataFinalObserved, SlayTheDataFloorDecision,
-    SlayTheDataImportError, SlayTheDataNamedFloorItem, SlayTheDataPotionFloorDecision,
-    SlayTheDataReplayPolicy, SlayTheDataRoute, SlayTheDataRunConfig, SlayTheDataRunImport,
-    SlayTheDataShopPurchase, SlayTheDataSource, SlayTheDataSourceKind,
+    slaythedata_replay_plan, SlayTheDataBossRelicChoice, SlayTheDataCampfireChoice,
+    SlayTheDataCardName, SlayTheDataCardReward, SlayTheDataCheckpoint, SlayTheDataCheckpointKind,
+    SlayTheDataDiagnostic, SlayTheDataDiagnosticSeverity, SlayTheDataEventChoice,
+    SlayTheDataFinalObserved, SlayTheDataFloorDecision, SlayTheDataImportError,
+    SlayTheDataNamedFloorItem, SlayTheDataPotionFloorDecision, SlayTheDataReplayOrdering,
+    SlayTheDataReplayPlan, SlayTheDataReplayPolicy, SlayTheDataReplayStep,
+    SlayTheDataReplayStepKind, SlayTheDataRoute, SlayTheDataRunConfig, SlayTheDataRunImport,
+    SlayTheDataRunStart, SlayTheDataShopPurchase, SlayTheDataSource, SlayTheDataSourceKind,
     SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
 };
 pub use trace::{

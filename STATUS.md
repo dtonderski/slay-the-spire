@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData replay-plan slice: added verifier-side replay descriptors derived
+  from the typed SlayTheData import. `slaythedata_replay_plan` now emits a
+  start descriptor when character/ascension/seed are present, floor-grouped
+  run-level steps for Neow, map route symbols, card rewards, events, shops,
+  campfires, boss relics, and potion budgets, plus coarse reconstruction
+  checkpoints. Missing start identity remains an explicit diagnostic instead
+  of being guessed. Checks: `cargo fmt` passed; focused `cargo test -p
+  sts_verify --test slaythedata` passed. Next task: connect these descriptors
+  to verifier legality checks against `RunState` and then surface imported
+  sessions in the UI.
 - Card-fidelity fix: verified Decay and Normality against decompiled
   `Decay.java`/`Normality.java` and the trusted sts.gg card database baseline,
   then replaced their stale generic audit rows with source-backed facts. Fixed
