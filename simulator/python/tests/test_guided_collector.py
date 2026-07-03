@@ -390,6 +390,21 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         }
 
+    def ready_reward_proceed_bridge(self):
+        return {
+            "connected": True,
+            "exited": False,
+            "pending_command": False,
+            "ready_for_command": True,
+            "state_id": "reward-proceed-bridge-state",
+            "summary": {
+                "floor": 1,
+                "screen_type": "COMBAT_REWARD",
+                "choices": None,
+                "available_commands": ["potion", "proceed"],
+            },
+        }
+
     def ready_card_reward_bridge(self):
         return {
             "connected": True,
@@ -457,6 +472,22 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
         self.assertEqual(result["category"], "event")
 
+    def test_suggest_guided_action_uses_lossy_event_fallback_when_unmatched(self):
+        bridge = self.ready_event_bridge()
+        bridge["summary"]["floor"] = 9
+        bridge["summary"]["choices"] = ["Pray", "Leave"]
+
+        result = suggest_guided_action(
+            sample_script(),
+            bridge,
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "event")
+        self.assertTrue(result["lossy"])
+        self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 1})
+        self.assertEqual(result["match_evidence"], "agent_event_fallback")
+
     def test_suggest_guided_action_infers_neow_event_choice(self):
         result = suggest_guided_action(
             sample_script(),
@@ -500,6 +531,36 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["reason"], "run_identity_mismatch")
 
+    def test_suggest_guided_action_accepts_js_rounded_signed_seed(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "character_chosen": "IRONCLAD",
+                    "ascension_level": 0,
+                    "seed_played": "-3574229841928219368",
+                    "neow_bonus": "THREE_ENEMY_KILL",
+                    "neow_cost": "NONE",
+                    "path_per_floor": ["M"],
+                }
+            }
+        )
+        bridge = self.ready_map_bridge()
+        bridge["summary"]["floor"] = 0
+        bridge["summary"]["class"] = "IRONCLAD"
+        bridge["summary"]["ascension_level"] = 0
+        bridge["summary"]["seed"] = -3574229841928219000
+        bridge["summary"]["choices"] = ["x=1"]
+        bridge["current_state"]["message"]["game_state"]["floor"] = 0
+        bridge["current_state"]["message"]["game_state"]["choice_list"] = ["x=1"]
+        bridge["current_state"]["message"]["game_state"]["screen_state"]["next_nodes"] = [
+            {"x": 1, "room_symbol": "M"}
+        ]
+
+        result = suggest_guided_action(script, bridge)
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "map")
+
     def test_suggest_guided_action_matches_boss_relic_choice(self):
         result = suggest_guided_action(
             sample_script(),
@@ -520,6 +581,27 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["category"], "map")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
+    def test_suggest_guided_action_blocks_ambiguous_map_route_when_route_lacks_xy(self):
+        bridge = self.ready_map_bridge()
+        bridge["summary"]["floor"] = 0
+        bridge["summary"]["choices"] = ["x=1", "x=3", "x=4"]
+        bridge["current_state"]["message"]["game_state"]["floor"] = 0
+        bridge["current_state"]["message"]["game_state"]["choice_list"] = ["x=1", "x=3", "x=4"]
+        bridge["current_state"]["message"]["game_state"]["screen_state"]["next_nodes"] = [
+            {"x": 1, "room_symbol": "M"},
+            {"x": 3, "room_symbol": "M"},
+            {"x": 4, "room_symbol": "M"},
+        ]
+
+        result = suggest_guided_action(
+            sample_script(),
+            bridge,
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "map_route_ambiguous")
+        self.assertEqual(result["category"], "map")
+
     def test_suggest_guided_action_matches_campfire_then_grid_choice(self):
         campfire = suggest_guided_action(sample_script(), self.ready_campfire_bridge())
         grid = suggest_guided_action(sample_script(), self.ready_grid_bridge())
@@ -537,6 +619,15 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["category"], "reward")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 2})
+
+    def test_suggest_guided_action_proceeds_when_reward_has_no_visible_choices(self):
+        result = suggest_guided_action(sample_script(), self.ready_reward_proceed_bridge())
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["category"], "reward")
+        self.assertEqual(result["descriptor"], {"kind": "Proceed"})
+        self.assertEqual(result["command"], "PROCEED")
+        self.assertEqual(result["match_evidence"], "available_proceed_command")
 
     def test_suggest_guided_action_skips_card_reward_when_script_skipped(self):
         result = suggest_guided_action(skipped_card_reward_script(), self.ready_card_reward_bridge())
@@ -577,8 +668,14 @@ class GuidedCollectorTests(unittest.TestCase):
     def test_send_guided_suggestion_sends_matching_descriptor_with_source_state(self):
         calls = []
 
-        def send_command(command, *, source_state_id=None, wait_for_state_update=False):
-            calls.append((command, source_state_id, wait_for_state_update))
+        def send_command(
+            command,
+            *,
+            source_state_id=None,
+            wait_for_state_update=False,
+            update_timeout_seconds=None,
+        ):
+            calls.append((command, source_state_id, wait_for_state_update, update_timeout_seconds))
             return {"ok": True, "command_id": "cmd-1", "command": command}
 
         suggestion = suggest_guided_action(sample_script(), self.ready_event_bridge())
@@ -592,7 +689,7 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "sent")
         self.assertEqual(result["command"], "CHOOSE 0")
         self.assertEqual(result["source_state_id"], "bridge-state")
-        self.assertEqual(calls, [("CHOOSE 0", "bridge-state", True)])
+        self.assertEqual(calls, [("CHOOSE 0", "bridge-state", True, 30.0)])
 
     def test_send_guided_suggestion_blocks_when_tcp_observed_update_is_missing(self):
         suggestion = suggest_guided_action(sample_script(), self.ready_event_bridge())
@@ -900,14 +997,14 @@ class GuidedCollectorTests(unittest.TestCase):
             {
                 "summary": {
                     "floor": 2,
-                    "screen_type": "EVENT",
+                    "screen_type": "UNKNOWN",
                     "choices": ["Leave"],
                 }
             }
         )
 
         self.assertEqual(tick["status"], "blocked")
-        self.assertEqual(tick["blocker"]["reason"], "target_not_visible")
+        self.assertEqual(tick["blocker"]["reason"], "unsupported_screen")
         self.assertEqual(tick["history_count"], 1)
 
         stopped = collector.stop()

@@ -15,6 +15,8 @@ from typing import Any
 
 
 SCRIPT_SCHEMA_VERSION = 1
+_JS_SAFE_INTEGER = 9_007_199_254_740_991
+_JS_ROUNDING_SEED_TOLERANCE = 2048
 
 
 def build_guided_run_script(exported: dict[str, Any]) -> dict[str, Any]:
@@ -335,7 +337,7 @@ def identity_blocker(script: dict[str, Any], bridge_summary: dict[str, Any]) -> 
 
     expected_seed = _optional_string(config.get("seed_played") or config.get("seed"))
     observed_seed = _optional_string(bridge_summary.get("seed") or bridge_summary.get("seed_played"))
-    if expected_seed and observed_seed and expected_seed != observed_seed:
+    if expected_seed and observed_seed and not _seed_values_match(expected_seed, observed_seed):
         return _blocked(
             "run_identity_mismatch",
             f"script seed {expected_seed!r} does not match live seed {observed_seed!r}",
@@ -948,6 +950,59 @@ def _map_route_ambiguous(
         "target": target,
         "candidate_count": candidate_count,
         "match_evidence": source,
+    }
+
+
+def _seed_values_match(expected_seed: str, observed_seed: str) -> bool:
+    if expected_seed == observed_seed:
+        return True
+    expected = _parse_int(expected_seed)
+    observed = _parse_int(observed_seed)
+    if expected is None or observed is None:
+        return False
+    if abs(expected) <= _JS_SAFE_INTEGER and abs(observed) <= _JS_SAFE_INTEGER:
+        return expected == observed
+    return abs(expected - observed) <= _JS_ROUNDING_SEED_TOLERANCE
+
+
+def _lossy_map_choice(
+    target: str,
+    *,
+    floor: int,
+    choice_labels: list[str],
+    nodes: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    slots = [
+        slot
+        for node in nodes
+        if (slot := _node_choice_slot(node, choice_labels)) is not None
+    ]
+    return _lossy_map_label_choice(target, floor=floor, choice_labels=choice_labels, slots=slots)
+
+
+def _lossy_map_label_choice(
+    target: str,
+    *,
+    floor: int,
+    choice_labels: list[str],
+    slots: list[int],
+) -> dict[str, Any] | None:
+    visible_slots = sorted({slot for slot in slots if 0 <= slot < len(choice_labels)})
+    if not visible_slots:
+        return None
+    slot = visible_slots[0]
+    return {
+        "status": "matched",
+        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": slot},
+        "target": target,
+        "matched_label": choice_labels[slot],
+        "floor": floor,
+        "category": "map",
+        "ordinal": 0,
+        "fallback": True,
+        "lossy": True,
+        "lossy_reason": "SlayTheData route records room symbols but not map x/y",
+        "candidate_count": len(visible_slots),
     }
 
 

@@ -791,18 +791,56 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             SlayTheDataReplayStepKind::MapRoom { symbol } => match run.as_ref() {
                 Some(current) if current.phase == RunPhase::Idle => {
                     let actions = legal_map_actions_on_run(current);
+                    let action_symbols: Vec<_> = actions
+                        .iter()
+                        .filter_map(|action| map_action_room_kind(current, *action))
+                        .map(room_kind_symbol)
+                        .collect();
                     let matches: Vec<_> = actions
                         .iter()
                         .copied()
                         .filter(|action| map_action_matches_symbol(current, *action, symbol))
                         .collect();
-                    match matches.as_slice() {
-                        [action] => {
+                    let constrained_match = constrain_map_action_by_slaythedata_evidence(
+                        current,
+                        &actions,
+                        &matches,
+                        plan,
+                        step.floor,
+                    );
+                    match constrained_match.as_slice() {
+                        [ConstrainedMapAction { action, action_slot, evidence }] => {
+                            match apply_map_action_on_run(current, *action) {
+                                Ok(next) => {
+                                    run = Some(next);
+                                    (
+                                        SlayTheDataPreflightStatus::Checked,
+                                        "legal_map_room".to_owned(),
+                                        format!(
+                                            "route symbol {symbol:?} matched legal map action {:?} using {evidence}",
+                                            action
+                                        ),
+                                        Some(choose_visible_hint(*action_slot)),
+                                    )
+                                }
+                                Err(error) => (
+                                    SlayTheDataPreflightStatus::Blocked,
+                                    "map_action_apply_failed".to_owned(),
+                                    format!(
+                                        "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
+                                        action
+                                    ),
+                                    None,
+                                ),
+                            }
+                        }
+                        [] if matches.len() == 1 => {
+                            let action = matches[0];
                             let action_slot = actions
                                 .iter()
-                                .position(|candidate| candidate == action)
+                                .position(|candidate| *candidate == action)
                                 .unwrap_or(0);
-                            match apply_map_action_on_run(current, *action) {
+                            match apply_map_action_on_run(current, action) {
                                 Ok(next) => {
                                     run = Some(next);
                                     (
@@ -826,12 +864,14 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 ),
                             }
                         }
-                        [] => (
+                        [] if matches.is_empty() => (
                             SlayTheDataPreflightStatus::Guided,
                             "guided_map_symbol_unmatched".to_owned(),
                             format!(
-                                "route symbol {symbol:?} matched no legal map actions from phase {:?}; SlayTheData route data has no map x/y so this remains guided",
-                                current.phase
+                                "route symbol {symbol:?} matched no legal map actions from phase {:?} ({} legal map action(s), candidate symbols {:?}); SlayTheData route data has no map x/y so this remains guided",
+                                current.phase,
+                                actions.len(),
+                                action_symbols
                             ),
                             None,
                         ),
@@ -839,7 +879,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                             SlayTheDataPreflightStatus::Guided,
                             "ambiguous_map_symbol".to_owned(),
                             format!(
-                                "route symbol {symbol:?} matched {} legal map actions; SlayTheData does not include map x/y",
+                                "route symbol {symbol:?} matched {} legal map actions and SlayTheData evidence did not select exactly one branch",
                                 matches.len()
                             ),
                             None,
@@ -987,6 +1027,283 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
     }
 }
 
+#[derive(Debug, Clone)]
+struct ConstrainedMapAction {
+    action: MapAction,
+    action_slot: usize,
+    evidence: String,
+}
+
+fn constrain_map_action_by_slaythedata_evidence(
+    current: &RunState,
+    actions: &[MapAction],
+    matches: &[MapAction],
+    plan: &SlayTheDataReplayPlan,
+    floor: u32,
+) -> Vec<ConstrainedMapAction> {
+    if matches.len() <= 1 {
+        return Vec::new();
+    }
+    let route_constrained =
+        constrain_map_actions_by_future_route_symbols(current, actions, matches, plan, floor);
+    if route_constrained.len() == 1 {
+        return route_constrained;
+    }
+    let mut constrained = Vec::new();
+    for action in matches {
+        let Ok(next) = apply_map_action_on_run(current, *action) else {
+            continue;
+        };
+        let evidence = slaythedata_map_candidate_evidence(&next, plan, floor);
+        if let Some(evidence) = evidence {
+            let action_slot = actions
+                .iter()
+                .position(|candidate| candidate == action)
+                .unwrap_or(0);
+            constrained.push(ConstrainedMapAction {
+                action: *action,
+                action_slot,
+                evidence,
+            });
+        }
+    }
+    constrained
+}
+
+fn constrain_map_actions_by_future_route_symbols(
+    current: &RunState,
+    actions: &[MapAction],
+    matches: &[MapAction],
+    plan: &SlayTheDataReplayPlan,
+    floor: u32,
+) -> Vec<ConstrainedMapAction> {
+    let future_steps: Vec<(u32, String)> = plan
+        .steps
+        .iter()
+        .filter(|step| step.floor > floor)
+        .filter_map(|step| match &step.kind {
+            SlayTheDataReplayStepKind::MapRoom { symbol } => {
+                normalize_route_symbol(symbol).map(|symbol| (step.floor, symbol))
+            }
+            _ => None,
+        })
+        .collect();
+    if future_steps.is_empty() {
+        return Vec::new();
+    }
+
+    let mut constrained = Vec::new();
+    for action in matches {
+        let Ok(next) = apply_map_action_on_run(current, *action) else {
+            continue;
+        };
+        if run_state_can_match_route_suffix(next, plan, &future_steps) {
+            let action_slot = actions
+                .iter()
+                .position(|candidate| candidate == action)
+                .unwrap_or(0);
+            constrained.push(ConstrainedMapAction {
+                action: *action,
+                action_slot,
+                evidence: "future SlayTheData route symbols".to_owned(),
+            });
+        }
+    }
+    constrained
+}
+
+fn run_state_can_match_route_suffix(
+    run: RunState,
+    plan: &SlayTheDataReplayPlan,
+    future_steps: &[(u32, String)],
+) -> bool {
+    let Some(((floor, symbol), rest)) = future_steps.split_first() else {
+        return true;
+    };
+    let idle = run_completed_for_route_lookahead(run);
+    legal_map_actions_on_run(&idle).into_iter().any(|action| {
+        let Some(kind) = map_action_room_kind(&idle, action) else {
+            return false;
+        };
+        if normalize_route_symbol(room_kind_symbol(kind)).as_ref() != Some(symbol) {
+            return false;
+        }
+        let Ok(next) = apply_map_action_on_run(&idle, action) else {
+            return false;
+        };
+        if floor_has_candidate_evidence(plan, *floor)
+            && slaythedata_map_candidate_evidence(&next, plan, *floor).is_none()
+        {
+            return false;
+        }
+        run_state_can_match_route_suffix(next, plan, rest)
+    })
+}
+
+fn run_completed_for_route_lookahead(mut run: RunState) -> RunState {
+    run.phase = RunPhase::Idle;
+    run.combat = None;
+    run.reward = None;
+    run.event = None;
+    run.shop = None;
+    run.card_grid = None;
+    run.treasure_room = None;
+    run.rest_room_complete = false;
+    run
+}
+
+fn floor_has_candidate_evidence(plan: &SlayTheDataReplayPlan, floor: u32) -> bool {
+    plan.steps.iter().any(|step| {
+        step.floor == floor
+            && matches!(
+                step.kind,
+                SlayTheDataReplayStepKind::EventChoice { .. }
+                    | SlayTheDataReplayStepKind::CardReward { .. }
+                    | SlayTheDataReplayStepKind::ShopPurchase { .. }
+                    | SlayTheDataReplayStepKind::Campfire { .. }
+                    | SlayTheDataReplayStepKind::PotionBudget { .. }
+            )
+    })
+}
+
+fn slaythedata_map_candidate_evidence(
+    next: &RunState,
+    plan: &SlayTheDataReplayPlan,
+    floor: u32,
+) -> Option<String> {
+    let floor_steps: Vec<&SlayTheDataReplayStep> = plan
+        .steps
+        .iter()
+        .filter(|candidate| candidate.floor == floor)
+        .collect();
+    if floor_steps.is_empty() {
+        return None;
+    }
+
+    match next.phase {
+        RunPhase::Event => {
+            let event = next.event.as_ref()?;
+            for step in &floor_steps {
+                if let SlayTheDataReplayStepKind::EventChoice { event_name, .. } = &step.kind {
+                    if let Some(event_name) = event_name {
+                        if event_name_matches(event.event, event_name) {
+                            return Some(format!("recorded event {event_name:?}"));
+                        }
+                    }
+                }
+            }
+            None
+        }
+        RunPhase::Reward => {
+            let reward = next.reward.as_ref()?;
+            if floor_steps.iter().any(|step| {
+                matches!(
+                    step.kind,
+                    SlayTheDataReplayStepKind::CardReward { .. }
+                        | SlayTheDataReplayStepKind::PotionBudget { .. }
+                )
+            }) {
+                return Some("recorded reward/card-reward evidence".to_owned());
+            }
+            if reward.relic_offer.is_some()
+                && floor_steps
+                    .iter()
+                    .any(|step| matches!(step.kind, SlayTheDataReplayStepKind::BossRelic { .. }))
+            {
+                return Some("recorded relic reward evidence".to_owned());
+            }
+            None
+        }
+        RunPhase::Shop => {
+            if floor_steps
+                .iter()
+                .any(|step| matches!(step.kind, SlayTheDataReplayStepKind::ShopPurchase { .. }))
+            {
+                return Some("recorded shop purchase evidence".to_owned());
+            }
+            None
+        }
+        RunPhase::Rest => {
+            if floor_steps
+                .iter()
+                .any(|step| matches!(step.kind, SlayTheDataReplayStepKind::Campfire { .. }))
+            {
+                return Some("recorded campfire evidence".to_owned());
+            }
+            None
+        }
+        RunPhase::Combat => {
+            if floor_steps.iter().any(|step| {
+                matches!(
+                    step.kind,
+                    SlayTheDataReplayStepKind::CardReward { .. }
+                        | SlayTheDataReplayStepKind::PotionBudget { .. }
+                )
+            }) {
+                return Some("recorded combat reward/potion evidence".to_owned());
+            }
+            None
+        }
+        RunPhase::Treasure | RunPhase::Idle => None,
+    }
+}
+
+fn event_name_matches(event: sts_core::Event, slaythedata_name: &str) -> bool {
+    normalized_event_name(event).iter().any(|candidate| {
+        normalize_slaythedata_label(candidate) == normalize_slaythedata_label(slaythedata_name)
+    })
+}
+
+fn normalized_event_name(event: sts_core::Event) -> Vec<String> {
+    let debug = format!("{event:?}");
+    let spaced = debug
+        .chars()
+        .enumerate()
+        .fold(String::new(), |mut out, (index, ch)| {
+            if index > 0 && ch.is_ascii_uppercase() {
+                out.push(' ');
+            }
+            out.push(ch);
+            out
+        });
+    let known: &[&str] = match event {
+        sts_core::Event::TheSsssserpent => &["The Sssserpent"],
+        sts_core::Event::HypnotizingColoredMushrooms => &["Hypnotizing Colored Mushrooms"],
+        sts_core::Event::WheelOfChange => &["Wheel of Change"],
+        sts_core::Event::WorldOfGoop => &["World of Goop"],
+        sts_core::Event::WingStatue => &["Wing Statue", "Golden Wing"],
+        sts_core::Event::GoldenShrine => &["Golden Shrine"],
+        sts_core::Event::DeadAdventurer => &["Dead Adventurer"],
+        sts_core::Event::FaceTrader => &["Face Trader"],
+        sts_core::Event::ScrapOoze => &["Scrap Ooze"],
+        sts_core::Event::BigFish => &["Big Fish"],
+        sts_core::Event::LivingWall => &["Living Wall"],
+        sts_core::Event::ShiningLight => &["Shining Light"],
+        sts_core::Event::TheCleric => &["The Cleric"],
+        sts_core::Event::AccursedBlacksmith => &["Accursed Blacksmith"],
+        sts_core::Event::MatchAndKeep => &["Match and Keep"],
+        sts_core::Event::TheLibrary => &["The Library"],
+        sts_core::Event::TheMausoleum => &["The Mausoleum"],
+        sts_core::Event::CursedTome => &["Cursed Tome"],
+        sts_core::Event::ForgottenAltar => &["Forgotten Altar"],
+        sts_core::Event::MaskedBandits => &["Masked Bandits"],
+        sts_core::Event::DrugDealer => &["Drug Dealer"],
+        sts_core::Event::BackToBasics => &["Back to Basics"],
+        _ => &[],
+    };
+    let mut names = vec![debug, spaced];
+    names.extend(known.iter().map(|name| (*name).to_owned()));
+    names
+}
+
+fn normalize_slaythedata_label(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 fn slaythedata_seed_to_long(seed: &str) -> Result<i64, String> {
     let trimmed = seed.trim();
     if trimmed.is_empty() {
@@ -1130,7 +1447,9 @@ fn slaythedata_neow_drawback(value: &str) -> Option<NeowDrawback> {
 }
 
 fn map_action_matches_symbol(run: &RunState, action: MapAction, symbol: &str) -> bool {
-    map_action_room_kind(run, action).is_some_and(|kind| room_kind_symbol(kind) == symbol.trim())
+    map_action_room_kind(run, action).is_some_and(|kind| {
+        Some(room_kind_symbol(kind)) == normalize_route_symbol(symbol).as_deref()
+    })
 }
 
 fn map_action_room_kind(run: &RunState, action: MapAction) -> Option<RoomKind> {
@@ -1151,6 +1470,11 @@ fn room_kind_symbol(kind: RoomKind) -> &'static str {
         RoomKind::Treasure => "T",
         RoomKind::Boss => "B",
     }
+}
+
+fn normalize_route_symbol(symbol: &str) -> Option<String> {
+    let normalized = symbol.trim().trim_matches('"').trim().to_ascii_uppercase();
+    (!normalized.is_empty()).then_some(normalized)
 }
 
 fn import_card_rewards(
@@ -1478,4 +1802,100 @@ fn parse_positive_floor(value: Option<&Value>) -> Option<u32> {
 fn parse_non_negative_floor(value: Option<&Value>) -> Option<u32> {
     let parsed = parse_i64(value)?;
     (parsed >= 0).then_some(parsed as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_plan_with_step(floor: u32, kind: SlayTheDataReplayStepKind) -> SlayTheDataReplayPlan {
+        SlayTheDataReplayPlan {
+            schema: SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
+            source: SlayTheDataSource {
+                kind: SlayTheDataSourceKind::RawRun,
+                run_id: None,
+                play_id: None,
+                source_file: None,
+                source_run_ordinal: None,
+            },
+            run_start: None,
+            ordering: SlayTheDataReplayOrdering::FloorGrouped,
+            steps: vec![SlayTheDataReplayStep {
+                floor,
+                ordinal: 0,
+                kind,
+            }],
+            checkpoints: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn event_name_matching_accepts_slaythedata_display_names() {
+        assert!(event_name_matches(
+            sts_core::Event::WheelOfChange,
+            "Wheel of Change"
+        ));
+        assert!(event_name_matches(
+            sts_core::Event::HypnotizingColoredMushrooms,
+            "Hypnotizing Colored Mushrooms"
+        ));
+        assert!(event_name_matches(
+            sts_core::Event::TheSsssserpent,
+            "The Ssssserpent"
+        ));
+        assert!(event_name_matches(
+            sts_core::Event::WingStatue,
+            "Golden Wing"
+        ));
+    }
+
+    #[test]
+    fn map_candidate_evidence_uses_recorded_event_identity() {
+        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(sts_core::EventScreen {
+            event: sts_core::Event::WheelOfChange,
+            choices: Vec::new(),
+            stage: 0,
+            event_data: 0,
+        });
+        let plan = empty_plan_with_step(
+            3,
+            SlayTheDataReplayStepKind::EventChoice {
+                event_name: Some("Wheel of Change".to_owned()),
+                player_choice: Some("Play".to_owned()),
+            },
+        );
+
+        let evidence = slaythedata_map_candidate_evidence(&run, &plan, 3);
+
+        assert_eq!(
+            evidence,
+            Some("recorded event \"Wheel of Change\"".to_owned())
+        );
+    }
+
+    #[test]
+    fn map_candidate_evidence_rejects_wrong_event_identity() {
+        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(sts_core::EventScreen {
+            event: sts_core::Event::GoldenShrine,
+            choices: Vec::new(),
+            stage: 0,
+            event_data: 0,
+        });
+        let plan = empty_plan_with_step(
+            3,
+            SlayTheDataReplayStepKind::EventChoice {
+                event_name: Some("Wheel of Change".to_owned()),
+                player_choice: Some("Play".to_owned()),
+            },
+        );
+
+        let evidence = slaythedata_map_candidate_evidence(&run, &plan, 3);
+
+        assert_eq!(evidence, None);
+    }
 }

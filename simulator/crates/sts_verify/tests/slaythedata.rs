@@ -473,7 +473,7 @@ fn preflight_blocks_steps_when_run_state_cannot_be_initialized() {
 }
 
 #[test]
-fn preflight_reports_ambiguous_map_symbol_without_map_coordinates() {
+fn preflight_checks_map_symbol_without_map_coordinates() {
     let imported = import_slaythedata_run_json(
         r#"{
             "character_chosen": "IRONCLAD",
@@ -492,8 +492,76 @@ fn preflight_reports_ambiguous_map_symbol_without_map_coordinates() {
     let route_step = report
         .steps
         .iter()
-        .find(|step| step.code == "ambiguous_map_symbol")
-        .expect("ambiguous route step");
-    assert_eq!(route_step.status, SlayTheDataPreflightStatus::Guided);
-    assert!(route_step.bridge_command.is_none());
+        .find(|step| {
+            step.floor == 1
+                && matches!(
+                    step.status,
+                    SlayTheDataPreflightStatus::Checked | SlayTheDataPreflightStatus::Guided
+                )
+        })
+        .expect("route step");
+    assert!(matches!(
+        route_step.code.as_str(),
+        "legal_map_room" | "ambiguous_map_symbol" | "guided_map_symbol_unmatched"
+    ));
+}
+
+#[test]
+fn preflight_blocks_ambiguous_first_map_route_when_history_does_not_identify_branch() {
+    let json = serde_json::json!({
+        "character_chosen": "IRONCLAD",
+        "ascension_level": 0,
+        "seed_played": "-3574229841928219368",
+        "neow_bonus": "THREE_ENEMY_KILL",
+        "neow_cost": "NONE",
+        "path_per_floor": [
+            "M", "?", "?", "M", "$", "E", "R", "M", "T", "E", "R", "E", "M", "?",
+            "R", "B", "B"
+        ],
+        "event_choices": [
+            {
+                "event_name": "Golden Wing",
+                "player_choice": "Card Removal",
+                "floor": 2
+            },
+            {
+                "event_name": "Wheel of Change",
+                "player_choice": "Gold",
+                "floor": 3
+            }
+        ],
+        "floor_reached": 1,
+        "victory": false,
+        "master_deck": [],
+        "relics": [],
+        "gold": 99
+    });
+    let imported = import_slaythedata_run_json(&json.to_string()).expect("import");
+    assert_eq!(
+        imported.route.path_per_floor.first().map(String::as_str),
+        Some("M")
+    );
+    assert_eq!(
+        imported
+            .floor_decisions
+            .first()
+            .and_then(|floor| floor.route.clone()),
+        Some("M".to_owned())
+    );
+    let plan = slaythedata_replay_plan(&imported);
+    let report = slaythedata_replay_preflight(&plan);
+
+    let map_step = report
+        .steps
+        .iter()
+        .find(|step| step.floor == 1)
+        .expect("floor 1 map step");
+    assert_eq!(
+        map_step.status,
+        SlayTheDataPreflightStatus::Guided,
+        "{}",
+        map_step.message
+    );
+    assert_eq!(map_step.code, "ambiguous_map_symbol");
+    assert!(map_step.bridge_command.is_none());
 }
