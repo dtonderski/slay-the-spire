@@ -515,7 +515,8 @@ class SlayTheDataPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["reason"], "missing_target")
+        self.assertEqual(result["reason"], "target_not_visible")
+        self.assertEqual(result["detail"], "'Fire Potion' is not visible")
 
     def test_match_visible_choice_selects_shop_purchase_then_leave(self):
         script = build_guided_run_script(

@@ -707,6 +707,42 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["category"], "reward")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 2})
 
+    def test_suggest_guided_action_blocks_named_potion_reward_mismatch(self):
+        bridge = self.ready_reward_bridge()
+        bridge["summary"]["choices"] = ["gold", "potion", "card"]
+        bridge["current_state"] = {
+            "message": {
+                "game_state": {
+                    "floor": 1,
+                    "screen_type": "COMBAT_REWARD",
+                    "choice_list": ["gold", "potion", "card"],
+                    "screen_state": {
+                        "rewards": [
+                            {"reward_type": "GOLD", "gold": 20},
+                            {
+                                "reward_type": "POTION",
+                                "potion": {"name": "Blood Potion", "id": "BloodPotion"},
+                            },
+                            {"reward_type": "CARD"},
+                        ],
+                    },
+                }
+            }
+        }
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "potions_obtained": [{"floor": 1, "key": "Poison Potion"}],
+                }
+            }
+        )
+
+        result = suggest_guided_action(script, bridge)
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "target_not_visible")
+        self.assertEqual(result["detail"], "'Poison Potion' is not visible")
+
     def test_suggest_guided_action_proceeds_when_reward_has_no_visible_choices(self):
         result = suggest_guided_action(sample_script(), self.ready_reward_proceed_bridge())
 

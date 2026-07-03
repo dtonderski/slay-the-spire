@@ -664,6 +664,9 @@ def _current_act(summary: dict[str, Any], bridge_status: dict[str, Any]) -> int 
 
 
 def _visible_choices(summary: dict[str, Any], bridge_status: dict[str, Any]) -> list[str]:
+    reward_choices = _reward_choice_labels(bridge_status)
+    if reward_choices:
+        return reward_choices
     choices = summary.get("choices")
     if isinstance(choices, list):
         return [str(choice) for choice in choices]
@@ -671,6 +674,32 @@ def _visible_choices(summary: dict[str, Any], bridge_status: dict[str, Any]) -> 
     if isinstance(game_state_choices, list):
         return [str(choice) for choice in game_state_choices]
     return []
+
+
+def _reward_choice_labels(bridge_status: dict[str, Any]) -> list[str]:
+    screen_state = _game_state(bridge_status).get("screen_state")
+    rewards = screen_state.get("rewards") if isinstance(screen_state, dict) else None
+    if not isinstance(rewards, list):
+        return []
+    labels = []
+    for reward in rewards:
+        if not isinstance(reward, dict):
+            labels.append(str(reward))
+            continue
+        reward_type = str(reward.get("reward_type") or "").upper()
+        potion = reward.get("potion") if isinstance(reward.get("potion"), dict) else None
+        if potion is not None:
+            labels.append(str(potion.get("name") or potion.get("id") or "potion"))
+        elif reward_type == "GOLD" or reward.get("gold") is not None:
+            labels.append("gold")
+        elif reward_type == "CARD":
+            labels.append("card")
+        elif reward_type == "RELIC":
+            relic = reward.get("relic") if isinstance(reward.get("relic"), dict) else None
+            labels.append(str((relic or {}).get("name") or (relic or {}).get("id") or "relic"))
+        else:
+            labels.append(str(reward.get("name") or reward_type.lower() or reward))
+    return labels
 
 
 def _next_map_nodes(bridge_status: dict[str, Any]) -> list[dict[str, Any]]:

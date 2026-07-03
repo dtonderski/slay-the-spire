@@ -700,7 +700,7 @@ def _reward_target(decision: dict[str, Any], choice_labels: list[str]) -> str | 
     if decision.get("relics_obtained") and "relic" in visible:
         return "relic"
     if expected_potions and "potion" in visible:
-        return None
+        return _first_reward_identity(expected_potions, "key")
     if decision.get("card_rewards") and "card" in visible:
         return "card"
     if "stolen_gold" in visible:
@@ -716,6 +716,16 @@ def _first_visible_reward_identity(entries: Any, key: str, choice_labels: list[s
             continue
         value = _optional_string(entry.get(key))
         if value and any(_target_matches_label(value, label) for label in choice_labels):
+            return value
+    return None
+
+
+def _first_reward_identity(entries: Any, key: str) -> str | None:
+    for entry in _list(entries):
+        if not isinstance(entry, dict):
+            continue
+        value = _optional_string(entry.get(key))
+        if value:
             return value
     return None
 
