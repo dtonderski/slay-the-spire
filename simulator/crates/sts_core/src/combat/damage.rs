@@ -44,9 +44,6 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
             monster.intent = crate::MonsterIntent::Attack { damage: 0 };
             monster.powers = Default::default();
         }
-    } else if hp_damage > 0 && monster.powers.curl_up > 0 {
-        monster.block += monster.powers.curl_up;
-        monster.powers.curl_up = 0;
     }
     large_acid_slime_on_hp_damage(monster, hp_damage);
     transient_shifting_on_hp_damage(monster, hp_damage);
