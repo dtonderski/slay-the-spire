@@ -3,6 +3,21 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Enlightenment/Enlightenment+ against
+  `Enlightenment.java` and `EnlightenmentAction.java`. Source costs 0, has no
+  keywords, and sets hand cards with `costForTurn > 1` to cost 1 for the turn;
+  upgraded form passes `forCombat = true` and additionally makes printed combat
+  costs above 1 become 1 for the rest of combat. Local normal and
+  Havoc/top-draw paths already use the same turn-only vs combat-long helper and
+  exclude the played card, so no simulator code fix was needed. Checks: `git
+  diff --check -- STATUS.md simulator/docs/audit/card_fidelity_audit.md` passed
+  with only existing CRLF warnings. Active live-regression manifest replay still
+  fails on dirty worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  after appended post-baseline rows, with the same final Gremlin Leader combat
+  state diff unrelated to Enlightenment; replaying the committed clean copy of
+  that same trace from a temp file verified `true` with `trace_exhausted`, 295
+  steps, final phase `combat`.
 - Card-fidelity fix: verified Discovery/Discovery+ against `Discovery.java` and
   `DiscoveryAction.java`, then fixed upgraded definition fidelity. Source
   Discovery costs 1, Exhausts, opens 3 unique random combat-card choices, and
