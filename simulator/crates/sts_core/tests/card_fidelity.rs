@@ -170,6 +170,92 @@ fn blood_for_blood_upgrade_preserves_combat_cost_reduction() {
 }
 
 #[test]
+fn body_slam_plus_deals_current_block_as_attack_damage() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.block = 17;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BODY_SLAM_PLUS_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Body Slam+ plays for current block damage");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp - 17);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::BODY_SLAM_PLUS_ID
+    );
+}
+
+#[test]
+fn brutality_loses_one_hp_then_draws_before_normal_turn_draw() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.powers.brutality = 1;
+    state.piles.hand.clear();
+    state.piles.draw_pile = (1..=6)
+        .map(|id| CardInstance::new(CardId::new(id), cards::STRIKE_R_ID))
+        .collect();
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    start_player_turn(&mut state);
+
+    assert_eq!(state.player.hp, 49);
+    assert_eq!(state.piles.hand.len(), 6);
+    assert!(state.piles.draw_pile.is_empty());
+}
+
+#[test]
+fn burning_pact_plus_exhausts_one_other_card_then_draws_three() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::BURNING_PACT_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::ANGER_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Burning Pact+ opens exhaust selection");
+    assert!(next.exhaust_select.is_some());
+
+    choose_exhaust_select(&mut next, 0).expect("select the other hand card");
+    confirm_exhaust_select(&mut next).expect("confirm Burning Pact+ selection");
+
+    assert_eq!(next.player.energy, 0);
+    assert!(next.exhaust_select.is_none());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.hand.len(), 3);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::BURNING_PACT_PLUS_ID
+    );
+}
+
+#[test]
 fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
     assert_eq!(cards::DROPKICK.values.damage, Some(5));
     assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));

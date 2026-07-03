@@ -3,6 +3,26 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit correction: verified Body Slam/Body Slam+,
+  Brutality/Brutality+, and Burning Pact/Burning Pact+ against their decompiled
+  card classes, then replaced stale generic audit rows with source-backed facts.
+  Source Body Slam uses current Block as attack damage and only upgrades cost
+  from 1 to 0. Source Brutality applies one BrutalityPower; upgraded form only
+  gains Innate, while the power loses 1 HP and draws 1 card at start of turn.
+  Source Burning Pact exhausts one card, then draws 2/3. Local behavior already
+  matched at generic simulator granularity: Body Slam damage uses current block,
+  Brutality start-turn HP loss runs card HP-loss hooks before the extra draw,
+  and Burning Pact selects exactly one other hand card before drawing. Checks:
+  `cargo fmt` passed; focused `cargo test -p sts_core --test card_fidelity
+  body_slam` passed; focused `cargo test -p sts_core --test card_fidelity
+  brutality` passed; focused `cargo test -p sts_core --test card_fidelity
+  burning_pact` passed after correcting the test to select the post-play hand
+  index; `cargo test -p sts_core --test card_fidelity` passed (70 tests);
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled workspace Python; active live-regression replay `uv run python -m
+  unittest python.tests.test_live_regression_traces` passed. Full `cargo test`
+  with bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit correction: verified Blood for Blood/Blood for Blood+ and
   Bloodletting/Bloodletting+ against `BloodForBlood.java` and
   `Bloodletting.java`, then replaced stale generic audit rows with
