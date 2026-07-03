@@ -2140,9 +2140,11 @@ fn verify_seed_start_transitions(
                 } else {
                     observed_combat_sync
                 };
-                let observed_sync =
-                    (observed_sync && !combat_hand_select_step && potion_use.is_none())
-                        || (command.starts_with("POTION") && potion_use.is_none());
+                let observed_sync = (observed_sync
+                    && !combat_hand_select_step
+                    && !hand_select
+                    && potion_use.is_none())
+                    || (command.starts_with("POTION") && potion_use.is_none());
 
                 if observed_sync {
                     let Some(sim) = seed_sim.as_mut() else {
@@ -2387,6 +2389,29 @@ fn verify_seed_start_transitions(
                         sync_combat_non_piles_from_observed_after_end(&mut next, &post.message);
                     }
                     *sim = next;
+                    continue;
+                }
+
+                if hand_select
+                    && (command.eq_ignore_ascii_case("state")
+                        || command.eq_ignore_ascii_case("wait"))
+                {
+                    seed_start_compare_combat_subset(
+                        report,
+                        action,
+                        "hand select refresh",
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(sim, &post.message, false),
+                        false,
+                    );
+                    if allow_hand_select_non_pile_refresh {
+                        sync_combat_non_piles_from_observed_after_end(sim, &post.message);
+                    }
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "hand select refresh".to_owned(),
+                    });
                     continue;
                 }
 
@@ -3391,7 +3416,10 @@ fn combat_card_ids(value: Option<&Value>) -> Vec<String> {
     };
     cards
         .iter()
-        .filter_map(|card| card.get("id").and_then(Value::as_str).map(str::to_owned))
+        .filter_map(|card| {
+            content_id_from_card_value(card)
+                .map(|content_id| deck_content_key(content_id).to_owned())
+        })
         .collect()
 }
 

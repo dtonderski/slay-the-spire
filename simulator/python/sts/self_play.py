@@ -925,7 +925,10 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
 
         try:
             env.step(action)
-            _apply_forced_command_followups(env)
+            _apply_forced_command_followups(
+                env,
+                upcoming_command=_next_non_readonly_action_command(records, record_index),
+            )
         except Exception as error:
             blocker = _blocker(
                 record,
@@ -2910,7 +2913,18 @@ def _action_for_communication_command(
     return None
 
 
-def _apply_forced_command_followups(env: Any) -> None:
+def _next_non_readonly_action_command(records: list[dict[str, Any]], record_index: int) -> str | None:
+    for followup in records[record_index + 1 :]:
+        if followup.get("type") != "action":
+            continue
+        command = str(followup.get("command") or "")
+        if not command or _is_readonly_sync_command(command):
+            continue
+        return command
+    return None
+
+
+def _apply_forced_command_followups(env: Any, *, upcoming_command: str | None = None) -> None:
     """Apply modal choices that the bridge completes inside one command.
 
     CommunicationMod commands are coarser than simulator actions for effects like
@@ -2918,6 +2932,8 @@ def _apply_forced_command_followups(env: Any) -> None:
     command and the next state after the forced choice has already closed.
     """
 
+    upcoming_parts = (upcoming_command or "").strip().split(maxsplit=1)
+    upcoming_verb = upcoming_parts[0].upper() if upcoming_parts else ""
     for _ in range(4):
         actions = env.exact_legal_actions()
         choose_actions = [
@@ -2931,7 +2947,7 @@ def _apply_forced_command_followups(env: Any) -> None:
                 "choose_exhaust_select",
             }
         ]
-        if len(choose_actions) == 1:
+        if len(choose_actions) == 1 and upcoming_verb != "CHOOSE":
             env.step(choose_actions[0])
             continue
         confirm_actions = [
@@ -2945,7 +2961,7 @@ def _apply_forced_command_followups(env: Any) -> None:
                 "confirm_exhaust_select",
             }
         ]
-        if len(confirm_actions) == 1:
+        if len(confirm_actions) == 1 and upcoming_verb != "CONFIRM":
             env.step(confirm_actions[0])
             continue
         return
