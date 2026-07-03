@@ -30,10 +30,11 @@ use crate::{
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
         PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
         REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID,
-        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID,
-        SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
+        SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
+        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID,
+        WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
@@ -2201,6 +2202,11 @@ fn apply_play_top_draw_card(
         }
         PANACHE_ID | PANACHE_PLUS_ID => {
             follow_ups.push(InternalAction::GainPanache {
+                amount: definition.values.damage.unwrap_or(0),
+            });
+        }
+        SADISTIC_NATURE_ID | SADISTIC_NATURE_PLUS_ID => {
+            follow_ups.push(InternalAction::GainSadisticNature {
                 amount: definition.values.damage.unwrap_or(0),
             });
         }

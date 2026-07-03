@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Sadistic Nature/Sadistic Nature+ against
+  `SadisticNature.java` and `SadisticPower.java`, then fixed the top-draw
+  free-play path. Source Sadistic Nature is a 0-cost colorless Rare Power that
+  applies `SadisticPower` for 5/7 damage; the power triggers when the player
+  applies a monster debuff, excluding `Shackled` and Artifact-protected targets,
+  and queues THORNS damage to that enemy. Local normal hand play already granted
+  the correct 5/7 local power and modeled successful Weak/Vulnerable/Strength
+  down triggers, but the Havoc/Mayhem top-draw path omitted both Sadistic Nature
+  ids. The simulator now grants Sadistic Nature from draw-pile play for both
+  base and upgraded forms. Checks: `cargo fmt` passed; `cargo test -p sts_core
+  --test card_fidelity sadistic_nature` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (44 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python. Full
+  `cargo test` with bundled `PYO3_PYTHON` still builds the suite and remains
+  blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`. Active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` currently fails on the dirty
+  worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 472 versus manifest `expected_steps` 467; the trace has local
+  appended commands and was not staged for this slice.
 - Card-fidelity fix: verified Ritual Dagger against `RitualDagger.java`, then
   fixed its fatal-growth behavior. Source Ritual Dagger is a 1-cost colorless
   Special Attack with Exhaust, `misc`/base damage 15, and magicNumber 3; its

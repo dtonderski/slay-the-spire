@@ -861,6 +861,39 @@ fn havoc_panache_plus_grants_fourteen_damage_power() {
 }
 
 #[test]
+fn havoc_sadistic_nature_plus_grants_seven_damage_power() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::SADISTIC_NATURE_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc plays Sadistic Nature+ from the draw pile");
+
+    assert_eq!(next.player.powers.sadistic_nature, 7);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::SADISTIC_NATURE_PLUS_ID
+    );
+}
+
+#[test]
 fn panache_counter_resets_at_start_of_player_turn() {
     let mut state = CombatState::initial_fixture();
     state.player.powers.panache = 10;
