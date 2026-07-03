@@ -2623,6 +2623,221 @@ pub fn target_city_monster_hp_range(monster_name: &str, ascension: u8) -> Option
 }
 
 #[must_use]
+pub fn target_monster_hp_range_for_content_id(
+    content_id: ContentId,
+    ascension: u8,
+) -> Option<MonsterHpRange> {
+    let range = match content_id {
+        CULTIST_ID => target_cultist_hp_range(ascension),
+        JAW_WORM_ID => target_jaw_worm_hp_range(ascension),
+        SPIKE_SLIME_ID => {
+            if ascension >= 7 {
+                SPIKE_SLIME_L_A7_HP_RANGE
+            } else {
+                SPIKE_SLIME_L_A0_HP_RANGE
+            }
+        }
+        ACID_SLIME_ID => {
+            if ascension >= 7 {
+                ACID_SLIME_L_A7_HP_RANGE
+            } else {
+                ACID_SLIME_L_A0_HP_RANGE
+            }
+        }
+        RED_LOUSE_ID | GREEN_LOUSE_ID => {
+            if ascension >= 7 {
+                LOUSE_NORMAL_A7_HP_RANGE
+            } else {
+                LOUSE_NORMAL_A0_HP_RANGE
+            }
+        }
+        SENTRY_ID => target_sentry_hp_range(ascension),
+        LAGAVULIN_ID => target_lagavulin_hp_range(ascension),
+        GREMLIN_NOB_ID => target_gremlin_nob_hp_range(ascension),
+        LOOTER_ID => target_looter_hp_range(ascension),
+        BYRD_ID => {
+            if ascension >= 7 {
+                BYRD_A7_HP_RANGE
+            } else {
+                BYRD_A0_HP_RANGE
+            }
+        }
+        CHOSEN_ID => {
+            if ascension >= 7 {
+                CHOSEN_A7_HP_RANGE
+            } else {
+                CHOSEN_A0_HP_RANGE
+            }
+        }
+        SHELLED_PARASITE_ID => {
+            if ascension >= 7 {
+                SHELLED_PARASITE_A7_HP_RANGE
+            } else {
+                SHELLED_PARASITE_A0_HP_RANGE
+            }
+        }
+        SPHERIC_GUARDIAN_ID => SPHERIC_GUARDIAN_HP_RANGE,
+        MUGGER_ID => {
+            if ascension >= 7 {
+                MUGGER_A7_HP_RANGE
+            } else {
+                MUGGER_A0_HP_RANGE
+            }
+        }
+        SNAKE_PLANT_ID => {
+            if ascension >= 7 {
+                SNAKE_PLANT_A7_HP_RANGE
+            } else {
+                SNAKE_PLANT_A0_HP_RANGE
+            }
+        }
+        SNECKO_ID => {
+            if ascension >= 7 {
+                SNECKO_A7_HP_RANGE
+            } else {
+                SNECKO_A0_HP_RANGE
+            }
+        }
+        CENTURION_ID => {
+            if ascension >= 7 {
+                CENTURION_A7_HP_RANGE
+            } else {
+                CENTURION_A0_HP_RANGE
+            }
+        }
+        HEALER_ID => {
+            if ascension >= 7 {
+                HEALER_A7_HP_RANGE
+            } else {
+                HEALER_A0_HP_RANGE
+            }
+        }
+        BOOK_OF_STABBING_ID => {
+            if ascension >= 8 {
+                BOOK_OF_STABBING_A8_HP_RANGE
+            } else {
+                BOOK_OF_STABBING_A0_HP_RANGE
+            }
+        }
+        GREMLIN_LEADER_ID => {
+            if ascension >= 8 {
+                GREMLIN_LEADER_A8_HP_RANGE
+            } else {
+                GREMLIN_LEADER_A0_HP_RANGE
+            }
+        }
+        TASKMASTER_ID => {
+            if ascension >= 8 {
+                TASKMASTER_A8_HP_RANGE
+            } else {
+                TASKMASTER_A0_HP_RANGE
+            }
+        }
+        FUNGI_BEAST_ID => {
+            if ascension >= 7 {
+                FUNGI_BEAST_A7_HP_RANGE
+            } else {
+                FUNGI_BEAST_A0_HP_RANGE
+            }
+        }
+        SLAVER_BLUE_ID | SLAVER_RED_ID => {
+            if ascension >= 7 {
+                SLAVER_A7_HP_RANGE
+            } else {
+                SLAVER_A0_HP_RANGE
+            }
+        }
+        GREMLIN_WARRIOR_ID => {
+            if ascension >= 7 {
+                GREMLIN_WARRIOR_A7_HP_RANGE
+            } else {
+                GREMLIN_WARRIOR_A0_HP_RANGE
+            }
+        }
+        GREMLIN_THIEF_ID => {
+            if ascension >= 7 {
+                GREMLIN_THIEF_A7_HP_RANGE
+            } else {
+                GREMLIN_THIEF_A0_HP_RANGE
+            }
+        }
+        GREMLIN_FAT_ID => {
+            if ascension >= 7 {
+                GREMLIN_FAT_A7_HP_RANGE
+            } else {
+                GREMLIN_FAT_A0_HP_RANGE
+            }
+        }
+        GREMLIN_TSUNDERE_ID => {
+            if ascension >= 7 {
+                GREMLIN_TSUNDERE_A7_HP_RANGE
+            } else {
+                GREMLIN_TSUNDERE_A0_HP_RANGE
+            }
+        }
+        GREMLIN_WIZARD_ID => {
+            if ascension >= 7 {
+                GREMLIN_WIZARD_A7_HP_RANGE
+            } else {
+                GREMLIN_WIZARD_A0_HP_RANGE
+            }
+        }
+        DARKLING_ID => {
+            if ascension >= 7 {
+                DARKLING_A7_HP_RANGE
+            } else {
+                DARKLING_A0_HP_RANGE
+            }
+        }
+        DAGGER_ID => DAGGER_HP_RANGE,
+        REPTOMANCER_ID => {
+            if ascension >= 8 {
+                REPTOMANCER_A8_HP_RANGE
+            } else {
+                REPTOMANCER_A0_HP_RANGE
+            }
+        }
+        TORCH_HEAD_ID => {
+            if ascension >= 9 {
+                TORCH_HEAD_A9_HP_RANGE
+            } else {
+                TORCH_HEAD_A0_HP_RANGE
+            }
+        }
+        ORB_WALKER_ID => {
+            if ascension >= 7 {
+                ORB_WALKER_A7_HP_RANGE
+            } else {
+                ORB_WALKER_A0_HP_RANGE
+            }
+        }
+        SPIKER_ID => {
+            if ascension >= 7 {
+                SPIKER_A7_HP_RANGE
+            } else {
+                SPIKER_A0_HP_RANGE
+            }
+        }
+        REPULSOR_ID => {
+            if ascension >= 7 {
+                REPULSOR_A7_HP_RANGE
+            } else {
+                REPULSOR_A0_HP_RANGE
+            }
+        }
+        BRONZE_ORB_ID => {
+            if ascension >= 9 {
+                BRONZE_ORB_A9_HP_RANGE
+            } else {
+                BRONZE_ORB_A0_HP_RANGE
+            }
+        }
+        _ => return None,
+    };
+    Some(range)
+}
+
+#[must_use]
 pub fn target_city_monster_profile(
     monster_name: &str,
     ascension: u8,
@@ -7184,13 +7399,6 @@ pub fn apply_gremlin_leader_rally_target(
         return;
     }
 
-    let replacing_dead_minion = monsters
-        .iter()
-        .any(|monster| !monster.alive && is_gremlin_leader_minion_content_id(monster.content_id));
-    if replacing_dead_minion {
-        ai_rng.random_int(99);
-    }
-
     for _ in 0..count {
         if gremlin_leader_live_minion_count(monsters) >= 3 {
             break;
@@ -7226,12 +7434,6 @@ pub fn apply_gremlin_leader_rally_target(
         let _ = roll;
         record_target_move(&mut monster);
         monsters.insert(gremlin_leader_summon_insert_index(monsters, slot), monster);
-    }
-
-    if replacing_dead_minion {
-        for _ in 0..4 {
-            ai_rng.random_int(99);
-        }
     }
 }
 

@@ -341,6 +341,9 @@ fn run_monster_turn(state: &mut CombatState) {
             }
             crate::MonsterIntent::EncourageGremlins { strength, block } => {
                 let leader_id = state.monsters[index].id;
+                if state.monsters[index].content_id == GREMLIN_LEADER_ID {
+                    let _ = state.monster_rng.as_mut().map(|rng| rng.random_int(2));
+                }
                 apply_gremlin_leader_encourage(&mut state.monsters, leader_id, strength, block);
                 state.monsters[index].moves_executed += 1;
                 prepare_next_intent_for_actor(state, actor_id);

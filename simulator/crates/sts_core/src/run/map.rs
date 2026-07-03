@@ -15,17 +15,18 @@ use crate::{
         target_fungi_beast_next_intent_from_roll, target_gremlin_leader_next_intent_from_roll,
         target_healer_next_intent_from_roll, target_jaw_worm_next_intent_from_roll,
         target_large_acid_slime_next_intent_from_roll, target_louse_entry_intent_from_roll,
-        target_normal_encounter_spawn_at_combat_index, target_orb_walker_next_intent_from_roll,
-        target_reptomancer_next_intent_from_roll, target_repulsor_next_intent_from_roll,
-        target_sentry_next_intent, target_shelled_parasite_next_intent_from_roll,
-        target_slaver_blue_next_intent_from_roll, target_slaver_red_next_intent_from_roll,
-        target_small_acid_slime_entry_intent_from_bool, target_snake_plant_next_intent_from_roll,
-        target_snecko_next_intent_from_roll, target_spike_slime_entry_intent_from_roll,
-        TargetEncounterSpawn, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE,
-        BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHOSEN_ID, DAGGER_ID,
-        DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID,
-        GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH,
-        ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        target_monster_hp_range_for_content_id, target_normal_encounter_spawn_at_combat_index,
+        target_orb_walker_next_intent_from_roll, target_reptomancer_next_intent_from_roll,
+        target_repulsor_next_intent_from_roll, target_sentry_next_intent,
+        target_shelled_parasite_next_intent_from_roll, target_slaver_blue_next_intent_from_roll,
+        target_slaver_red_next_intent_from_roll, target_small_acid_slime_entry_intent_from_bool,
+        target_snake_plant_next_intent_from_roll, target_snecko_next_intent_from_roll,
+        target_spike_slime_entry_intent_from_roll, TargetEncounterSpawn, ACID_SLIME_ID,
+        ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID,
+        BYRD_ID, CENTURION_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, DECA_ID, EXPLODER_ID,
+        FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID,
+        RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
         SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SNAKE_PLANT_ID, SNECKO_ID,
         SPIKE_SLIME_ID, TASKMASTER_ID,
     },
@@ -169,7 +170,7 @@ fn enter_boss_combat(run: &mut RunState) {
 
 fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
+    let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut card_random_rng = Some(run.card_random_rng());
     // This local field is the target game's combat aiRng. Target monsterRng is the
     // run-level encounter-list stream.
@@ -180,6 +181,7 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
         &mut card_random_rng,
         &run.relics,
     );
+    advance_monster_hp_rng_for_combat_entry(base, &mut monster_hp_rng, run.ascension);
     base.shuffle_rng = Some(shuffle_rng);
     base.monster_hp_rng = Some(monster_hp_rng);
     apply_initial_monster_ai_rolls(base, &mut monster_rng);
@@ -191,6 +193,18 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
     combat.monster_rng = Some(monster_rng);
     add_mark_of_pain_wounds_to_draw_pile(run, &mut combat);
     run.combat = Some(combat);
+}
+
+fn advance_monster_hp_rng_for_combat_entry(
+    combat: &CombatState,
+    monster_hp_rng: &mut StsRng,
+    ascension: u8,
+) {
+    for monster in &combat.monsters {
+        if let Some(range) = target_monster_hp_range_for_content_id(monster.content_id, ascension) {
+            range.roll(monster_hp_rng);
+        }
+    }
 }
 
 fn record_initial_monster_moves(combat: &mut CombatState) {
