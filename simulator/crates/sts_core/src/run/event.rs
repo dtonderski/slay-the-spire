@@ -61,6 +61,7 @@ pub const GOLDEN_IDOL_A15_MAX_HP_LOSS_PERCENT: f32 = 0.10;
 pub const SSSSSERPENT_GOLD: i32 = 175;
 pub const FACE_TRADER_GOLD: i32 = 75;
 pub const FACE_TRADER_A15_GOLD: i32 = 50;
+pub const BIG_FISH_MAX_HP_GAIN: i32 = 5;
 pub const SHINING_LIGHT_HP_PERCENT: f32 = 0.20;
 pub const THE_LIBRARY_HEAL_PERCENT: f32 = 0.33;
 pub const THE_LIBRARY_A15_HEAL_PERCENT: f32 = 0.20;
@@ -1736,10 +1737,31 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
         },
         Event::BigFish => match screen.stage {
+            0 if choice_index == 0 => {
+                let heal = next.player_max_hp / 3;
+                next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
+                next.event = Some(EventScreen {
+                    event: Event::BigFish,
+                    choices: big_fish_choices(1),
+                    stage: 1,
+                    event_data: heal as u32,
+                });
+            }
+            0 if choice_index == 1 => {
+                next.player_max_hp += BIG_FISH_MAX_HP_GAIN;
+                next.player_hp += BIG_FISH_MAX_HP_GAIN;
+                next.event = Some(EventScreen {
+                    event: Event::BigFish,
+                    choices: big_fish_choices(1),
+                    stage: 1,
+                    event_data: BIG_FISH_MAX_HP_GAIN as u32,
+                });
+            }
             0 if choice_index == 2 => {
                 let act = i32::from(next.current_act);
                 let key = super::reward::roll_event_relic_reward(&mut next, act);
                 next.gain_relic_key(key);
+                next.gain_deck_card(REGRET_ID);
                 next.event = Some(EventScreen {
                     event: Event::BigFish,
                     choices: big_fish_choices(1),
@@ -1747,13 +1769,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     event_data: 0,
                 });
             }
-            0 => {
-                return Err(SimError::IllegalAction(
-                    "only the Big Fish box choice is implemented",
-                ));
-            }
             1 if choice_index == 0 => {
-                next.gain_deck_card(REGRET_ID);
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
