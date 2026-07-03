@@ -832,7 +832,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainBarricade { amount } => {
-            state.player.powers.barricade += amount;
+            state.player.powers.barricade = state.player.powers.barricade.max(amount);
             Ok(Vec::new())
         }
         InternalAction::GainEvolve { amount } => {

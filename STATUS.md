@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Barricade/Barricade+ against `Barricade.java`,
+  then made local Barricade power application idempotent. Source Barricade scans
+  existing player powers and only applies `BarricadePower` when it is absent;
+  upgrade only reduces cost from 3 to 2. The simulator previously incremented
+  `powers.barricade` on repeated plays even though downstream behavior treats it
+  as a boolean. `GainBarricade` now leaves an existing active Barricade at 1
+  instead of stacking the counter. Checks: `cargo fmt` passed; `cargo test -p
+  sts_core --test card_fidelity barricade` passed; `cargo test -p sts_core
+  --test card_fidelity` passed (58 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python. Full
+  `cargo test` with bundled `PYO3_PYTHON` still builds the suite and remains
+  blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`. Active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` still fails on the dirty worktree
+  trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 478 versus manifest `expected_steps` 467; the trace has local
+  appended commands and was not staged for this slice.
 - Card-fidelity audit correction: verified Ghostly Armor/Ghostly Armor+,
   Impervious/Impervious+, Infernal Blade/Infernal Blade+, and
   Intimidate/Intimidate+ against their decompiled red card classes, then

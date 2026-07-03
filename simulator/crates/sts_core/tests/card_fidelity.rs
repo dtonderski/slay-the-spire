@@ -27,6 +27,40 @@ fn wound_definition_matches_unplayable_status_source() {
 }
 
 #[test]
+fn barricade_power_is_idempotent_when_replayed() {
+    assert_eq!(cards::BARRICADE.cost, 3);
+    assert_eq!(cards::BARRICADE_PLUS.cost, 2);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 5;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::BARRICADE_ID),
+        CardInstance::new(CardId::new(2), cards::BARRICADE_PLUS_ID),
+    ];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("first Barricade plays");
+    assert_eq!(next.player.powers.barricade, 1);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("second Barricade plays without stacking the power");
+
+    assert_eq!(next.player.powers.barricade, 1);
+}
+
+#[test]
 fn pummel_plus_definition_keeps_damage_and_exhausts() {
     assert_eq!(cards::PUMMEL.values.damage, Some(2));
     assert!(cards::PUMMEL.keywords.exhaust);
