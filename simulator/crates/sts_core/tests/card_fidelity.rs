@@ -651,6 +651,132 @@ fn fire_breathing_plus_damages_all_enemies_when_status_is_drawn() {
 }
 
 #[test]
+fn headbutt_plus_auto_places_single_discard_card_on_draw_pile() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HEADBUTT_PLUS_ID)];
+    state.piles.discard_pile = vec![CardInstance::new(CardId::new(2), cards::DEFEND_R_ID)];
+    state.piles.draw_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Headbutt+ plays against an enemy");
+
+    assert!(next.discard_select.is_none());
+    assert_eq!(next.monsters[0].hp, starting_hp - 12);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::HEADBUTT_PLUS_ID
+    );
+}
+
+#[test]
+fn heavy_blade_plus_uses_five_times_positive_strength() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.player.powers.strength = 3;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::HEAVY_BLADE_PLUS_ID,
+    )];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Heavy Blade+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 29);
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::HEAVY_BLADE_PLUS_ID
+    );
+}
+
+#[test]
+fn hemokinesis_plus_loses_two_hp_then_deals_twenty_damage() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.hp = 50;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::HEMOKINESIS_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::BLOOD_FOR_BLOOD_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Hemokinesis+ plays against an enemy");
+
+    assert_eq!(next.player.hp, 48);
+    assert_eq!(next.monsters[0].hp, starting_hp - 20);
+    assert_eq!(next.piles.hand[0].content_id, cards::BLOOD_FOR_BLOOD_ID);
+    assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::HEMOKINESIS_PLUS_ID
+    );
+}
+
+#[test]
+fn immolate_plus_deals_all_enemies_and_generates_combat_only_burn() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::IMMOLATE_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
+        monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
+    ];
+    let starting_hp = state
+        .monsters
+        .iter()
+        .map(|monster| monster.hp)
+        .collect::<Vec<_>>();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Immolate+ plays without a selected target");
+
+    assert_eq!(next.monsters[0].hp, starting_hp[0] - 28);
+    assert_eq!(next.monsters[1].hp, starting_hp[1] - 28);
+    assert_eq!(next.piles.discard_pile.len(), 2);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::BURN_ID);
+    assert!(next.piles.discard_pile[0].combat_only);
+    assert_eq!(
+        next.piles.discard_pile[1].content_id,
+        cards::IMMOLATE_PLUS_ID
+    );
+}
+
+#[test]
 fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
     assert_eq!(cards::DROPKICK.values.damage, Some(5));
     assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));

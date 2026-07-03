@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Headbutt/Headbutt+, Heavy Blade/Heavy Blade+,
+  Hemokinesis/Hemokinesis+, and Immolate/Immolate+ against their decompiled card
+  classes and the trusted sts.gg card database baseline, then replaced stale
+  generic audit rows with source-backed facts. Source Headbutt deals damage then
+  queues `DiscardPileToTopOfDeckAction`; Heavy Blade keeps 14 base damage and
+  temporarily multiplies Strength by 3/5 during card damage calculation;
+  Hemokinesis loses 2 HP before dealing 15/20 damage; Immolate deals 21/28
+  all-enemy damage and creates a temporary Burn in discard. Local behavior
+  already matched Headbutt, Heavy Blade, and Hemokinesis at generic simulator
+  granularity. Fixed Immolate so its Burn is generated/combat-only rather than a
+  normal card instance. Checks: `cargo fmt` passed; focused `cargo test -p
+  sts_core --test card_fidelity headbutt` passed; focused `cargo test -p
+  sts_core --test card_fidelity heavy_blade` passed; focused `cargo test -p
+  sts_core --test card_fidelity hemokinesis` passed; focused `cargo test -p
+  sts_core --test card_fidelity immolate` passed; `cargo test -p sts_core
+  --test card_fidelity` passed (87 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit correction: verified Evolve/Evolve+, Feel No Pain/Feel No
   Pain+, and Fire Breathing/Fire Breathing+ against their decompiled card and
   power classes, then replaced stale generic audit rows with source-backed

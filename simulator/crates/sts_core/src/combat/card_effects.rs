@@ -2744,9 +2744,11 @@ fn immolate_queue(
     let move_card = queue
         .pop_back()
         .expect("cleave queue ends by moving the played card");
-    queue.push_back(InternalAction::AddCardToPile {
+    queue.push_back(InternalAction::AddGeneratedCardToPile {
         content_id: crate::content::cards::BURN_ID,
         to: CardPile::DiscardPile,
+        temp_cost: None,
+        temp_cost_turn_only: false,
     });
     queue.push_back(move_card);
     Ok(queue)
