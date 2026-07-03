@@ -720,43 +720,58 @@ def _summary_with_derived_potion_slots(
     if not isinstance(summary, dict):
         return summary
     enriched = summary
+    raw_potions = (
+        current_state.get("message", {})
+        .get("game_state", {})
+        .get("potions")
+    )
     if summary.get("potions"):
         potions = []
         changed = False
-        for potion in summary.get("potions") or []:
+        physical_slots = _occupied_potion_physical_slots(raw_potions)
+        for ordinal, potion in enumerate(summary.get("potions") or []):
             if not isinstance(potion, dict):
                 potions.append(potion)
                 continue
-            if potion.get("requires_target") is not None:
-                potions.append(potion)
-                continue
             updated = potion.copy()
-            updated["requires_target"] = _potion_requires_target(
-                potion.get("id") or potion.get("name")
-            )
+            if ordinal < len(physical_slots) and updated.get("index") != physical_slots[ordinal]:
+                updated["index"] = physical_slots[ordinal]
+                changed = True
+            if updated.get("requires_target") is None:
+                updated["requires_target"] = _potion_requires_target(
+                    updated.get("id") or updated.get("name")
+                )
+                changed = True
             potions.append(updated)
-            changed = True
         if changed:
             enriched = enriched.copy()
             enriched["potions"] = potions
     if enriched.get("open_potion_slots") is not None:
         return enriched
-    potions = (
-        current_state.get("message", {})
-        .get("game_state", {})
-        .get("potions")
-    )
-    if not isinstance(potions, list):
+    if not isinstance(raw_potions, list):
         return enriched
     occupied = [
-        potion for potion in potions
+        potion for potion in raw_potions
         if isinstance(potion, dict)
         and str(potion.get("name") or potion.get("id") or "").lower() != "potion slot"
     ]
     enriched = enriched.copy()
-    enriched["potion_capacity"] = len(potions)
-    enriched["open_potion_slots"] = len(potions) - len(occupied)
+    enriched["potion_capacity"] = len(raw_potions)
+    enriched["open_potion_slots"] = len(raw_potions) - len(occupied)
     return enriched
+
+
+def _occupied_potion_physical_slots(potions: Any) -> list[int]:
+    if not isinstance(potions, list):
+        return []
+    slots = []
+    for index, potion in enumerate(potions):
+        if not isinstance(potion, dict):
+            continue
+        if str(potion.get("name") or potion.get("id") or "").lower() == "potion slot":
+            continue
+        slots.append(index)
+    return slots
 
 
 def _potion_requires_target(name: Any) -> bool:

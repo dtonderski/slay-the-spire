@@ -258,6 +258,55 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertFalse(status["bridge_actions"][0]["enabled"])
         self.assertEqual(status["bridge_actions"][0]["disabled_reason"], "potion belt is full")
 
+    def test_status_uses_physical_potion_belt_slot_for_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(json.dumps({"status": "waiting"}), encoding="utf-8")
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-state",
+                        "ready_for_command": True,
+                        "available_commands": ["potion", "state"],
+                        "potions": [
+                            {
+                                "index": 0,
+                                "name": "Essence of Steel",
+                                "id": "EssenceOfSteel",
+                                "can_use": True,
+                                "can_discard": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "current_state.json").write_text(
+                json.dumps(
+                    {
+                        "message": {
+                            "game_state": {
+                                "potions": [
+                                    {"name": "Potion Slot", "id": "Potion Slot"},
+                                    {"name": "Essence of Steel", "id": "EssenceOfSteel"},
+                                    {"name": "Potion Slot", "id": "Potion Slot"},
+                                ]
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status = BridgeMirror(root, stale_after_seconds=9999).status()
+
+        potion_actions = [
+            action for action in status["bridge_actions"]
+            if action["descriptor"]["kind"] in {"UsePotionSlot", "DiscardPotionSlot"}
+        ]
+        self.assertEqual([action["command"] for action in potion_actions], ["POTION USE 1", "POTION 1 DISCARD"])
+        self.assertEqual(status["summary"]["potions"][0]["index"], 1)
+
     def test_send_command_writes_pending_command(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
