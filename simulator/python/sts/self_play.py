@@ -925,6 +925,7 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
 
         try:
             env.step(action)
+            _apply_forced_command_followups(env)
         except Exception as error:
             blocker = _blocker(
                 record,
@@ -2906,6 +2907,47 @@ def _action_for_communication_command(
         return None
     _ = observed
     return None
+
+
+def _apply_forced_command_followups(env: Any) -> None:
+    """Apply modal choices that the bridge completes inside one command.
+
+    CommunicationMod commands are coarser than simulator actions for effects like
+    Exhume with a single legal exhaust-pile target: the trace records one PLAY
+    command and the next state after the forced choice has already closed.
+    """
+
+    for _ in range(4):
+        actions = env.exact_legal_actions()
+        choose_actions = [
+            action
+            for action in actions
+            if getattr(action, "kind", lambda: "")()
+            in {
+                "choose_hand_select",
+                "choose_draw_select",
+                "choose_discard_select",
+                "choose_exhaust_select",
+            }
+        ]
+        if len(choose_actions) == 1:
+            env.step(choose_actions[0])
+            continue
+        confirm_actions = [
+            action
+            for action in env.exact_legal_actions()
+            if getattr(action, "kind", lambda: "")()
+            in {
+                "confirm_hand_select",
+                "confirm_draw_select",
+                "confirm_discard_select",
+                "confirm_exhaust_select",
+            }
+        ]
+        if len(confirm_actions) == 1:
+            env.step(confirm_actions[0])
+            continue
+        return
 
 
 def _choose_action_for_index(
