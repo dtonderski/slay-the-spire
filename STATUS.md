@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData current-seed search speed slice: current live-seed lookup now
+  lists exact seed candidates without bulk Rust preflight and caps the query to
+  five rows; selected-run load still performs preflight before autoplay. This
+  keeps the expensive source-backed verifier pass on the run the user actually
+  chooses instead of doing it for every dropdown candidate. Checks: `node
+  --check simulator/python/sts/ui_static/app.js` passed; `uv run python -m
+  unittest python.tests.test_ui_service python.tests.test_slaythedata_index`
+  passed. UI service restarted at `http://127.0.0.1:8799/`.
 - SlayTheData current-seed attach slice: SlayTheData candidate selection now
   accepts an exact `seed_played` filter, and the UI guided collector panel has a
   `Find current seed` action that reads the live bridge seed/ascension/floor

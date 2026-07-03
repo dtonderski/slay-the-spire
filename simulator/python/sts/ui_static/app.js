@@ -722,9 +722,9 @@
       min_event_choices: "1",
       min_shop_purchases: "1",
       safe_neow: "1",
-      limit: "25",
+      limit: String(firstDefined(options.limit, 25)),
       ranked: "0",
-      preflight: "1",
+      preflight: options.includePreflight === false ? "0" : "1",
     });
     if (options.maxFloor !== null) {
       params.set("max_floor", String(firstDefined(options.maxFloor, 55)));
@@ -771,6 +771,8 @@
       minFloor: Math.max(1, live.floor || 1),
       minPathLength: 1,
       maxFloor: null,
+      limit: 5,
+      includePreflight: false,
     });
   }
   async function loadSelectedSlaythedataRun() {
