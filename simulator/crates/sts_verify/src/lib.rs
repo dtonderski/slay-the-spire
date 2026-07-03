@@ -8,6 +8,7 @@ pub mod minimize;
 pub mod normalize;
 pub mod seed;
 pub mod sim_real;
+pub mod slaythedata;
 pub mod trace;
 
 pub use diff::canonical_diff;
@@ -31,6 +32,16 @@ pub use sim_real::{
     verify_seed_start_communication_mod_trace_with_options, ObservedStateRestoration, RngBoundary,
     SeedStartBoundary, SeedStartReport, SeedStartVerifyOptions, SimRealError, SimRealReport,
     StartRunCommand, UnexpectedDiff, UnsupportedTransition, VerificationMode, VerifiedTransition,
+};
+pub use slaythedata::{
+    import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,
+    SlayTheDataBossRelicChoice, SlayTheDataCampfireChoice, SlayTheDataCardName,
+    SlayTheDataCardReward, SlayTheDataDiagnostic, SlayTheDataDiagnosticSeverity,
+    SlayTheDataEventChoice, SlayTheDataFinalObserved, SlayTheDataFloorDecision,
+    SlayTheDataImportError, SlayTheDataNamedFloorItem, SlayTheDataPotionFloorDecision,
+    SlayTheDataReplayPolicy, SlayTheDataRoute, SlayTheDataRunConfig, SlayTheDataRunImport,
+    SlayTheDataShopPurchase, SlayTheDataSource, SlayTheDataSourceKind,
+    SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
 };
 pub use trace::{
     import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,

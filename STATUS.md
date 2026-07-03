@@ -3,6 +3,20 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData import contract slice: added
+  `simulator/docs/slaythedata_import_replay.md` to document the boundary
+  between high-level SlayTheData run histories, strict CommunicationMod parity
+  traces, and guided simulator replay. Added `sts_verify::slaythedata`, a
+  typed Rust importer for raw SlayTheData rows and chunk-export rows. The
+  importer normalizes run identity, route, Neow metadata, floor decisions,
+  card rewards, events, shop purchases, campfires, boss relics, floor-only
+  potion budgets, and final observed summary, while emitting explicit
+  diagnostics for absent combat actions, floor-only potion timing, unsupported
+  character/ascension, and ambiguous repeated grid targets. Checks: `cargo fmt`
+  passed; focused `cargo test -p sts_verify --test slaythedata` passed. Next
+  task: derive replay/checkpoint descriptors from the typed import and connect
+  them to verifier-side legality checks before exposing simulator-playable
+  SlayTheData sessions in the UI.
 - Card-fidelity fix: verified Havoc/Havoc+ against decompiled `Havoc.java`
   plus `PlayTopCardAction.java` and the trusted sts.gg card database baseline,
   then replaced stale generic audit rows with source-backed facts. Source Havoc
