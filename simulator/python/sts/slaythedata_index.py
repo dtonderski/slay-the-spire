@@ -17,6 +17,7 @@ DEFAULT_SLAYTHEDATA_ROOT = Path(r"D:\dev\SlayTheData-index")
 DEFAULT_SLAYTHEDATA_DB = DEFAULT_SLAYTHEDATA_ROOT / "slaythedata-chunks.sqlite3"
 DEFAULT_SLAYTHEDATA_CHUNKS = DEFAULT_SLAYTHEDATA_ROOT / "chunks"
 DEFAULT_INDEXER = Path(__file__).resolve().parents[3] / "tools" / "slaythedata" / "index_slaythedata.py"
+_LIVE_SEED_LOOKUP_INDEX = "idx_runs_live_seed_lookup"
 
 _GUIDED_SAFE_NEOW_BONUSES = (
     "THREE_ENEMY_KILL",
@@ -62,6 +63,9 @@ def select_guided_collection_candidates(
     ranked: bool = True,
 ) -> list[dict[str, Any]]:
     """Return exportable SlayTheData run candidates from the locator DB."""
+
+    if seed_played:
+        ensure_slaythedata_lookup_indexes(db_path)
 
     where, params = guided_collection_where(
         character=character,
@@ -121,6 +125,29 @@ def select_guided_collection_candidates(
         }
         for row in rows
     ]
+
+
+def ensure_slaythedata_lookup_indexes(db_path: str | Path = DEFAULT_SLAYTHEDATA_DB) -> None:
+    """Create lightweight lookup indexes required by interactive UI filters."""
+
+    path = Path(db_path)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    conn = sqlite3.connect(path, timeout=30.0)
+    try:
+        tables = set(_sqlite_table_names(conn))
+        if "runs" not in tables:
+            raise ValueError("SlayTheData locator database is missing runs table")
+        conn.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS {_LIVE_SEED_LOOKUP_INDEX}
+                ON runs(seed_played, character_chosen, ascension_level, floor_reached, unsupported_any, path_length)
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_seed ON runs(seed_played)")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _candidate_order_clause(ranked: bool) -> str:

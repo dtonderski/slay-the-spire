@@ -46,6 +46,7 @@
     slaythedataStatus: null,
     slaythedataSelectionAudit: null,
     slaythedataLastError: null,
+    slaythedataSearchStatus: null,
     attachFidelity: null,
     strictReplayBlocker: null,
     mode: null,
@@ -733,19 +734,32 @@
       params.set("seed_played", String(options.seedPlayed));
     }
     await singleFlight("Finding SlayTheData runs", async () => {
-      await refreshSlaythedataStatusQuietly();
-      const result = await requestJson(`/api/slaythedata/candidates?${params.toString()}`);
-      app.slaythedataCandidates = arrayOf(result.candidates);
-      const selectedCandidate =
-        app.slaythedataCandidates.find((candidate) => !candidate.autoplay_blocked)
-        || app.slaythedataCandidates[0];
-      app.slaythedataSelectedRunId = selectedCandidate
-        ? String(selectedCandidate.id)
-        : "";
-      app.slaythedataSelectionAudit = null;
-      applySelectedSlaythedataRunToStartControls();
-      app.slaythedataLastError = null;
-      renderCollectorPicker();
+      try {
+        app.slaythedataSearchStatus = options.seedPlayed
+          ? "Finding exact seed matches..."
+          : "Refreshing SlayTheData index status...";
+        renderCollector();
+        if (!options.skipStatusRefresh) {
+          await refreshSlaythedataStatusQuietly();
+        }
+        app.slaythedataSearchStatus = "Querying SlayTheData candidates...";
+        renderCollector();
+        const result = await requestJson(`/api/slaythedata/candidates?${params.toString()}`);
+        app.slaythedataCandidates = arrayOf(result.candidates);
+        const selectedCandidate =
+          app.slaythedataCandidates.find((candidate) => !candidate.autoplay_blocked)
+          || app.slaythedataCandidates[0];
+        app.slaythedataSelectedRunId = selectedCandidate
+          ? String(selectedCandidate.id)
+          : "";
+        app.slaythedataSelectionAudit = null;
+        applySelectedSlaythedataRunToStartControls();
+        app.slaythedataLastError = null;
+        renderCollectorPicker();
+      } finally {
+        app.slaythedataSearchStatus = null;
+        renderCollector();
+      }
     });
   }
 
@@ -773,6 +787,7 @@
       maxFloor: null,
       limit: 5,
       includePreflight: false,
+      skipStatusRefresh: true,
     });
   }
   async function loadSelectedSlaythedataRun() {

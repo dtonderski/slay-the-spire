@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData seed index/progress slice: exact live-seed candidate lookup now
+  ensures a generated SQLite lookup index exists before querying, and the
+  indexer schema creates the same composite seed lookup index for future DB
+  builds. The UI also shows SlayTheData search phase text while a candidate
+  request is in flight, and current-seed search skips the status refresh path.
+  Checks: `uv run python -m unittest python.tests.test_slaythedata_index
+  python.tests.test_ui_service` passed; `node --check
+  simulator/python/sts/ui_static/app.js` passed; one-time local DB index
+  upgrade completed with `lookup indexes ready`; UI service restarted at
+  `http://127.0.0.1:8799/`.
 - SlayTheData current-seed search speed slice: current live-seed lookup now
   lists exact seed candidates without bulk Rust preflight and caps the query to
   five rows; selected-run load still performs preflight before autoplay. This

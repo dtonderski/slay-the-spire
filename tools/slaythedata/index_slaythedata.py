@@ -320,6 +320,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_runs_candidate
             ON runs(character_chosen, ascension_level, floor_reached, build_version, victory);
         CREATE INDEX IF NOT EXISTS idx_runs_seed ON runs(seed_played);
+        CREATE INDEX IF NOT EXISTS idx_runs_live_seed_lookup
+            ON runs(seed_played, character_chosen, ascension_level, floor_reached, unsupported_any, path_length);
         CREATE INDEX IF NOT EXISTS idx_runs_potions ON runs(has_potion_usage, potion_usage_count);
         CREATE INDEX IF NOT EXISTS idx_runs_unsupported ON runs(unsupported_any);
         CREATE INDEX IF NOT EXISTS idx_runs_source ON runs(source_file, source_run_ordinal);

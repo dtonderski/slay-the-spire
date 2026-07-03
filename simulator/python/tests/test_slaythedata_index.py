@@ -7,6 +7,7 @@ import unittest
 from sts.slaythedata_index import (
     _GUIDED_SAFE_NEOW_BONUSES,
     chunk_export_args,
+    ensure_slaythedata_lookup_indexes,
     export_guided_run_row,
     export_guided_run_script,
     select_guided_collection_candidates,
@@ -295,6 +296,33 @@ class SlayTheDataIndexTests(unittest.TestCase):
 
         self.assertEqual([row["id"] for row in rows], [1])
         self.assertEqual(rows[0]["seed_played"], "LIVE01")
+
+    def test_ensure_slaythedata_lookup_indexes_creates_live_seed_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    path_length INTEGER
+                );
+                """
+            )
+            conn.close()
+
+            ensure_slaythedata_lookup_indexes(db)
+
+            conn = sqlite3.connect(db)
+            indexes = {row[1] for row in conn.execute("PRAGMA index_list('runs')")}
+            conn.close()
+
+        self.assertIn("idx_runs_live_seed_lookup", indexes)
 
     def test_candidate_selection_can_require_long_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
