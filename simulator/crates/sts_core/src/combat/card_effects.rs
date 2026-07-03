@@ -3013,23 +3013,32 @@ fn thinking_ahead_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    if lowest_other_hand_card(state, card_id).is_none() {
-        return Err(SimError::IllegalAction(
-            "Thinking Ahead requires another card in hand",
-        ));
-    }
-
-    Ok(VecDeque::from([
+    let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
         InternalAction::DrawCards { count: 2 },
-        InternalAction::AwaitHandSelect {
+    ]);
+
+    if lowest_other_hand_card(state, card_id).is_some() {
+        queue.push_back(InternalAction::AwaitHandSelect {
             source_card_id: card_id,
             purpose: HandSelectPurpose::ThinkingAheadPutOnDraw,
-        },
-    ]))
+        });
+    } else {
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: if definition.keywords.exhaust {
+                CardPile::ExhaustPile
+            } else {
+                CardPile::DiscardPile
+            },
+        });
+    }
+
+    Ok(queue)
 }
 
 fn draw_pile_has_skill(state: &CombatState) -> bool {

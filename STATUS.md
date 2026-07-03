@@ -3,6 +3,23 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Swift Strike/Swift Strike+ and Thinking
+  Ahead/Thinking Ahead+ against their decompiled card classes and the trusted
+  sts.gg card database baseline, then replaced stale generic audit rows with
+  source-backed facts. Source Thinking Ahead draws 2, but only queues
+  `PutOnDeckAction` if another card was already in hand at use time; upgraded
+  Thinking Ahead removes Exhaust but keeps that queue condition. Fixed generic
+  simulator mismatch: Thinking Ahead no longer rejects the lone-card case, and
+  instead draws 2 then finishes the source without opening selection. Checks:
+  `cargo fmt` passed; focused `cargo test -p sts_core --test card_fidelity
+  thinking_ahead` passed; focused `cargo test -p sts_core --test
+  card_fidelity swift_strike` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (124 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified True Grit/True Grit+ and Warcry/Warcry+
   against their decompiled card/action classes and the trusted sts.gg card
   database baseline, then replaced stale generic audit rows with source-backed

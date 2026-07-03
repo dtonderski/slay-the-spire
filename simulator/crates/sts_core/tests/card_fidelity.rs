@@ -639,6 +639,157 @@ fn warcry_with_no_card_after_draw_exhausts_without_opening_selection() {
 }
 
 #[test]
+fn thinking_ahead_with_no_other_card_draws_without_putting_card_back() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::THINKING_AHEAD_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Thinking Ahead plays without a pre-existing card to put back");
+
+    assert!(next.hand_select.is_none());
+    assert_eq!(next.piles.hand.len(), 2);
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::THINKING_AHEAD_ID
+    );
+}
+
+#[test]
+fn thinking_ahead_plus_with_no_other_card_draws_and_discards_without_selection() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::THINKING_AHEAD_PLUS_ID,
+    )];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Thinking Ahead+ plays without a pre-existing card to put back");
+
+    assert!(next.hand_select.is_none());
+    assert_eq!(next.piles.hand.len(), 2);
+    assert!(next.piles.draw_pile.is_empty());
+    assert!(next.piles.exhaust_pile.is_empty());
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::THINKING_AHEAD_PLUS_ID
+    );
+}
+
+#[test]
+fn thinking_ahead_plus_can_put_a_drawn_card_on_top_when_pre_hand_was_nonempty() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::THINKING_AHEAD_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Thinking Ahead+ opens put-on-draw selection after drawing");
+
+    assert!(next.hand_select.is_some());
+    let selected_index = next
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.content_id == cards::DEFEND_R_ID)
+        .expect("drawn Defend is selectable");
+    let selected_ui_index = next
+        .piles
+        .hand
+        .iter()
+        .take(selected_index)
+        .filter(|card| card.id != CardId::new(1))
+        .count();
+    choose_hand_select(&mut next, selected_ui_index).expect("select drawn Defend");
+    confirm_hand_select(&mut next).expect("confirm Thinking Ahead+ selection");
+
+    assert!(next.hand_select.is_none());
+    assert!(
+        next.piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == cards::DEFEND_R_ID),
+        "selected drawn card returns to the draw pile"
+    );
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::THINKING_AHEAD_PLUS_ID
+    );
+}
+
+#[test]
+fn swift_strike_plus_is_zero_cost_strike_damage() {
+    assert_eq!(cards::SWIFT_STRIKE.cost, 0);
+    assert_eq!(cards::SWIFT_STRIKE.values.damage, Some(7));
+    assert_eq!(cards::SWIFT_STRIKE_PLUS.cost, 0);
+    assert_eq!(cards::SWIFT_STRIKE_PLUS.values.damage, Some(10));
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::SWIFT_STRIKE_PLUS_ID,
+    )];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Swift Strike+ plays for zero energy");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp - 10);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::SWIFT_STRIKE_PLUS_ID
+    );
+}
+
+#[test]
 fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     assert_eq!(cards::ARMAMENTS.values.block, Some(5));
     assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));
