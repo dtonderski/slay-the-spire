@@ -699,6 +699,54 @@ fn fire_breathing_plus_damages_all_enemies_when_status_is_drawn() {
 }
 
 #[test]
+fn flame_barrier_plus_gains_sixteen_block_and_six_temporary_thorns() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.player.block = 0;
+    state.player.temp_thorns = 0;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::FLAME_BARRIER_PLUS_ID,
+    )];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Flame Barrier+ plays without a target");
+
+    assert_eq!(next.player.block, 16);
+    assert_eq!(next.player.temp_thorns, 6);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::FLAME_BARRIER_PLUS_ID
+    );
+}
+
+#[test]
+fn flex_plus_grants_four_temporary_strength() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.temp_strength = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::FLEX_PLUS_ID)];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Flex+ plays without a target");
+
+    assert_eq!(next.player.temp_strength, 4);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::FLEX_PLUS_ID);
+}
+
+#[test]
 fn headbutt_plus_auto_places_single_discard_card_on_draw_pile() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
@@ -2270,6 +2318,59 @@ fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
         .iter()
         .any(|card| card.content_id == cards::PURITY_PLUS_ID));
     assert!(next.exhaust_select.is_none());
+}
+
+#[test]
+fn top_draw_entrench_plus_doubles_current_block_and_discards_source() {
+    let mut state = CombatState::initial_fixture();
+    state.player.block = 9;
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), cards::ENTRENCH_PLUS_ID)];
+    state.piles.discard_pile.clear();
+
+    let next = apply_play_top_draw_card_action(&state, None)
+        .expect("top-draw Entrench+ doubles current block");
+
+    assert_eq!(next.player.block, 18);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::ENTRENCH_PLUS_ID
+    );
+}
+
+#[test]
+fn top_draw_flame_barrier_plus_gains_block_and_temporary_thorns() {
+    let mut state = CombatState::initial_fixture();
+    state.player.block = 0;
+    state.player.temp_thorns = 0;
+    state.piles.draw_pile = vec![CardInstance::new(
+        CardId::new(1),
+        cards::FLAME_BARRIER_PLUS_ID,
+    )];
+    state.piles.discard_pile.clear();
+
+    let next = apply_play_top_draw_card_action(&state, None)
+        .expect("top-draw Flame Barrier+ grants block and thorns");
+
+    assert_eq!(next.player.block, 16);
+    assert_eq!(next.player.temp_thorns, 6);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::FLAME_BARRIER_PLUS_ID
+    );
+}
+
+#[test]
+fn top_draw_flex_plus_grants_temporary_strength() {
+    let mut state = CombatState::initial_fixture();
+    state.player.temp_strength = 0;
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), cards::FLEX_PLUS_ID)];
+    state.piles.discard_pile.clear();
+
+    let next =
+        apply_play_top_draw_card_action(&state, None).expect("top-draw Flex+ grants Strength");
+
+    assert_eq!(next.player.temp_strength, 4);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::FLEX_PLUS_ID);
 }
 
 #[test]

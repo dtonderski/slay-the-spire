@@ -3421,13 +3421,23 @@ fn flame_barrier_queue(
         InternalAction::GainBlock {
             amount: definition.values.block.unwrap_or(0),
         },
-        InternalAction::GainTemporaryThorns { amount: 4 },
+        InternalAction::GainTemporaryThorns {
+            amount: flame_barrier_thorns_amount(definition),
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: CardPile::DiscardPile,
         },
     ]))
+}
+
+pub(crate) fn flame_barrier_thorns_amount(definition: &CardDefinition) -> i32 {
+    if definition.id == FLAME_BARRIER_PLUS_ID {
+        6
+    } else {
+        4
+    }
 }
 
 fn lowest_other_hand_card(state: &CombatState, exclude_id: CardId) -> Option<CardId> {
@@ -3792,7 +3802,7 @@ fn inflame_queue(
     ]))
 }
 
-fn flex_temp_strength_amount(definition: &CardDefinition) -> i32 {
+pub(crate) fn flex_temp_strength_amount(definition: &CardDefinition) -> i32 {
     if definition.id == FLEX_PLUS_ID {
         4
     } else {

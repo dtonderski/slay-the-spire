@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Entrench/Entrench+, Flame Barrier/Flame Barrier+,
+  and Flex/Flex+ against their decompiled card classes and the trusted sts.gg
+  card database baseline, then replaced stale generic audit rows with
+  source-backed facts. Source Entrench queues `DoubleYourBlockAction`; Flame
+  Barrier gains 12/16 Block and applies `FlameBarrierPower` amount 4/6; Flex
+  applies Strength and Lose Strength for 2/4. Fixed generic simulator gaps:
+  Flame Barrier+ now grants 6 temporary thorns instead of 4, and Havoc/top-draw
+  play now applies Entrench block doubling, Flame Barrier temporary thorns, and
+  Flex temporary Strength. Checks: `cargo fmt` passed; focused `cargo test -p
+  sts_core --test card_fidelity entrench` passed; focused `cargo test -p
+  sts_core --test card_fidelity flame_barrier` passed; focused `cargo test -p
+  sts_core --test card_fidelity flex` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (96 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python; active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` still builds the suite and remains blocked by
+  `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Anger/Anger+, Bash/Bash+, and Strike/Strike+
   against their decompiled card classes and the trusted sts.gg card database
   baseline, then replaced stale generic audit rows with source-backed facts.
