@@ -101,6 +101,7 @@ pub(super) fn play_card_queue(
         ),
         SLIMED_ID => slimed_queue(card_id),
         ANGER_ID | ANGER_PLUS_ID => anger_queue(
+            *card,
             card_id,
             target.expect("validated Anger has a target"),
             definition,
@@ -2689,6 +2690,7 @@ fn bash_queue(
 }
 
 fn anger_queue(
+    card: CardInstance,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
@@ -2705,13 +2707,13 @@ fn anger_queue(
                 amount: definition.values.damage.unwrap_or(0),
             },
         },
+        InternalAction::AddStatEquivalentCopyToPile {
+            card,
+            to: CardPile::DiscardPile,
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
-            to: CardPile::DiscardPile,
-        },
-        InternalAction::AddCardToPile {
-            content_id: definition.id,
             to: CardPile::DiscardPile,
         },
     ]))

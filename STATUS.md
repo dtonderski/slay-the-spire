@@ -3,6 +3,26 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Anger/Anger+, Bash/Bash+, and Strike/Strike+
+  against their decompiled card classes and the trusted sts.gg card database
+  baseline, then replaced stale generic audit rows with source-backed facts.
+  Source Anger queues selected-enemy damage and
+  `MakeTempCardInDiscardAction(this.makeStatEquivalentCopy(), 1)`; Bash queues
+  selected-enemy damage then Vulnerable 2/3; Strike queues normal selected-enemy
+  damage and carries Strike starter tags. Fixed Anger so normal play adds a
+  generated combat-only stat-equivalent copy before the source discard, and
+  Havoc/top-draw play also creates the generated copy instead of omitting it.
+  Bash and Strike already matched at generic simulator granularity. Checks:
+  `cargo fmt` passed; focused `cargo test -p sts_core --test card_fidelity
+  anger` passed after correcting the top-draw assertion to the source-backed
+  autoplay discard ordering; focused `cargo test -p sts_core --test
+  card_fidelity bash` passed; focused `cargo test -p sts_core --test
+  card_fidelity strike` passed; `cargo test -p sts_core --test card_fidelity`
+  passed (91 tests); `cargo clippy` passed with existing warnings after setting
+  `PYO3_PYTHON` to the bundled workspace Python; active live-regression replay
+  `uv run python -m unittest python.tests.test_live_regression_traces` passed.
+  Full `cargo test` with bundled `PYO3_PYTHON` still builds the suite and
+  remains blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Headbutt/Headbutt+, Heavy Blade/Heavy Blade+,
   Hemokinesis/Hemokinesis+, and Immolate/Immolate+ against their decompiled card
   classes and the trusted sts.gg card database baseline, then replaced stale

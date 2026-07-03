@@ -752,6 +752,10 @@ fn apply_internal_action(
             add_generated_card_to_pile(state, content_id, to, temp_cost, temp_cost_turn_only);
             Ok(Vec::new())
         }
+        InternalAction::AddStatEquivalentCopyToPile { card, to } => {
+            add_stat_equivalent_copy_to_pile(state, card, to);
+            Ok(Vec::new())
+        }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
             add_generated_card_to_draw_pile_random_spot(state, content_id, None, false);
             Ok(Vec::new())
@@ -1601,6 +1605,20 @@ fn add_generated_card_to_pile(
     push_card_to_pile(state, card, destination);
 }
 
+fn add_stat_equivalent_copy_to_pile(state: &mut CombatState, source: CardInstance, to: CardPile) {
+    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let mut copy = source;
+    copy.id = next_id;
+    copy.bottled = false;
+    copy.combat_only = true;
+    let destination = if to == CardPile::Hand && state.piles.hand.len() >= MAX_HAND_SIZE {
+        CardPile::DiscardPile
+    } else {
+        to
+    };
+    push_card_to_pile(state, copy, destination);
+}
+
 fn add_generated_card_to_draw_pile_random_spot(
     state: &mut CombatState,
     content_id: ContentId,
@@ -1845,6 +1863,12 @@ fn apply_play_top_draw_card(
             if definition.id == RECKLESS_CHARGE_ID || definition.id == RECKLESS_CHARGE_PLUS_ID {
                 follow_ups.push(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
                     content_id: DAZED_ID,
+                });
+            }
+            if definition.id == ANGER_ID || definition.id == ANGER_PLUS_ID {
+                follow_ups.push(InternalAction::AddStatEquivalentCopyToPile {
+                    card,
+                    to: CardPile::DiscardPile,
                 });
             }
             if definition.id == WILD_STRIKE_ID || definition.id == WILD_STRIKE_PLUS_ID {

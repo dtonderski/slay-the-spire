@@ -95,6 +95,32 @@ fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
 }
 
 #[test]
+fn anger_plus_adds_generated_stat_equivalent_copy_before_source_discard() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::ANGER_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Anger+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 8);
+    assert_eq!(next.piles.discard_pile.len(), 2);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::ANGER_PLUS_ID);
+    assert!(next.piles.discard_pile[0].combat_only);
+    assert_eq!(next.piles.discard_pile[1].content_id, cards::ANGER_PLUS_ID);
+    assert!(!next.piles.discard_pile[1].combat_only);
+}
+
+#[test]
 fn berserk_plus_applies_one_vulnerable_and_one_berserk() {
     assert_eq!(cards::BERSERK.values.vulnerable, Some(2));
     assert_eq!(cards::BERSERK_PLUS.values.vulnerable, Some(1));
@@ -114,6 +140,28 @@ fn berserk_plus_applies_one_vulnerable_and_one_berserk() {
 
     assert_eq!(next.player.powers.vulnerable, 1);
     assert_eq!(next.player.powers.berserk, 1);
+}
+
+#[test]
+fn bash_plus_deals_damage_then_applies_three_vulnerable() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BASH_PLUS_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Bash+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 10);
+    assert_eq!(next.monsters[0].powers.vulnerable, 3);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::BASH_PLUS_ID);
 }
 
 #[test]
@@ -707,6 +755,25 @@ fn heavy_blade_plus_uses_five_times_positive_strength() {
         next.piles.discard_pile[0].content_id,
         cards::HEAVY_BLADE_PLUS_ID
     );
+}
+
+#[test]
+fn havoc_played_anger_adds_generated_copy_before_source_discard() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), cards::ANGER_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_play_top_draw_card_action(&state, Some(MonsterId::new(1)))
+        .expect("top-draw Anger+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 8);
+    assert_eq!(next.piles.discard_pile.len(), 2);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::ANGER_PLUS_ID);
+    assert!(!next.piles.discard_pile[0].combat_only);
+    assert_eq!(next.piles.discard_pile[1].content_id, cards::ANGER_PLUS_ID);
+    assert!(next.piles.discard_pile[1].combat_only);
 }
 
 #[test]
@@ -2203,6 +2270,31 @@ fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
         .iter()
         .any(|card| card.content_id == cards::PURITY_PLUS_ID));
     assert!(next.exhaust_select.is_none());
+}
+
+#[test]
+fn strike_plus_deals_nine_damage_and_discards() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::STRIKE_R_PLUS_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Strike+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 9);
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::STRIKE_R_PLUS_ID
+    );
 }
 
 #[test]
