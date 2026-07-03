@@ -8,14 +8,31 @@ use sts_verify::{
 fn generated_neow_three_cards_fixture() -> (String, &'static str, &'static str) {
     for index in 0..500 {
         let seed = format!("CARD{index:03}");
-        if let Some((picked, cost)) = generated_neow_three_cards_first_pick(&seed) {
+        if let Some((picked, cost)) =
+            generated_neow_card_reward_first_pick(&seed, sts_core::NeowRewardType::ThreeCards)
+        {
             return (seed, picked, cost);
         }
     }
     panic!("test fixture search did not find a seed with Three Cards Neow option");
 }
 
-fn generated_neow_three_cards_first_pick(seed: &str) -> Option<(&'static str, &'static str)> {
+fn generated_neow_three_rare_cards_fixture() -> (String, &'static str, &'static str) {
+    for index in 0..500 {
+        let seed = format!("RARE{index:03}");
+        if let Some((picked, cost)) =
+            generated_neow_card_reward_first_pick(&seed, sts_core::NeowRewardType::ThreeRareCards)
+        {
+            return (seed, picked, cost);
+        }
+    }
+    panic!("test fixture search did not find a seed with Three Rare Cards Neow option");
+}
+
+fn generated_neow_card_reward_first_pick(
+    seed: &str,
+    reward: sts_core::NeowRewardType,
+) -> Option<(&'static str, &'static str)> {
     let run = sts_core::RunState::placeholder_seeded_ironclad(
         sts_verify::sts_seed_string_to_long(seed) as u64,
         0,
@@ -24,7 +41,7 @@ fn generated_neow_three_cards_first_pick(seed: &str) -> Option<(&'static str, &'
         .expect("Neow talk applies");
     let option = sts_core::generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
         .into_iter()
-        .find(|option| option.reward == sts_core::NeowRewardType::ThreeCards)?;
+        .find(|option| option.reward == reward)?;
     let cost = match option.drawback {
         sts_core::NeowDrawback::None => "NONE",
         sts_core::NeowDrawback::Curse => "CURSE",
@@ -362,6 +379,46 @@ fn preflight_checks_open_card_reward_against_core_choices() {
         .iter()
         .find(|step| step.code == "legal_card_reward")
         .expect("checked card reward");
+    assert_eq!(reward_step.status, SlayTheDataPreflightStatus::Checked);
+    assert_eq!(
+        reward_step
+            .bridge_command
+            .as_ref()
+            .map(|hint| &hint.descriptor),
+        Some(&SlayTheDataBridgeDescriptor::ChooseVisibleOption { option_slot: 0 })
+    );
+    assert_eq!(
+        reward_step
+            .bridge_command
+            .as_ref()
+            .map(|hint| hint.command.as_str()),
+        Some("CHOOSE 0")
+    );
+}
+
+#[test]
+fn preflight_checks_open_rare_card_reward_against_core_choices() {
+    let (seed, picked, cost) = generated_neow_three_rare_cards_fixture();
+    let imported = import_slaythedata_run_json(&format!(
+        r#"{{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "{seed}",
+            "neow_bonus": "THREE_RARE_CARDS",
+            "neow_cost": "{cost}",
+            "card_choices": [{{"floor": 0, "picked": "{picked}"}}]
+        }}"#,
+    ))
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    let reward_step = report
+        .steps
+        .iter()
+        .find(|step| step.code == "legal_card_reward")
+        .expect("checked rare card reward");
     assert_eq!(reward_step.status, SlayTheDataPreflightStatus::Checked);
     assert_eq!(
         reward_step

@@ -1546,6 +1546,7 @@ fn slaythedata_neow_option(
 fn slaythedata_neow_reward_type(value: &str) -> Option<NeowRewardType> {
     match value.trim().to_ascii_uppercase().as_str() {
         "THREE_CARDS" => Some(NeowRewardType::ThreeCards),
+        "THREE_RARE_CARDS" => Some(NeowRewardType::ThreeRareCards),
         "ONE_RANDOM_RARE_CARD" | "RANDOM_RARE_CARD" => Some(NeowRewardType::OneRandomRareCard),
         "RANDOM_COLORLESS" => Some(NeowRewardType::RandomColorless),
         "RANDOM_COLORLESS_2" => Some(NeowRewardType::RandomColorlessTwo),
