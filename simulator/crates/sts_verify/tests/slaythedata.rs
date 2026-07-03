@@ -317,6 +317,29 @@ fn preflight_checks_neow_talk_against_simulator_state() {
 }
 
 #[test]
+fn preflight_accepts_slaythedata_signed_numeric_seed() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "-5230933468808623542",
+            "neow_bonus": "TEN_PERCENT_HP_BONUS",
+            "neow_cost": "NONE"
+        }"#,
+    )
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    assert_eq!(report.numeric_seed, Some(-5_230_933_468_808_623_542));
+    assert!(!report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "invalid_seed_played"));
+}
+
+#[test]
 fn preflight_checks_open_card_reward_against_core_choices() {
     let (seed, picked, cost) = generated_neow_three_cards_fixture();
     let imported = import_slaythedata_run_json(&format!(

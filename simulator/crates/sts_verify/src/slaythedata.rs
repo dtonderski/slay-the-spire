@@ -8,7 +8,7 @@ use sts_core::{
     NeowRewardType, RoomKind, RunAction, RunPhase, RunState,
 };
 
-use crate::sts_seed_string_to_long;
+use crate::try_sts_seed_string_to_long;
 
 pub const SLAYTHEDATA_IMPORT_SCHEMA_VERSION: u32 = 1;
 
@@ -597,6 +597,10 @@ pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataRe
 
 pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheDataPreflightReport {
     let mut diagnostics = plan.diagnostics.clone();
+    let seed_result = plan
+        .run_start
+        .as_ref()
+        .map(|start| slaythedata_seed_to_long(&start.seed_played));
     let mut run = plan.run_start.as_ref().and_then(|start| {
         if !start.character.eq_ignore_ascii_case("IRONCLAD") {
             return None;
@@ -607,15 +611,24 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
         if ascension > 20 {
             return None;
         }
+        let seed = seed_result.as_ref()?.as_ref().ok()?;
         Some(RunState::placeholder_seeded_ironclad(
-            sts_seed_string_to_long(&start.seed_played) as u64,
+            *seed as u64,
             ascension,
         ))
     });
-    let numeric_seed = plan
-        .run_start
+    let numeric_seed = seed_result
         .as_ref()
-        .map(|start| sts_seed_string_to_long(&start.seed_played));
+        .and_then(|result| result.as_ref().ok().copied());
+
+    if let Some(Err(message)) = seed_result.as_ref() {
+        diagnostics.push(SlayTheDataDiagnostic {
+            severity: SlayTheDataDiagnosticSeverity::Error,
+            code: "invalid_seed_played".to_owned(),
+            path: "$.run_start.seed_played".to_owned(),
+            message: message.clone(),
+        });
+    }
 
     if plan.run_start.is_some() && run.is_none() {
         diagnostics.push(SlayTheDataDiagnostic {
@@ -972,6 +985,24 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
         steps,
         diagnostics,
     }
+}
+
+fn slaythedata_seed_to_long(seed: &str) -> Result<i64, String> {
+    let trimmed = seed.trim();
+    if trimmed.is_empty() {
+        return Err("seed_played is empty".to_owned());
+    }
+    if trimmed
+        .strip_prefix('-')
+        .unwrap_or(trimmed)
+        .chars()
+        .all(|ch| ch.is_ascii_digit())
+    {
+        return trimmed
+            .parse::<i64>()
+            .map_err(|error| format!("invalid numeric seed_played {trimmed:?}: {error}"));
+    }
+    try_sts_seed_string_to_long(trimmed).map_err(|error| error.to_string())
 }
 
 fn choose_visible_hint(option_slot: usize) -> SlayTheDataBridgeCommandHint {
