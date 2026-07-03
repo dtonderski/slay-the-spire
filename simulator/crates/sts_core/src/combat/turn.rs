@@ -191,10 +191,15 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) {
     for _ in 0..state.player.powers.magnetism.max(0) {
         let content_id = crate::combat::card_effects::magnetism_generated_colorless_card(state);
         let next_id = crate::CardId::new(state.piles.max_card_instance_id() + 1);
-        state.piles.hand.push(crate::CardInstance {
+        let generated = crate::CardInstance {
             combat_only: true,
             ..crate::CardInstance::new(next_id, content_id)
-        });
+        };
+        if state.piles.hand.len() >= 10 {
+            state.piles.discard_pile.push(generated);
+        } else {
+            state.piles.hand.push(generated);
+        }
     }
 }
 
@@ -1423,6 +1428,8 @@ fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CardId;
+    use crate::content::cards::STRIKE_R_ID;
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
         target_giant_head_next_intent_from_roll,
@@ -1435,6 +1442,27 @@ mod tests {
         LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
         SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
     };
+
+    #[test]
+    fn magnetism_generated_card_overflows_full_hand_to_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.magnetism = 1;
+        state.piles.hand = (1..=10)
+            .map(|id| crate::CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &GREMLIN_NOB_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+
+        apply_start_of_turn_magnetism(&mut state);
+
+        assert_eq!(state.piles.hand.len(), 10);
+        assert_eq!(state.piles.discard_pile.len(), 1);
+        assert!(state.piles.discard_pile[0].combat_only);
+    }
 
     #[test]
     fn transient_direct_set_move_does_not_consume_ai_rng_after_turn() {

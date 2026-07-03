@@ -3,6 +3,30 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Magnetism/Magnetism+ against `Magnetism.java`
+  and `MagnetismPower.java`, then fixed generated-card hand overflow. Source
+  applies one Magnetism stack, and at the start of each turn uses
+  `MakeTempCardInHandAction` to add one random colorless combat card per stack;
+  that action respects the 10-card hand cap and sends overflow to discard. Local
+  Magnetism previously pushed generated cards directly into hand and could create
+  an 11-card hand. The simulator now keeps the same modeled colorless pool/RNG
+  path but routes full-hand generated cards to discard, with focused coverage for
+  the overflow case. Remaining caveat: exact source
+  `returnTrulyRandomColorlessCardInCombat` pool/order is still represented by the
+  local modeled colorless pool. Checks: `cargo fmt` passed; `cargo test -p
+  sts_core magnetism_generated_card_overflows_full_hand_to_discard` passed;
+  `cargo test -p sts_core --test card_fidelity` passed (30 tests); `cargo
+  clippy` passed with existing warnings after setting `PYO3_PYTHON` to the
+  bundled Python. Main-workspace `cargo test` is currently blocked by
+  `py_sts`/`sts_omni` exiting with `STATUS_DLL_NOT_FOUND`, and the dirty
+  main-workspace live replay still fails on local
+  `trace-2026-07-02T23-24-13-178Z.jsonl` / manifest state (`steps` 356 vs 335).
+  In a temporary clean worktree with only this staged slice applied, the focused
+  Magnetism regression passed, card-fidelity passed, and clippy passed with the
+  same existing warnings. Committed-corpus replay currently fails even on plain
+  `HEAD` before this slice, at trace step 353 of
+  `trace-2026-07-02T23-24-13-178Z.jsonl`, with a Wound/discard-pile ordering
+  diff unrelated to Magnetism.
 - Card-fidelity fix: verified Madness/Madness+ against `Madness.java` and
   `MadnessAction.java`, then fixed eligible-card selection. Source first
   prefers hand cards with `costForTurn > 0`, repeatedly rolling
