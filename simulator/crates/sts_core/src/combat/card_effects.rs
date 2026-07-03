@@ -2955,13 +2955,13 @@ fn havoc_queue(
     definition: &CardDefinition,
     target: Option<MonsterId>,
 ) -> SimResult<VecDeque<InternalAction>> {
-    if state.piles.draw_pile.is_empty() {
-        return Err(SimError::IllegalAction("Havoc requires a draw pile card"));
+    if let Some(top_definition) = top_draw_card_definition(state) {
+        validate_havoc_target(top_definition, target)?;
+    } else if state.piles.discard_pile.is_empty() && target.is_some() {
+        return Err(SimError::IllegalAction(
+            "Havoc top card cannot have a target",
+        ));
     }
-
-    let top_definition = top_draw_card_definition(state)
-        .ok_or(SimError::IllegalAction("Havoc requires a draw pile card"))?;
-    validate_havoc_target(top_definition, target)?;
 
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },

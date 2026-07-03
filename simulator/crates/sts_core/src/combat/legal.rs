@@ -165,12 +165,23 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
             }
 
             if definition.id == HAVOC_ID || definition.id == HAVOC_PLUS_ID {
-                if state.piles.draw_pile.is_empty() {
-                    return Err(SimError::IllegalAction("Havoc requires a draw pile card"));
+                if let Some(top_definition) = top_draw_card_definition(state) {
+                    return validate_havoc_play(top_definition, target);
                 }
-                let top_definition = top_draw_card_definition(state)
-                    .ok_or(SimError::IllegalAction("Havoc requires a draw pile card"))?;
-                return validate_havoc_play(top_definition, target);
+                if !state.piles.discard_pile.is_empty() {
+                    return match target {
+                        Some(monster_id) if is_living_monster(state, monster_id) => Ok(()),
+                        Some(_) => Err(SimError::IllegalAction("target is not a living monster")),
+                        None => Ok(()),
+                    };
+                }
+                return if target.is_none() {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction(
+                        "Havoc top card cannot have a target",
+                    ))
+                };
             }
 
             if definition.id == DUAL_WIELD_ID || definition.id == DUAL_WIELD_PLUS_ID {
@@ -355,6 +366,18 @@ fn hand_contains_only_attacks(state: &CombatState) -> bool {
 
 fn push_havoc_actions(actions: &mut Vec<CombatAction>, state: &CombatState, card_id: CardId) {
     let Some(top_definition) = top_draw_card_definition(state) else {
+        actions.push(CombatAction::PlayCard {
+            card_id,
+            target: None,
+        });
+        if !state.piles.discard_pile.is_empty() {
+            actions.extend(
+                living_monster_ids(state).map(|target| CombatAction::PlayCard {
+                    card_id,
+                    target: Some(target),
+                }),
+            );
+        }
         return;
     };
 

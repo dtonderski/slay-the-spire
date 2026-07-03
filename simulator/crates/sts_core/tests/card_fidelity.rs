@@ -3008,6 +3008,83 @@ fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
 }
 
 #[test]
+fn havoc_empty_draw_and_discard_discards_source_without_top_card_effect() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let legal_actions = legal_combat_actions(&state);
+    assert!(legal_actions.contains(&CombatAction::PlayCard {
+        card_id: CardId::new(1),
+        target: None,
+    }));
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc no-ops when draw and discard piles are empty");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp);
+    assert!(next.piles.draw_pile.is_empty());
+    assert!(next.piles.exhaust_pile.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
+}
+
+#[test]
+fn havoc_empty_draw_shuffles_discard_then_plays_top_card() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile = vec![CardInstance::new(CardId::new(2), cards::ANGER_PLUS_ID)];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect_err("Havoc still requires a target if the shuffled top card requires one");
+
+    assert!(matches!(next, sts_core::SimError::IllegalAction(_)));
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Havoc shuffles discard into draw and plays the top card");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_hp - 8);
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::ANGER_PLUS_ID);
+    assert!(next
+        .piles
+        .discard_pile
+        .iter()
+        .any(|card| card.content_id == cards::HAVOC_ID));
+}
+
+#[test]
 fn havoc_master_of_strategy_plus_draws_four_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

@@ -1815,7 +1815,10 @@ fn apply_play_top_draw_card(
     exhaust_played_card: bool,
 ) -> SimResult<Vec<InternalAction>> {
     if state.piles.draw_pile.is_empty() {
-        return Err(SimError::IllegalAction("draw pile is empty"));
+        if state.piles.discard_pile.is_empty() {
+            return Ok(Vec::new());
+        }
+        player_shuffle_discard_into_draw(state);
     }
 
     let card = state

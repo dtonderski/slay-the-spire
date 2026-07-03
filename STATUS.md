@@ -3,6 +3,22 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Havoc/Havoc+ against decompiled `Havoc.java`
+  plus `PlayTopCardAction.java` and the trusted sts.gg card database baseline,
+  then replaced stale generic audit rows with source-backed facts. Source Havoc
+  queues `PlayTopCardAction` with `exhausts=true`: when draw plus discard is
+  empty the top-card action no-ops, and when draw is empty with discard present
+  it shuffles discard into draw and retries before playing/exhausting the top
+  card. Fixed generic simulator mismatch: Havoc no longer rejects empty draw
+  piles, and generic top-draw play now follows the STS no-op / shuffle-then-play
+  behavior instead of erroring. Checks: `cargo fmt` passed; focused `cargo
+  test -p sts_core --test card_fidelity havoc` passed (13 tests); `cargo test
+  -p sts_core --test card_fidelity` passed (128 tests); `cargo clippy` passed
+  with existing warnings after setting `PYO3_PYTHON` to the bundled workspace
+  Python; active live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed. Full `cargo test` with
+  bundled `PYO3_PYTHON` builds the suite and remains blocked by `sts_omni`
+  exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity audit: verified Violence/Violence+ against decompiled
   `Violence.java` and the trusted sts.gg card database baseline, then replaced
   stale generic audit rows with source-backed facts. Source Violence is a
