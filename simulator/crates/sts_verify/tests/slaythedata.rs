@@ -246,10 +246,10 @@ fn preflight_checks_neow_talk_against_simulator_state() {
     );
     assert_eq!(report.steps[0].status, SlayTheDataPreflightStatus::Checked);
     assert_eq!(report.steps[0].code, "legal_neow_talk");
-    assert!(report
-        .steps
-        .iter()
-        .any(|step| step.status == SlayTheDataPreflightStatus::Guided));
+    assert_eq!(report.steps[1].status, SlayTheDataPreflightStatus::Checked);
+    assert_eq!(report.steps[1].code, "legal_neow_bonus");
+    assert_eq!(report.steps[2].status, SlayTheDataPreflightStatus::Checked);
+    assert_eq!(report.steps[2].code, "legal_neow_leave");
 }
 
 #[test]

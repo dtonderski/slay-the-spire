@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, error::Error, fmt};
-use sts_core::{apply_event_action, legal_event_actions, EventAction, RunPhase, RunState};
+use sts_core::{
+    apply_event_action, generate_neow_options, legal_event_actions, EventAction,
+    GeneratedNeowOption, NeowDrawback, NeowRewardType, RunPhase, RunState,
+};
 
 use crate::sts_seed_string_to_long;
 
@@ -653,19 +656,95 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     )
                 }
             }
-            SlayTheDataReplayStepKind::NeowBonus { bonus, cost } => (
-                SlayTheDataPreflightStatus::Guided,
-                "guided_neow_bonus".to_owned(),
-                format!(
-                    "SlayTheData records Neow bonus {:?} and cost {:?}; exact option mapping is not implemented yet",
-                    bonus, cost
+            SlayTheDataReplayStepKind::NeowBonus { bonus, cost } => match run.as_ref() {
+                Some(current) => match slaythedata_neow_option(current, bonus, cost) {
+                    Ok(option) => {
+                        let action = EventAction::Choose {
+                            choice_index: option.slot,
+                        };
+                        if legal_event_actions(current).contains(&action) {
+                            match apply_event_action(current, action) {
+                                Ok(next) => {
+                                    run = Some(next);
+                                    (
+                                        SlayTheDataPreflightStatus::Checked,
+                                        "legal_neow_bonus".to_owned(),
+                                        format!(
+                                            "matched SlayTheData Neow bonus {:?} cost {:?} to generated option slot {}",
+                                            bonus, cost, option.slot
+                                        ),
+                                    )
+                                }
+                                Err(error) => (
+                                    SlayTheDataPreflightStatus::Blocked,
+                                    "neow_bonus_apply_failed".to_owned(),
+                                    format!(
+                                        "matched Neow option slot {} but failed to apply it: {error}",
+                                        option.slot
+                                    ),
+                                ),
+                            }
+                        } else {
+                            (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "illegal_neow_bonus_slot".to_owned(),
+                                format!(
+                                    "matched Neow option slot {} but it is not legal from phase {:?}",
+                                    option.slot, current.phase
+                                ),
+                            )
+                        }
+                    }
+                    Err(message) => (
+                        SlayTheDataPreflightStatus::Blocked,
+                        "neow_option_not_available".to_owned(),
+                        message,
+                    ),
+                },
+                None => (
+                    SlayTheDataPreflightStatus::Blocked,
+                    "missing_run_state".to_owned(),
+                    "cannot check Neow bonus without an initialized simulator run".to_owned(),
                 ),
-            ),
-            SlayTheDataReplayStepKind::NeowLeave => (
-                SlayTheDataPreflightStatus::Guided,
-                "guided_neow_leave".to_owned(),
-                "Neow leave depends on the selected Neow option state".to_owned(),
-            ),
+            },
+            SlayTheDataReplayStepKind::NeowLeave => {
+                if let Some(current) = run.as_ref() {
+                    let action = EventAction::Choose { choice_index: 0 };
+                    if current.phase == RunPhase::Event && legal_event_actions(current).contains(&action) {
+                        match apply_event_action(current, action) {
+                            Ok(next) => {
+                                run = Some(next);
+                                (
+                                    SlayTheDataPreflightStatus::Checked,
+                                    "legal_neow_leave".to_owned(),
+                                    "Neow leave is legal after the selected immediate Neow option"
+                                        .to_owned(),
+                                )
+                            }
+                            Err(error) => (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "neow_leave_apply_failed".to_owned(),
+                                format!("Neow leave was legal but failed to apply: {error}"),
+                            ),
+                        }
+                    } else {
+                        (
+                            SlayTheDataPreflightStatus::Guided,
+                            "pending_neow_followup".to_owned(),
+                            format!(
+                                "Neow leave is pending because the selected option moved the simulator to phase {:?}",
+                                current.phase
+                            ),
+                        )
+                    }
+                } else {
+                    (
+                        SlayTheDataPreflightStatus::Blocked,
+                        "missing_run_state".to_owned(),
+                        "cannot check Neow leave without an initialized simulator run".to_owned(),
+                    )
+                }
+            }
             SlayTheDataReplayStepKind::MapRoom { symbol } => (
                 SlayTheDataPreflightStatus::Guided,
                 "guided_map_room".to_owned(),
@@ -746,6 +825,66 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
 
 fn phase_name(phase: RunPhase) -> String {
     format!("{phase:?}")
+}
+
+fn slaythedata_neow_option(
+    run: &RunState,
+    bonus: &Option<String>,
+    cost: &Option<String>,
+) -> Result<GeneratedNeowOption, String> {
+    let Some(reward) = bonus.as_deref().and_then(slaythedata_neow_reward_type) else {
+        return Err(format!(
+            "unknown or missing SlayTheData Neow bonus {bonus:?}"
+        ));
+    };
+    let Some(drawback) = slaythedata_neow_drawback(cost.as_deref().unwrap_or("NONE")) else {
+        return Err(format!("unknown SlayTheData Neow cost {cost:?}"));
+    };
+    let options = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp);
+    options
+        .into_iter()
+        .find(|option| option.reward == reward && option.drawback == drawback)
+        .ok_or_else(|| {
+            format!(
+                "SlayTheData Neow bonus {:?} cost {:?} is not among generated options",
+                bonus, cost
+            )
+        })
+}
+
+fn slaythedata_neow_reward_type(value: &str) -> Option<NeowRewardType> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "THREE_CARDS" => Some(NeowRewardType::ThreeCards),
+        "ONE_RANDOM_RARE_CARD" | "RANDOM_RARE_CARD" => Some(NeowRewardType::OneRandomRareCard),
+        "RANDOM_COLORLESS" => Some(NeowRewardType::RandomColorless),
+        "RANDOM_COLORLESS_2" => Some(NeowRewardType::RandomColorlessTwo),
+        "REMOVE_CARD" => Some(NeowRewardType::RemoveCard),
+        "REMOVE_TWO" => Some(NeowRewardType::RemoveTwo),
+        "UPGRADE_CARD" => Some(NeowRewardType::UpgradeCard),
+        "TRANSFORM_CARD" => Some(NeowRewardType::TransformCard),
+        "TRANSFORM_TWO_CARDS" => Some(NeowRewardType::TransformTwoCards),
+        "THREE_SMALL_POTIONS" => Some(NeowRewardType::ThreeSmallPotions),
+        "RANDOM_COMMON_RELIC" => Some(NeowRewardType::RandomCommonRelic),
+        "ONE_RARE_RELIC" => Some(NeowRewardType::OneRareRelic),
+        "TEN_PERCENT_HP_BONUS" => Some(NeowRewardType::TenPercentHpBonus),
+        "TWENTY_PERCENT_HP_BONUS" => Some(NeowRewardType::TwentyPercentHpBonus),
+        "THREE_ENEMY_KILL" => Some(NeowRewardType::ThreeEnemyKill),
+        "HUNDRED_GOLD" => Some(NeowRewardType::HundredGold),
+        "TWO_FIFTY_GOLD" => Some(NeowRewardType::TwoFiftyGold),
+        "BOSS_RELIC" => Some(NeowRewardType::BossRelic),
+        _ => None,
+    }
+}
+
+fn slaythedata_neow_drawback(value: &str) -> Option<NeowDrawback> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "NONE" => Some(NeowDrawback::None),
+        "TEN_PERCENT_HP_LOSS" => Some(NeowDrawback::TenPercentHpLoss),
+        "NO_GOLD" => Some(NeowDrawback::NoGold),
+        "CURSE" => Some(NeowDrawback::Curse),
+        "PERCENT_DAMAGE" => Some(NeowDrawback::PercentDamage),
+        _ => None,
+    }
 }
 
 fn import_card_rewards(

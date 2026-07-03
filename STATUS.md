@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData Neow preflight slice: mapped SlayTheData `neow_bonus` and
+  `neow_cost` labels to core `NeowRewardType`/`NeowDrawback`, then applied the
+  matched generated Neow option through real event legality. Immediate Neow
+  rewards can now preflight through talk, bonus, and leave as checked simulator
+  actions; follow-up reward/grid cases remain explicit guided/pending states.
+  Checks: `cargo fmt` passed; `cargo test -p sts_verify --test slaythedata`
+  passed; `cargo check -p sts_verify --lib` passed; `cargo check -p
+  sts_verify --bin sts_verify` passed; `sts_verify slaythedata-preflight`
+  smoke test passed. Next task: map route symbols to concrete legal map-node
+  actions and keep lossy SlayTheData gaps surfaced.
 - Card-fidelity audit: verified Doubt, Regret, and Shame against decompiled
   `Doubt.java`, `Regret.java`, and `Shame.java` plus the trusted sts.gg card
   database baseline, then replaced their stale generic audit rows with
