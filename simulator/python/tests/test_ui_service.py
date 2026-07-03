@@ -636,7 +636,10 @@ class UiServiceTests(unittest.TestCase):
             with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
                 manager,
                 "predict",
-                return_value={"predicted_state_id": "predicted-event-state"},
+                return_value={
+                    "predicted_state_id": "predicted-event-state",
+                    "predicted_snapshot_json": "{\"phase\":\"event\"}",
+                },
             ):
                 sent = _tick_live_collector(
                     collector,
@@ -648,6 +651,7 @@ class UiServiceTests(unittest.TestCase):
 
             self.assertEqual(sent["suggestion"]["status"], "sent_non_combat")
             self.assertEqual(sent["pending_prediction"]["predicted_state_id"], "predicted-event-state")
+            self.assertEqual(sent["pending_prediction"]["predicted_snapshot_json"], "{\"phase\":\"event\"}")
             self.assertEqual((root / "next_command.txt").read_text(encoding="utf-8"), "CHOOSE 0\n")
             choose_meta = json.loads((root / "next_command.json").read_text(encoding="utf-8"))
             self.assertEqual(choose_meta["metadata"]["source"], "guided_collector")
@@ -1514,7 +1518,10 @@ class UiServiceTests(unittest.TestCase):
         ) as search, patch.object(
             manager,
             "predict",
-            return_value={"predicted_state_id": "predicted-live-state"},
+            return_value={
+                "predicted_state_id": "predicted-live-state",
+                "predicted_snapshot_json": "{\"combat\":{}}",
+            },
         ) as predict:
             result = manager.send_live_combat_action(
                 bridge_status,
@@ -1526,6 +1533,7 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["bridge_action"]["command"], "PLAY 1 0")
         self.assertEqual(result["predicted_state_id"], "predicted-live-state")
+        self.assertEqual(result["predicted_snapshot_json"], "{\"combat\":{}}")
         self.assertEqual(
             sent,
             [("PLAY 1 0", {"source_state_id": "bridge-state", "wait_for_state_update": True})],
@@ -1567,7 +1575,10 @@ class UiServiceTests(unittest.TestCase):
         with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
             manager,
             "predict",
-            return_value={"predicted_state_id": "predicted-event-state"},
+            return_value={
+                "predicted_state_id": "predicted-event-state",
+                "predicted_snapshot_json": "{\"phase\":\"event\"}",
+            },
         ) as predict:
             result = manager.send_live_non_combat_action(
                 bridge_status,
@@ -1582,6 +1593,7 @@ class UiServiceTests(unittest.TestCase):
 
         self.assertEqual(result["command"], "CHOOSE 0")
         self.assertEqual(result["predicted_state_id"], "predicted-event-state")
+        self.assertEqual(result["predicted_snapshot_json"], "{\"phase\":\"event\"}")
         self.assertEqual(
             sent,
             [("CHOOSE 0", {"source_state_id": "bridge-state", "wait_for_state_update": True})],
@@ -1621,7 +1633,10 @@ class UiServiceTests(unittest.TestCase):
         with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
             manager,
             "predict",
-            return_value={"predicted_state_id": "predicted-event-state"},
+            return_value={
+                "predicted_state_id": "predicted-event-state",
+                "predicted_snapshot_json": "{\"phase\":\"event\"}",
+            },
         ):
             with self.assertRaisesRegex(ValueError, "observed TCP state update"):
                 manager.send_live_non_combat_action(
@@ -1756,12 +1771,16 @@ class UiServiceTests(unittest.TestCase):
         with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
             manager,
             "predict",
-            return_value={"predicted_state_id": "predicted-event-state"},
+            return_value={
+                "predicted_state_id": "predicted-event-state",
+                "predicted_snapshot_json": "{\"phase\":\"event\"}",
+            },
         ):
             sent = _tick_live_collector(collector, manager, bridge, {"send": True})
 
         self.assertEqual(sent["suggestion"]["status"], "sent_non_combat")
         self.assertEqual(sent["pending_prediction"]["predicted_state_id"], "predicted-event-state")
+        self.assertEqual(sent["pending_prediction"]["predicted_snapshot_json"], "{\"phase\":\"event\"}")
         self.assertEqual(bridge.sent[0][0], "CHOOSE 0")
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "bridge-state")
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])

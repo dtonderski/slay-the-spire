@@ -420,6 +420,7 @@ def send_guided_non_combat_suggestion(
 def _pending_prediction_from_simulator_send(send_result: dict[str, Any]) -> dict[str, Any]:
     return {
         "predicted_state_id": send_result.get("predicted_state_id"),
+        "predicted_snapshot_json": send_result.get("predicted_snapshot_json"),
         "source_state_id": send_result.get("source_state_id"),
         "bridge_state_id": send_result.get("bridge_state_id"),
         "bridge_step": send_result.get("bridge_step"),

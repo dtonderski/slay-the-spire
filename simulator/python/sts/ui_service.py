@@ -341,6 +341,7 @@ class SessionManager:
             "bridge_state_id": source_state_id,
             "bridge_step": bridge_status.get("last_state_step"),
             "predicted_state_id": prediction["predicted_state_id"],
+            "predicted_snapshot_json": prediction.get("predicted_snapshot_json"),
             "recommendation": recommendation,
             "bridge_action": bridge_action,
             "send_result": {
@@ -410,6 +411,7 @@ class SessionManager:
             "bridge_state_id": source_state_id,
             "bridge_step": bridge_status.get("last_state_step"),
             "predicted_state_id": prediction["predicted_state_id"],
+            "predicted_snapshot_json": prediction.get("predicted_snapshot_json"),
             "command": command,
             "matched_action": _public_action(legal_action),
             "send_result": {
