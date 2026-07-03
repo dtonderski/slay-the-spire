@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: corrected Blind/Blind+ rows with source-backed facts
+  from `Blind.java`. Source applies 2 Weak to one enemy for base and to all
+  enemies after upgrade; local definitions/effects already match at the generic
+  simulator level, with Weak amount represented in effect queues rather than
+  `CardValues`. No simulator code fix was needed. Checks: `git diff --check`
+  passed with only existing CRLF warnings; active live-regression manifest
+  replay passed via `uv run python -m unittest
+  python.tests.test_live_regression_traces`.
 - Card-fidelity fix: corrected Trip/Trip+ audit rows and fixed upgraded target
   metadata. Decompiled `Trip.java` upgrades target from enemy to all-enemy and
   applies 2 Vulnerable to each monster. Local Trip+ effect behavior already
