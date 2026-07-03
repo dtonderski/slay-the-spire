@@ -465,6 +465,116 @@ fn dark_embrace_stacks_one_draw_per_exhaust() {
 }
 
 #[test]
+fn defend_plus_gains_eight_block_and_discards() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DEFEND_R_PLUS_ID)];
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Defend+ plays");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.player.block, 8);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::DEFEND_R_PLUS_ID
+    );
+}
+
+#[test]
+fn double_tap_plus_doubles_the_next_attack_and_leaves_one_pending() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::DOUBLE_TAP_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Double Tap+ plays");
+    assert_eq!(next.double_tap_pending, 2);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Strike is doubled by Double Tap+");
+
+    assert_eq!(next.double_tap_pending, 1);
+    assert_eq!(next.monsters[0].hp, starting_hp - 12);
+}
+
+#[test]
+fn dual_wield_plus_creates_two_temporary_copies_and_discards_source() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::DUAL_WIELD_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_PLUS_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Dual Wield+ opens hand selection");
+    assert!(next.hand_select.is_some());
+
+    choose_hand_select(&mut next, 0).expect("select upgraded Strike");
+    confirm_hand_select(&mut next).expect("confirm Dual Wield+ selection");
+
+    assert_eq!(next.player.energy, 0);
+    assert!(next.hand_select.is_none());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::DUAL_WIELD_PLUS_ID
+    );
+    assert!(next.piles.exhaust_pile.is_empty());
+
+    let strike_plus_cards = next
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.content_id == cards::STRIKE_R_PLUS_ID)
+        .collect::<Vec<_>>();
+    assert_eq!(strike_plus_cards.len(), 3);
+    assert_eq!(
+        strike_plus_cards
+            .iter()
+            .filter(|card| card.combat_only)
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
     assert_eq!(cards::DROPKICK.values.damage, Some(5));
     assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));

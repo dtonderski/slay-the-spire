@@ -3,6 +3,27 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Defend/Defend+, Double Tap/Double Tap+, and Dual
+  Wield/Dual Wield+ against their decompiled card/action classes, then fixed
+  Dual Wield generic fidelity. Source Dual Wield creates 1/2 temporary
+  stat-equivalent copies of a selected Attack or Power and the source Skill
+  discards normally unless another effect such as Corruption changes its
+  destination. Local Dual Wield previously exhausted the non-Exhaust source,
+  always created one copy, and constructed a fresh base instance. The simulator
+  now creates the base/upgraded copy count, preserves selected card instance
+  state, marks copies combat-only, and moves the source through the normal
+  delayed-source destination path. Defend and Double Tap rows were corrected to
+  source-backed facts; local behavior already matched their generic semantics.
+  Checks: `cargo fmt` passed; focused `cargo test -p sts_core --test
+  card_fidelity defend_plus` passed; focused `cargo test -p sts_core --test
+  card_fidelity double_tap` passed; focused `cargo test -p sts_core --test
+  card_fidelity dual_wield` passed after correcting the test to select the
+  filtered hand-select index; `cargo test -p sts_core --test card_fidelity`
+  passed (80 tests); `cargo clippy` passed with existing warnings after setting
+  `PYO3_PYTHON` to the bundled workspace Python; active live-regression replay
+  `uv run python -m unittest python.tests.test_live_regression_traces` passed.
+  Full `cargo test` with bundled `PYO3_PYTHON` still builds the suite and
+  remains blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Combust/Combust+, Corruption/Corruption+, and Dark
   Embrace/Dark Embrace+ against their decompiled card and power classes, then
   fixed Corruption replay fidelity. Source Corruption scans existing player

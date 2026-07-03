@@ -20,8 +20,8 @@ use crate::{
         CARNAGE_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
         DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID,
-        DROPKICK_ID, DROPKICK_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, EXHUME_ID,
-        EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
+        DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID,
+        EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
         HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
         IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
         MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
@@ -2790,7 +2790,14 @@ fn confirm_dual_wield_select(
         .ok_or(SimError::IllegalAction(
             "Dual Wield source card is not in hand",
         ))?;
-    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let source_definition = get_card_definition(source_card.content_id)
+        .ok_or(SimError::UnknownContent(source_card.content_id))?;
+    let copy_count = if source_definition.id == DUAL_WIELD_PLUS_ID {
+        2
+    } else {
+        1
+    };
+    let mut next_id = state.piles.max_card_instance_id() + 1;
     let mut selected = None;
     let mut unselected_selectable = Vec::new();
     let mut nonselectable = Vec::new();
@@ -2810,16 +2817,23 @@ fn confirm_dual_wield_select(
         }
     }
     let selected = selected.ok_or(SimError::IllegalAction("hand select index out of range"))?;
-    let content_id = selected.content_id;
     state.piles.hand = unselected_selectable;
     state.piles.hand.extend(nonselectable);
     state.piles.hand.push(selected);
-    state
-        .piles
-        .hand
-        .push(CardInstance::new(next_id, content_id));
+    for _ in 0..copy_count {
+        let mut copy = selected;
+        copy.id = CardId::new(next_id);
+        copy.combat_only = true;
+        state.piles.hand.push(copy);
+        next_id += 1;
+    }
     state.piles.hand.push(source_card);
-    move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)
+    let source_destination = delayed_source_card_destination(state, source_definition);
+    move_card(state, source_card_id, CardPile::Hand, source_destination)?;
+    if source_destination == CardPile::ExhaustPile {
+        apply_on_exhaust_effects(state, source_card_id);
+    }
+    Ok(())
 }
 
 fn dual_wield_select_allows_card(card: &CardInstance) -> bool {
