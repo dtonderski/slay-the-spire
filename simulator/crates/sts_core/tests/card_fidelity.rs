@@ -381,6 +381,37 @@ fn madness_prefers_cards_with_positive_cost_for_turn() {
 }
 
 #[test]
+fn mayhem_plus_costs_one_and_grants_mayhem() {
+    assert_eq!(cards::MAYHEM.cost, 2);
+    assert_eq!(cards::MAYHEM_PLUS.cost, 1);
+    assert_eq!(
+        cards::upgrade_content_id(cards::MAYHEM_ID),
+        Some(cards::MAYHEM_PLUS_ID)
+    );
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::MAYHEM_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Mayhem+ plays without a target");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.player.powers.mayhem, 1);
+    assert!(next.piles.hand.is_empty());
+    assert!(next.piles.discard_pile.is_empty());
+    assert!(next.piles.exhaust_pile.is_empty());
+}
+
+#[test]
 fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

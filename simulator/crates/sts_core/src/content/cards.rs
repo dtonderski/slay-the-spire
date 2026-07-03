@@ -128,6 +128,7 @@ pub const MADNESS_PLUS_ID: ContentId = ContentId::new(70_263_870_944);
 pub const MASTER_OF_STRATEGY_ID: ContentId = ContentId::new(9_350_765_816_531_572_950);
 pub const MASTER_OF_STRATEGY_PLUS_ID: ContentId = ContentId::new(9_350_765_816_531_572_951);
 pub const MAYHEM_ID: ContentId = ContentId::new(2_267_196_899);
+pub const MAYHEM_PLUS_ID: ContentId = ContentId::new(2_267_196_900);
 pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_713);
 pub const SECRET_TECHNIQUE_PLUS_ID: ContentId = ContentId::new(2_746_448_811_048_118_714);
 pub const SECRET_WEAPON_ID: ContentId = ContentId::new(11_846_108_130_828_291_299);
@@ -1100,6 +1101,21 @@ pub const MAYHEM: CardDefinition = CardDefinition {
     key: "MAYHEM",
     name: "Mayhem",
     cost: 2,
+    card_type: CardType::Power,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub const MAYHEM_PLUS: CardDefinition = CardDefinition {
+    id: MAYHEM_PLUS_ID,
+    key: "MAYHEM+",
+    name: "Mayhem+",
+    cost: 1,
     card_type: CardType::Power,
     target: TargetRequirement::None,
     values: CardValues {
@@ -4202,7 +4218,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 242] = [
+pub const ALL_CARDS: [CardDefinition; 243] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -4262,6 +4278,7 @@ pub const ALL_CARDS: [CardDefinition; 242] = [
     BRUTALITY,
     BRUTALITY_PLUS,
     MAYHEM,
+    MAYHEM_PLUS,
     DOUBLE_TAP,
     DOUBLE_TAP_PLUS,
     FIRE_BREATHING,
@@ -4610,7 +4627,7 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         id if id == JUGGERNAUT_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == BRUTALITY_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == MAYHEM_ID => Some((CardType::Power, CardRarity::Rare)),
+        id if id == MAYHEM_ID || id == MAYHEM_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
         id if id == DOUBLE_TAP_ID || id == DOUBLE_TAP_PLUS_ID => {
             Some((CardType::Skill, CardRarity::Rare))
         }
@@ -4835,6 +4852,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         BERSERK_ID => Some(BERSERK_PLUS_ID),
         JUGGERNAUT_ID => Some(JUGGERNAUT_PLUS_ID),
         BRUTALITY_ID => Some(BRUTALITY_PLUS_ID),
+        MAYHEM_ID => Some(MAYHEM_PLUS_ID),
         SWIFT_STRIKE_ID => Some(SWIFT_STRIKE_PLUS_ID),
         BANDAGE_UP_ID => Some(BANDAGE_UP_PLUS_ID),
         BLIND_ID => Some(BLIND_PLUS_ID),

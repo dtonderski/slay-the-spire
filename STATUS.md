@@ -3,6 +3,26 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Mayhem/Mayhem+ against `Mayhem.java` and
+  `MayhemPower.java`, then added the missing upgraded form. Source Mayhem is a
+  2-cost colorless Rare Power with `magicNumber = 1`; upgrade only lowers base
+  cost to 1, while `MayhemPower` plays the top draw-pile card once per stack at
+  start of turn using a `cardRandomRng` random living monster target when
+  needed. Local base behavior already had the generic power stack and
+  start-turn top-draw abstraction, but the 1-cost upgraded content id was not
+  represented. The simulator now has `MAYHEM+`, rarity metadata, upgrade
+  mapping, card registry entry, and play dispatch through the same Mayhem power
+  queue. Remaining caveat: exact source action-queue/UI timing and
+  `getRandomMonster` ordering are still represented by the local start-turn
+  top-draw abstraction. Checks: `cargo fmt` passed; `cargo test -p sts_core
+  --test card_fidelity mayhem_plus_costs_one_and_grants_mayhem` passed; `cargo
+  test -p sts_core --test card_fidelity` passed (31 tests); `cargo clippy`
+  passed with existing warnings after setting `PYO3_PYTHON` to the bundled
+  Python. Full `cargo test` is still blocked by `py_sts`/`sts_omni` exiting
+  with `STATUS_DLL_NOT_FOUND`. Active live-regression replay still fails on
+  `trace-2026-07-02T23-24-13-178Z.jsonl` with `verified=False` where the
+  manifest expects `True`; this replay failure was already present on plain
+  `HEAD` before the prior Magnetism slice.
 - Card-fidelity fix: verified Magnetism/Magnetism+ against `Magnetism.java`
   and `MagnetismPower.java`, then fixed generated-card hand overflow. Source
   applies one Magnetism stack, and at the start of each turn uses
