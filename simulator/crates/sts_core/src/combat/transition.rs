@@ -676,7 +676,20 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
-            add_generated_card_to_draw_pile_random_spot(state, content_id);
+            add_generated_card_to_draw_pile_random_spot(state, content_id, None, false);
+            Ok(Vec::new())
+        }
+        InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
+            content_id,
+            temp_cost,
+            temp_cost_turn_only,
+        } => {
+            add_generated_card_to_draw_pile_random_spot(
+                state,
+                content_id,
+                temp_cost,
+                temp_cost_turn_only,
+            );
             Ok(Vec::new())
         }
         InternalAction::AddRandomColorlessCardToHand { temp_cost, upgrade } => {
@@ -1510,12 +1523,19 @@ fn add_generated_card_to_pile(
     push_card_to_pile(state, card, destination);
 }
 
-fn add_generated_card_to_draw_pile_random_spot(state: &mut CombatState, content_id: ContentId) {
+fn add_generated_card_to_draw_pile_random_spot(
+    state: &mut CombatState,
+    content_id: ContentId,
+    temp_cost: Option<u8>,
+    temp_cost_turn_only: bool,
+) {
     let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
-    let card = CardInstance {
+    let mut card = CardInstance {
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
     };
+    card.temp_cost = temp_cost;
+    card.temp_cost_turn_only = temp_cost_turn_only;
     if state.piles.draw_pile.is_empty() {
         state.piles.draw_pile.push(card);
         return;
@@ -1526,6 +1546,10 @@ fn add_generated_card_to_draw_pile_random_spot(state: &mut CombatState, content_
         .map(|rng| rng.random_int((state.piles.draw_pile.len() - 1) as i32) as usize)
         .unwrap_or(0);
     state.piles.draw_pile.insert(index, card);
+}
+
+fn generated_card_zero_cost_if_positive(content_id: ContentId) -> Option<u8> {
+    get_card_definition(content_id).and_then(|definition| (definition.cost > 0).then_some(0))
 }
 
 fn random_colorless_card(state: &mut CombatState) -> ContentId {
@@ -1951,12 +1975,13 @@ fn apply_play_top_draw_card(
                 3
             };
             for content_id in card_effects::chrysalis_generated_skills(state, count) {
-                follow_ups.push(InternalAction::AddGeneratedCardToPile {
-                    content_id,
-                    to: CardPile::DrawPile,
-                    temp_cost: Some(0),
-                    temp_cost_turn_only: false,
-                });
+                follow_ups.push(
+                    InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
+                        content_id,
+                        temp_cost: generated_card_zero_cost_if_positive(content_id),
+                        temp_cost_turn_only: false,
+                    },
+                );
             }
         }
         PANIC_BUTTON_ID => {

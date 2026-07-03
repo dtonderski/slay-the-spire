@@ -122,6 +122,11 @@ pub enum InternalAction {
     AddGeneratedCardToDrawPileRandomSpot {
         content_id: crate::ContentId,
     },
+    AddGeneratedCardToDrawPileRandomSpotWithCost {
+        content_id: crate::ContentId,
+        temp_cost: Option<u8>,
+        temp_cost_turn_only: bool,
+    },
     AddRandomColorlessCardToHand {
         temp_cost: Option<u8>,
         upgrade: bool,

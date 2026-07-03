@@ -1451,12 +1451,13 @@ fn metamorphosis_queue(
         3
     };
     for generated in metamorphosis_generated_attacks(state, generated_count) {
-        queue.push_back(InternalAction::AddGeneratedCardToPile {
-            content_id: generated,
-            to: CardPile::DrawPile,
-            temp_cost: Some(0),
-            temp_cost_turn_only: false,
-        });
+        queue.push_back(
+            InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
+                content_id: generated,
+                temp_cost: generated_card_zero_cost_if_positive(generated),
+                temp_cost_turn_only: false,
+            },
+        );
     }
 
     queue.push_back(InternalAction::MoveCard {
@@ -1582,12 +1583,13 @@ fn chrysalis_queue(
         },
     ]);
     for content_id in generated {
-        queue.push_back(InternalAction::AddGeneratedCardToPile {
-            content_id,
-            to: CardPile::DrawPile,
-            temp_cost: Some(0),
-            temp_cost_turn_only: false,
-        });
+        queue.push_back(
+            InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
+                content_id,
+                temp_cost: generated_card_zero_cost_if_positive(content_id),
+                temp_cost_turn_only: false,
+            },
+        );
     }
     queue.push_back(InternalAction::MoveCard {
         card_id,
@@ -1619,6 +1621,10 @@ pub(crate) fn chrysalis_modeled_skill_pool() -> Vec<ContentId> {
                 .is_some_and(|definition| definition.card_type == CardType::Skill)
         })
         .collect()
+}
+
+fn generated_card_zero_cost_if_positive(content_id: ContentId) -> Option<u8> {
+    get_card_definition(content_id).and_then(|definition| (definition.cost > 0).then_some(0))
 }
 
 fn jack_of_all_trades_queue(

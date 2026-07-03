@@ -3,6 +3,28 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Metamorphosis/Metamorphosis+ against
+  `Metamorphosis.java` and `MakeTempCardInDrawPileAction.java`, then fixed
+  generated attack insertion/cost fidelity. Source rolls 3/5 random combat
+  Attacks, zeroes only positive printed-cost generated cards for combat, and
+  shuffles each generated copy into a random draw-pile spot. Local previously
+  appended generated attacks to draw pile and forced all generated attacks,
+  including X-cost Whirlwind, to temp cost 0. The simulator now uses a
+  cost-aware random draw-pile generated-card action for Metamorphosis and the
+  same `MakeTempCardInDrawPileAction` surface used by Chrysalis. Remaining
+  caveat: exact source attack pool/order is represented by the local modeled
+  combat attack pool. Checks: `cargo fmt` passed; `cargo test -p sts_core
+  --test card_fidelity metamorphosis_keeps_generated_x_cost_attacks_x_cost`
+  passed; focused `cargo test -p sts_core --test card_fidelity chrysalis`
+  passed; `cargo test -p sts_core --test card_fidelity` passed (32 tests);
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled Python. Plain full `cargo test` first failed because no Python
+  interpreter was found; rerunning with bundled `PYO3_PYTHON` built the suite
+  and remains blocked by `py_sts`/`sts_omni` exiting with
+  `STATUS_DLL_NOT_FOUND`. Active live-regression replay still fails on
+  `trace-2026-07-02T23-24-13-178Z.jsonl` with `verified=False` where the
+  manifest expects `True`; this replay failure was already present on plain
+  `HEAD` before the prior Magnetism slice.
 - Card-fidelity fix: verified Mayhem/Mayhem+ against `Mayhem.java` and
   `MayhemPower.java`, then added the missing upgraded form. Source Mayhem is a
   2-cost colorless Rare Power with `magicNumber = 1`; upgrade only lowers base

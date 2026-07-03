@@ -7,7 +7,7 @@ use sts_core::{
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
     },
     legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId, RunPhase,
-    RunState,
+    RunState, StsRng,
 };
 
 #[test]
@@ -412,6 +412,58 @@ fn mayhem_plus_costs_one_and_grants_mayhem() {
 }
 
 #[test]
+fn metamorphosis_keeps_generated_x_cost_attacks_x_cost() {
+    let mut matching_state = None;
+    for seed in 0..10_000 {
+        let mut state = CombatState::initial_fixture();
+        state.card_random_rng = Some(StsRng::new(seed));
+        state.player.energy = 2;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::METAMORPHOSIS_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Metamorphosis plays without a target");
+
+        if next
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == cards::WHIRLWIND_ID)
+        {
+            matching_state = Some(next);
+            break;
+        }
+    }
+
+    let next = matching_state.expect("test search should find a Whirlwind roll");
+    let whirlwind = next
+        .piles
+        .draw_pile
+        .iter()
+        .find(|card| card.content_id == cards::WHIRLWIND_ID)
+        .expect("matching state includes generated Whirlwind");
+    assert!(whirlwind.combat_only);
+    assert_eq!(whirlwind.temp_cost, None);
+
+    assert!(next.piles.draw_pile.iter().any(|card| {
+        card.combat_only && card.content_id != cards::WHIRLWIND_ID && card.temp_cost == Some(0)
+    }));
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::METAMORPHOSIS_ID
+    );
+}
+
+#[test]
 fn havoc_flash_of_steel_plus_deals_damage_draws_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
@@ -598,7 +650,7 @@ fn havoc_reckless_charge_plus_adds_generated_dazed_and_exhausts() {
 }
 
 #[test]
-fn chrysalis_adds_three_zero_cost_generated_skills_to_draw_pile() {
+fn chrysalis_adds_three_generated_skills_to_draw_pile_with_source_cost_rule() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 2;
     state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::CHRYSALIS_ID)];
@@ -618,15 +670,17 @@ fn chrysalis_adds_three_zero_cost_generated_skills_to_draw_pile() {
 
     assert_eq!(next.player.energy, 0);
     assert_eq!(next.piles.draw_pile.len(), 3);
-    assert!(next.piles.draw_pile.iter().all(|card| {
-        card.combat_only && card.temp_cost == Some(0) && !card.temp_cost_turn_only
-    }));
+    assert!(next
+        .piles
+        .draw_pile
+        .iter()
+        .all(generated_card_uses_source_cost_rule));
     assert_eq!(next.piles.exhaust_pile.len(), 1);
     assert_eq!(next.piles.exhaust_pile[0].content_id, cards::CHRYSALIS_ID);
 }
 
 #[test]
-fn havoc_chrysalis_plus_adds_five_zero_cost_generated_skills_and_exhausts() {
+fn havoc_chrysalis_plus_adds_five_generated_skills_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
     state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
@@ -654,21 +708,45 @@ fn havoc_chrysalis_plus_adds_five_zero_cost_generated_skills_and_exhausts() {
         .draw_pile
         .iter()
         .any(|card| card.content_id == cards::STRIKE_R_ID));
-    assert_eq!(
-        next.piles
-            .draw_pile
+    let generated_cards = next
+        .piles
+        .draw_pile
+        .iter()
+        .filter(|card| card.combat_only)
+        .collect::<Vec<_>>();
+    assert_eq!(generated_cards.len(), 5);
+    let cost_rule_violations = generated_cards
+        .iter()
+        .filter(|card| !generated_card_uses_source_cost_rule(card))
+        .map(|card| {
+            let definition = cards::get_card_definition(card.content_id).expect("known card");
+            (
+                definition.key,
+                definition.cost,
+                card.temp_cost,
+                card.temp_cost_turn_only,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        generated_cards
             .iter()
-            .filter(|card| {
-                card.combat_only && card.temp_cost == Some(0) && !card.temp_cost_turn_only
-            })
-            .count(),
-        5
+            .all(|card| generated_card_uses_source_cost_rule(card)),
+        "{cost_rule_violations:?}"
     );
     assert_eq!(next.piles.exhaust_pile.len(), 1);
     assert_eq!(
         next.piles.exhaust_pile[0].content_id,
         cards::CHRYSALIS_PLUS_ID
     );
+}
+
+fn generated_card_uses_source_cost_rule(card: &CardInstance) -> bool {
+    let Some(definition) = cards::get_card_definition(card.content_id) else {
+        return false;
+    };
+    let expected_temp_cost = if definition.cost > 0 { Some(0) } else { None };
+    card.combat_only && card.temp_cost == expected_temp_cost && !card.temp_cost_turn_only
 }
 
 #[test]
