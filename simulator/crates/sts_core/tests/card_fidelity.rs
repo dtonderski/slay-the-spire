@@ -127,6 +127,34 @@ fn bandage_up_plus_heals_six_and_exhausts() {
 }
 
 #[test]
+fn bite_heals_two_even_when_damage_is_blocked() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.max_hp = 60;
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BITE_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].block = 99;
+    let starting_monster_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Bite plays against a blocked target");
+
+    assert_eq!(next.player.hp, 52);
+    assert_eq!(next.monsters[0].hp, starting_monster_hp);
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::BITE_ID);
+}
+
+#[test]
 fn whirlwind_definitions_are_x_cost_all_enemy_attacks() {
     assert_eq!(cards::WHIRLWIND.cost, -1);
     assert_eq!(cards::WHIRLWIND.target, TargetRequirement::AllEnemies);

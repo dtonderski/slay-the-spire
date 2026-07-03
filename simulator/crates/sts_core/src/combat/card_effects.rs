@@ -1291,13 +1291,14 @@ fn bite_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DealDamageAndHealUnblocked {
+        InternalAction::DealDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
                 amount: definition.values.damage.unwrap_or(0),
             },
         },
+        InternalAction::HealPlayer { amount: 2 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
