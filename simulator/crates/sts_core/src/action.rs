@@ -140,6 +140,9 @@ pub enum InternalAction {
         from: CardPile,
         to: CardPile,
     },
+    ReturnExhaustCardToHand {
+        card_id: CardId,
+    },
     ForethoughtAutoMove {
         source_card_id: CardId,
         card_id: CardId,

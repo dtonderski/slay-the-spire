@@ -4,9 +4,9 @@ use crate::{
     combat::{transition::top_draw_card_definition, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID,
-        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
-        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, SECRET_TECHNIQUE_ID,
+        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID,
+        TRANSMUTATION_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -71,12 +71,6 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
                     target: None,
                 });
             }
-            continue;
-        }
-
-        if (definition.id == EXHUME_ID || definition.id == EXHUME_PLUS_ID)
-            && !has_exhumable_card(state)
-        {
             continue;
         }
 
@@ -191,12 +185,6 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                     ));
                 }
                 return Ok(());
-            }
-
-            if (definition.id == EXHUME_ID || definition.id == EXHUME_PLUS_ID)
-                && !has_exhumable_card(state)
-            {
-                return Err(SimError::IllegalAction("Exhume requires an exhumable card"));
             }
 
             if (definition.id == SECRET_WEAPON_ID || definition.id == SECRET_WEAPON_PLUS_ID)
@@ -333,14 +321,6 @@ fn is_living_monster(state: &CombatState, monster_id: MonsterId) -> bool {
 
 fn has_living_monster(state: &CombatState) -> bool {
     state.monsters.iter().any(|monster| monster.alive)
-}
-
-fn has_exhumable_card(state: &CombatState) -> bool {
-    state
-        .piles
-        .exhaust_pile
-        .iter()
-        .any(|card| card.content_id != EXHUME_ID && card.content_id != EXHUME_PLUS_ID)
 }
 
 fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool {

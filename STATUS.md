@@ -3,6 +3,29 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Exhume/Exhume+ and Fiend Fire/Fiend Fire+
+  against their decompiled card/action classes, then fixed Exhume generic
+  action fidelity. Source Exhume is playable even when no valid card can be
+  returned, no-ops if the exhaust pile has no non-Exhume card, auto-returns the
+  sole valid exhausted card, and only opens selection when multiple valid
+  exhausted cards exist; upgrade only reduces cost from 1 to 0. Local Exhume
+  previously rejected no-target play and always opened selection for a valid
+  card. The simulator now models the source no-op, single-card auto-return, and
+  multi-card selection branches. Fiend Fire rows were corrected to source-backed
+  action facts; local behavior already matched at generic simulator granularity.
+  Checks: `cargo fmt` passed; focused `cargo test -p sts_core --test
+  card_fidelity exhume_plus` passed (2 tests); focused `cargo test -p sts_core
+  --test card_fidelity fiend_fire_plus` passed; `cargo test -p sts_core --test
+  card_fidelity` passed (64 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python. Full
+  `cargo test` with bundled `PYO3_PYTHON` still builds the suite and remains
+  blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`. Active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` still fails on the dirty worktree
+  trace
+  `verification/corpus/communication_mod/live-regression-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 487 versus manifest `expected_steps` 478; generated trace
+  artifacts were not staged for this slice.
 - Card-fidelity audit correction: verified Berserk/Berserk+, Dropkick/Dropkick+,
   and Feed/Feed+ against their decompiled card/action classes, then replaced
   stale generic audit rows with source-backed queue facts. Source Berserk applies

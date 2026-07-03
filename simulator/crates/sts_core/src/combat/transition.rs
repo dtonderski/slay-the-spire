@@ -710,6 +710,11 @@ fn apply_internal_action(
             }
             Ok(follow_ups)
         }
+        InternalAction::ReturnExhaustCardToHand { card_id } => {
+            let card = remove_card_from_pile(state, card_id, CardPile::ExhaustPile)?;
+            state.piles.hand.push(card);
+            Ok(Vec::new())
+        }
         InternalAction::ForethoughtAutoMove {
             source_card_id,
             card_id,

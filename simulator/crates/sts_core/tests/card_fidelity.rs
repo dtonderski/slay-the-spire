@@ -149,6 +149,100 @@ fn feed_plus_gains_four_max_hp_on_fatal_non_minion_hit_and_exhausts() {
 }
 
 #[test]
+fn exhume_plus_is_playable_with_no_exhumable_cards_and_exhausts() {
+    assert_eq!(cards::EXHUME.cost, 1);
+    assert!(cards::EXHUME.keywords.exhaust);
+    assert_eq!(cards::EXHUME_PLUS.cost, 0);
+    assert!(cards::EXHUME_PLUS.keywords.exhaust);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::EXHUME_PLUS_ID)];
+    state.piles.exhaust_pile.clear();
+
+    assert!(
+        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        })
+    );
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Exhume+ can play with no exhumable cards");
+
+    assert!(next.exhaust_select.is_none());
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::EXHUME_PLUS_ID);
+}
+
+#[test]
+fn exhume_plus_auto_returns_the_only_exhumable_card() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::EXHUME_PLUS_ID)];
+    state.piles.exhaust_pile = vec![CardInstance::new(CardId::new(2), cards::WOUND_ID)];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Exhume+ auto-returns a sole exhumable card");
+
+    assert!(next.exhaust_select.is_none());
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::WOUND_ID);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::EXHUME_PLUS_ID);
+}
+
+#[test]
+fn fiend_fire_plus_hits_once_per_other_hand_card_and_exhausts_all() {
+    assert_eq!(cards::FIEND_FIRE.values.damage, Some(7));
+    assert!(cards::FIEND_FIRE.keywords.exhaust);
+    assert_eq!(cards::FIEND_FIRE_PLUS.values.damage, Some(10));
+    assert!(cards::FIEND_FIRE_PLUS.keywords.exhaust);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::FIEND_FIRE_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::WOUND_ID),
+        CardInstance::new(CardId::new(3), cards::SLIMED_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Fiend Fire+ plays against an enemy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 20);
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.exhaust_pile.len(), 3);
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::FIEND_FIRE_PLUS_ID));
+}
+
+#[test]
 fn pummel_plus_definition_keeps_damage_and_exhausts() {
     assert_eq!(cards::PUMMEL.values.damage, Some(2));
     assert!(cards::PUMMEL.keywords.exhaust);

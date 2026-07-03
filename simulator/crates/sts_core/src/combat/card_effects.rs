@@ -2447,18 +2447,35 @@ fn sadistic_nature_queue(
 }
 
 fn exhume_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
-    if !has_exhumable_card(state) {
-        return Err(SimError::IllegalAction("Exhume requires an exhumable card"));
-    }
-
-    Ok(VecDeque::from([
+    let exhumable_cards = exhumable_card_ids(state);
+    let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
-        InternalAction::AwaitExhaustSelect {
+    ]);
+
+    match exhumable_cards.as_slice() {
+        [] => queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        }),
+        [exhumed_card_id] => {
+            queue.push_back(InternalAction::ReturnExhaustCardToHand {
+                card_id: *exhumed_card_id,
+            });
+            queue.push_back(InternalAction::MoveCard {
+                card_id,
+                from: CardPile::Hand,
+                to: CardPile::ExhaustPile,
+            });
+        }
+        _ => queue.push_back(InternalAction::AwaitExhaustSelect {
             source_card_id: card_id,
             purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
-        },
-    ]))
+        }),
+    }
+
+    Ok(queue)
 }
 
 fn purity_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
@@ -2481,12 +2498,14 @@ fn purity_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<Inte
     Ok(queue)
 }
 
-fn has_exhumable_card(state: &CombatState) -> bool {
+fn exhumable_card_ids(state: &CombatState) -> Vec<CardId> {
     state
         .piles
         .exhaust_pile
         .iter()
-        .any(|card| card.content_id != EXHUME_ID && card.content_id != EXHUME_PLUS_ID)
+        .filter(|card| card.content_id != EXHUME_ID && card.content_id != EXHUME_PLUS_ID)
+        .map(|card| card.id)
+        .collect()
 }
 
 fn sever_soul_queue(
