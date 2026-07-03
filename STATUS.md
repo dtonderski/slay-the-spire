@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData replay-preflight slice: added `sts_verify::slaythedata_replay_preflight`
+  and `sts_verify slaythedata-preflight`. The report decodes the SlayTheData
+  seed, initializes an Ironclad simulator run when supported, checks the Neow
+  talk step against real `RunState` event legality, and labels later
+  run-level choices as guided until concrete action mapping is connected. This
+  keeps missing SlayTheData detail explicit instead of pretending exact replay.
+  Checks: `cargo fmt` passed; `cargo test -p sts_verify --test slaythedata`
+  passed; `cargo check -p sts_verify --lib` passed; `cargo check -p
+  sts_verify --bin sts_verify` passed; CLI smoke test passed. Next task: map
+  Neow bonus labels and map-route steps to concrete legal simulator actions.
 - SlayTheData CLI slice: added `sts_verify slaythedata-plan`, which imports a
   raw SlayTheData JSON row or a selected JSONL line and prints the typed
   replay plan as either compact text or pretty JSON. This gives Rust tooling and

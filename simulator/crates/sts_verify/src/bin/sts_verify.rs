@@ -3,8 +3,9 @@ use std::{env, fs, process::exit};
 use sts_verify::{
     canonical_diff, corpus_path, import_communication_mod_trace, import_slaythedata_jsonl_line,
     import_slaythedata_run_json, load_corpus_file, minimize_communication_mod_trace,
-    slaythedata_replay_plan, verify_communication_mod_trace_with_mode, MinimizeError,
-    SlayTheDataDiagnosticSeverity, VerificationMode,
+    slaythedata_replay_plan, slaythedata_replay_preflight,
+    verify_communication_mod_trace_with_mode, MinimizeError, SlayTheDataDiagnosticSeverity,
+    VerificationMode,
 };
 
 fn main() {
@@ -342,6 +343,109 @@ fn main() {
                     println!(
                         "diagnostic severity={:?} code={} path={} message=\"{}\"",
                         diagnostic.severity, diagnostic.code, diagnostic.path, diagnostic.message
+                    );
+                }
+            }
+        }
+        "slaythedata-preflight" => {
+            let mut line_index: Option<usize> = None;
+            let mut json_output = false;
+            let mut path: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--line-index" => {
+                        let Some(value) = args.next() else {
+                            eprintln!(
+                                "usage: sts_verify slaythedata-preflight [--line-index N] [--json] <run.json|run.jsonl>"
+                            );
+                            exit(1);
+                        };
+                        line_index = Some(value.parse().unwrap_or_else(|err| {
+                            eprintln!("invalid --line-index {value:?}: {err}");
+                            exit(1);
+                        }));
+                    }
+                    "--json" => json_output = true,
+                    other if other.starts_with('-') => {
+                        eprintln!("unknown slaythedata-preflight flag: {other}");
+                        exit(1);
+                    }
+                    other => {
+                        path = Some(other.to_owned());
+                        break;
+                    }
+                }
+            }
+            let Some(path) = path else {
+                eprintln!(
+                    "usage: sts_verify slaythedata-preflight [--line-index N] [--json] <run.json|run.jsonl>"
+                );
+                exit(1);
+            };
+            let content = if path == "-" {
+                use std::io::Read;
+                let mut buffer = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buffer)
+                    .expect("read stdin");
+                buffer
+            } else {
+                fs::read_to_string(&path).unwrap_or_else(|err| {
+                    eprintln!("failed to read {path}: {err}");
+                    exit(1);
+                })
+            };
+            let imported = if let Some(line_index) = line_index {
+                import_slaythedata_jsonl_line(&content, line_index)
+            } else {
+                import_slaythedata_run_json(&content)
+            }
+            .unwrap_or_else(|err| {
+                eprintln!("failed to import SlayTheData run: {err}");
+                exit(1);
+            });
+            let plan = slaythedata_replay_plan(&imported);
+            let report = slaythedata_replay_preflight(&plan);
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).expect("preflight serializes")
+                );
+            } else {
+                println!("schema={}", report.schema);
+                println!("source_kind={:?}", report.source.kind);
+                println!(
+                    "numeric_seed={}",
+                    report
+                        .numeric_seed
+                        .map(|seed| seed.to_string())
+                        .unwrap_or_default()
+                );
+                println!("start_phase={}", report.start_phase.unwrap_or_default());
+                println!("steps={}", report.steps.len());
+                let checked = report
+                    .steps
+                    .iter()
+                    .filter(|step| step.status == sts_verify::SlayTheDataPreflightStatus::Checked)
+                    .count();
+                let guided = report
+                    .steps
+                    .iter()
+                    .filter(|step| step.status == sts_verify::SlayTheDataPreflightStatus::Guided)
+                    .count();
+                let blocked = report
+                    .steps
+                    .iter()
+                    .filter(|step| step.status == sts_verify::SlayTheDataPreflightStatus::Blocked)
+                    .count();
+                println!("checked={checked}");
+                println!("guided={guided}");
+                println!("blocked={blocked}");
+                println!("diagnostics={}", report.diagnostics.len());
+                for step in &report.steps {
+                    println!(
+                        "step floor={} ordinal={} status={:?} code={} message=\"{}\"",
+                        step.floor, step.ordinal, step.status, step.code, step.message
                     );
                 }
             }

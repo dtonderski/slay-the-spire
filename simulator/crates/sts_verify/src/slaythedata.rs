@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, error::Error, fmt};
+use sts_core::{apply_event_action, legal_event_actions, EventAction, RunPhase, RunState};
+
+use crate::sts_seed_string_to_long;
 
 pub const SLAYTHEDATA_IMPORT_SCHEMA_VERSION: u32 = 1;
 
@@ -26,6 +29,34 @@ pub struct SlayTheDataReplayPlan {
     pub steps: Vec<SlayTheDataReplayStep>,
     pub checkpoints: Vec<SlayTheDataCheckpoint>,
     pub diagnostics: Vec<SlayTheDataDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataPreflightReport {
+    pub schema: u32,
+    pub source: SlayTheDataSource,
+    pub run_start: Option<SlayTheDataRunStart>,
+    pub numeric_seed: Option<i64>,
+    pub start_phase: Option<String>,
+    pub steps: Vec<SlayTheDataPreflightStep>,
+    pub diagnostics: Vec<SlayTheDataDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataPreflightStep {
+    pub floor: u32,
+    pub ordinal: usize,
+    pub status: SlayTheDataPreflightStatus,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlayTheDataPreflightStatus {
+    Checked,
+    Guided,
+    Blocked,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -542,6 +573,179 @@ pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataRe
         checkpoints,
         diagnostics,
     }
+}
+
+pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheDataPreflightReport {
+    let mut diagnostics = plan.diagnostics.clone();
+    let mut run = plan.run_start.as_ref().and_then(|start| {
+        if !start.character.eq_ignore_ascii_case("IRONCLAD") {
+            return None;
+        }
+        let Ok(ascension) = u8::try_from(start.ascension) else {
+            return None;
+        };
+        if ascension > 20 {
+            return None;
+        }
+        Some(RunState::placeholder_seeded_ironclad(
+            sts_seed_string_to_long(&start.seed_played) as u64,
+            ascension,
+        ))
+    });
+    let numeric_seed = plan
+        .run_start
+        .as_ref()
+        .map(|start| sts_seed_string_to_long(&start.seed_played));
+
+    if plan.run_start.is_some() && run.is_none() {
+        diagnostics.push(SlayTheDataDiagnostic {
+            severity: SlayTheDataDiagnosticSeverity::Error,
+            code: "cannot_initialize_run_state".to_owned(),
+            path: "$.run_start".to_owned(),
+            message:
+                "preflight can currently initialize only Ironclad runs with ascension in 0..=20"
+                    .to_owned(),
+        });
+    }
+
+    let mut steps = Vec::with_capacity(plan.steps.len());
+    for step in &plan.steps {
+        let (status, code, message) = match &step.kind {
+            SlayTheDataReplayStepKind::NeowTalk => {
+                if let Some(current) = run.as_ref() {
+                    let actions = legal_event_actions(current);
+                    if actions.contains(&EventAction::Choose { choice_index: 0 }) {
+                        let next = apply_event_action(
+                            current,
+                            EventAction::Choose { choice_index: 0 },
+                        );
+                        match next {
+                            Ok(next) => {
+                                run = Some(next);
+                                (
+                                    SlayTheDataPreflightStatus::Checked,
+                                    "legal_neow_talk".to_owned(),
+                                    "Neow talk is legal from the initialized simulator state"
+                                        .to_owned(),
+                                )
+                            }
+                            Err(error) => (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "neow_talk_apply_failed".to_owned(),
+                                format!("Neow talk was legal but failed to apply: {error}"),
+                            ),
+                        }
+                    } else {
+                        (
+                            SlayTheDataPreflightStatus::Blocked,
+                            "illegal_neow_talk".to_owned(),
+                            format!(
+                                "Neow talk is not legal from phase {:?}; legal event actions: {:?}",
+                                current.phase, actions
+                            ),
+                        )
+                    }
+                } else {
+                    (
+                        SlayTheDataPreflightStatus::Blocked,
+                        "missing_run_state".to_owned(),
+                        "cannot check Neow talk without an initialized simulator run".to_owned(),
+                    )
+                }
+            }
+            SlayTheDataReplayStepKind::NeowBonus { bonus, cost } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_neow_bonus".to_owned(),
+                format!(
+                    "SlayTheData records Neow bonus {:?} and cost {:?}; exact option mapping is not implemented yet",
+                    bonus, cost
+                ),
+            ),
+            SlayTheDataReplayStepKind::NeowLeave => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_neow_leave".to_owned(),
+                "Neow leave depends on the selected Neow option state".to_owned(),
+            ),
+            SlayTheDataReplayStepKind::MapRoom { symbol } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_map_room".to_owned(),
+                format!(
+                    "route symbol {symbol:?} is available as high-level guidance; exact map-node replay is not connected yet"
+                ),
+            ),
+            SlayTheDataReplayStepKind::CardReward { picked, skipped } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_card_reward".to_owned(),
+                format!(
+                    "card reward choice picked={:?} skipped={skipped}; concrete reward screen mapping is pending",
+                    picked.as_ref().map(|card| card.raw.as_str())
+                ),
+            ),
+            SlayTheDataReplayStepKind::EventChoice {
+                event_name,
+                player_choice,
+            } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_event_choice".to_owned(),
+                format!(
+                    "event {:?} choice {:?} is high-level guidance until event choice label mapping is connected",
+                    event_name, player_choice
+                ),
+            ),
+            SlayTheDataReplayStepKind::ShopPurchase { item, .. } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_shop_purchase".to_owned(),
+                format!(
+                    "shop purchase {item:?} is high-level guidance until shop slot mapping is connected"
+                ),
+            ),
+            SlayTheDataReplayStepKind::Campfire { key, target_card } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_campfire".to_owned(),
+                format!(
+                    "campfire key {:?} target {:?} is high-level guidance until rest/grid mapping is connected",
+                    key,
+                    target_card.as_ref().map(|card| card.raw.as_str())
+                ),
+            ),
+            SlayTheDataReplayStepKind::BossRelic { act, picked } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_boss_relic".to_owned(),
+                format!(
+                    "act {act} boss relic {:?} is high-level guidance until boss reward screen mapping is connected",
+                    picked
+                ),
+            ),
+            SlayTheDataReplayStepKind::PotionBudget { uses_allowed } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_potion_budget".to_owned(),
+                format!(
+                    "combat agent may spend up to {uses_allowed} potion use(s) on this floor; SlayTheData lacks timing, target, and potion identity"
+                ),
+            ),
+        };
+        steps.push(SlayTheDataPreflightStep {
+            floor: step.floor,
+            ordinal: step.ordinal,
+            status,
+            code,
+            message,
+        });
+    }
+
+    SlayTheDataPreflightReport {
+        schema: SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
+        source: plan.source.clone(),
+        run_start: plan.run_start.clone(),
+        numeric_seed,
+        start_phase: run.map(|run| phase_name(run.phase)),
+        steps,
+        diagnostics,
+    }
+}
+
+fn phase_name(phase: RunPhase) -> String {
+    format!("{phase:?}")
 }
 
 fn import_card_rewards(

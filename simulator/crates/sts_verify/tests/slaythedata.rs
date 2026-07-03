@@ -1,7 +1,7 @@
 use sts_verify::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, slaythedata_replay_plan,
-    SlayTheDataDiagnosticSeverity, SlayTheDataReplayOrdering, SlayTheDataReplayStepKind,
-    SlayTheDataSourceKind,
+    slaythedata_replay_preflight, SlayTheDataDiagnosticSeverity, SlayTheDataPreflightStatus,
+    SlayTheDataReplayOrdering, SlayTheDataReplayStepKind, SlayTheDataSourceKind,
 };
 
 #[test]
@@ -222,4 +222,56 @@ fn replay_plan_reports_missing_start_identity() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == "missing_run_start_identity"));
+}
+
+#[test]
+fn preflight_checks_neow_talk_against_simulator_state() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "PLAN01",
+            "neow_bonus": "TEN_PERCENT_HP_BONUS",
+            "neow_cost": "NONE"
+        }"#,
+    )
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    assert_eq!(
+        report.numeric_seed,
+        Some(sts_verify::sts_seed_string_to_long("PLAN01"))
+    );
+    assert_eq!(report.steps[0].status, SlayTheDataPreflightStatus::Checked);
+    assert_eq!(report.steps[0].code, "legal_neow_talk");
+    assert!(report
+        .steps
+        .iter()
+        .any(|step| step.status == SlayTheDataPreflightStatus::Guided));
+}
+
+#[test]
+fn preflight_blocks_steps_when_run_state_cannot_be_initialized() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "character_chosen": "THE_SILENT",
+            "ascension_level": 0,
+            "seed_played": "PLAN01",
+            "neow_bonus": "TEN_PERCENT_HP_BONUS",
+            "neow_cost": "NONE"
+        }"#,
+    )
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "cannot_initialize_run_state"));
+    assert_eq!(report.steps[0].status, SlayTheDataPreflightStatus::Blocked);
+    assert_eq!(report.steps[0].code, "missing_run_state");
 }

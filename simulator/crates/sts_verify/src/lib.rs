@@ -35,15 +35,16 @@ pub use sim_real::{
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,
-    slaythedata_replay_plan, SlayTheDataBossRelicChoice, SlayTheDataCampfireChoice,
-    SlayTheDataCardName, SlayTheDataCardReward, SlayTheDataCheckpoint, SlayTheDataCheckpointKind,
-    SlayTheDataDiagnostic, SlayTheDataDiagnosticSeverity, SlayTheDataEventChoice,
-    SlayTheDataFinalObserved, SlayTheDataFloorDecision, SlayTheDataImportError,
-    SlayTheDataNamedFloorItem, SlayTheDataPotionFloorDecision, SlayTheDataReplayOrdering,
-    SlayTheDataReplayPlan, SlayTheDataReplayPolicy, SlayTheDataReplayStep,
-    SlayTheDataReplayStepKind, SlayTheDataRoute, SlayTheDataRunConfig, SlayTheDataRunImport,
-    SlayTheDataRunStart, SlayTheDataShopPurchase, SlayTheDataSource, SlayTheDataSourceKind,
-    SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
+    slaythedata_replay_plan, slaythedata_replay_preflight, SlayTheDataBossRelicChoice,
+    SlayTheDataCampfireChoice, SlayTheDataCardName, SlayTheDataCardReward, SlayTheDataCheckpoint,
+    SlayTheDataCheckpointKind, SlayTheDataDiagnostic, SlayTheDataDiagnosticSeverity,
+    SlayTheDataEventChoice, SlayTheDataFinalObserved, SlayTheDataFloorDecision,
+    SlayTheDataImportError, SlayTheDataNamedFloorItem, SlayTheDataPotionFloorDecision,
+    SlayTheDataPreflightReport, SlayTheDataPreflightStatus, SlayTheDataPreflightStep,
+    SlayTheDataReplayOrdering, SlayTheDataReplayPlan, SlayTheDataReplayPolicy,
+    SlayTheDataReplayStep, SlayTheDataReplayStepKind, SlayTheDataRoute, SlayTheDataRunConfig,
+    SlayTheDataRunImport, SlayTheDataRunStart, SlayTheDataShopPurchase, SlayTheDataSource,
+    SlayTheDataSourceKind, SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
 };
 pub use trace::{
     import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,
