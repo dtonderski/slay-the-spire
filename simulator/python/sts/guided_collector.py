@@ -374,6 +374,7 @@ def suggest_guided_action(
         potion_budget = potion_uses_allowed_on_floor(script, floor)
         return {
             "status": "combat",
+            "source": "combat_agent",
             "mode": "combat_agent",
             "floor": floor,
             "potion_uses_allowed": potion_budget,
@@ -412,6 +413,8 @@ def suggest_guided_action(
             act=act,
         )
     return match | {
+        "source": "guided_fallback",
+        "fallback": True,
         "floor": floor,
         "act": act,
         "visible_choices": choices,

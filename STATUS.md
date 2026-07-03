@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData one-click autoplay UI slice: the primary guided button is now
+  labeled `Auto-play run` and can load the selected SlayTheData run before
+  sending START and arming collector auto-run. Collector suggestions now tag
+  `source` as `rust_preflight`, `guided_fallback`, or `combat_agent`, and the UI
+  shows the last/next decision source so lossy fallback decisions are visible in
+  status/history. Checks: `uv run python -m unittest
+  python.tests.test_guided_collector` passed; `uv run python -m unittest
+  python.tests.test_ui_service` passed. Next task: expand Rust-backed command
+  hints for additional non-combat screens, starting with source-shaped reward
+  and boss relic actions where core legality is available.
 - SlayTheData preflight hint consumer slice: `GuidedCollector` now prefers
   checked Rust `bridge_command` hints for matching live Neow/map screens before
   falling back to Python guided-script matching, and consumes hints only after

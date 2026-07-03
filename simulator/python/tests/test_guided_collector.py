@@ -398,6 +398,8 @@ class GuidedCollectorTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["source"], "guided_fallback")
+        self.assertTrue(result["fallback"])
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
         self.assertEqual(result["category"], "event")
 
@@ -650,6 +652,7 @@ class GuidedCollectorTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "combat")
+        self.assertEqual(result["source"], "combat_agent")
         self.assertEqual(result["mode"], "combat_agent")
         self.assertEqual(result["potion_uses_allowed"], 1)
         self.assertEqual(result["potion_guidance"]["mode"], "floor_budget")

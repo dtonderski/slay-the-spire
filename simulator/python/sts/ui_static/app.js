@@ -182,7 +182,7 @@
     el.liveRequestStateButton.addEventListener("click", requestBridgeState);
     el.startCollectorButton.addEventListener("click", startGuidedCollector);
     el.startGuidedLiveRunButton.addEventListener("click", startGuidedLiveRun);
-    el.startGuidedAutoRunButton.addEventListener("click", () => startGuidedLiveRun({ armAuto: true }));
+    el.startGuidedAutoRunButton.addEventListener("click", () => startGuidedLiveRun({ armAuto: true, loadSelected: true }));
     el.collectorReportPanel.addEventListener("dblclick", () => refreshCollectorReport().catch(showError));
     el.findSlaythedataRunsButton.addEventListener("click", findSlaythedataRuns);
     el.auditSlaythedataRunButton.addEventListener("click", auditSlaythedataSelection);
@@ -782,6 +782,21 @@
   }
 
   async function startGuidedLiveRun(options = {}) {
+    if ((!app.collector || !app.collector.active) && options.loadSelected) {
+      const runId = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value;
+      if (runId) {
+        await singleFlight("Loading SlayTheData run", async () => {
+          pauseCollectorAutoRun();
+          app.collector = await requestJson("/api/collector/start", {
+            method: "POST",
+            body: { run_id: Number(runId) },
+          });
+          applyGuidedRunStartControls(app.collector && app.collector.config);
+          app.collectorLastError = null;
+          app.slaythedataLastError = null;
+        });
+      }
+    }
     if (!app.collector || !app.collector.active) {
       showError("Load or start a guided collector before starting the live run.");
       return;
@@ -1505,11 +1520,17 @@
     const preflight = app.collector && app.collector.preflight;
     const preflightProblems = arrayOf(preflight && preflight.problems);
     const tcpBlocker = collectorTcpBlockerReason();
+    const canLoadSelectedForAuto = !active && !!app.slaythedataSelectedRunId;
     const guidedStartBlocker = !active
       ? "Load a guided script first."
       : app.inFlight
         ? "Another operation is running."
         : bridgeIdentityWarningText() || tcpBlocker || "";
+    const guidedAutoStartBlocker = app.inFlight
+      ? "Another operation is running."
+      : active || canLoadSelectedForAuto
+        ? bridgeIdentityWarningText() || tcpBlocker || ""
+        : "Load or select a SlayTheData run first.";
     const canTick = active && !app.inFlight && !app.liveInvariantViolation && !bridgeIdentityWarningText() && !tcpBlocker && preflightProblems.length === 0;
     renderCollectorPicker();
     el.startCollectorButton.disabled = app.inFlight;
@@ -1517,14 +1538,14 @@
     el.auditSlaythedataRunButton.disabled = app.inFlight;
     el.loadSlaythedataRunButton.disabled = app.inFlight || !app.slaythedataSelectedRunId;
     el.startGuidedLiveRunButton.disabled = !!guidedStartBlocker;
-    el.startGuidedAutoRunButton.disabled = !!guidedStartBlocker || app.collectorAutoRun;
+    el.startGuidedAutoRunButton.disabled = !!guidedAutoStartBlocker || app.collectorAutoRun;
     el.previewCollectorButton.disabled = !canTick;
     el.sendCollectorButton.disabled = !canTick || !app.bridge || app.bridge.pending_command;
     el.autoCollectorButton.disabled = !canTick || app.collectorAutoRun;
     el.pauseCollectorButton.disabled = !app.collectorAutoRun;
     el.stopCollectorButton.disabled = !active || app.inFlight;
     el.startGuidedLiveRunButton.title = guidedStartBlocker || "Send START from the loaded guided script seed.";
-    el.startGuidedAutoRunButton.title = guidedStartBlocker || "Send START, then keep collecting until blocked.";
+    el.startGuidedAutoRunButton.title = guidedAutoStartBlocker || "Load the selected run if needed, send START, then keep collecting until blocked.";
     el.previewCollectorButton.title = canTick ? "Preview the next guided decision without sending." : "Start a collector and keep the bridge ready.";
     el.sendCollectorButton.title = canTick ? "Send one safe guided action." : "Collector cannot send right now.";
     el.autoCollectorButton.title = canTick ? "Keep sending safe guided actions until blocked." : "Collector cannot auto-run right now.";
@@ -1562,6 +1583,7 @@
         ["Run", firstDefined(app.collector.source && app.collector.source.run_id, "-")],
         ["Seed", firstDefined(app.collector.config && app.collector.config.seed_played, "-")],
         ["Auto", app.collectorAutoRun ? collectorAutoWaitReason() || "Running" : "Paused"],
+        ["Last source", firstDefined(suggestion && suggestion.source, "-")],
         ["History", firstDefined(app.collector.history_count, 0)],
         [
           "Prediction",
@@ -1575,6 +1597,7 @@
       el.collectorStatusPanel.append(
         statBlock("Next", [
           ["Result", firstDefined(suggestion.status, "-")],
+          ["Source", firstDefined(suggestion.source, suggestion.match_evidence, "-")],
           ["Floor", firstDefined(suggestion.floor, "-")],
           ["Kind", firstDefined(suggestion.category, suggestion.mode, "-")],
           ["Target", firstDefined(suggestion.target, suggestion.detail, suggestion.reason, "-")],
