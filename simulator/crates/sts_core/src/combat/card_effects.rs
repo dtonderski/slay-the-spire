@@ -3783,12 +3783,12 @@ fn offering_queue(
             source: HpLossSource::Card(card_id),
         },
         InternalAction::GainEnergy { amount: 2 },
-        InternalAction::DrawCards { count: draw_count },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: card_move_destination(definition),
         },
+        InternalAction::DrawCards { count: draw_count },
     ]))
 }
 

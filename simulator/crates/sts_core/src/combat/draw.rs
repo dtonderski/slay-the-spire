@@ -15,8 +15,14 @@ fn draw_card_from_pile_top(state: &mut CombatState) -> Option<CardInstance> {
     state.piles.draw_pile.pop()
 }
 
+const MAX_HAND_SIZE: usize = 10;
+
+fn drawable_count(state: &CombatState, count: usize) -> usize {
+    count.min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
+}
+
 pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng) {
-    for _ in 0..count {
+    for _ in 0..drawable_count(state, count) {
         if state.piles.draw_pile.is_empty() {
             shuffle_discard_into_draw(state, rng);
         }
@@ -36,7 +42,7 @@ pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng)
 }
 
 pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut StsRng) {
-    for _ in 0..count {
+    for _ in 0..drawable_count(state, count) {
         if state.piles.draw_pile.is_empty() {
             shuffle_discard_into_draw_sts(state, rng);
         }
@@ -56,7 +62,7 @@ pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut 
 }
 
 pub(crate) fn draw_cards_without_shuffle(state: &mut CombatState, count: usize) {
-    for _ in 0..count {
+    for _ in 0..drawable_count(state, count) {
         if state.piles.draw_pile.is_empty() {
             break;
         }
