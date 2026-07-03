@@ -1811,22 +1811,40 @@ fn forethought_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    if lowest_other_hand_card(state, card_id).is_none() {
-        return Err(SimError::IllegalAction(
-            "Forethought requires another card in hand",
-        ));
-    }
-
-    Ok(VecDeque::from([
+    let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::AwaitHandSelect {
+    ]);
+
+    let other_hand_cards = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != card_id)
+        .count();
+    if other_hand_cards == 0 {
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        });
+    } else if definition.id == FORETHOUGHT_ID && other_hand_cards == 1 {
+        let target_card_id = lowest_other_hand_card(state, card_id)
+            .expect("counted one other hand card for base Forethought");
+        queue.push_back(InternalAction::ForethoughtAutoMove {
+            source_card_id: card_id,
+            card_id: target_card_id,
+        });
+    } else {
+        queue.push_back(InternalAction::AwaitHandSelect {
             source_card_id: card_id,
             purpose: HandSelectPurpose::ForethoughtPutOnDraw,
-        },
-    ]))
+        });
+    }
+
+    Ok(queue)
 }
 
 fn reckless_charge_queue(

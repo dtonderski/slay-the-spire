@@ -242,6 +242,7 @@ fn forethought_places_selected_card_on_bottom_of_draw_pile() {
     state.piles.hand = vec![
         CardInstance::new(CardId::new(1), cards::FORETHOUGHT_ID),
         CardInstance::new(CardId::new(2), cards::BASH_ID),
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
     ];
     state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), cards::STRIKE_R_ID)];
     state.piles.discard_pile.clear();
@@ -256,9 +257,73 @@ fn forethought_places_selected_card_on_bottom_of_draw_pile() {
     )
     .expect("Forethought opens hand selection");
 
-    choose_hand_select(&mut next, 0).expect("select the only non-source hand card");
+    choose_hand_select(&mut next, 0).expect("select Bash");
     confirm_hand_select(&mut next).expect("confirm Forethought hand selection");
 
+    assert_eq!(next.piles.draw_pile.len(), 2);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::BASH_ID);
+    assert_eq!(next.piles.draw_pile[0].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[1].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::FORETHOUGHT_ID);
+}
+
+#[test]
+fn forethought_plays_with_no_other_cards_and_discards_source() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::FORETHOUGHT_ID)];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), cards::STRIKE_R_ID)];
+    state.piles.discard_pile.clear();
+
+    assert!(
+        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        })
+    );
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Forethought is playable with no other hand cards");
+
+    assert!(next.hand_select.is_none());
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::FORETHOUGHT_ID);
+}
+
+#[test]
+fn base_forethought_auto_places_only_other_card_on_bottom_of_draw_pile() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::FORETHOUGHT_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+    ];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), cards::STRIKE_R_ID)];
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("base Forethought auto-moves the only other hand card");
+
+    assert!(next.hand_select.is_none());
+    assert!(next.piles.hand.is_empty());
     assert_eq!(next.piles.draw_pile.len(), 2);
     assert_eq!(next.piles.draw_pile[0].content_id, cards::BASH_ID);
     assert_eq!(next.piles.draw_pile[0].temp_cost, Some(0));

@@ -710,6 +710,13 @@ fn apply_internal_action(
             }
             Ok(follow_ups)
         }
+        InternalAction::ForethoughtAutoMove {
+            source_card_id,
+            card_id,
+        } => {
+            move_forethought_card_to_draw_bottom(state, source_card_id, card_id)?;
+            Ok(Vec::new())
+        }
         InternalAction::ExhaustRandomHandCardExcept { excluded_card_id } => {
             let Some(card_id) = random_hand_card_id_except(state, excluded_card_id) else {
                 return Ok(Vec::new());
@@ -2653,6 +2660,14 @@ fn confirm_forethought_select(
     if card_id == source_card_id {
         return Err(SimError::IllegalAction("cannot choose Forethought"));
     }
+    move_forethought_card_to_draw_bottom(state, source_card_id, card_id)
+}
+
+fn move_forethought_card_to_draw_bottom(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    card_id: CardId,
+) -> SimResult<()> {
     let source_definition = state
         .piles
         .hand

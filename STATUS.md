@@ -3,6 +3,31 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity fix: verified Forethought/Forethought+ against
+  `Forethought.java` and `ForethoughtAction.java`, then fixed the source-backed
+  no-selection branches. Source Forethought is a 0-cost colorless Uncommon Skill
+  that queues `ForethoughtAction(upgraded)`: with no remaining hand cards it
+  does nothing, base auto-moves the only remaining hand card to the bottom of
+  draw pile, otherwise base opens a one-card select; Forethought+ opens an
+  any-number select up to 99. Moved positive-cost cards become free once. Local
+  behavior already had the bottom-of-draw selected-card fix from an earlier
+  slice, but still rejected no-other-card play and opened a selection for base
+  when only one other hand card existed. The simulator now allows no-other-card
+  Forethought/Forethought+ play, moves only the source in that branch, and
+  auto-moves the sole remaining hand card for base Forethought. Checks: `cargo
+  fmt` passed; `cargo test -p sts_core --test card_fidelity forethought` passed
+  (3 tests); `cargo test -p sts_core --test card_fidelity` passed (48 tests);
+  `cargo clippy` passed with existing warnings after setting `PYO3_PYTHON` to
+  the bundled workspace Python. Full `cargo test` with bundled `PYO3_PYTHON`
+  still builds the suite and remains blocked by `sts_omni` exiting with
+  `STATUS_DLL_NOT_FOUND`. Active live-regression replay `uv run python -m
+  unittest python.tests.test_live_regression_traces` currently fails on the
+  dirty worktree trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 478 versus manifest `expected_steps` 467; the trace has local
+  appended commands and was not staged for this slice. Remaining known blocker:
+  Forethought+ still uses the local single-index hand-select model, so its
+  any-number selection is not fully represented yet.
 - Card-fidelity fix: verified Secret Technique/Secret Technique+ against
   `SecretTechnique.java` and Secret Weapon/Secret Weapon+ against
   `SecretWeapon.java`, then fixed their top-draw free-play path. Source Secret
