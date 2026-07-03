@@ -808,10 +808,16 @@
     await singleFlight("Starting guided live run", async () => {
       pauseCollectorAutoRun();
       try {
-        const result = await requestJson("/api/collector/start-live-run", { method: "POST", body: {} });
-        app.collector = result.collector || app.collector;
-        app.collectorLastError = null;
         await refreshBridgeQuietly();
+        if (guidedRunCanResumeFromBridge()) {
+          app.collectorLastError = null;
+        } else {
+          const result = await requestJson("/api/collector/start-live-run", { method: "POST", body: {} });
+          app.collector = result.collector || app.collector;
+          app.collectorLastError = null;
+          await refreshBridgeQuietly();
+        }
+        app.collectorLastError = null;
         await refreshCollectorReportQuietly();
         if (options.armAuto) {
           app.collectorAutoRun = true;
@@ -823,6 +829,27 @@
       }
       renderCollector();
     });
+  }
+
+  function guidedRunCanResumeFromBridge() {
+    if (!app.bridge || !app.bridge.connected || app.bridge.exited || app.bridge.pending_command) return false;
+    if (app.bridge.ready_for_command !== true) return false;
+    const summary = app.bridge.summary || {};
+    if (summary.in_game === false) return false;
+    const commands = arrayOf(app.bridge.available_commands).map((command) => String(command).toLowerCase());
+    if (commands.includes("start")) return false;
+
+    const observed = observedBridgeGameState(app.bridge.current_state);
+    const floor = firstDefined(
+      summary.floor,
+      summary.run && summary.run.floor,
+      observed && observed.floor,
+      null,
+    );
+    const screenType = String(firstDefined(summary.screen_type, observed && observed.screen_type, "")).trim();
+    const roomPhase = String(firstDefined(summary.room_phase, summary.phase, "")).trim();
+    const choices = arrayOf(firstDefined(summary.choices, observed && observed.choice_list, []));
+    return floor !== null || !!screenType || !!roomPhase || choices.length > 0 || !!summary.combat || !!(observed && observed.combat_state);
   }
 
   function selectedSlaythedataCandidate() {

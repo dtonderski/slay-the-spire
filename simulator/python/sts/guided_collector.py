@@ -351,7 +351,7 @@ def _rust_preflight_step_matches_category(
     step_floor = _parse_int(step.get("floor"))
     if category == "neow":
         return step_floor == 0 and code.startswith("legal_neow_")
-    if category == "map" and code == "legal_map_room":
+    if category == "map" and code in {"legal_map_room", "compatible_map_room"}:
         return floor is None or step_floor in {floor, floor + 1}
     if category == "card_reward" and code == "legal_card_reward":
         return floor is None or step_floor == floor

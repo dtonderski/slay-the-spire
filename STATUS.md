@@ -3,6 +3,15 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData live resume slice: the UI auto-play/start-guided path now
+  resumes from an already-active live bridge state instead of sending `START`
+  again when the bridge is already in-game. The collector also accepts checked
+  Rust `compatible_map_room` preflight map hints as sendable map decisions, so
+  a restarted UI can continue from the current map floor when SlayTheData path
+  evidence narrows the branch to compatible candidates. Checks: `uv run python
+  -m unittest python.tests.test_guided_collector` passed; `uv run python -m
+  unittest python.tests.test_ui_service` passed. UI service restarted at
+  `http://127.0.0.1:8799/`.
 - SlayTheData card-reward hint slice: Rust preflight now checks open core
   card reward screens against actual reward choices and emits `CHOOSE n` or
   `SKIP` bridge hints for picked/skipped card rewards. The Python collector now

@@ -255,6 +255,43 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["suggestion"]["descriptor"], {"kind": "SkipVisibleReward"})
         self.assertEqual(result["suggestion"]["command"], "SKIP")
 
+    def test_tick_sends_compatible_rust_preflight_map_hint(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [
+                {
+                    "floor": 1,
+                    "ordinal": 3,
+                    "status": "checked",
+                    "code": "compatible_map_room",
+                    "bridge_command": {
+                        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 0},
+                        "command": "CHOOSE 0",
+                    },
+                }
+            ],
+            "diagnostics": [],
+        }
+        collector.start({"script": sample_script(), "rust_preflight": preflight})
+        calls = []
+
+        result = collector.tick(
+            self.ready_map_bridge(),
+            {"send": True},
+            send_command=lambda command, **kwargs: calls.append((command, kwargs)) or {
+                "ok": True,
+                "command_id": "cmd-map",
+                "command": command,
+            },
+        )
+
+        self.assertEqual(result["suggestion"]["status"], "sent")
+        self.assertEqual(result["suggestion"]["source"], "rust_preflight")
+        self.assertEqual(result["suggestion"]["category"], "map")
+        self.assertEqual(result["suggestion"]["command"], "CHOOSE 0")
+        self.assertEqual(calls[0][0], "CHOOSE 0")
+
     def ready_event_bridge(self):
         return {
             "connected": True,
