@@ -3,6 +3,22 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Jack of All Trades/Jack of All Trades+ against
+  `JackOfAllTrades.java` and `MakeTempCardInHandAction.java`. Source is a
+  0-cost colorless uncommon Skill with Exhaust that adds one random colorless
+  combat card to hand, or two independently rolled cards after upgrade; generated
+  cards keep normal cost and overflow to discard when the hand is full. Local
+  definitions/effects already matched the generic count/cost/Exhaust/hand-cap
+  behavior, so no simulator code fix was needed. Remaining caveat: exact
+  source `returnTrulyRandomColorlessCardInCombat` pool/order is still represented
+  by the local modeled colorless pool. Checks: `git diff --check -- STATUS.md
+  simulator/docs/audit/card_fidelity_audit.md` passed with only existing CRLF
+  warnings; `cargo test -p sts_core --test card_fidelity` passed (29 tests).
+  Active live-regression replay in the dirty main workspace still fails on
+  local `trace-2026-07-02T23-24-13-178Z.jsonl`; in a temporary clean worktree
+  with this slice applied, `cargo test -p sts_core --test card_fidelity` passed
+  (29 tests) and `uv run python -m unittest
+  python.tests.test_live_regression_traces` passed against the committed corpus.
 - Card-fidelity audit: verified J.A.X./J.A.X.+ against `JAX.java`. Source is
   a 0-cost colorless Special Skill targeting self with no keywords; play loses
   3 HP, then grants 2 Strength, and upgrade only raises the Strength gain to 3.
