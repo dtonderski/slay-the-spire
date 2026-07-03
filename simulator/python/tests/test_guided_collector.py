@@ -76,6 +76,14 @@ def neow_card_reward_script():
 
 
 class GuidedCollectorTests(unittest.TestCase):
+    def test_start_preserves_rust_preflight_in_status(self):
+        collector = GuidedCollector()
+        preflight = {"schema": 1, "steps": [{"status": "checked"}], "diagnostics": []}
+
+        status = collector.start({"script": sample_script(), "rust_preflight": preflight})
+
+        self.assertEqual(status["rust_preflight"], preflight)
+
     def ready_event_bridge(self):
         return {
             "connected": True,

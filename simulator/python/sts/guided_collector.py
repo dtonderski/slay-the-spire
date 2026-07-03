@@ -26,6 +26,7 @@ from sts.slaythedata_policy import (
 class CollectorRun:
     id: str
     script: dict[str, Any]
+    rust_preflight: dict[str, Any] | None = None
     status: str = "ready"
     blocker: dict[str, Any] | None = None
     last_suggestion: dict[str, Any] | None = None
@@ -44,7 +45,12 @@ class GuidedCollector:
             if not isinstance(exported, dict):
                 raise ValueError("collector start requires script or exported_run")
             script = build_guided_run_script(exported)
-        self._run = CollectorRun(id=uuid4().hex, script=script)
+        rust_preflight = payload.get("rust_preflight")
+        self._run = CollectorRun(
+            id=uuid4().hex,
+            script=script,
+            rust_preflight=rust_preflight if isinstance(rust_preflight, dict) else None,
+        )
         support_blocker = guided_script_support_blocker(script)
         if support_blocker is not None:
             self._run.status = "blocked"
@@ -70,6 +76,7 @@ class GuidedCollector:
             "source": self._run.script.get("source"),
             "config": self._run.script.get("config"),
             "replay_policy": self._run.script.get("replay_policy"),
+            "rust_preflight": self._run.rust_preflight,
             "blocker": self._run.blocker,
             "last_suggestion": self._run.last_suggestion,
             "pending_prediction": self._run.pending_prediction,

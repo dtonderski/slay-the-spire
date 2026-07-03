@@ -1548,6 +1548,7 @@
     renderSlaythedataStatus();
     renderSlaythedataSelectionAudit();
     renderCollectorPreflight(preflight);
+    renderSlaythedataRustPreflight(app.collector && app.collector.rust_preflight);
     if (!active) {
       if (!el.collectorStatusPanel.childNodes.length) {
         empty(el.collectorStatusPanel, "No guided script loaded.");
@@ -1617,6 +1618,41 @@
       wrap.appendChild(msg);
     }
     el.collectorStatusPanel.appendChild(wrap);
+  }
+
+  function renderSlaythedataRustPreflight(preflight) {
+    if (!preflight) return;
+    const steps = arrayOf(preflight.steps);
+    const diagnostics = arrayOf(preflight.diagnostics);
+    const counts = steps.reduce((acc, step) => {
+      const key = String(step.status || "unknown");
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const block = statBlock("Rust Preflight", [
+      ["Seed", firstDefined(preflight.numeric_seed, "-")],
+      ["Start", firstDefined(preflight.start_phase, "-")],
+      ["Checked", firstDefined(counts.checked, 0)],
+      ["Guided", firstDefined(counts.guided, 0)],
+      ["Blocked", firstDefined(counts.blocked, 0)],
+      ["Diagnostics", diagnostics.length],
+    ]);
+    el.collectorStatusPanel.appendChild(block);
+    const hard = diagnostics.filter((diagnostic) => String(diagnostic.severity || "").toLowerCase() === "error");
+    const shownDiagnostics = hard.length ? hard : diagnostics.slice(0, 2);
+    for (const diagnostic of shownDiagnostics.slice(0, 3)) {
+      const msg = document.createElement("div");
+      msg.className = hard.length ? "message error" : "message info";
+      msg.textContent = firstDefined(diagnostic.message, diagnostic.code, "Rust preflight diagnostic");
+      el.collectorStatusPanel.appendChild(msg);
+    }
+    const notable = steps.filter((step) => step.status !== "checked").slice(0, 3);
+    for (const step of notable) {
+      const msg = document.createElement("div");
+      msg.className = step.status === "blocked" ? "message error" : "message info";
+      msg.textContent = `${firstDefined(step.status, "step")}: ${firstDefined(step.code, step.message, "SlayTheData replay step")}`;
+      el.collectorStatusPanel.appendChild(msg);
+    }
   }
 
   function renderCollectorReport() {

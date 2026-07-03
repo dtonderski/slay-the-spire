@@ -331,10 +331,22 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(preflight.call_args.args[1], 1)
 
     def test_collector_start_payload_accepts_slaythedata_run_id(self):
-        with patch("sts.ui_service.export_guided_run_script", return_value={"schema": 1}) as export:
+        exported_run = {
+            "run_id": 123,
+            "event": {
+                "character_chosen": "IRONCLAD",
+                "ascension_level": 0,
+                "seed_played": "RUN123",
+            },
+        }
+        with patch("sts.ui_service.export_guided_run_row", return_value=exported_run) as export, patch(
+            "sts.ui_service.omni.slaythedata_preflight_json",
+            return_value='{"schema":1,"numeric_seed":123,"steps":[],"diagnostics":[]}',
+        ):
             result = _collector_start_payload({"run_id": "123"})
 
-        self.assertEqual(result, {"script": {"schema": 1}})
+        self.assertEqual(result["script"]["source"]["run_id"], 123)
+        self.assertEqual(result["rust_preflight"]["numeric_seed"], 123)
         export.assert_called_once_with(123)
 
     def test_collector_status_includes_bridge_preflight(self):

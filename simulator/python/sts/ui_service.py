@@ -21,7 +21,6 @@ from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_
 from sts.self_play import _action_for_communication_command, _summary
 from sts.slaythedata_index import (
     export_guided_run_row,
-    export_guided_run_script,
     select_guided_collection_candidates,
     slaythedata_index_status,
 )
@@ -1306,7 +1305,7 @@ def _guided_script_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _collector_start_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("run_id") is not None:
-        return {"script": export_guided_run_script(int(payload["run_id"]))}
+        return _guided_script_from_payload({"run_id": payload["run_id"]})
     return payload
 
 

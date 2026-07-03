@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData preflight UI display slice: `GuidedCollector` now preserves
+  Rust `rust_preflight` in collector status, collector run-id starts reuse the
+  enriched SlayTheData script payload, and the UI collector panel renders Rust
+  preflight counts plus notable diagnostics/step statuses. Checks: `uv run
+  python -m unittest python.tests.test_ui_service` passed; `uv run python -m
+  unittest python.tests.test_guided_collector` passed. Next task: use the
+  checked/guided/blocked preflight statuses to drive imported-session replay
+  decisions, not just display diagnostics.
 - SlayTheData run-id preflight slice: factored `export_guided_run_row` out of
   the chunk-export path so UI run-id loads can keep the raw SlayTheData row.
   `_guided_script_from_payload` and `/api/slaythedata/export` now return both
