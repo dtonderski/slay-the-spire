@@ -5,6 +5,47 @@ use sts_verify::{
     SlayTheDataSourceKind,
 };
 
+fn generated_neow_three_cards_fixture() -> (String, &'static str, &'static str) {
+    for index in 0..500 {
+        let seed = format!("CARD{index:03}");
+        if let Some((picked, cost)) = generated_neow_three_cards_first_pick(&seed) {
+            return (seed, picked, cost);
+        }
+    }
+    panic!("test fixture search did not find a seed with Three Cards Neow option");
+}
+
+fn generated_neow_three_cards_first_pick(seed: &str) -> Option<(&'static str, &'static str)> {
+    let run = sts_core::RunState::placeholder_seeded_ironclad(
+        sts_verify::sts_seed_string_to_long(seed) as u64,
+        0,
+    );
+    let run = sts_core::apply_event_action(&run, sts_core::EventAction::Choose { choice_index: 0 })
+        .expect("Neow talk applies");
+    let option = sts_core::generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
+        .into_iter()
+        .find(|option| option.reward == sts_core::NeowRewardType::ThreeCards)?;
+    let cost = match option.drawback {
+        sts_core::NeowDrawback::None => "NONE",
+        sts_core::NeowDrawback::Curse => "CURSE",
+        sts_core::NeowDrawback::NoGold => "NO_GOLD",
+        sts_core::NeowDrawback::TenPercentHpLoss => "TEN_PERCENT_HP_LOSS",
+        sts_core::NeowDrawback::PercentDamage => "PERCENT_DAMAGE",
+    };
+    let run = sts_core::apply_event_action(
+        &run,
+        sts_core::EventAction::Choose {
+            choice_index: option.slot,
+        },
+    )
+    .expect("Neow option applies");
+    let first = run.reward.as_ref().expect("reward screen").choices[0].content_id;
+    let name = sts_core::content::cards::get_card_definition(first)
+        .expect("generated card has a definition")
+        .name;
+    Some((name, cost))
+}
+
 #[test]
 fn imports_chunk_export_row_into_typed_run_contract() {
     let content = r#"{
@@ -273,6 +314,115 @@ fn preflight_checks_neow_talk_against_simulator_state() {
             .map(|hint| hint.command.as_str()),
         Some("CHOOSE 0")
     );
+}
+
+#[test]
+fn preflight_checks_open_card_reward_against_core_choices() {
+    let (seed, picked, cost) = generated_neow_three_cards_fixture();
+    let imported = import_slaythedata_run_json(&format!(
+        r#"{{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "{seed}",
+            "neow_bonus": "THREE_CARDS",
+            "neow_cost": "{cost}",
+            "card_choices": [{{"floor": 0, "picked": "{picked}"}}]
+        }}"#,
+    ))
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    let reward_step = report
+        .steps
+        .iter()
+        .find(|step| step.code == "legal_card_reward")
+        .expect("checked card reward");
+    assert_eq!(reward_step.status, SlayTheDataPreflightStatus::Checked);
+    assert_eq!(
+        reward_step
+            .bridge_command
+            .as_ref()
+            .map(|hint| &hint.descriptor),
+        Some(&SlayTheDataBridgeDescriptor::ChooseVisibleOption { option_slot: 0 })
+    );
+    assert_eq!(
+        reward_step
+            .bridge_command
+            .as_ref()
+            .map(|hint| hint.command.as_str()),
+        Some("CHOOSE 0")
+    );
+}
+
+#[test]
+fn preflight_checks_card_reward_skip_against_core_choices() {
+    let (seed, _, cost) = generated_neow_three_cards_fixture();
+    let imported = import_slaythedata_run_json(&format!(
+        r#"{{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "{seed}",
+            "neow_bonus": "THREE_CARDS",
+            "neow_cost": "{cost}",
+            "card_choices": [{{"floor": 0, "picked": "SKIP"}}]
+        }}"#
+    ))
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    let reward_step = report
+        .steps
+        .iter()
+        .find(|step| step.code == "legal_card_reward")
+        .expect("checked card reward skip");
+    assert_eq!(reward_step.status, SlayTheDataPreflightStatus::Checked);
+    assert_eq!(
+        reward_step
+            .bridge_command
+            .as_ref()
+            .map(|hint| &hint.descriptor),
+        Some(&SlayTheDataBridgeDescriptor::SkipVisibleReward)
+    );
+    assert_eq!(
+        reward_step
+            .bridge_command
+            .as_ref()
+            .map(|hint| hint.command.as_str()),
+        Some("SKIP")
+    );
+}
+
+#[test]
+fn preflight_does_not_emit_hints_after_blocked_authoritative_step() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "CARD000",
+            "neow_bonus": "THREE_CARDS",
+            "neow_cost": "NONE",
+            "card_choices": [{"floor": 0, "picked": "SKIP"}]
+        }"#,
+    )
+    .expect("imports");
+    let plan = slaythedata_replay_plan(&imported);
+
+    let report = slaythedata_replay_preflight(&plan);
+
+    assert!(report
+        .steps
+        .iter()
+        .any(|step| step.code == "neow_option_not_available"
+            && step.status == SlayTheDataPreflightStatus::Blocked));
+    assert!(report
+        .steps
+        .iter()
+        .filter(|step| step.ordinal > 1)
+        .all(|step| step.bridge_command.is_none()));
 }
 
 #[test]

@@ -319,17 +319,19 @@ def rust_preflight_suggestion(
         if not _rust_preflight_step_matches_category(step, category, floor):
             continue
         slot = _parse_int(descriptor.get("option_slot"))
-        if slot is None:
-            continue
-        if choices and not (0 <= slot < len(choices)):
-            continue
+        descriptor_kind = str(descriptor.get("kind") or "")
+        if descriptor_kind != "SkipVisibleReward":
+            if slot is None:
+                continue
+            if choices and not (0 <= slot < len(choices)):
+                continue
         return {
             "status": "matched",
             "source": "rust_preflight",
             "descriptor": descriptor,
             "command": hint.get("command"),
             "target": step.get("code"),
-            "matched_label": choices[slot] if choices and 0 <= slot < len(choices) else hint.get("command"),
+            "matched_label": choices[slot] if slot is not None and choices and 0 <= slot < len(choices) else hint.get("command"),
             "floor": floor,
             "category": category,
             "ordinal": 0,
@@ -351,6 +353,8 @@ def _rust_preflight_step_matches_category(
         return step_floor == 0 and code.startswith("legal_neow_")
     if category == "map" and code == "legal_map_room":
         return floor is None or step_floor in {floor, floor + 1}
+    if category == "card_reward" and code == "legal_card_reward":
+        return floor is None or step_floor == floor
     return False
 
 

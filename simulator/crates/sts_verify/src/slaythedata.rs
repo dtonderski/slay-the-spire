@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, error::Error, fmt};
 use sts_core::{
-    apply_event_action, apply_map_action_on_run, generate_neow_options, legal_event_actions,
+    apply_event_action, apply_map_action_on_run, apply_run_action,
+    content::cards::get_card_definition, generate_neow_options, legal_event_actions,
     legal_map_actions_on_run, EventAction, GeneratedNeowOption, MapAction, NeowDrawback,
-    NeowRewardType, RoomKind, RunPhase, RunState,
+    NeowRewardType, RoomKind, RunAction, RunPhase, RunState,
 };
 
 use crate::sts_seed_string_to_long;
@@ -67,6 +68,7 @@ pub struct SlayTheDataBridgeCommandHint {
 #[serde(tag = "kind", rename_all = "PascalCase")]
 pub enum SlayTheDataBridgeDescriptor {
     ChooseVisibleOption { option_slot: usize },
+    SkipVisibleReward,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -847,15 +849,59 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                     None,
                 ),
             },
-            SlayTheDataReplayStepKind::CardReward { picked, skipped } => (
-                SlayTheDataPreflightStatus::Guided,
-                "guided_card_reward".to_owned(),
-                format!(
-                    "card reward choice picked={:?} skipped={skipped}; concrete reward screen mapping is pending",
-                    picked.as_ref().map(|card| card.raw.as_str())
-                ),
-                None,
-            ),
+            SlayTheDataReplayStepKind::CardReward { picked, skipped } => {
+                match run.as_ref() {
+                    Some(current) if current.phase == RunPhase::Reward => {
+                        match slaythedata_card_reward_action(current, picked, *skipped) {
+                            Ok((action, hint)) => match apply_run_action(current, action) {
+                                Ok(next) => {
+                                    run = Some(next);
+                                    (
+                                        SlayTheDataPreflightStatus::Checked,
+                                        "legal_card_reward".to_owned(),
+                                        format!(
+                                            "card reward choice picked={:?} skipped={skipped} matched core reward choices",
+                                            picked.as_ref().map(|card| card.raw.as_str())
+                                        ),
+                                        Some(hint),
+                                    )
+                                }
+                                Err(error) => (
+                                    SlayTheDataPreflightStatus::Blocked,
+                                    "card_reward_apply_failed".to_owned(),
+                                    format!(
+                                        "card reward choice picked={:?} skipped={skipped} matched but failed to apply: {error}",
+                                        picked.as_ref().map(|card| card.raw.as_str())
+                                    ),
+                                    None,
+                                ),
+                            },
+                            Err(message) => (
+                                SlayTheDataPreflightStatus::Guided,
+                                "guided_card_reward".to_owned(),
+                                message,
+                                None,
+                            ),
+                        }
+                    }
+                    Some(current) => (
+                        SlayTheDataPreflightStatus::Guided,
+                        "pending_card_reward".to_owned(),
+                        format!(
+                            "card reward choice picked={:?} skipped={skipped} is pending because simulator phase is {:?}",
+                            picked.as_ref().map(|card| card.raw.as_str()),
+                            current.phase
+                        ),
+                        None,
+                    ),
+                    None => (
+                        SlayTheDataPreflightStatus::Blocked,
+                        "missing_run_state".to_owned(),
+                        "cannot check card reward without an initialized simulator run".to_owned(),
+                        None,
+                    ),
+                }
+            }
             SlayTheDataReplayStepKind::EventChoice {
                 event_name,
                 player_choice,
@@ -912,6 +958,9 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             message,
             bridge_command,
         });
+        if status == SlayTheDataPreflightStatus::Blocked {
+            run = None;
+        }
     }
 
     SlayTheDataPreflightReport {
@@ -929,6 +978,59 @@ fn choose_visible_hint(option_slot: usize) -> SlayTheDataBridgeCommandHint {
     SlayTheDataBridgeCommandHint {
         descriptor: SlayTheDataBridgeDescriptor::ChooseVisibleOption { option_slot },
         command: format!("CHOOSE {option_slot}"),
+    }
+}
+
+fn skip_visible_reward_hint() -> SlayTheDataBridgeCommandHint {
+    SlayTheDataBridgeCommandHint {
+        descriptor: SlayTheDataBridgeDescriptor::SkipVisibleReward,
+        command: "SKIP".to_owned(),
+    }
+}
+
+fn slaythedata_card_reward_action(
+    run: &RunState,
+    picked: &Option<SlayTheDataCardName>,
+    skipped: bool,
+) -> Result<(RunAction, SlayTheDataBridgeCommandHint), String> {
+    let Some(reward) = run.reward.as_ref() else {
+        return Err("card reward cannot be checked because reward screen is missing".to_owned());
+    };
+    if !reward.card_reward_active {
+        return Err(
+            "card reward cannot be checked because the card reward screen is not open".to_owned(),
+        );
+    }
+    if skipped {
+        return Ok((RunAction::SkipReward, skip_visible_reward_hint()));
+    }
+    let Some(picked) = picked.as_ref() else {
+        return Err("card reward has no picked card and was not marked skipped".to_owned());
+    };
+    let matches: Vec<_> = reward
+        .choices
+        .iter()
+        .enumerate()
+        .filter(|(_, choice)| {
+            get_card_definition(choice.content_id).is_some_and(|definition| {
+                definition.name.eq_ignore_ascii_case(&picked.raw)
+                    || definition.name.eq_ignore_ascii_case(&picked.base)
+            })
+        })
+        .collect();
+    match matches.as_slice() {
+        [(slot, choice)] => Ok((
+            RunAction::TakeCardReward { card_id: choice.id },
+            choose_visible_hint(*slot),
+        )),
+        [] => Err(format!(
+            "card reward picked {:?} is not among the current core reward choices",
+            picked.raw
+        )),
+        _ => Err(format!(
+            "card reward picked {:?} matched multiple current core reward choices",
+            picked.raw
+        )),
     }
 }
 

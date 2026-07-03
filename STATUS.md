@@ -3,6 +3,24 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData card-reward hint slice: Rust preflight now checks open core
+  card reward screens against actual reward choices and emits `CHOOSE n` or
+  `SKIP` bridge hints for picked/skipped card rewards. The Python collector now
+  consumes those checked card-reward hints, and Rust preflight drops
+  authoritative run state after any blocked step so stale later hints cannot be
+  emitted. Checks: `cargo fmt` passed; `cargo test -p sts_verify --test
+  slaythedata` passed; `cargo check -p sts_core --lib` passed; `cargo check -p
+  sts_verify --lib` passed; `cargo check -p sts_verify --bin sts_verify`
+  passed; `uv run python -m unittest python.tests.test_guided_collector`
+  passed; `uv run python -m unittest python.tests.test_ui_service` passed;
+  `cargo test -p sts_verify live_regression_manifest_entries_pass_seed_start
+  --test corpus` passed; `uv run maturin develop --release` passed after
+  restarting duplicate UI services; UI root returned HTTP 200. Known check gap:
+  `uv run python -m unittest python.tests.test_live_regression_traces` currently
+  fails on the dirty working-copy trace
+  `communication_mod/live-regression-2026-07-02T23-24-13-178Z.jsonl`; do not
+  continue to the next slice until that unrelated dirty trace state is resolved
+  or the failure is otherwise explained.
 - SlayTheData one-click autoplay UI slice: the primary guided button is now
   labeled `Auto-play run` and can load the selected SlayTheData run before
   sending START and arming collector auto-run. Collector suggestions now tag

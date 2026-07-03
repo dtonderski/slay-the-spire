@@ -201,6 +201,60 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertNotEqual(result["suggestion"].get("source"), "rust_preflight")
         self.assertEqual(result["suggestion"]["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
 
+    def test_tick_uses_checked_rust_preflight_card_reward_hint(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [
+                {
+                    "floor": 1,
+                    "ordinal": 4,
+                    "status": "checked",
+                    "code": "legal_card_reward",
+                    "bridge_command": {
+                        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 1},
+                        "command": "CHOOSE 1",
+                    },
+                }
+            ],
+            "diagnostics": [],
+        }
+        collector.start({"script": sample_script(), "rust_preflight": preflight})
+
+        result = collector.tick(self.ready_card_reward_bridge())
+
+        self.assertEqual(result["suggestion"]["source"], "rust_preflight")
+        self.assertEqual(result["suggestion"]["category"], "card_reward")
+        self.assertEqual(result["suggestion"]["command"], "CHOOSE 1")
+        self.assertEqual(result["suggestion"]["matched_label"], "Flex")
+
+    def test_tick_uses_checked_rust_preflight_card_reward_skip_hint(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [
+                {
+                    "floor": 1,
+                    "ordinal": 4,
+                    "status": "checked",
+                    "code": "legal_card_reward",
+                    "bridge_command": {
+                        "descriptor": {"kind": "SkipVisibleReward"},
+                        "command": "SKIP",
+                    },
+                }
+            ],
+            "diagnostics": [],
+        }
+        collector.start({"script": sample_script(), "rust_preflight": preflight})
+
+        result = collector.tick(self.ready_card_reward_bridge())
+
+        self.assertEqual(result["suggestion"]["source"], "rust_preflight")
+        self.assertEqual(result["suggestion"]["category"], "card_reward")
+        self.assertEqual(result["suggestion"]["descriptor"], {"kind": "SkipVisibleReward"})
+        self.assertEqual(result["suggestion"]["command"], "SKIP")
+
     def ready_event_bridge(self):
         return {
             "connected": True,
