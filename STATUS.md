@@ -3,6 +3,22 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Limit Break/Limit Break+, Offering/Offering+,
+  and Seeing Red/Seeing Red+ against their decompiled card classes and the
+  trusted sts.gg card database baseline, then replaced stale generic audit rows
+  with source-backed facts. Source Limit Break doubles Strength and only the
+  base form Exhausts; Offering loses 6 HP, gains 2 Energy, draws 3/5, and
+  Exhausts; Seeing Red gains 2 Energy, Exhausts, and upgrades from cost 1 to
+  cost 0. No generic simulator mismatch was found in this slice. Checks:
+  `cargo fmt` passed; focused `cargo test -p sts_core --test card_fidelity
+  limit_break` passed; focused `cargo test -p sts_core --test card_fidelity
+  offering` passed; focused `cargo test -p sts_core --test card_fidelity
+  seeing_red` passed; `cargo test -p sts_core --test card_fidelity` passed
+  (105 tests); `cargo clippy` passed with existing warnings after setting
+  `PYO3_PYTHON` to the bundled workspace Python; active live-regression replay
+  `uv run python -m unittest python.tests.test_live_regression_traces` passed.
+  Full `cargo test` with bundled `PYO3_PYTHON` builds the suite and remains
+  blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`.
 - Card-fidelity fix: verified Inflame/Inflame+, Juggernaut/Juggernaut+, and
   Metallicize/Metallicize+ against their decompiled card/power classes and the
   trusted sts.gg card database baseline, then replaced stale generic audit rows

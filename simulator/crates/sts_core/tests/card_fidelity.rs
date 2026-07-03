@@ -163,6 +163,92 @@ fn juggernaut_plus_deals_unmodified_damage_when_block_is_gained() {
 }
 
 #[test]
+fn limit_break_plus_doubles_current_strength_without_exhausting() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.powers.strength = 4;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::LIMIT_BREAK_PLUS_ID,
+    )];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Limit Break+ plays");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.player.powers.strength, 8);
+    assert!(next.piles.exhaust_pile.is_empty());
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::LIMIT_BREAK_PLUS_ID
+    );
+}
+
+#[test]
+fn offering_plus_loses_six_hp_gains_two_energy_draws_five_and_exhausts() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::OFFERING_PLUS_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::ANGER_ID),
+        CardInstance::new(CardId::new(6), cards::FLEX_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Offering+ plays");
+
+    assert_eq!(next.player.hp, 44);
+    assert_eq!(next.player.energy, 2);
+    assert_eq!(next.piles.hand.len(), 5);
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::OFFERING_PLUS_ID
+    );
+}
+
+#[test]
+fn seeing_red_plus_gains_two_energy_and_exhausts_at_zero_cost() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::SEEING_RED_PLUS_ID)];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Seeing Red+ plays");
+
+    assert_eq!(next.player.energy, 2);
+    assert!(next.piles.discard_pile.is_empty());
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::SEEING_RED_PLUS_ID
+    );
+}
+
+#[test]
 fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     assert_eq!(cards::ARMAMENTS.values.block, Some(5));
     assert_eq!(cards::ARMAMENTS_PLUS.values.block, Some(5));
