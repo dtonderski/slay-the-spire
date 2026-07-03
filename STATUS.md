@@ -3,6 +3,14 @@
 ## What Exists
 
 ### Tooling
+- SlayTheData run-id preflight slice: factored `export_guided_run_row` out of
+  the chunk-export path so UI run-id loads can keep the raw SlayTheData row.
+  `_guided_script_from_payload` and `/api/slaythedata/export` now return both
+  the existing guided script and Rust `rust_preflight` for run-id, direct JSON,
+  and JSONL-path loads. Checks: `uv run python -m unittest
+  python.tests.test_ui_service` passed; `uv run python -m unittest
+  python.tests.test_slaythedata_index` passed. Next task: render the Rust
+  preflight report in the UI and use it to guide playable imported sessions.
 - SlayTheData UI preflight bridge slice: added native
   `slaythedata_preflight_json` to the Python extension and exposed it through
   `sts.omni`. The UI service now attaches `rust_preflight` when loading a

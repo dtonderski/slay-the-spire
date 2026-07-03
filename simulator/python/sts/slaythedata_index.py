@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -9,7 +10,7 @@ import tempfile
 import sqlite3
 from typing import Any
 
-from sts.slaythedata_policy import load_guided_run_script
+from sts.slaythedata_policy import build_guided_run_script
 
 
 DEFAULT_SLAYTHEDATA_ROOT = Path(r"D:\dev\SlayTheData-index")
@@ -344,6 +345,29 @@ def export_guided_run_script(
 ) -> dict[str, Any]:
     """Export one SlayTheData run from chunks and convert it to a guided script."""
 
+    return build_guided_run_script(
+        export_guided_run_row(
+            run_id,
+            db_path=db_path,
+            chunks_dir=chunks_dir,
+            indexer_path=indexer_path,
+            timeout_seconds=timeout_seconds,
+            runner=runner,
+        )
+    )
+
+
+def export_guided_run_row(
+    run_id: int,
+    *,
+    db_path: str | Path = DEFAULT_SLAYTHEDATA_DB,
+    chunks_dir: str | Path = DEFAULT_SLAYTHEDATA_CHUNKS,
+    indexer_path: str | Path = DEFAULT_INDEXER,
+    timeout_seconds: float = 30.0,
+    runner: Any | None = None,
+) -> dict[str, Any]:
+    """Export one raw SlayTheData chunk row from the local chunk store."""
+
     run_id = int(run_id)
     runner = runner or subprocess.run
     with tempfile.TemporaryDirectory(prefix="sts-slaythedata-") as tmp:
@@ -367,9 +391,11 @@ def export_guided_run_script(
         if result.returncode != 0:
             detail = (result.stderr or result.stdout or "chunk-export failed").strip()
             raise RuntimeError(detail)
-        if not output_path.exists() or not output_path.read_text(encoding="utf-8").strip():
+        content = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
+        rows = [line for line in content.splitlines() if line.strip()]
+        if not rows:
             raise RuntimeError(f"chunk-export produced no rows for run {run_id}")
-        return load_guided_run_script(output_path)
+        return json.loads(rows[0])
 
 
 def _connect_readonly(db_path: str | Path) -> sqlite3.Connection:

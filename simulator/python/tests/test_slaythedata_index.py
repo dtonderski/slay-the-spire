@@ -7,6 +7,7 @@ import unittest
 from sts.slaythedata_index import (
     _GUIDED_SAFE_NEOW_BONUSES,
     chunk_export_args,
+    export_guided_run_row,
     export_guided_run_script,
     select_guided_collection_candidates,
     slaythedata_index_status,
@@ -556,6 +557,20 @@ class SlayTheDataIndexTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "boom"):
             export_guided_run_script(7, runner=runner)
+
+    def test_export_guided_run_row_returns_raw_chunk_row(self):
+        def runner(command, *, cwd, capture_output, text, check, timeout):
+            output = Path(command[command.index("--out") + 1])
+            output.write_text(
+                '{"run_id": 7, "event": {"character_chosen": "IRONCLAD", "seed_played": "RAW"}}\n',
+                encoding="utf-8",
+            )
+            return SimpleNamespace(returncode=0, stdout="chunk-exported runs: 1", stderr="")
+
+        row = export_guided_run_row(7, runner=runner)
+
+        self.assertEqual(row["run_id"], 7)
+        self.assertEqual(row["event"]["seed_played"], "RAW")
 
 
 if __name__ == "__main__":

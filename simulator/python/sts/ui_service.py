@@ -20,6 +20,7 @@ from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
 from sts.self_play import _action_for_communication_command, _summary
 from sts.slaythedata_index import (
+    export_guided_run_row,
     export_guided_run_script,
     select_guided_collection_candidates,
     slaythedata_index_status,
@@ -1276,7 +1277,11 @@ def _send_ui_bridge_command(
 def _guided_script_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     run_id = payload.get("run_id")
     if run_id is not None:
-        return {"script": export_guided_run_script(int(run_id))}
+        exported_run = export_guided_run_row(int(run_id))
+        return {
+            "script": build_guided_run_script(exported_run),
+            "rust_preflight": _slaythedata_rust_preflight_for_exported_run(exported_run),
+        }
 
     exported_run = payload.get("exported_run")
     if isinstance(exported_run, dict):
@@ -1537,7 +1542,11 @@ def _slaythedata_export_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     run_id = payload.get("run_id")
     if run_id is None:
         raise ValueError("run_id is required")
-    return {"script": export_guided_run_script(int(run_id))}
+    exported_run = export_guided_run_row(int(run_id))
+    return {
+        "script": build_guided_run_script(exported_run),
+        "rust_preflight": _slaythedata_rust_preflight_for_exported_run(exported_run),
+    }
 
 
 def _slaythedata_rust_preflight_for_exported_run(exported_run: dict[str, Any]) -> dict[str, Any]:

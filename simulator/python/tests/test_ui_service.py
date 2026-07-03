@@ -17,6 +17,7 @@ from sts.ui_service import (
     _observed_state_from_bridge_status,
     _send_ui_bridge_command,
     _slaythedata_candidates_from_query,
+    _slaythedata_export_from_payload,
     _slaythedata_select_audit_from_payload,
     _slaythedata_status_from_query,
     _start_guided_live_run,
@@ -275,11 +276,41 @@ class UiServiceTests(unittest.TestCase):
             _guided_script_from_payload({})
 
     def test_guided_script_payload_accepts_slaythedata_run_id(self):
-        with patch("sts.ui_service.export_guided_run_script", return_value={"schema": 1}) as export:
+        exported_run = {
+            "run_id": 123,
+            "event": {
+                "character_chosen": "IRONCLAD",
+                "ascension_level": 0,
+                "seed_played": "RUN123",
+            },
+        }
+        with patch("sts.ui_service.export_guided_run_row", return_value=exported_run) as export, patch(
+            "sts.ui_service.omni.slaythedata_preflight_json",
+            return_value='{"schema":1,"numeric_seed":123,"steps":[],"diagnostics":[]}',
+        ):
             result = _guided_script_from_payload({"run_id": 123})
 
-        self.assertEqual(result, {"script": {"schema": 1}})
+        self.assertEqual(result["script"]["source"]["run_id"], 123)
+        self.assertEqual(result["rust_preflight"]["numeric_seed"], 123)
         export.assert_called_once_with(123)
+
+    def test_slaythedata_export_payload_includes_rust_preflight(self):
+        exported_run = {
+            "run_id": 99,
+            "event": {
+                "character_chosen": "IRONCLAD",
+                "ascension_level": 0,
+                "seed_played": "EXPORT99",
+            },
+        }
+        with patch("sts.ui_service.export_guided_run_row", return_value=exported_run), patch(
+            "sts.ui_service.omni.slaythedata_preflight_json",
+            return_value='{"schema":1,"numeric_seed":99,"steps":[],"diagnostics":[]}',
+        ):
+            result = _slaythedata_export_from_payload({"run_id": 99})
+
+        self.assertEqual(result["script"]["source"]["run_id"], 99)
+        self.assertEqual(result["rust_preflight"]["numeric_seed"], 99)
 
     def test_guided_script_payload_accepts_path_and_reports_rust_preflight(self):
         with tempfile.TemporaryDirectory() as tmp:
