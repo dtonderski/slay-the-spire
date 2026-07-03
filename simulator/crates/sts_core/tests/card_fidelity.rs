@@ -61,6 +61,94 @@ fn barricade_power_is_idempotent_when_replayed() {
 }
 
 #[test]
+fn berserk_plus_applies_one_vulnerable_and_one_berserk() {
+    assert_eq!(cards::BERSERK.values.vulnerable, Some(2));
+    assert_eq!(cards::BERSERK_PLUS.values.vulnerable, Some(1));
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BERSERK_PLUS_ID)];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Berserk+ plays without a target");
+
+    assert_eq!(next.player.powers.vulnerable, 1);
+    assert_eq!(next.player.powers.berserk, 1);
+}
+
+#[test]
+fn dropkick_plus_draws_and_refunds_energy_against_vulnerable_enemy() {
+    assert_eq!(cards::DROPKICK.values.damage, Some(5));
+    assert_eq!(cards::DROPKICK_PLUS.values.damage, Some(8));
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DROPKICK_PLUS_ID)];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), cards::WOUND_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].powers.vulnerable = 1;
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Dropkick+ plays against a vulnerable enemy");
+
+    assert_eq!(next.player.energy, 1);
+    assert_eq!(next.monsters[0].hp, starting_hp - 12);
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::WOUND_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::DROPKICK_PLUS_ID
+    );
+}
+
+#[test]
+fn feed_plus_gains_four_max_hp_on_fatal_non_minion_hit_and_exhausts() {
+    assert_eq!(cards::FEED.values.damage, Some(10));
+    assert!(cards::FEED.keywords.exhaust);
+    assert_eq!(cards::FEED_PLUS.values.damage, Some(12));
+    assert!(cards::FEED_PLUS.keywords.exhaust);
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.hp = 40;
+    state.player.max_hp = 50;
+    state.relics.clear();
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::FEED_PLUS_ID)];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 12;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Feed+ plays against an enemy");
+
+    assert!(!next.monsters[0].alive);
+    assert_eq!(next.player.max_hp, 54);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::FEED_PLUS_ID);
+}
+
+#[test]
 fn pummel_plus_definition_keeps_damage_and_exhausts() {
     assert_eq!(cards::PUMMEL.values.damage, Some(2));
     assert!(cards::PUMMEL.keywords.exhaust);

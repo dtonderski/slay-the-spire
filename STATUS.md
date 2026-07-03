@@ -3,6 +3,28 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit correction: verified Berserk/Berserk+, Dropkick/Dropkick+,
+  and Feed/Feed+ against their decompiled card/action classes, then replaced
+  stale generic audit rows with source-backed queue facts. Source Berserk applies
+  self Vulnerable 2/1 and BerserkPower 1; source Dropkick resolves damage before
+  the conditional energy/draw because its action pushes damage after the refund
+  actions onto the top of the queue; source Feed deals 10/12, exhausts, and
+  grants max HP 3/4 on fatal non-minion kills. Local definitions/effects already
+  matched those generic facts, so this slice adds regression coverage without
+  changing simulator behavior. Checks: `cargo fmt` passed; focused `cargo test
+  -p sts_core --test card_fidelity berserk_plus` passed; focused `cargo test -p
+  sts_core --test card_fidelity dropkick_plus` passed; focused `cargo test -p
+  sts_core --test card_fidelity feed_plus` passed; `cargo test -p sts_core
+  --test card_fidelity` passed (61 tests); `cargo clippy` passed with existing
+  warnings after setting `PYO3_PYTHON` to the bundled workspace Python. Full
+  `cargo test` with bundled `PYO3_PYTHON` still builds the suite and remains
+  blocked by `sts_omni` exiting with `STATUS_DLL_NOT_FOUND`. Active
+  live-regression replay `uv run python -m unittest
+  python.tests.test_live_regression_traces` still fails on the dirty worktree
+  trace
+  `verification/corpus/communication_mod/trace-2026-07-02T23-24-13-178Z.jsonl`
+  with `steps` 478 versus manifest `expected_steps` 467; the trace has local
+  appended commands and was not staged for this slice.
 - Card-fidelity fix: verified Barricade/Barricade+ against `Barricade.java`,
   then made local Barricade power application idempotent. Source Barricade scans
   existing player powers and only applies `BarricadePower` when it is absent;
