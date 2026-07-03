@@ -3,6 +3,16 @@
 ## What Exists
 
 ### Tooling
+- Card-fidelity audit: verified Apotheosis/Apotheosis+ rows against
+  `Apotheosis.java` and `ApotheosisAction.java`. Source constructs a 2-cost
+  colorless rare Skill with Exhaust, queues `ApotheosisAction`, and upgrade
+  only reduces base cost to 1; `ApotheosisAction` upgrades hand, draw, discard,
+  and exhaust piles. Local base/upgraded definitions already retain Exhaust and
+  local `UpgradeCombatCards` covers the same four piles, so no simulator code
+  fix was needed. Checks: `git diff --check -- STATUS.md
+  simulator/docs/audit/card_fidelity_audit.md` passed with only existing CRLF
+  warnings; active live-regression manifest replay passed via `uv run python -m
+  unittest python.tests.test_live_regression_traces`.
 - Card-fidelity audit: verified Apparition/Apparition+ rows against
   `Apparition.java`. Source constructs the base card as a 1-cost Colorless
   Special Skill targeting self with Exhaust and Ethereal, applies 1 Intangible,
