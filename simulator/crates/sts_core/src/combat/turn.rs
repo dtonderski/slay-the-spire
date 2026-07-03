@@ -1423,7 +1423,7 @@ fn is_half_dead_darkling(monster: &crate::MonsterState) -> bool {
 
 fn acid_slime_uses_medium_move_table(monster: &crate::MonsterState) -> bool {
     acid_slime_uses_large_move_table(monster)
-        || monster.hp > ACID_SLIME_S_A7_HP_RANGE.max
+        || monster.max_hp > ACID_SLIME_S_A7_HP_RANGE.max
         || monster.move_history.contains(&2)
         || matches!(
             monster.intent,

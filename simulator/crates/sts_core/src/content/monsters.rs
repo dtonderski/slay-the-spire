@@ -3884,13 +3884,13 @@ pub fn prepare_monster_intent_for_ascension(
         }
     }
     if monster.content_id == ACID_SLIME_ID
-        && monster.hp > ACID_SLIME_S_A7_HP_RANGE.max
+        && monster.max_hp > ACID_SLIME_S_A7_HP_RANGE.max
         && matches!(intent, MonsterIntent::Attack { .. })
     {
         let MonsterIntent::Attack { damage } = intent else {
             unreachable!("matches! above guarantees Attack intent")
         };
-        let count = if monster.hp > ACID_SLIME_M_A7_HP_RANGE.max {
+        let count = if monster.max_hp > ACID_SLIME_M_A7_HP_RANGE.max {
             2
         } else {
             1
