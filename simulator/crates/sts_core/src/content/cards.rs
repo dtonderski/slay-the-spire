@@ -2934,7 +2934,7 @@ pub const TRIP_PLUS: CardDefinition = CardDefinition {
     name: "Trip+",
     cost: 0,
     card_type: CardType::Skill,
-    target: TargetRequirement::None,
+    target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: None,
         block: None,

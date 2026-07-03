@@ -37,6 +37,41 @@ fn twin_strike_definitions_target_one_enemy_twice() {
 }
 
 #[test]
+fn trip_plus_targets_all_enemies_without_selection() {
+    assert_eq!(cards::TRIP.target, TargetRequirement::Enemy);
+    assert_eq!(cards::TRIP.values.vulnerable, Some(2));
+
+    assert_eq!(cards::TRIP_PLUS.target, TargetRequirement::AllEnemies);
+    assert_eq!(cards::TRIP_PLUS.values.vulnerable, Some(2));
+
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::TRIP_PLUS_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    assert!(
+        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        })
+    );
+
+    let err = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect_err("Trip+ should not accept a selected target");
+
+    assert_eq!(
+        err,
+        sts_core::SimError::IllegalAction("all-enemies card cannot have a target")
+    );
+}
+
+#[test]
 fn whirlwind_definitions_are_x_cost_all_enemy_attacks() {
     assert_eq!(cards::WHIRLWIND.cost, -1);
     assert_eq!(cards::WHIRLWIND.target, TargetRequirement::AllEnemies);
