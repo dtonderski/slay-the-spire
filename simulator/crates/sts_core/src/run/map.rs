@@ -251,22 +251,25 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
             continue;
         }
         let roll = rng.random_int(99);
-        if monster.content_id == ACID_SLIME_ID && monster.hp <= ACID_SLIME_S_A7_HP_RANGE.max {
+        if monster.content_id == ACID_SLIME_ID && monster.max_hp <= ACID_SLIME_S_A7_HP_RANGE.max {
             let attack = combat.ascension < 17 && rng.random_bool();
             monster.intent =
                 target_small_acid_slime_entry_intent_from_bool(attack, combat.ascension);
             if matches!(monster.intent, crate::MonsterIntent::Attack { .. }) {
                 monster.moves_executed = 1;
             }
-        } else if monster.content_id == ACID_SLIME_ID && monster.hp <= ACID_SLIME_M_A7_HP_RANGE.max
+        } else if monster.content_id == ACID_SLIME_ID
+            && monster.max_hp <= ACID_SLIME_M_A7_HP_RANGE.max
         {
-            monster.intent = target_acid_slime_entry_intent_from_roll(monster.hp, roll);
+            monster.intent = target_acid_slime_entry_intent_from_roll(monster.max_hp, roll);
             if matches!(monster.intent, crate::MonsterIntent::Attack { .. }) {
                 monster.moves_executed = 1;
             }
         } else if monster.content_id == SPIKE_SLIME_ID {
-            monster.intent = target_spike_slime_entry_intent_from_roll(monster.hp, roll);
-        } else if monster.content_id == ACID_SLIME_ID && monster.hp > ACID_SLIME_M_A7_HP_RANGE.max {
+            monster.intent = target_spike_slime_entry_intent_from_roll(monster.max_hp, roll);
+        } else if monster.content_id == ACID_SLIME_ID
+            && monster.max_hp > ACID_SLIME_M_A7_HP_RANGE.max
+        {
             monster.intent = target_large_acid_slime_next_intent_from_roll(
                 &monster.move_history,
                 roll,
@@ -699,15 +702,15 @@ fn target_spawn_monster_state(
     monster.alive = spawn.current_hp > 0;
     monster.powers = spawn_monster_powers(spawn);
     monster.rolled_attack_damage = spawn.rolled_attack_damage;
-    if spawn.intent == "AttackAddSlimedToDiscard"
-        && !(monster.content_id == ACID_SLIME_ID && monster.max_hp <= ACID_SLIME_M_A7_HP_RANGE.max)
-    {
+    if spawn.intent == "AttackAddSlimedToDiscard" {
         if let Some(damage) = spawn.rolled_attack_damage {
             monster.intent = crate::MonsterIntent::AttackAddSlimedToDiscard {
                 damage,
                 count: if spawn.name.ends_with("(L)") { 2 } else { 1 },
             };
         }
+    } else if spawn.intent == "ApplyPlayerWeak" {
+        monster.intent = crate::MonsterIntent::ApplyPlayerWeak { amount: 1 };
     } else if spawn.intent == "ApplyPlayerFrailAndWeak" {
         monster.intent = crate::MonsterIntent::ApplyPlayerFrailAndWeak {
             frail: observed_spike_slime_frail_amount(spawn, ascension),

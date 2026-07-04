@@ -29,6 +29,43 @@ fn wound_definition_matches_unplayable_status_source() {
 }
 
 #[test]
+fn inert_status_and_curse_keywords_match_source_definitions() {
+    assert!(cards::ASCENDERS_BANE.keywords.unplayable);
+    assert!(cards::ASCENDERS_BANE.keywords.ethereal);
+    assert!(cards::DAZED.keywords.unplayable);
+    assert!(cards::DAZED.keywords.ethereal);
+    assert!(cards::CLUMSY.keywords.unplayable);
+    assert!(cards::CLUMSY.keywords.ethereal);
+    assert!(cards::CURSE_OF_THE_BELL.keywords.unplayable);
+    assert!(!cards::CURSE_OF_THE_BELL.keywords.ethereal);
+    assert!(cards::INJURY.keywords.unplayable);
+    assert!(!cards::INJURY.keywords.ethereal);
+    assert!(cards::WRITHE.keywords.unplayable);
+    assert!(cards::WRITHE.keywords.innate);
+}
+
+#[test]
+fn upgraded_burn_deals_four_blockable_end_turn_damage_and_discards() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.block = 1;
+    let mut burn = CardInstance::new(CardId::new(1), cards::BURN_ID);
+    burn.upgrades = 1;
+    state.piles.hand = vec![burn];
+    state.piles.discard_pile.clear();
+
+    let mut next = state.clone();
+    resolve_end_of_turn_hand(&mut next);
+
+    assert_eq!(next.player.hp, 47);
+    assert_eq!(next.player.block, 0);
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::BURN_ID);
+    assert_eq!(next.piles.discard_pile[0].upgrades, 1);
+}
+
+#[test]
 fn decay_deals_two_blockable_end_turn_damage_and_discards() {
     let mut state = CombatState::initial_fixture();
     state.player.hp = 50;
@@ -3516,6 +3553,50 @@ fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
         .iter()
         .any(|card| card.content_id == cards::PURITY_PLUS_ID));
     assert!(next.exhaust_select.is_none());
+}
+
+#[test]
+fn hand_played_purity_source_is_hidden_until_confirm() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::PURITY_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("hand-played Purity opens exhaust selection");
+
+    assert!(next.exhaust_select.is_some());
+    assert!(
+        next.piles.exhaust_pile.is_empty(),
+        "hand-played Purity stays out of the visible exhaust pile until selection is confirmed"
+    );
+    assert_eq!(next.piles.hand.len(), 2);
+
+    choose_exhaust_select(&mut next, 0).expect("select Defend");
+    confirm_exhaust_select(&mut next).expect("confirm Purity selection");
+
+    assert_eq!(next.piles.exhaust_pile.len(), 2);
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::PURITY_ID));
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::DEFEND_R_ID));
 }
 
 #[test]

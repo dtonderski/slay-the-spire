@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, fs};
 use sts_core::content::encounters::generate_exordium_normal_encounters;
 use sts_core::content::monsters::{
     target_cultist_hp_roll, target_jaw_worm_hp_roll, target_small_slimes_hp_rolls,
@@ -818,7 +818,7 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
 
 #[test]
 fn test_seed_start_m28_shop_entry_parity() {
-    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
         return;
     };
@@ -849,7 +849,7 @@ fn test_seed_start_m28_shop_entry_parity() {
 
 #[test]
 fn test_seed_start_m29_test_elite_boss_without_observed_sync() {
-    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
         return;
     };
@@ -980,7 +980,7 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
 #[test]
 fn test_m32c_20260625_clean_prefix_records_32b_shop_reward_deck_evidence() {
     let Some(content) = load_corpus_file(
-        "communication_mod/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
+        "permanent_traces/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
     ) else {
         return;
     };
@@ -1168,7 +1168,7 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
 
 #[test]
 fn test_seed_start_full_act1_boss_relic_prefix() {
-    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
         return;
     };
@@ -1323,8 +1323,47 @@ fn live_regression_manifest_entries_pass_seed_start() {
 }
 
 #[test]
+fn permanent_trace_entries_pass_seed_start() {
+    let dir = corpus_path("permanent_traces");
+    if !dir.exists() {
+        return;
+    }
+
+    let mut entries = fs::read_dir(&dir)
+        .expect("permanent trace directory is readable")
+        .map(|entry| entry.expect("permanent trace entry is readable").path())
+        .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"))
+        .collect::<Vec<_>>();
+    entries.sort();
+
+    assert!(
+        !entries.is_empty(),
+        "permanent trace directory should contain at least one .jsonl trace"
+    );
+
+    for path in entries {
+        let display_path = path.display().to_string();
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("permanent trace is readable: {display_path}: {err}"));
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .unwrap_or_else(|err| panic!("seed-start report for {display_path}: {err}"));
+        assert_eq!(report.mode, VerificationMode::SeedStart, "{display_path}");
+        assert!(
+            report.unexpected_diffs.is_empty(),
+            "{display_path} unexpected diffs: {:?}",
+            report.unexpected_diffs
+        );
+        assert!(
+            report.observed_state_restorations.is_empty(),
+            "{display_path} observed-state restorations: {:?}",
+            report.observed_state_restorations
+        );
+    }
+}
+
+#[test]
 fn m35_test_trace_reports_observed_state_restoration_until_scaffolding_is_removed() {
-    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
         return;
     };
@@ -1430,7 +1469,7 @@ fn m35_test_trace_reports_observed_state_restoration_until_scaffolding_is_remove
 
 #[test]
 fn m35_test_trace_boss_no_sync_clears_mummified_hand_and_shrug_it_off_plus() {
-    let Some(content) = load_corpus_file("communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl")
+    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
         return;
     };

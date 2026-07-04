@@ -150,9 +150,7 @@ pub(crate) fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut Simul
         return;
     }
 
-    if !move_discard_reshuffle_cards_to_draw(state) {
-        return;
-    }
+    state.piles.draw_pile.append(&mut state.piles.discard_pile);
 
     for index in (1..state.piles.draw_pile.len()).rev() {
         let swap_with = rng.next_usize(RngStream::Shuffle, "combat::draw::shuffle", index + 1);
@@ -166,28 +164,8 @@ pub(crate) fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut S
         return;
     }
 
-    if !move_discard_reshuffle_cards_to_draw(state) {
-        return;
-    }
+    state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
     crate::relic::apply_shuffle_relics(state);
-}
-
-fn move_discard_reshuffle_cards_to_draw(state: &mut CombatState) -> bool {
-    if let Some(limit) = state.discard_reshuffle_limit.as_mut() {
-        if *limit == 0 {
-            return false;
-        }
-        let available = (*limit).min(state.piles.discard_pile.len());
-        state
-            .piles
-            .draw_pile
-            .extend(state.piles.discard_pile.drain(..available));
-        *limit -= available;
-        available > 0
-    } else {
-        state.piles.draw_pile.append(&mut state.piles.discard_pile);
-        true
-    }
 }

@@ -44,6 +44,7 @@ pub struct SlayTheDataPreflightReport {
     pub run_start: Option<SlayTheDataRunStart>,
     pub numeric_seed: Option<i64>,
     pub start_phase: Option<String>,
+    pub route_fully_checked: bool,
     pub steps: Vec<SlayTheDataPreflightStep>,
     pub diagnostics: Vec<SlayTheDataDiagnostic>,
 }
@@ -665,6 +666,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
     }
 
     let mut steps = Vec::with_capacity(plan.steps.len());
+    let mut route_proof_start: Option<RunState> = None;
     for step in &plan.steps {
         let (status, code, message, bridge_command) = match &step.kind {
             SlayTheDataReplayStepKind::NeowTalk => {
@@ -813,6 +815,9 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             }
             SlayTheDataReplayStepKind::MapRoom { symbol } => match run.as_ref() {
                 Some(current) if current.phase == RunPhase::Idle => {
+                    if route_proof_start.is_none() {
+                        route_proof_start = Some(current.clone());
+                    }
                     let actions = legal_map_actions_on_run(current);
                     let action_symbols: Vec<_> = actions
                         .iter()
@@ -858,33 +863,19 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                             }
                         }
                         [ConstrainedMapAction {
-                            action,
                             action_slot,
                             evidence,
-                        }, ..] => match apply_map_action_on_run(current, *action) {
-                            Ok(next) => {
-                                run = Some(next);
-                                (
-                                    SlayTheDataPreflightStatus::Checked,
-                                    "compatible_map_room".to_owned(),
-                                    format!(
-                                        "route symbol {symbol:?} matched {} legal map actions; {} replay-compatible candidates remained after {evidence}, choosing slot {action_slot}",
-                                        matches.len(),
-                                        constrained_match.len()
-                                    ),
-                                    Some(choose_visible_hint(*action_slot)),
-                                )
-                            }
-                            Err(error) => (
-                                SlayTheDataPreflightStatus::Blocked,
-                                "map_action_apply_failed".to_owned(),
-                                format!(
-                                    "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
-                                    action
-                                ),
-                                None,
+                            ..
+                        }, ..] => (
+                            SlayTheDataPreflightStatus::Blocked,
+                            "ambiguous_map_route".to_owned(),
+                            format!(
+                                "route symbol {symbol:?} matched {} legal map actions; {} replay-compatible candidates remained after {evidence}; refusing to choose ambiguous slot {action_slot}",
+                                matches.len(),
+                                constrained_match.len()
                             ),
-                        },
+                            None,
+                        ),
                         [] if matches.len() == 1 => {
                             let action = matches[0];
                             let action_slot = actions
@@ -1077,15 +1068,80 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
         }
     }
 
+    let route_fully_checked = route_fully_checked(route_proof_start.as_ref(), plan);
+    if !route_fully_checked {
+        diagnostics.push(SlayTheDataDiagnostic {
+            severity: SlayTheDataDiagnosticSeverity::Error,
+            code: "route_not_fully_proven".to_owned(),
+            path: "$.steps".to_owned(),
+            message: "SlayTheData route contains at least one map step that was not uniquely checked against simulator map, monster, or event evidence".to_owned(),
+        });
+    }
+
     SlayTheDataPreflightReport {
         schema: SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
         source: plan.source.clone(),
         run_start: plan.run_start.clone(),
         numeric_seed,
         start_phase: run.map(|run| phase_name(run.phase)),
+        route_fully_checked,
         steps,
         diagnostics,
     }
+}
+
+fn route_fully_checked(start: Option<&RunState>, plan: &SlayTheDataReplayPlan) -> bool {
+    let route_steps: Vec<(u32, String)> = plan
+        .steps
+        .iter()
+        .filter_map(|step| match &step.kind {
+            SlayTheDataReplayStepKind::MapRoom { symbol } => {
+                normalize_route_symbol(symbol).map(|symbol| (step.floor, symbol))
+            }
+            _ => None,
+        })
+        .collect();
+    if route_steps.is_empty() {
+        return true;
+    }
+    let Some(start) = start else {
+        return false;
+    };
+    prove_route_suffix(start.clone(), plan, &route_steps)
+}
+
+fn prove_route_suffix(
+    run: RunState,
+    plan: &SlayTheDataReplayPlan,
+    route: &[(u32, String)],
+) -> bool {
+    let Some(((floor, symbol), rest)) = route.split_first() else {
+        return true;
+    };
+    let idle = run_completed_for_route_lookahead(run);
+    let actions = legal_map_actions_on_run(&idle);
+    let matches: Vec<_> = actions
+        .iter()
+        .copied()
+        .filter(|action| map_action_matches_symbol(&idle, *action, symbol))
+        .collect();
+    let chosen = match matches.as_slice() {
+        [] => return false,
+        [action] => *action,
+        _ => {
+            let constrained = constrain_map_action_by_slaythedata_evidence(
+                &idle, &actions, &matches, plan, *floor,
+            );
+            match constrained.as_slice() {
+                [ConstrainedMapAction { action, .. }] => *action,
+                _ => return false,
+            }
+        }
+    };
+    let Ok(next) = apply_map_action_on_run(&idle, chosen) else {
+        return false;
+    };
+    prove_route_suffix(next, plan, rest)
 }
 
 #[derive(Debug, Clone)]

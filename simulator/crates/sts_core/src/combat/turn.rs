@@ -84,11 +84,9 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
         return next;
     }
     discard_end_of_turn_hand(&mut next);
-    next.discard_reshuffle_limit = Some(next.piles.discard_pile.len());
     apply_pending_player_spikes_damage(&mut next);
     if next.player.hp <= 0 {
         next.phase = CombatPhase::Lost;
-        next.discard_reshuffle_limit = None;
         return next;
     }
     clear_living_monster_block(&mut next);
@@ -98,16 +96,13 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
     if next.player.hp <= 0 {
         next.player.hp = 0;
         next.phase = CombatPhase::Lost;
-        next.discard_reshuffle_limit = None;
         return next;
     }
     if finish_combat_if_over(&mut next, started_with_living_monster) {
-        next.discard_reshuffle_limit = None;
         return next;
     }
 
     start_player_turn(&mut next);
-    next.discard_reshuffle_limit = None;
     next
 }
 
@@ -770,9 +765,6 @@ fn apply_painful_stabs_after_player_damage(
             .piles
             .discard_pile
             .push(crate::CardInstance::new(next_id, WOUND_ID));
-        if let Some(limit) = state.discard_reshuffle_limit.as_mut() {
-            *limit += 1;
-        }
     }
 }
 
@@ -1503,7 +1495,7 @@ fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::STRIKE_R_ID;
+    use crate::content::cards::{SLIMED_ID, STRIKE_R_ID};
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
         target_giant_head_next_intent_from_roll,
@@ -1537,6 +1529,31 @@ mod tests {
         assert_eq!(state.piles.hand.len(), 10);
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert!(state.piles.discard_pile[0].combat_only);
+    }
+
+    #[test]
+    fn monster_added_status_can_shuffle_into_next_hand() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.shuffle_rng = Some(StsRng::new(123));
+        state.monsters = vec![monster_state_for_ascension(
+            &crate::content::monsters::ACID_SLIME_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+        state.monsters[0].intent = crate::MonsterIntent::AttackAddSlimedToDiscard {
+            damage: 0,
+            count: 1,
+        };
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, SLIMED_ID);
+        assert!(next.piles.discard_pile.is_empty());
     }
 
     #[test]

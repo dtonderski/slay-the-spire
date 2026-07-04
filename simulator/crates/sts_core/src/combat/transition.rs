@@ -1051,6 +1051,13 @@ fn apply_internal_action(
                     source_card_id,
                     CardPile::Hand,
                 )?)
+            } else if purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
+                state
+                    .piles
+                    .hand
+                    .iter()
+                    .position(|card| card.id == source_card_id)
+                    .map(|index| state.piles.hand.remove(index))
             } else {
                 None
             };
@@ -3287,7 +3294,15 @@ fn confirm_purity_select(
     let source_card_id = exhaust_select
         .source_card_id
         .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
-    let cap = purity_select_cap(state, source_card_id)?;
+    let cap = if let Some(source) = exhaust_select.source_card.as_ref() {
+        if source.content_id == PURITY_PLUS_ID {
+            5
+        } else {
+            3
+        }
+    } else {
+        purity_select_cap(state, source_card_id)?
+    };
     let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
     if selected.len() > cap {
         return Err(purity_too_many_cards_error(cap));
@@ -3316,7 +3331,14 @@ fn confirm_purity_select(
         state.piles.exhaust_pile.push(card);
         apply_on_exhaust_effects(state, card.id);
     }
-    if state
+    if let Some(source_card) = exhaust_select.source_card {
+        let source_destination = purity_source_destination(state);
+        let source_card_id = source_card.id;
+        push_card_to_pile(state, source_card, source_destination);
+        if source_destination == CardPile::ExhaustPile {
+            apply_on_exhaust_effects(state, source_card_id);
+        }
+    } else if state
         .piles
         .hand
         .iter()
@@ -3362,6 +3384,12 @@ fn purity_select_cap(state: &CombatState, source_card_id: CardId) -> SimResult<u
         .iter()
         .chain(state.piles.exhaust_pile.iter())
         .chain(state.piles.discard_pile.iter())
+        .chain(
+            state
+                .exhaust_select
+                .as_ref()
+                .and_then(|select| select.source_card.as_ref()),
+        )
         .find(|card| card.id == source_card_id)
         .ok_or(SimError::IllegalAction(
             "Purity source card is not available",

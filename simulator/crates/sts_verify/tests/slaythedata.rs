@@ -546,6 +546,11 @@ fn preflight_checks_map_symbol_without_map_coordinates() {
 
     let report = slaythedata_replay_preflight(&plan);
 
+    assert!(!report.route_fully_checked);
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "route_not_fully_proven"));
     let route_step = report
         .steps
         .iter()
@@ -662,6 +667,11 @@ fn preflight_resolves_first_map_route_with_combat_and_event_history() {
     let plan = slaythedata_replay_plan(&imported);
     let report = slaythedata_replay_preflight(&plan);
 
+    assert!(!report.route_fully_checked);
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "route_not_fully_proven"));
     let map_step = report
         .steps
         .iter()
@@ -669,13 +679,10 @@ fn preflight_resolves_first_map_route_with_combat_and_event_history() {
         .expect("floor 1 map step");
     assert_eq!(
         map_step.status,
-        SlayTheDataPreflightStatus::Checked,
+        SlayTheDataPreflightStatus::Blocked,
         "{}",
         map_step.message
     );
-    assert!(matches!(
-        map_step.code.as_str(),
-        "legal_map_room" | "compatible_map_room"
-    ));
-    assert!(map_step.bridge_command.is_some());
+    assert_eq!(map_step.code, "ambiguous_map_route");
+    assert!(map_step.bridge_command.is_none());
 }

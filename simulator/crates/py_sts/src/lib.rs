@@ -11,6 +11,9 @@ use sts_core::{
     SNAPSHOT_SCHEMA_VERSION,
 };
 
+const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
+const AGENT_REWARD_HP_PER_POTION: f64 = 8.0;
+
 #[pyclass(name = "ExactCombatAction")]
 #[derive(Clone)]
 pub struct PyExactCombatAction {
@@ -1074,7 +1077,7 @@ fn rust_run_score(
             _ => 0.0,
         });
     };
-    let player_hp = f64::from(combat.player.hp);
+    let player_hp = agent_reward_hp_equivalent(state, combat);
     let player_block = f64::from(combat.player.block);
     let player_energy = f64::from(combat.player.energy);
     let alive_monsters: Vec<_> = combat
@@ -1144,6 +1147,12 @@ fn rust_run_score(
         Some("lost") => -1_000_000.0 + state_score,
         _ => state_score + terminal_adjustment,
     })
+}
+
+fn agent_reward_hp_equivalent(state: &RunState, combat: &CombatState) -> f64 {
+    f64::from(combat.player.hp)
+        + f64::from(state.gold) / AGENT_REWARD_GOLD_PER_HP
+        + state.potions.len() as f64 * AGENT_REWARD_HP_PER_POTION
 }
 
 fn run_combat_hp(state: &RunState) -> (f64, f64) {
@@ -1655,6 +1664,32 @@ mod tests {
             .expect("rust beam recommends select action");
 
         assert_eq!(best_action.kind(), "confirm_exhaust_select");
+    }
+
+    #[test]
+    fn rust_score_values_ten_gold_as_one_hp() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        env.state.gold = 0;
+        let base = rust_run_score(&env.state, None, "terminal_tactical").expect("base score");
+
+        env.state.gold = 10;
+        let with_gold =
+            rust_run_score(&env.state, None, "terminal_tactical").expect("gold-adjusted score");
+
+        assert_eq!(with_gold - base, 22.0);
+    }
+
+    #[test]
+    fn rust_score_values_one_potion_as_eight_hp() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        env.state.potions.clear();
+        let base = rust_run_score(&env.state, None, "terminal_tactical").expect("base score");
+
+        env.state.potions.push(Potion::Attack);
+        let with_potion =
+            rust_run_score(&env.state, None, "terminal_tactical").expect("potion-adjusted score");
+
+        assert_eq!(with_potion - base, 176.0);
     }
 
     #[test]

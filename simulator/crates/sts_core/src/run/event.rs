@@ -31,7 +31,9 @@ use crate::{
             generate_neow_options, generate_neow_three_potions, open_neow_reward_grid,
             GeneratedNeowOption, NeowDrawback, NeowRewardType,
         },
-        reward::{target_card_reward_choices_with_count, target_random_potion},
+        reward::{
+            roll_event_relic_reward, target_card_reward_choices_with_count, target_random_potion,
+        },
         state::RunRngStream,
     },
     CardId, CardInstance, CombatState, EventAction, MonsterId, RewardScreen, RunPhase, RunState,
@@ -44,6 +46,11 @@ pub const WING_STATUE_PRAY_HP_LOSS: i32 = 7;
 pub const WING_STATUE_REQUIRED_DAMAGE: i32 = 10;
 pub const WING_STATUE_MIN_GOLD: i32 = 50;
 pub const WING_STATUE_MAX_GOLD: i32 = 80;
+pub const WHEEL_OF_CHANGE_GOLD_ACT1: i32 = 100;
+pub const WHEEL_OF_CHANGE_GOLD_ACT2: i32 = 200;
+pub const WHEEL_OF_CHANGE_GOLD_ACT3: i32 = 300;
+pub const WHEEL_OF_CHANGE_HP_LOSS_PERCENT: f32 = 0.10;
+pub const WHEEL_OF_CHANGE_A15_HP_LOSS_PERCENT: f32 = 0.15;
 use serde::{Deserialize, Serialize};
 
 pub const GOLDEN_SHRINE_GOLD: i32 = 100;
@@ -1047,6 +1054,46 @@ fn wing_statue_choices(stage: u32, can_attack: bool) -> Vec<EventChoice> {
     }
 }
 
+fn wheel_of_change_choices(stage: u32, result: u32) -> Vec<EventChoice> {
+    match stage {
+        0 => labeled_choices(&["Play"]),
+        1 => labeled_choices(&["spin"]),
+        2 => match result {
+            0 => labeled_choices(&["Claim Gold"]),
+            1 => labeled_choices(&["Claim Relic"]),
+            2 => labeled_choices(&["Heal"]),
+            3 => labeled_choices(&["Take Curse"]),
+            4 => labeled_choices(&["Remove Card"]),
+            _ => labeled_choices(&["Take Damage"]),
+        },
+        _ => labeled_choices(&["Leave"]),
+    }
+}
+
+fn wheel_of_change_gold(act: i32) -> i32 {
+    match act {
+        1 => WHEEL_OF_CHANGE_GOLD_ACT1,
+        2 => WHEEL_OF_CHANGE_GOLD_ACT2,
+        _ => WHEEL_OF_CHANGE_GOLD_ACT3,
+    }
+}
+
+fn wheel_of_change_hp_loss(max_hp: i32, ascension: u8) -> i32 {
+    let percent = if ascension >= 15 {
+        WHEEL_OF_CHANGE_A15_HP_LOSS_PERCENT
+    } else {
+        WHEEL_OF_CHANGE_HP_LOSS_PERCENT
+    };
+    ((max_hp as f32) * percent) as i32
+}
+
+fn roll_wheel_of_change_result(run: &mut RunState) -> u32 {
+    let mut misc_rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
+    let result = misc_rng.random_int(5) as u32;
+    run.misc_rng_counter = misc_rng.counter();
+    result
+}
+
 fn has_wing_statue_attack_card(run: &RunState) -> bool {
     run.deck.iter().any(|card| {
         get_card_definition(card.content_id)
@@ -1168,6 +1215,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::Colosseum => make_event_screen(event, colosseum_choices(0), 0),
         Event::DrugDealer => make_event_screen(event, drug_dealer_choices(0, false), 0),
         Event::Lab => make_event_screen(event, labeled_choices(&["Search"]), 0),
+        Event::WheelOfChange => make_event_screen(event, wheel_of_change_choices(0, 0), 0),
         _ => make_event_screen(
             event,
             vec![EventChoice {
@@ -1429,8 +1477,12 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             0 if choice_index == 2 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::WingStatue,
+                    choices: wing_statue_choices(2, false),
+                    stage: 2,
+                    event_data: 0,
+                });
             }
             1 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;
@@ -1456,8 +1508,12 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             0 if choice_index == 2 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::WingStatue,
+                    choices: wing_statue_choices(2, false),
+                    stage: 2,
+                    event_data: 0,
+                });
             }
             1 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;
@@ -1548,8 +1604,12 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == 2 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::WingStatue,
+                    choices: wing_statue_choices(2, false),
+                    stage: 2,
+                    event_data: 0,
+                });
             }
             1 if choice_index == 0 => {
                 next.event = Some(EventScreen {
@@ -2353,6 +2413,104 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             _ => {
                 return Err(SimError::IllegalAction(
                     "event choice is not implemented for Drug Dealer",
+                ));
+            }
+        },
+        Event::WheelOfChange => match screen.stage {
+            0 if choice_index == 0 => {
+                let result = roll_wheel_of_change_result(&mut next);
+                next.event = Some(EventScreen {
+                    event: Event::WheelOfChange,
+                    choices: wheel_of_change_choices(1, result),
+                    stage: 1,
+                    event_data: result,
+                });
+            }
+            1 if choice_index == 0 => {
+                if screen.event_data == 0 {
+                    next.gain_gold(wheel_of_change_gold(next.current_act));
+                }
+                next.event = Some(EventScreen {
+                    event: Event::WheelOfChange,
+                    choices: wheel_of_change_choices(2, screen.event_data),
+                    stage: 2,
+                    event_data: screen.event_data,
+                });
+            }
+            2 if choice_index == 0 => match screen.event_data {
+                0 => {
+                    next.event = Some(EventScreen {
+                        event: Event::WheelOfChange,
+                        choices: wheel_of_change_choices(3, screen.event_data),
+                        stage: 3,
+                        event_data: screen.event_data,
+                    });
+                }
+                1 => {
+                    let act = next.current_act;
+                    let key = roll_event_relic_reward(&mut next, act);
+                    let relic_offer = Relic::from_key(key);
+                    next.phase = RunPhase::Reward;
+                    next.event = None;
+                    next.reward = Some(RewardScreen {
+                        choices: Vec::new(),
+                        gold_offer: 0,
+                        stolen_gold_offer: 0,
+                        potion_offer: None,
+                        relic_offer,
+                        relic_key_offer: if relic_offer.is_some() {
+                            None
+                        } else {
+                            Some(key)
+                        },
+                        pending_relic_offer: None,
+                        pending_relic_key_offer: None,
+                        queued_relic_key_offers: Vec::new(),
+                        boss_relic_choices: Vec::new(),
+                        card_reward_active: false,
+                        card_reward_pending: false,
+                        pending_card_reward_count: 0,
+                    });
+                }
+                2 => {
+                    next.player_hp = next.player_max_hp;
+                    next.event = Some(EventScreen {
+                        event: Event::WheelOfChange,
+                        choices: wheel_of_change_choices(3, screen.event_data),
+                        stage: 3,
+                        event_data: screen.event_data,
+                    });
+                }
+                3 => {
+                    next.gain_deck_card(DECAY_ID);
+                    next.event = Some(EventScreen {
+                        event: Event::WheelOfChange,
+                        choices: wheel_of_change_choices(3, screen.event_data),
+                        stage: 3,
+                        event_data: screen.event_data,
+                    });
+                }
+                4 => {
+                    open_event_remove_return_to_event_grid(&mut next, Event::WheelOfChange);
+                }
+                _ => {
+                    let hp_loss = wheel_of_change_hp_loss(next.player_max_hp, next.ascension);
+                    lose_event_hp(&mut next, hp_loss);
+                    next.event = Some(EventScreen {
+                        event: Event::WheelOfChange,
+                        choices: wheel_of_change_choices(3, screen.event_data),
+                        stage: 3,
+                        event_data: screen.event_data,
+                    });
+                }
+            },
+            3 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Wheel of Change",
                 ));
             }
         },
