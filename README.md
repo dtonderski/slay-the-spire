@@ -10,20 +10,14 @@ The Rust simulator lives under `simulator/` so the repository can also grow RL t
 
 - `simulator/`: Rust workspace for the deterministic simulator.
 - `simulator/crates/sts_core/`: core simulator library.
+- `simulator/crates/sts_live/`: live trace collection backend, CLI, HTTP API, and Stage 1 web shell.
 - root docs: project roadmap, research, design, verification, and status.
 
 ## Current Scope
 
-Only the simulator workspace skeleton exists so far. No simulator mechanics exist yet.
-
-The first implementation milestone will be:
-
-- Ironclad starter deck concepts
-- Strike, Defend, and Bash
-- one simple fixed monster
-- deterministic legal actions
-- deterministic transition tests
-- snapshot and replay tests
+The active repository is centered on the Rust simulator and verification
+corpus. Prototype Python/UI/trace tooling has been archived under
+`archive/mvp-python-ui/`.
 
 ## Verification Philosophy
 
@@ -56,6 +50,5 @@ Simulator mechanics must stay separate from RL feature extraction and reward sha
 - `DESIGN.md`: architecture and risk analysis
 - `PROJECT_OVERVIEW.md`: high-level RL roadmap, phase gates, evaluation protocol, and state-visibility boundaries
 - `VERIFICATION.md`: parity and testing strategy
-- `TASKS.md`: tiny ordered implementation tasks
+- `LIVE_TRACE_UI_DESIGN.md`: design note for the replacement live trace collection UI
 - `AGENT_RULES.md`: rules for future coding sessions
-- `STATUS.md`: current project state

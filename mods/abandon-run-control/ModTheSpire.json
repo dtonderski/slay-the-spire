@@ -1,0 +1,10 @@
+{
+  "modid": "abandon-run-control",
+  "name": "Abandon Run Control",
+  "author_list": ["davton", "Codex"],
+  "description": "Adds an operator-only ABANDON command for CommunicationMod trace collection.",
+  "version": "0.1.0",
+  "sts_version": "12-22-2020",
+  "mts_version": "3.6.3",
+  "dependencies": ["basemod", "CommunicationMod"]
+}

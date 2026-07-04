@@ -89,6 +89,15 @@ function writeStatus(value) {
   writeJson(statusPath, latestStatus);
 }
 
+function writePendingStatus() {
+  if (!latestStatus) return;
+  writeStatus({
+    ...latestStatus,
+    pending_command: queuedCommands.length > 0 || Boolean(commandInFlight),
+    command_in_flight: commandInFlight,
+  });
+}
+
 function readCommandMeta() {
   if (!fs.existsSync(commandMetaPath)) return null;
   try {
@@ -293,6 +302,34 @@ function waitForQueuedCommand(timeoutMs) {
   });
 }
 
+function writeAction(command, commandMeta) {
+  const actionRecord = { type: "action", step, sent_at: new Date().toISOString(), command };
+  if (commandMeta) {
+    actionRecord.command_meta = commandMeta;
+  }
+  writeRecord(actionRecord);
+  if (commandMeta) {
+    writeRecord({
+      type: "metadata",
+      event: "command_sent",
+      step,
+      command,
+      command_meta: commandMeta,
+      sent_at: new Date().toISOString(),
+    });
+  } else {
+    writeRecord({
+      type: "metadata",
+      event: "legacy_command_sent",
+      step,
+      command,
+      sent_at: new Date().toISOString(),
+    });
+  }
+  process.stderr.write(`[step ${step}] ${command}\n`);
+  process.stdout.write(`${command}\n`);
+}
+
 function readAndClearFileCommand() {
   const command = fs.readFileSync(commandPath, "utf8").trim();
   const commandMeta = readCommandMeta();
@@ -359,35 +396,163 @@ function validateProtocolCommand(payload) {
   const command = String(payload.command ?? "").trim();
   if (!command) return "command is required";
   if (command.length > 200) return "command is too long";
-  if (!latestSummary) return "no observed state is available";
+  const verb = command.split(/\s+/)[0].toLowerCase();
+  const startupStart = verb === "start" && !latestSummary && latestStatus?.status === "ready";
+  if (!latestSummary && !startupStart) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
   if (commandInFlight && stateSeq <= commandInFlight.accepted_state_seq) {
     return "a command is already in flight";
   }
-  const verb = command.split(/\s+/)[0].toLowerCase();
-  if (verb !== "state" && !payload.expected_state_id) {
+  if (verb !== "state" && !startupStart && !payload.expected_state_id) {
     return "expected_state_id is required";
   }
-  if (verb !== "state" && (payload.expected_state_seq === undefined || payload.expected_state_seq === null)) {
+  if (verb !== "state" && !startupStart && (payload.expected_state_seq === undefined || payload.expected_state_seq === null)) {
     return "expected_state_seq is required";
   }
-  if (payload.expected_state_id && payload.expected_state_id !== latestSummary.state_id) {
+  if (payload.expected_state_id && !startupStart && payload.expected_state_id !== latestSummary.state_id) {
     return "expected_state_id does not match current state";
   }
-  if (payload.expected_state_seq !== undefined && Number(payload.expected_state_seq) !== stateSeq) {
+  if (!startupStart && payload.expected_state_seq !== undefined && Number(payload.expected_state_seq) !== stateSeq) {
     return "expected_state_seq does not match current state";
   }
   if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
     return "controller owner_token is required";
   }
-  const available = new Set((latestSummary.available_commands ?? []).map((item) => String(item).toLowerCase()));
-  if (verb !== "state" && latestSummary.ready_for_command !== true) {
+  const available = new Set((latestSummary?.available_commands ?? []).map((item) => String(item).toLowerCase()));
+  if (verb !== "state" && !startupStart && latestSummary.ready_for_command !== true) {
     return "bridge is not ready for a command";
   }
-  if (verb !== "state" && !available.has(verb)) {
+  if (verb !== "state" && !startupStart && !available.has(verb)) {
     return `command "${verb}" is not available`;
   }
   return null;
+}
+
+function validateAbandonRun(payload) {
+  if (!latestSummary) return "no observed state is available";
+  if (queuedCommands.length > 0) return "a command is already queued";
+  if (commandInFlight && stateSeq <= commandInFlight.accepted_state_seq) {
+    return "a command is already in flight";
+  }
+  if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
+    return "controller owner_token is required";
+  }
+  if (latestSummary.ready_for_command !== true) {
+    return "bridge is not ready for a command";
+  }
+  return null;
+}
+
+async function enqueueAbandonRun(payload) {
+  const error = validateAbandonRun(payload);
+  if (error) {
+    return {
+      ok: false,
+      error,
+      state_id: latestSummary?.state_id ?? null,
+      state_seq: stateSeq,
+      step,
+    };
+  }
+  const commandId = payload.command_id || crypto.randomUUID();
+  const commandMeta = {
+    command_id: commandId,
+    command: "ABANDON",
+    source_state_id: latestSummary?.state_id ?? null,
+    source_state_seq: stateSeq,
+    submitted_at: Date.now() / 1000,
+    protocol: "tcp-jsonl",
+    owner_id: controlOwner?.owner_id ?? null,
+    operator_control: "abandon_run",
+  };
+  if (payload.metadata !== undefined) {
+    commandMeta.metadata = payload.metadata;
+  }
+  const acceptedStateSeq = stateSeq;
+  const acceptedStateId = latestSummary?.state_id ?? null;
+  commandInFlight = {
+    command_id: commandId,
+    command: commandMeta.command,
+    accepted_state_id: acceptedStateId,
+    accepted_state_seq: acceptedStateSeq,
+    accepted_at: new Date().toISOString(),
+    operator_control: "abandon_run",
+  };
+  writeRecord({
+    type: "metadata",
+    event: "run_abandoned",
+    step,
+    accepted_at: commandInFlight.accepted_at,
+    command: commandMeta.command,
+    command_id: commandId,
+    command_meta: commandMeta,
+  });
+  writeRecord({
+    type: "command_accept",
+    step,
+    accepted_at: commandInFlight.accepted_at,
+    command: commandMeta.command,
+    command_meta: commandMeta,
+    accepted_state_id: acceptedStateId,
+    accepted_state_seq: acceptedStateSeq,
+  });
+  enqueueCommand(commandMeta.command, commandMeta);
+  const response = {
+    ok: true,
+    command_id: commandId,
+    command: commandMeta.command,
+    accepted_state_id: acceptedStateId,
+    accepted_state_seq: acceptedStateSeq,
+    step,
+    state: currentProtocolState(),
+  };
+  if (payload.wait_for_state_update) {
+    const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 10000)));
+    const observed = await waitForStateAfterSeq(acceptedStateSeq, timeoutMs);
+    const observedChanged = observed ? observed.state_id !== acceptedStateId : false;
+    response.observed_update = observed
+      ? {
+        ok: true,
+        state_id: observed.state_id,
+        state_seq: observed.state_seq,
+        step: observed.step,
+        observed_changed: observedChanged,
+        application_status: observedChanged ? "changed" : "unchanged",
+        state: observed,
+      }
+      : {
+        ok: false,
+        error: "timed out waiting for observed state update",
+        accepted_state_id: acceptedStateId,
+        accepted_state_seq: acceptedStateSeq,
+        observed_changed: false,
+        application_status: "timeout",
+        step,
+      };
+    if (!observed) {
+      writeRecord({
+        type: "command_observed_timeout",
+        step,
+        timed_out_at: new Date().toISOString(),
+        command: commandMeta.command,
+        command_id: commandId,
+        accepted_state_id: acceptedStateId,
+        accepted_state_seq: acceptedStateSeq,
+      });
+    }
+    if (
+      commandInFlight
+      && commandInFlight.command_id === commandId
+      && queuedCommands.length === 0
+    ) {
+      commandInFlight = null;
+      writePendingStatus();
+    }
+  } else if (commandInFlight && commandInFlight.command_id === commandId) {
+    commandInFlight = null;
+    writePendingStatus();
+  }
+  return response;
 }
 
 async function handleControlMessage(payload) {
@@ -475,6 +640,9 @@ async function handleControlMessage(payload) {
   if (type === "state") {
     return currentProtocolState();
   }
+  if (type === "abandon_run") {
+    return enqueueAbandonRun(payload);
+  }
   if (type === "command") {
     const error = validateProtocolCommand(payload);
     if (error) {
@@ -487,11 +655,14 @@ async function handleControlMessage(payload) {
     };
     }
     const commandId = payload.command_id || crypto.randomUUID();
+    const command = String(payload.command).trim();
+    const verb = command.split(/\s+/)[0].toLowerCase();
+    const startupStart = verb === "start" && !latestSummary && latestStatus?.status === "ready";
     const commandMeta = {
       command_id: commandId,
-      command: String(payload.command).trim(),
-      source_state_id: payload.expected_state_id ?? latestSummary?.state_id ?? null,
-      source_state_seq: payload.expected_state_seq ?? stateSeq,
+      command,
+      source_state_id: startupStart ? null : payload.expected_state_id ?? latestSummary?.state_id ?? null,
+      source_state_seq: startupStart ? stateSeq : payload.expected_state_seq ?? stateSeq,
       submitted_at: Date.now() / 1000,
       protocol: "tcp-jsonl",
       owner_id: controlOwner?.owner_id ?? null,
@@ -517,7 +688,11 @@ async function handleControlMessage(payload) {
       accepted_state_id: acceptedStateId,
       accepted_state_seq: acceptedStateSeq,
     });
-    enqueueCommand(commandMeta.command, commandMeta);
+    if (startupStart) {
+      writeAction(commandMeta.command, commandMeta);
+    } else {
+      enqueueCommand(commandMeta.command, commandMeta);
+    }
     const response = {
       ok: true,
       command_id: commandId,
@@ -564,13 +739,15 @@ async function handleControlMessage(payload) {
       if (
         commandInFlight
         && commandInFlight.command_id === commandId
-        && queuedCommands.length === 0
-      ) {
-          commandInFlight = null;
-      }
-    } else if (commandInFlight && commandInFlight.command_id === commandId) {
+      && queuedCommands.length === 0
+    ) {
       commandInFlight = null;
+      writePendingStatus();
     }
+  } else if (commandInFlight && commandInFlight.command_id === commandId) {
+    commandInFlight = null;
+    writePendingStatus();
+  }
     return response;
   }
   return { ok: false, error: `unknown control message type "${type}"` };
@@ -687,11 +864,6 @@ async function handleLine(line) {
   const commandMeta = commandResult.command_meta;
   step += 1;
 
-  const actionRecord = { type: "action", step, sent_at: new Date().toISOString(), command };
-  if (commandMeta) {
-    actionRecord.command_meta = commandMeta;
-  }
-  writeRecord(actionRecord);
   writeStatus({
     step,
     client_pid: clientPid,
@@ -703,8 +875,7 @@ async function handleLine(line) {
     command_in_flight: commandInFlight,
     sent_at: new Date().toISOString(),
   });
-  process.stderr.write(`[step ${step}] ${command}\n`);
-  process.stdout.write(`${command}\n`);
+  writeAction(command, commandMeta);
 }
 
 async function drainQueue() {

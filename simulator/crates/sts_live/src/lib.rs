@@ -1,0 +1,35 @@
+#![forbid(unsafe_code)]
+#![doc = "Live trace collection backend primitives and operator surfaces."]
+
+pub mod bridge;
+pub mod cli;
+pub mod cli_output;
+pub mod communication;
+pub mod error_payload;
+pub mod fidelity;
+mod fidelity_status;
+pub mod http;
+pub mod model;
+mod operator_actions;
+pub mod session;
+mod session_blocking;
+mod session_recovery;
+mod session_response;
+mod session_state;
+pub mod trace_writer;
+
+#[cfg(test)]
+mod communication_tests;
+#[cfg(test)]
+mod fidelity_tests;
+#[cfg(test)]
+mod session_tests;
+#[cfg(test)]
+mod ui_contract_tests;
+
+pub use bridge::{BridgeManager, FakeBridgeManager};
+pub use communication::{CommunicationBridgeConfig, CommunicationModBridgeManager};
+pub use fidelity::{FidelityChecker, TraceFidelityChecker};
+pub use model::*;
+pub use session::SessionStore;
+pub use trace_writer::{TraceRecovery, TraceWriter};

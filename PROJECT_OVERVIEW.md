@@ -43,9 +43,9 @@ partially-observable A20H play.
   legal action generation, snapshot/restore, and replay.
 - Trace tooling: CommunicationMod-based real-game traces for parity validation.
 - Combat agents: handcrafted search agent first, RL agent later.
-- Human UI: a small Slay the Spire UI that can play against the simulator,
-  connect to the real game through CommunicationMod, and ask an agent for the
-  best move.
+- Live trace UI: a small operator console for collecting real-game traces,
+  managing bridge sessions, and monitoring simulator fidelity. See
+  `LIVE_TRACE_UI_DESIGN.md`.
 - Replay/root pipeline: SlayTheData-guided high-level decisions plus simulator
   or real-game combat execution to produce validated traces and combat roots.
 - Training environments: wrappers around the simulator for omniscient and fair
@@ -160,8 +160,8 @@ boundary explicit.
 | Hidden real state | Draw order without Frozen Eye, RNG streams, future monster moves, private AI counters, future rewards, unrevealed potion/relic/card outcomes. | Simulator internals and belief-state inference only. |
 | Omniscient/debug state | Full snapshots, RNG state, exact pile order, private monster state, verifier diffs, trace metadata. | Parity validation, debugging, handcrafted omniscient search, omniscient RL search. |
 
-The detailed visibility reference is
-`simulator/docs/rl_visibility_matrix.md`.
+Detailed fair-observation schemas should be added as permanent project docs
+when the fair API is implemented.
 
 ## Omniscient vs Fair Agents
 

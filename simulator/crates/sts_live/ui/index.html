@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Live Trace Collector</title>
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <main>
+      <header class="session-bar">
+        <h1>Live Trace Collector</h1>
+        <div id="status" class="status">Not attached</div>
+      </header>
+      <div id="notifications" class="notifications" aria-live="polite"></div>
+
+      <section class="controls" aria-label="Trace controls">
+        <div class="control-group">
+          <h2>Open Trace</h2>
+          <div class="control-row open-trace-row">
+            <label>
+              Recorded run
+              <select id="session"></select>
+            </label>
+            <button id="load-session">Open</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h2>Start New Run</h2>
+          <div class="control-row start-run-row">
+            <label>
+              Character
+              <select id="character">
+                <option value="ironclad">Ironclad</option>
+              </select>
+            </label>
+            <label>
+              Ascension
+              <input id="ascension" type="number" min="0" max="20" value="0">
+            </label>
+            <label>
+              Seed
+              <input id="seed" value="CODEX04">
+            </label>
+            <button id="start">Start run</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h2>Running Game</h2>
+          <div class="control-row running-game-row">
+            <label>
+              Bridge
+              <select id="bridge"></select>
+            </label>
+            <button id="request" disabled>Request state</button>
+            <button id="abandon" disabled>Abandon run</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h2>Bridge Manager</h2>
+          <div class="control-row bridge-row">
+            <button id="kill-selected">Kill selected</button>
+            <button id="kill-all">Kill all</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article>
+          <h2>Legal Actions</h2>
+          <div id="actions" class="actions"></div>
+        </article>
+        <article>
+          <h2>Trace & Fidelity</h2>
+          <dl>
+            <dt>Trace</dt>
+            <dd id="trace">-</dd>
+            <dt>Fidelity</dt>
+            <dd id="fidelity">unknown</dd>
+            <dt>Phase</dt>
+            <dd id="phase">-</dd>
+          </dl>
+          <pre id="diff"></pre>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

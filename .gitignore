@@ -22,6 +22,14 @@ tmp/
 sendToDevs/
 *.log
 
+# Live trace UI frontend dependencies/build output
+simulator/crates/sts_live/node_modules/
+simulator/crates/sts_live/ui/node_modules/
+simulator/crates/sts_live/ui/dist/
+simulator/live_traces/
+tools/communication/session/
+mods/abandon-run-control/build/
+
 # Decompiled/vendor reference corpora are local-only.
 tmp/decompiled-sts/
 decompiled-sts/

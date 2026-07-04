@@ -16,6 +16,10 @@ Verification is staged:
 
 The best current harness is [CommunicationMod](https://github.com/ForgottenArbiter/CommunicationMod). Its protocol sends JSON game state when the game is stable and accepts external commands. [spirecomm](https://github.com/ForgottenArbiter/spirecomm) demonstrates client-side use.
 
+For the Phase 1 live trace UI, use the manual/quarantined checklist in
+`LIVE_TRACE_REAL_GAME_SMOKE.md` when validating against a real ModTheSpire
+process. Keep that smoke out of ordinary CI.
+
 Build a verifier that can:
 
 - launch or connect to a real game through CommunicationMod
@@ -415,7 +419,8 @@ Before claiming a task complete:
 - snapshot round trip passes if state shape changed
 - no new unreviewed RNG calls
 - `cargo fmt`, `cargo clippy`, and `cargo test` pass from `simulator/` once code exists
-- `STATUS.md` is updated
+- important verification status, risks, and follow-up work are documented in
+  the commit message or a permanent project document
 
 Before claiming a milestone complete:
 

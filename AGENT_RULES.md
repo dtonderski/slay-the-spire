@@ -42,7 +42,7 @@ These rules are for Codex or any other coding agent working on this project.
 ## Scope Control
 
 - If a task requires another mechanic, stop and split the prerequisite into its own task.
-- If a mechanic is tempting but not required by the current task, document it in `STATUS.md` or `TASKS.md` instead of coding it.
+- If a mechanic is tempting but not required by the current task, document it in a commit message or permanent project document instead of coding it.
 - Do not add all cards, all relics, all monsters, or all events in bulk.
 
 ## Testing Rules
