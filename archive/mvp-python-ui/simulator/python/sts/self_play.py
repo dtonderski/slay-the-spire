@@ -902,7 +902,8 @@ def strict_replay_real_trace_to_env(*, trace: Path, max_actions: int = 10_000) -
                 stop_reason = "observed_state_diff"
                 break
             last_state_consumed = True
-            env = _restore_observed_event_screen(env, observed_game_state)
+            if command.strip().split(maxsplit=1)[0].upper() != "CHOOSE":
+                env = _restore_observed_event_screen(env, observed_game_state)
             env = _restore_observed_combat_card_costs(env, observed_game_state)
 
         if _next_trace_record_is_error(records, record_index):
@@ -2877,6 +2878,8 @@ def _action_for_communication_command(
             index = int(parts[1])
         except ValueError:
             return None
+        if len(actions) == 1:
+            return actions[0]
         return _choose_action_for_index(env, actions, observed, index)
     if verb == "PLAY" and len(parts) >= 2:
         try:
@@ -2973,11 +2976,23 @@ def _choose_action_for_index(
     decision = env.current_decision()
     phase = decision if decision == "grid" or env.phase() == "idle" else env.phase()
     if phase == "event":
+        if len(actions) == 1:
+            return actions[0]
+        event_index = _event_core_choice_index_from_observed(observed, index)
+        if event_index == index:
+            event_index = _event_core_choice_index_from_simulator(env, index)
+        event_choose_actions = []
         for action in actions:
+            if getattr(action, "kind", lambda: "")() == "event_choose":
+                event_choose_actions.append(action)
             data = _action_json_data(action)
             choose = data.get("Choose") if isinstance(data, dict) else None
-            if isinstance(choose, dict) and choose.get("choice_index") == index:
+            if isinstance(choose, dict) and action not in event_choose_actions:
+                event_choose_actions.append(action)
+            if isinstance(choose, dict) and choose.get("choice_index") == event_index:
                 return action
+        if len(event_choose_actions) == 1:
+            return event_choose_actions[0]
     if phase == "combat":
         indexed_kinds = {
             "choose_combat_card_reward",
@@ -3120,6 +3135,42 @@ def _play_action_for_indices(
         if play.get("target") == target_id or play.get("target") is None:
             return action
     return None
+
+
+def _event_core_choice_index_from_observed(observed: dict[str, Any], visible_index: int) -> int:
+    screen_state = observed.get("screen_state") if isinstance(observed, dict) else None
+    options = screen_state.get("options") if isinstance(screen_state, dict) else None
+    if not isinstance(options, list):
+        return visible_index
+    visible_seen = -1
+    for core_index, option in enumerate(options):
+        if not isinstance(option, dict) or option.get("disabled") is True:
+            continue
+        visible_seen += 1
+        if visible_seen == visible_index:
+            return core_index
+    return visible_index
+
+
+def _event_core_choice_index_from_simulator(env: Any, visible_index: int) -> int:
+    try:
+        snapshot = json.loads(env.snapshot_json())
+    except Exception:
+        return visible_index
+    state = snapshot.get("state") if isinstance(snapshot, dict) else None
+    event = state.get("event") if isinstance(state, dict) else None
+    choices = event.get("choices") if isinstance(event, dict) else None
+    if not isinstance(choices, list):
+        return visible_index
+    visible_seen = -1
+    for core_index, choice in enumerate(choices):
+        label = str(choice.get("label") if isinstance(choice, dict) else choice).strip().lower()
+        if label in {"locked", "disabled", "unavailable"}:
+            continue
+        visible_seen += 1
+        if visible_seen == visible_index:
+            return core_index
+    return visible_index
 
 
 def _hand_card_id_from_bridge_slot(combat: dict[str, Any], hand_slot: int) -> int | None:

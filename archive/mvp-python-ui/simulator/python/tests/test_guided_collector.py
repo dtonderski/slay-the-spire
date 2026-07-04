@@ -89,7 +89,7 @@ class GuidedCollectorTests(unittest.TestCase):
 
         self.assertEqual(status["rust_preflight"], preflight)
 
-    def test_start_blocks_when_rust_preflight_has_blocked_steps(self):
+    def test_start_keeps_rust_preflight_blocked_steps_advisory(self):
         collector = GuidedCollector()
         preflight = {
             "schema": 1,
@@ -105,12 +105,11 @@ class GuidedCollectorTests(unittest.TestCase):
 
         status = collector.start({"script": sample_script(), "rust_preflight": preflight})
 
-        self.assertEqual(status["status"], "blocked")
-        self.assertEqual(status["blocker"]["reason"], "rust_preflight_blocked")
-        self.assertEqual(status["blocker"]["blocked_steps"], 1)
-        self.assertEqual(status["blocker"]["diagnostic_errors"], 0)
+        self.assertEqual(status["status"], "ready")
+        self.assertIsNone(status["blocker"])
+        self.assertEqual(status["rust_preflight"], preflight)
 
-    def test_start_blocks_when_rust_preflight_has_error_diagnostics(self):
+    def test_start_keeps_rust_preflight_error_diagnostics_advisory(self):
         collector = GuidedCollector()
         preflight = {
             "schema": 1,
@@ -126,10 +125,40 @@ class GuidedCollectorTests(unittest.TestCase):
 
         status = collector.start({"script": sample_script(), "rust_preflight": preflight})
 
-        self.assertEqual(status["status"], "blocked")
-        self.assertEqual(status["blocker"]["reason"], "rust_preflight_blocked")
-        self.assertEqual(status["blocker"]["blocked_steps"], 0)
-        self.assertEqual(status["blocker"]["diagnostic_errors"], 1)
+        self.assertEqual(status["status"], "ready")
+        self.assertIsNone(status["blocker"])
+        self.assertEqual(status["rust_preflight"], preflight)
+
+    def test_tick_waits_for_run_start_without_blocking_collector(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+        bridge = {
+            "connected": True,
+            "state_id": "menu-state",
+            "ready_for_command": True,
+            "available_commands": ["start", "state"],
+            "summary": {
+                "in_game": False,
+                "ready_for_command": True,
+                "available_commands": ["start", "state"],
+                "floor": None,
+            },
+            "current_state": {
+                "message": {
+                    "in_game": False,
+                    "ready_for_command": True,
+                    "available_commands": ["start", "state"],
+                }
+            },
+        }
+
+        result = collector.tick(bridge)
+
+        self.assertEqual(result["status"], "ready")
+        self.assertIsNone(result["blocker"])
+        self.assertEqual(result["suggestion"]["status"], "blocked")
+        self.assertEqual(result["suggestion"]["reason"], "waiting_for_run_start")
+        self.assertTrue(result["suggestion"]["transient"])
 
     def test_tick_prefers_checked_rust_preflight_command_hint(self):
         collector = GuidedCollector()
@@ -171,14 +200,14 @@ class GuidedCollectorTests(unittest.TestCase):
                 "command": command,
             },
         )
-        second = collector.tick(self.ready_neow_bridge(["ignore", "gain max hp"]))
+        second = collector.tick(self.ready_neow_bridge(["ignore", "enemies in your next three combats have 1 hp"]))
 
         self.assertEqual(first["suggestion"]["source"], "rust_preflight")
         self.assertEqual(first["suggestion"]["command"], "CHOOSE 0")
         self.assertEqual(calls[0][0], "CHOOSE 0")
         self.assertEqual(second["suggestion"]["source"], "rust_preflight")
         self.assertEqual(second["suggestion"]["command"], "CHOOSE 1")
-        self.assertEqual(second["suggestion"]["matched_label"], "gain max hp")
+        self.assertEqual(second["suggestion"]["matched_label"], "enemies in your next three combats have 1 hp")
 
     def test_tick_ignores_rust_preflight_hint_when_slot_is_not_visible(self):
         collector = GuidedCollector()
@@ -205,6 +234,38 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["suggestion"]["status"], "matched")
         self.assertNotEqual(result["suggestion"].get("source"), "rust_preflight")
         self.assertEqual(result["suggestion"]["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
+    def test_tick_ignores_neow_preflight_hint_when_live_slot_is_different_bonus(self):
+        collector = GuidedCollector()
+        preflight = {
+            "schema": 1,
+            "steps": [
+                {
+                    "floor": 0,
+                    "ordinal": 0,
+                    "status": "checked",
+                    "code": "legal_neow_bonus",
+                    "bridge_command": {
+                        "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 1},
+                        "command": "CHOOSE 1",
+                    },
+                }
+            ],
+            "diagnostics": [],
+        }
+        collector.start({"script": sample_script(), "rust_preflight": preflight})
+
+        result = collector.tick(
+            self.ready_neow_bridge([
+                "enemies in your next three combats have 1 hp",
+                "gain max hp",
+            ])
+        )
+
+        self.assertEqual(result["suggestion"]["status"], "matched")
+        self.assertNotEqual(result["suggestion"].get("source"), "rust_preflight")
+        self.assertEqual(result["suggestion"]["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+        self.assertEqual(result["suggestion"]["matched_label"], "enemies in your next three combats have 1 hp")
 
     def test_tick_uses_checked_rust_preflight_card_reward_hint(self):
         collector = GuidedCollector()
@@ -260,7 +321,7 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["suggestion"]["descriptor"], {"kind": "SkipVisibleReward"})
         self.assertEqual(result["suggestion"]["command"], "SKIP")
 
-    def test_tick_sends_compatible_rust_preflight_map_hint(self):
+    def test_tick_ignores_compatible_rust_preflight_map_hint(self):
         collector = GuidedCollector()
         preflight = {
             "schema": 1,
@@ -280,9 +341,19 @@ class GuidedCollectorTests(unittest.TestCase):
         }
         collector.start({"script": sample_script(), "rust_preflight": preflight})
         calls = []
+        bridge = self.ready_map_bridge()
+        bridge["summary"]["floor"] = 0
+        bridge["summary"]["choices"] = ["x=1", "x=3"]
+        game_state = bridge["current_state"]["message"]["game_state"]
+        game_state["floor"] = 0
+        game_state["choice_list"] = ["x=1", "x=3"]
+        game_state["screen_state"]["next_nodes"] = [
+            {"x": 1, "y": 0, "symbol": "M"},
+            {"x": 3, "y": 0, "symbol": "M"},
+        ]
 
         result = collector.tick(
-            self.ready_map_bridge(),
+            bridge,
             {"send": True},
             send_command=lambda command, **kwargs: calls.append((command, kwargs)) or {
                 "ok": True,
@@ -291,11 +362,10 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(result["suggestion"]["status"], "sent")
-        self.assertEqual(result["suggestion"]["source"], "rust_preflight")
-        self.assertEqual(result["suggestion"]["category"], "map")
-        self.assertEqual(result["suggestion"]["command"], "CHOOSE 0")
-        self.assertEqual(calls[0][0], "CHOOSE 0")
+        self.assertEqual(result["suggestion"]["status"], "blocked")
+        self.assertEqual(result["suggestion"]["reason"], "map_route_ambiguous")
+        self.assertNotEqual(result["suggestion"].get("source"), "rust_preflight")
+        self.assertEqual(calls, [])
 
     def ready_event_bridge(self):
         return {
@@ -873,7 +943,7 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "sent")
         self.assertEqual(result["command"], "CHOOSE 0")
         self.assertEqual(result["source_state_id"], "bridge-state")
-        self.assertEqual(calls, [("CHOOSE 0", "bridge-state", True, 35.0)])
+        self.assertEqual(calls, [("CHOOSE 0", "bridge-state", False, None)])
 
     def test_send_guided_non_combat_preserves_blocked_match_reason(self):
         suggestion = {
@@ -893,7 +963,7 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["reason"], "target_not_visible")
 
-    def test_send_guided_suggestion_blocks_when_tcp_observed_update_is_missing(self):
+    def test_send_guided_suggestion_accepts_tcp_without_synchronous_observed_update(self):
         suggestion = suggest_guided_action(sample_script(), self.ready_event_bridge())
 
         result = send_guided_suggestion(
@@ -904,11 +974,14 @@ class GuidedCollectorTests(unittest.TestCase):
                 "transport": "tcp-jsonl",
                 "command_id": "cmd-1",
                 "command": "CHOOSE 0",
+                "accepted_state_id": "bridge-state",
+                "accepted_state_seq": 12,
             },
         )
 
-        self.assertEqual(result["status"], "blocked")
-        self.assertEqual(result["reason"], "observed_update_missing")
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(result["send_result"]["accepted_state_id"], "bridge-state")
+        self.assertEqual(result["send_result"]["accepted_state_seq"], 12)
 
     def test_send_guided_suggestion_blocks_when_bridge_is_not_ready(self):
         bridge = self.ready_event_bridge()
@@ -1087,13 +1160,14 @@ class GuidedCollectorTests(unittest.TestCase):
             },
         )
         second = collector.tick(
-            self.ready_shop_bridge(["Shrug It Off", "Membership Card", "Leave"]),
+            self.ready_shop_bridge(["Shrug It Off", "Membership Card", "Leave"])
+            | {"state_id": "shop-bridge-state-after-buy-1"},
             {"send": True},
             send_non_combat=lambda **kwargs: calls.append(kwargs)
             or {
                 "predicted_state_id": "after-buy-2",
                 "source_state_id": "sim-shop-2",
-                "bridge_state_id": "shop-bridge-state",
+                "bridge_state_id": "shop-bridge-state-after-buy-1",
                 "bridge_step": 2,
                 "send_result": {"command": "CHOOSE 1"},
             },
@@ -1131,7 +1205,7 @@ class GuidedCollectorTests(unittest.TestCase):
         )
 
         result = collector.tick(
-            self.ready_combat_bridge(),
+            self.ready_combat_bridge() | {"state_id": "combat-bridge-state-after-end"},
             verify_prediction=lambda *_args, **_kwargs: {
                 "status": "mismatch",
                 "detail": "expected predicted-1, observed other",
@@ -1167,6 +1241,35 @@ class GuidedCollectorTests(unittest.TestCase):
         self.assertEqual(result["blocker"]["reason"], "pending_command")
         self.assertEqual(result["pending_prediction"]["predicted_state_id"], "predicted-1")
 
+    def test_collector_waits_for_new_bridge_state_before_prediction_check(self):
+        collector = GuidedCollector()
+        collector.start({"script": sample_script()})
+        collector.tick(
+            self.ready_combat_bridge(),
+            {"send": True},
+            send_combat=lambda **_kwargs: {
+                "predicted_state_id": "predicted-1",
+                "source_state_id": "sim-1",
+                "bridge_state_id": "combat-bridge-state",
+                "send_result": {
+                    "command": "END",
+                    "accepted_state_id": "combat-bridge-state",
+                    "accepted_state_seq": 12,
+                },
+            },
+        )
+        bridge = self.ready_combat_bridge()
+        bridge["summary"]["state_seq"] = 12
+
+        result = collector.tick(
+            bridge,
+            verify_prediction=lambda *_args, **_kwargs: self.fail("prediction should wait for a new bridge state"),
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["blocker"]["reason"], "waiting_for_observed_state")
+        self.assertEqual(result["pending_prediction"]["accepted_state_seq"], 12)
+
     def test_collector_clears_matching_pending_prediction_before_next_tick(self):
         collector = GuidedCollector()
         collector.start({"script": sample_script()})
@@ -1182,7 +1285,7 @@ class GuidedCollectorTests(unittest.TestCase):
         )
 
         result = collector.tick(
-            self.ready_combat_bridge(),
+            self.ready_combat_bridge() | {"state_id": "combat-bridge-state-after-end"},
             verify_prediction=lambda *_args, **_kwargs: {"status": "matched"},
         )
 

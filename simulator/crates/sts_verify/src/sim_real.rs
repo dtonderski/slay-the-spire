@@ -11633,7 +11633,7 @@ mod tests {
                 "CODEX04 colorless innate",
             ),
             (
-                "communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl",
+                "permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl",
                 "TEST obtained colorless",
             ),
             (

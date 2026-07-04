@@ -47,6 +47,8 @@
     slaythedataSelectionAudit: null,
     slaythedataLastError: null,
     slaythedataSearchStatus: null,
+    slaythedataLastFilters: null,
+    slaythedataDebugLog: [],
     attachFidelity: null,
     strictReplayBlocker: null,
     mode: null,
@@ -68,6 +70,7 @@
     refreshSlaythedataStatusQuietly().finally(() => renderCollector());
     startBridgePolling();
     render();
+    runSlaythedataE2eHook();
   });
 
   function bindElements() {
@@ -75,6 +78,7 @@
       "sessionMeta",
       "liveModeButton",
       "simModeButton",
+      "killAllBridgeClientsButton",
       "fixtureControls",
       "liveBand",
       "liveSummary",
@@ -83,6 +87,7 @@
       "startCharacterSelect",
       "startAscensionInput",
       "startSeedInput",
+      "startSeedFormatSelect",
       "startLiveRunButton",
       "attachLiveButton",
       "liveSearchButton",
@@ -110,6 +115,7 @@
       "actionsPanel",
       "searchPolicySelect",
       "maxDepthInput",
+      "beamWidthInput",
       "allowedPotionsPanel",
       "searchButton",
       "applyBestButton",
@@ -119,6 +125,8 @@
       "liveRequestStateButton",
       "collectorPayloadInput",
       "slaythedataCandidateSelect",
+      "slaythedataMinFloorInput",
+      "slaythedataOutcomeSelect",
       "findSlaythedataRunsButton",
       "findCurrentSeedRunsButton",
       "auditSlaythedataRunButton",
@@ -172,7 +180,9 @@
   function bindEvents() {
     el.liveModeButton.addEventListener("click", () => setViewMode("live"));
     el.simModeButton.addEventListener("click", () => setViewMode("sim"));
+    el.killAllBridgeClientsButton.addEventListener("click", killAllBridgeClients);
     el.startLiveRunButton.addEventListener("click", startLiveRun);
+    el.startSeedFormatSelect.addEventListener("change", applySeedFormatSelection);
     el.attachLiveButton.addEventListener("click", attachLiveSession);
     el.liveSearchButton.addEventListener("click", runLiveSearch);
     el.sendBestButton.addEventListener("click", () => sendBestToGame({ autoPlay: false }));
@@ -262,7 +272,8 @@
   async function startLiveRun() {
     const character = (el.startCharacterSelect.value || "IRONCLAD").trim().toUpperCase();
     const ascension = boundedInteger(el.startAscensionInput.value, 0, 0, 20);
-    const seed = (el.startSeedInput.value || "").trim();
+    const seedText = (el.startSeedInput.value || "").trim();
+    const seed = isRawIntegerSeed(seedText) ? stsSeedLongToString(seedText) : seedText;
     if (!seed) {
       showError("Seed is required to start a live run.");
       return;
@@ -427,6 +438,7 @@
   async function runSearch(options = {}) {
     if (!app.sessionId || !isCombatSession()) return;
     const maxDepth = Number.parseInt(el.maxDepthInput.value, 10);
+    const beamWidth = Number.parseInt(el.beamWidthInput.value, 10);
     const candidate = el.searchPolicySelect.value;
     const allowedPotions = allowedPotionsPayload();
     await singleFlight("Searching", async () => {
@@ -439,6 +451,7 @@
           body: {
             candidate,
             max_depth: Number.isFinite(maxDepth) ? maxDepth : undefined,
+            beam_width: Number.isFinite(beamWidth) ? beamWidth : undefined,
             allowed_potions: allowedPotions,
             source_state_id: currentStateId(),
           },
@@ -719,7 +732,7 @@
     const params = new URLSearchParams({
       character,
       ascension: String(ascension),
-      min_floor: String(firstDefined(options.minFloor, 45)),
+      min_floor: String(firstDefined(options.minFloor, slaythedataMinFloor())),
       min_path_length: String(firstDefined(options.minPathLength, 45)),
       min_card_choices: "8",
       min_event_choices: "1",
@@ -729,12 +742,29 @@
       ranked: "0",
       preflight: options.includePreflight === false ? "0" : "1",
     });
-    if (options.maxFloor !== null) {
-      params.set("max_floor", String(firstDefined(options.maxFloor, 55)));
+    if (options.maxFloor !== null && options.maxFloor !== undefined) {
+      params.set("max_floor", String(options.maxFloor));
     }
     if (options.seedPlayed) {
       params.set("seed_played", String(options.seedPlayed));
     }
+    const victory = firstDefined(options.victory, slaythedataVictoryFilter());
+    if (victory !== null && victory !== undefined) {
+      params.set("victory", victory ? "1" : "0");
+    }
+    logSlaythedataDebug("search_start", {
+      endpoint: "/api/slaythedata/candidates",
+      query: params.toString(),
+      filters: {
+        character,
+        ascension,
+        min_floor: params.get("min_floor"),
+        max_floor: params.get("max_floor"),
+        victory,
+        safe_neow: params.get("safe_neow"),
+        preflight: params.get("preflight"),
+      },
+    });
     await singleFlight("Finding SlayTheData runs", async () => {
       try {
         app.slaythedataSearchStatus = options.seedPlayed
@@ -747,7 +777,19 @@
         app.slaythedataSearchStatus = "Querying SlayTheData candidates...";
         renderCollector();
         const result = await requestJson(`/api/slaythedata/candidates?${params.toString()}`);
-        app.slaythedataCandidates = arrayOf(result.candidates);
+        const rawCandidates = arrayOf(result.candidates);
+        app.slaythedataCandidates = filterSlaytheDataCandidates(rawCandidates, {
+          minFloor: Number(params.get("min_floor")),
+          victory,
+        });
+        app.slaythedataLastFilters = result.filters || null;
+        logSlaythedataDebug("search_result", {
+          raw_count: rawCandidates.length,
+          shown_count: app.slaythedataCandidates.length,
+          response_filters: result.filters || null,
+          first_raw: summarizeSlaythedataCandidate(rawCandidates[0]),
+          first_shown: summarizeSlaythedataCandidate(app.slaythedataCandidates[0]),
+        });
         const selectedCandidate =
           app.slaythedataCandidates.find((candidate) => !candidate.autoplay_blocked)
           || app.slaythedataCandidates[0];
@@ -756,8 +798,18 @@
           : "";
         app.slaythedataSelectionAudit = null;
         applySelectedSlaythedataRunToStartControls();
+        logSlaythedataDebug("search_selected", {
+          selected: summarizeSlaythedataCandidate(selectedCandidate),
+          autoplay_blocker: selectedCandidate && selectedCandidate.autoplay_blocker || null,
+        });
         app.slaythedataLastError = null;
         renderCollectorPicker();
+      } catch (error) {
+        logSlaythedataDebug("search_error", {
+          error: readableError(error),
+          query: params.toString(),
+        });
+        throw error;
       } finally {
         app.slaythedataSearchStatus = null;
         renderCollector();
@@ -765,48 +817,27 @@
     });
   }
 
-  async function findSlaythedataRunsForCurrentSeed() {
-    await refreshBridgeQuietly();
-    const live = currentLiveRunIdentity();
-    if (!live.seed) {
-      showError("Current bridge state does not expose a seed yet.");
-      return;
+  function runSlaythedataE2eHook() {
+    const params = new URLSearchParams(window.location.search || "");
+    const mode = params.get("e2e_slaythedata");
+    if (!mode) return;
+    const victory = mode === "win" ? true : mode === "loss" ? false : null;
+    if (el.slaythedataOutcomeSelect) {
+      el.slaythedataOutcomeSelect.value = victory === true ? "1" : victory === false ? "0" : "";
     }
-    if (live.character && el.startCharacterSelect) {
-      const option = Array.from(el.startCharacterSelect.options).find((entry) => entry.value === live.character);
-      if (option) el.startCharacterSelect.value = live.character;
-    }
-    if (live.ascension !== null && el.startAscensionInput) {
-      el.startAscensionInput.value = String(live.ascension);
-    }
-    if (el.startSeedInput) {
-      el.startSeedInput.value = live.seed;
-    }
-    const params = new URLSearchParams({
-      character: live.character,
-      ascension: String(live.ascension),
-      seed_played: live.seed,
-      min_floor: String(Math.max(1, live.floor || 1)),
-      limit: "5",
-    });
-    await singleFlight("Finding current SlayTheData seed", async () => {
-      try {
-        app.slaythedataSearchStatus = "Finding exact seed matches...";
+    window.setTimeout(() => {
+      findSlaythedataRuns({
+        minFloor: boundedInteger(params.get("min_floor"), 45, 1, 57),
+        victory,
+        includePreflight: params.get("preflight") !== "0",
+        skipStatusRefresh: true,
+      }).catch((error) => {
+        app.slaythedataLastError = readableError(error);
         renderCollector();
-        const result = await requestJson(`/api/slaythedata/seed-candidates?${params.toString()}`);
-        app.slaythedataCandidates = arrayOf(result.candidates);
-        const selectedCandidate = app.slaythedataCandidates[0];
-        app.slaythedataSelectedRunId = selectedCandidate ? String(selectedCandidate.id) : "";
-        app.slaythedataSelectionAudit = null;
-        applySelectedSlaythedataRunToStartControls();
-        app.slaythedataLastError = null;
-        renderCollectorPicker();
-      } finally {
-        app.slaythedataSearchStatus = null;
-        renderCollector();
-      }
-    });
+      });
+    }, 0);
   }
+
   async function loadSelectedSlaythedataRun() {
     const runId = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value;
     if (!runId) {
@@ -825,20 +856,6 @@
     });
   }
 
-  async function downloadSelectedSlaythedataRun() {
-    const runId = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value;
-    if (!runId) {
-      showError("Find and select a SlayTheData run first.");
-      return;
-    }
-    await singleFlight("Downloading SlayTheData run", async () => {
-      const payload = await requestJson("/api/slaythedata/export", {
-        method: "POST",
-        body: { run_id: Number(runId) },
-      });
-      downloadJson(`slaythedata-run-${runId}.json`, payload);
-    });
-  }
   async function auditSlaythedataSelection() {
     const selectedRunId = app.slaythedataSelectedRunId || (el.slaythedataCandidateSelect && el.slaythedataCandidateSelect.value);
     const body = {
@@ -888,25 +905,142 @@
       pauseCollectorAutoRun();
       try {
         await refreshBridgeQuietly();
-        if (guidedRunCanResumeFromBridge()) {
-          app.collectorLastError = null;
-        } else {
-          const result = await requestJson("/api/collector/start-live-run", { method: "POST", body: {} });
-          app.collector = result.collector || app.collector;
-          app.collectorLastError = null;
-          await refreshBridgeQuietly();
+        await refreshCollectorQuietly();
+        if (await refreshObservedBridgeStateForCollector()) {
+          logSlaythedataDebug("guided_start_refreshed_observed_state", {
+            bridge_state_id: bridgeStateId(),
+          });
         }
+        const result = await requestJson("/api/collector/start-live-run", { method: "POST", body: {} });
+        app.collector = result.collector || app.collector;
         app.collectorLastError = null;
-        await refreshCollectorReportQuietly();
+        logSlaythedataDebug("guided_start_live_run", {
+          resumed: Boolean(result && result.resumed),
+          command: firstDefined(result && result.command, null),
+          history_count: firstDefined(app.collector && app.collector.history_count, null),
+          blocker: firstDefined(app.collector && app.collector.blocker && app.collector.blocker.reason, null),
+        });
+        await refreshBridgeQuietly();
+        await refreshCollectorQuietly();
+        if (await refreshObservedBridgeStateForCollector()) {
+          logSlaythedataDebug("guided_start_refreshed_post_start_state", {
+            bridge_state_id: bridgeStateId(),
+          });
+        }
         if (options.armAuto) {
           app.collectorAutoRun = true;
-          scheduleCollectorAutoStep(850);
+          scheduleCollectorAutoStep(0);
+          logSlaythedataDebug("guided_auto_armed", {
+            bridge_state_id: bridgeStateId(),
+          });
         }
+        refreshCollectorReportQuietly().catch(() => {});
       } catch (error) {
         app.collectorLastError = readableError(error);
+        logSlaythedataDebug("guided_start_live_run_error", {
+          error: app.collectorLastError,
+        });
         throw error;
       }
       renderCollector();
+    });
+  }
+
+  async function downloadSelectedSlaythedataRun() {
+    const runId = app.slaythedataSelectedRunId || el.slaythedataCandidateSelect.value;
+    if (!runId) {
+      showError("Find and select a SlayTheData run first.");
+      return;
+    }
+    await singleFlight("Downloading SlayTheData run", async () => {
+      const payload = await requestJson("/api/slaythedata/export", {
+        method: "POST",
+        body: { run_id: Number(runId) },
+      });
+      downloadJson(`slaythedata-run-${runId}.json`, payload);
+    });
+  }
+
+  async function findSlaythedataRunsForCurrentSeed() {
+    await refreshBridgeQuietly();
+    const live = currentLiveRunIdentity();
+    if (!live.seed) {
+      showError("Current bridge state does not expose a seed yet.");
+      return;
+    }
+    if (live.character && el.startCharacterSelect) {
+      const option = Array.from(el.startCharacterSelect.options).find((entry) => entry.value === live.character);
+      if (option) el.startCharacterSelect.value = live.character;
+    }
+    if (live.ascension !== null && el.startAscensionInput) {
+      el.startAscensionInput.value = String(live.ascension);
+    }
+    if (el.startSeedInput && live.seed) {
+      const playableSeed = isRawIntegerSeed(live.seed) ? stsSeedLongToString(live.seed) : live.seed;
+      const rawSeed = isRawIntegerSeed(live.seed) ? live.seed : stsSeedStringToLong(live.seed);
+      rememberStartSeed(rawSeed, playableSeed);
+      el.startSeedInput.value = seedDisplayValueForMode({ raw: rawSeed, playable: playableSeed });
+    }
+    const params = new URLSearchParams({
+      character: live.character,
+      ascension: String(live.ascension),
+      seed_played: live.seed,
+      min_floor: String(Math.max(1, slaythedataMinFloor(1), live.floor || 1)),
+      limit: "5",
+    });
+    const victory = slaythedataVictoryFilter();
+    if (victory !== null && victory !== undefined) {
+      params.set("victory", victory ? "1" : "0");
+    }
+    logSlaythedataDebug("seed_search_start", {
+      endpoint: "/api/slaythedata/seed-candidates",
+      query: params.toString(),
+      filters: {
+        character: live.character,
+        ascension: live.ascension,
+        seed_played: live.seed,
+        min_floor: params.get("min_floor"),
+        victory,
+      },
+    });
+    await singleFlight("Finding current SlayTheData seed", async () => {
+      try {
+        app.slaythedataSearchStatus = "Finding exact seed matches...";
+        renderCollector();
+        const result = await requestJson(`/api/slaythedata/seed-candidates?${params.toString()}`);
+        const rawCandidates = arrayOf(result.candidates);
+        app.slaythedataCandidates = filterSlaytheDataCandidates(rawCandidates, {
+          minFloor: Number(params.get("min_floor")),
+          victory,
+        });
+        app.slaythedataLastFilters = result.filters || null;
+        logSlaythedataDebug("seed_search_result", {
+          raw_count: rawCandidates.length,
+          shown_count: app.slaythedataCandidates.length,
+          response_filters: result.filters || null,
+          first_raw: summarizeSlaythedataCandidate(rawCandidates[0]),
+          first_shown: summarizeSlaythedataCandidate(app.slaythedataCandidates[0]),
+        });
+        const selectedCandidate = app.slaythedataCandidates[0];
+        app.slaythedataSelectedRunId = selectedCandidate ? String(selectedCandidate.id) : "";
+        app.slaythedataSelectionAudit = null;
+        applySelectedSlaythedataRunToStartControls();
+        logSlaythedataDebug("seed_search_selected", {
+          selected: summarizeSlaythedataCandidate(selectedCandidate),
+          autoplay_blocker: selectedCandidate && selectedCandidate.autoplay_blocker || null,
+        });
+        app.slaythedataLastError = null;
+        renderCollectorPicker();
+      } catch (error) {
+        logSlaythedataDebug("seed_search_error", {
+          error: readableError(error),
+          query: params.toString(),
+        });
+        throw error;
+      } finally {
+        app.slaythedataSearchStatus = null;
+        renderCollector();
+      }
     });
   }
 
@@ -967,10 +1101,81 @@
     const floor = boundedInteger(firstDefined(summary.floor, run.floor, observed.floor, 1), 1, 1, 60);
     return { seed: seed ? String(seed) : "", character, ascension, floor };
   }
+
   function selectedSlaythedataCandidate() {
     const runId = app.slaythedataSelectedRunId || (el.slaythedataCandidateSelect && el.slaythedataCandidateSelect.value);
     if (!runId) return null;
     return app.slaythedataCandidates.find((candidate) => String(candidate.id) === String(runId)) || null;
+  }
+
+  const STS_SEED_ALPHABET = "0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ";
+  const UINT64_MASK = (1n << 64n) - 1n;
+
+  function isRawIntegerSeed(value) {
+    return /^-?\d+$/.test(String(value || "").trim());
+  }
+
+  function stsSeedLongToString(value) {
+    let remaining = BigInt.asUintN(64, BigInt(String(value).trim()));
+    if (remaining === 0n) return "";
+    const radix = BigInt(STS_SEED_ALPHABET.length);
+    let encoded = "";
+    while (remaining > 0n) {
+      encoded = STS_SEED_ALPHABET[Number(remaining % radix)] + encoded;
+      remaining /= radix;
+    }
+    return encoded;
+  }
+
+  function stsSeedStringToLong(value) {
+    const text = String(value || "").trim().toUpperCase().replaceAll("O", "0");
+    let total = 0n;
+    for (const char of text) {
+      const digit = STS_SEED_ALPHABET.indexOf(char);
+      if (digit < 0) return null;
+      total = total * BigInt(STS_SEED_ALPHABET.length) + BigInt(digit);
+    }
+    const signed = BigInt.asIntN(64, total & UINT64_MASK);
+    return signed.toString();
+  }
+
+  function seedDisplayValueForMode(seed) {
+    const mode = el.startSeedFormatSelect ? el.startSeedFormatSelect.value : "playable";
+    const raw = firstDefined(seed && seed.raw, seed && seed.rawSeed, null);
+    const playable = firstDefined(seed && seed.playable, seed && seed.playableSeed, null);
+    if (mode === "raw") {
+      if (raw !== null && raw !== undefined) return String(raw);
+      if (playable !== null && playable !== undefined) return firstDefined(stsSeedStringToLong(playable), String(playable));
+      return "";
+    }
+    if (playable !== null && playable !== undefined) return String(playable);
+    if (raw !== null && raw !== undefined && isRawIntegerSeed(raw)) return stsSeedLongToString(raw);
+    return raw !== null && raw !== undefined ? String(raw) : "";
+  }
+
+  function rememberStartSeed(rawSeed, playableSeed) {
+    if (!el.startSeedInput) return;
+    el.startSeedInput.dataset.rawSeed = rawSeed !== null && rawSeed !== undefined ? String(rawSeed) : "";
+    el.startSeedInput.dataset.playableSeed =
+      playableSeed !== null && playableSeed !== undefined ? String(playableSeed) : "";
+  }
+
+  function applySeedFormatSelection() {
+    if (!el.startSeedInput) return;
+    const raw = el.startSeedInput.dataset.rawSeed || null;
+    const playable = el.startSeedInput.dataset.playableSeed || null;
+    if (!raw && !playable) {
+      const current = el.startSeedInput.value.trim();
+      if (isRawIntegerSeed(current)) {
+        rememberStartSeed(current, stsSeedLongToString(current));
+      } else if (current) {
+        rememberStartSeed(stsSeedStringToLong(current), current);
+      }
+    }
+    el.startSeedInput.value = seedDisplayValueForMode({
+      raw: el.startSeedInput.dataset.rawSeed || null,
+      playable: el.startSeedInput.dataset.playableSeed || null,
+    });
   }
 
   function applySelectedSlaythedataRunToStartControls() {
@@ -985,9 +1190,17 @@
 
   function applyGuidedRunStartControls(config) {
     if (!config) return;
-    const seed = firstDefined(config.seed_played, config.seed, null);
-    if (seed !== null && seed !== undefined && el.startSeedInput) {
-      el.startSeedInput.value = String(seed);
+    const rawSeed = firstDefined(config.seed_played, config.raw_seed, null);
+    const explicitSeed = firstDefined(config.seed, config.playable_seed, null);
+    const playableSeed =
+      explicitSeed !== null && explicitSeed !== undefined
+        ? String(explicitSeed)
+        : rawSeed !== null && rawSeed !== undefined && isRawIntegerSeed(rawSeed)
+          ? stsSeedLongToString(rawSeed)
+          : null;
+    if ((rawSeed !== null || playableSeed !== null) && el.startSeedInput) {
+      rememberStartSeed(rawSeed, playableSeed);
+      el.startSeedInput.value = seedDisplayValueForMode({ raw: rawSeed, playable: playableSeed });
     }
     const ascension = firstDefined(config.ascension, config.ascension_level, null);
     if (ascension !== null && ascension !== undefined && el.startAscensionInput) {
@@ -1008,6 +1221,7 @@
     }
     await singleFlight(options.send ? "Sending guided choice" : "Previewing guided choice", async () => {
       try {
+        await refreshObservedBridgeStateForCollector();
         app.collector = await requestJson("/api/collector/tick", {
           method: "POST",
           body: collectorTickPayload(options),
@@ -1020,6 +1234,10 @@
         }
         const suggestion = app.collector && app.collector.suggestion;
         if (suggestion && suggestion.status === "blocked") {
+          if (isTransientCollectorBlocker(suggestion)) {
+            app.collectorLastError = null;
+            return;
+          }
           throw new Error(firstDefined(suggestion.detail, suggestion.reason, "Collector blocked."));
         }
       } catch (error) {
@@ -1032,7 +1250,9 @@
   function collectorTickPayload(options = {}) {
     const body = { send: !!options.send };
     const maxDepth = Number.parseInt(el.maxDepthInput.value, 10);
+    const beamWidth = Number.parseInt(el.beamWidthInput.value, 10);
     if (Number.isFinite(maxDepth)) body.max_depth = maxDepth;
+    if (Number.isFinite(beamWidth)) body.beam_width = beamWidth;
     if (el.searchPolicySelect && el.searchPolicySelect.value) body.candidate = el.searchPolicySelect.value;
     const potions = usablePotions();
     if (potions.length) body.allowed_potions = allowedPotionsPayload();
@@ -1072,12 +1292,18 @@
       scheduleCollectorAutoStep(350);
       return;
     }
-    try {
-      await refreshBridgeQuietly();
-      await refreshCollectorQuietly();
-      if (!app.collector || !app.collector.active) {
-        app.collectorAutoRun = false;
+      try {
+        await refreshBridgeQuietly();
+        await refreshCollectorQuietly();
+        if (!app.collector || !app.collector.active) {
+          app.collectorAutoRun = false;
+          renderCollector();
+          return;
+      }
+      if (await refreshObservedBridgeStateForCollector()) {
+        app.collectorLastError = null;
         renderCollector();
+        scheduleCollectorAutoStep(100);
         return;
       }
       const waitReason = collectorAutoWaitReason();
@@ -1187,7 +1413,44 @@
 
   function isTransientCollectorBlocker(blocker) {
     const reason = firstDefined(blocker && blocker.reason, "");
-    return reason === "pending_command" || reason === "bridge_not_ready";
+    return reason === "pending_command" || reason === "bridge_not_ready" || reason === "waiting_for_run_start";
+  }
+
+  function collectorPreflightProblems() {
+    return arrayOf(app.collector && app.collector.preflight && app.collector.preflight.problems);
+  }
+
+  function actionableCollectorPreflightProblems(problems = collectorPreflightProblems()) {
+    return arrayOf(problems).filter((problem) => {
+      return !(String(problem) === "observed state summary is stale" && canRefreshObservedBridgeState());
+    });
+  }
+
+  function canRefreshObservedBridgeState() {
+    const preflight = app.collector && app.collector.preflight;
+    const preflightPending = preflight && preflight.pending_command && preflight.pending_command.present;
+    return !!app.bridge
+      && app.bridge.connected
+      && !app.bridge.exited
+      && !app.bridge.pending_command
+      && !preflightPending
+      && (!preflight || preflight.tcp_control_available !== false);
+  }
+
+  function collectorObservedStateNeedsRefresh() {
+    return collectorPreflightProblems().some((problem) => String(problem) === "observed state summary is stale")
+      && canRefreshObservedBridgeState();
+  }
+
+  async function refreshObservedBridgeStateForCollector() {
+    if (!collectorObservedStateNeedsRefresh()) return false;
+    await requestJson("/api/bridge/command", {
+      method: "POST",
+      body: { command: "STATE" },
+    });
+    await refreshBridgeQuietly();
+    await refreshCollectorQuietly();
+    return true;
   }
 
   function collectorTcpBlockerReason() {
@@ -1258,6 +1521,24 @@
     });
   }
 
+  async function killAllBridgeClients() {
+    const clients = visibleBridgeClients(app.bridgeClients).filter((client) => client.killable);
+    const countText = clients.length
+      ? `${clients.length} known killable bridge client${clients.length === 1 ? "" : "s"}`
+      : "all known killable bridge clients";
+    const ok = window.confirm(`Kill ${countText}?`);
+    if (!ok) return;
+    await singleFlight("Killing bridge clients", async () => {
+      await requestJson("/api/bridge/clients/kill-all", {
+        method: "POST",
+        body: {},
+      });
+      await refreshBridgeClientsQuietly();
+      await refreshBridgeQuietly();
+      await refreshParityQuietly();
+    });
+  }
+
   async function refreshParityQuietly() {
     if (!app.sessionId) return;
     try {
@@ -1316,6 +1597,7 @@
       return;
     }
 
+    const manualLiveAction = app.viewMode === "live" && !app.livePendingPrediction;
     const beforeBridgeStateId = bridgeStateId();
     await singleFlight(`Sending ${bridgeActionLabel(action)}`, async () => {
       const result = await requestJson("/api/bridge/descriptor", {
@@ -1328,6 +1610,13 @@
       app.bridge = result.bridge_status || result.bridgeStatus || app.bridge;
       await refreshParityQuietly();
     });
+    if (manualLiveAction) {
+      app.search = null;
+      app.liveSearchBridgeStateId = null;
+      app.liveSendAction = null;
+      app.livePendingPlanIndex = null;
+      app.liveAutoPlayPlan = false;
+    }
     await attachObservedLiveStateAfterSend(beforeBridgeStateId);
   }
 
@@ -1467,6 +1756,8 @@
     el.applyBestButton.classList.toggle("hidden", app.viewMode === "live");
     el.refreshBridgeButton.disabled = app.inFlight;
     el.liveRequestStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
+    el.killAllBridgeClientsButton.disabled = app.inFlight;
+    el.killAllBridgeClientsButton.title = "Terminate all known killable bridge client processes.";
     el.requestBridgeStateButton.disabled = app.inFlight || (app.bridge && app.bridge.pending_command);
     el.clearOrphanCommandMetaButton.disabled = app.inFlight || !hasOrphanCommandMetadataProblem();
     el.refreshBridgeClientsButton.disabled = app.bridgeClientsLoading;
@@ -1622,7 +1913,15 @@
       button.disabled = app.inFlight || !!disabledReason || action.enabled === false;
       button.textContent = live ? bridgeActionLabel(action) : actionLabel(action);
       button.title = pendingReason || disabledReason || (live ? `Sends ${bridgeActionLabel(action)}` : sourceTitle(action));
-      button.addEventListener("click", () => live ? submitBridgeAction(action) : submitAction(action));
+      button.addEventListener("click", () => {
+        if (!live) {
+          submitAction(action);
+        } else if (isRecommendedBridgeAction(action)) {
+          sendBestToGame();
+        } else {
+          submitBridgeAction(action);
+        }
+      });
       if (disabledReason) {
         const reason = document.createElement("span");
         reason.className = "button-reason";
@@ -1724,7 +2023,7 @@
     const status = app.collector && app.collector.status || "idle";
     const suggestion = app.collector && app.collector.last_suggestion || app.collector && app.collector.suggestion;
     const preflight = app.collector && app.collector.preflight;
-    const preflightProblems = arrayOf(preflight && preflight.problems);
+    const preflightProblems = actionableCollectorPreflightProblems(arrayOf(preflight && preflight.problems));
     const tcpBlocker = collectorTcpBlockerReason();
     const canLoadSelectedForAuto = !active && !!app.slaythedataSelectedRunId;
     const guidedStartBlocker = !active
@@ -1776,10 +2075,18 @@
       msg.textContent = app.slaythedataLastError;
       el.collectorStatusPanel.appendChild(msg);
     }
+    if (app.slaythedataSearchStatus) {
+      const msg = document.createElement("div");
+      msg.className = "message info";
+      msg.textContent = app.slaythedataSearchStatus;
+      el.collectorStatusPanel.appendChild(msg);
+    }
     renderSlaythedataStatus();
+    renderSlaythedataSearchFilters();
+    renderSlaythedataDebugLog();
     renderSlaythedataSelectionAudit();
     renderCollectorPreflight(preflight);
-    renderSlaythedataRustPreflight(app.collector && app.collector.rust_preflight);
+    renderSlaythedataRustPreflight(app.collector && app.collector.rust_preflight, app.collector && app.collector.blocker);
     if (!active) {
       if (!el.collectorStatusPanel.childNodes.length) {
         empty(el.collectorStatusPanel, "No guided script loaded.");
@@ -1833,7 +2140,7 @@
 
   function renderCollectorPreflight(preflight) {
     if (!preflight) return;
-    const problems = arrayOf(preflight.problems);
+    const problems = actionableCollectorPreflightProblems(arrayOf(preflight.problems));
     const warnings = arrayOf(preflight.warnings);
     if (!problems.length && !warnings.length) return;
     const wrap = document.createElement("div");
@@ -1853,16 +2160,17 @@
     el.collectorStatusPanel.appendChild(wrap);
   }
 
-  function renderSlaythedataRustPreflight(preflight) {
+  function renderSlaythedataRustPreflight(preflight, collectorBlocker) {
     if (!preflight) return;
     const steps = arrayOf(preflight.steps);
     const diagnostics = arrayOf(preflight.diagnostics);
+    const hardBlocked = Boolean(collectorBlocker);
     const counts = steps.reduce((acc, step) => {
       const key = String(step.status || "unknown");
       acc[key] = (acc[key] || 0) + 1;
       return acc;
     }, {});
-    const block = statBlock("Rust Preflight", [
+    const block = statBlock(hardBlocked ? "Rust Preflight" : "Rust Preflight Advisory", [
       ["Seed", firstDefined(preflight.numeric_seed, "-")],
       ["Start", firstDefined(preflight.start_phase, "-")],
       ["Checked", firstDefined(counts.checked, 0)],
@@ -1875,15 +2183,16 @@
     const shownDiagnostics = hard.length ? hard : diagnostics.slice(0, 2);
     for (const diagnostic of shownDiagnostics.slice(0, 3)) {
       const msg = document.createElement("div");
-      msg.className = hard.length ? "message error" : "message info";
-      msg.textContent = firstDefined(diagnostic.message, diagnostic.code, "Rust preflight diagnostic");
+      msg.className = hardBlocked && hard.length ? "message error" : "message info";
+      msg.textContent = `${hardBlocked ? "Rust preflight" : "Advisory"}: ${firstDefined(diagnostic.message, diagnostic.code, "Rust preflight diagnostic")}`;
       el.collectorStatusPanel.appendChild(msg);
     }
     const notable = steps.filter((step) => step.status !== "checked").slice(0, 3);
     for (const step of notable) {
       const msg = document.createElement("div");
-      msg.className = step.status === "blocked" ? "message error" : "message info";
-      msg.textContent = `${firstDefined(step.status, "step")}: ${firstDefined(step.code, step.message, "SlayTheData replay step")}`;
+      msg.className = hardBlocked && step.status === "blocked" ? "message error" : "message info";
+      const prefix = hardBlocked ? firstDefined(step.status, "step") : `Advisory ${firstDefined(step.status, "step")}`;
+      msg.textContent = `${prefix}: ${firstDefined(step.code, step.message, "SlayTheData replay step")}`;
       el.collectorStatusPanel.appendChild(msg);
     }
   }
@@ -1981,21 +2290,32 @@
 
   function bridgeClientAuditText(bridgeClients) {
     if (!bridgeClients || typeof bridgeClients !== "object") return "-";
-    const alive = firstDefined(bridgeClients.alive_count, null);
-    if (alive === null || alive === undefined) return "-";
-    const clients = arrayOf(bridgeClients.clients);
+    const clients = visibleBridgeClients(bridgeClients.clients);
+    const alive = clients.filter((client) => client && client.alive).length;
+    if (!clients.length) return "0 relevant clients";
+    const reportedAlive = firstDefined(bridgeClients.alive_count, null);
+    if (reportedAlive === null || reportedAlive === undefined) return "-";
     const current = firstDefined(bridgeClients.current_pid, null);
-    const total = clients.length ? ` / ${clients.length} seen` : "";
+    const total = ` / ${clients.length} node.exe seen`;
     const currentText = current === null || current === undefined ? "" : `, current ${current}`;
     return `${alive} alive${total}${currentText}`;
   }
 
   function bridgeClientAuditProblems(bridgeClients) {
     if (!bridgeClients || typeof bridgeClients !== "object") return "";
-    const alive = arrayOf(bridgeClients.clients).filter((client) => client && client.alive);
+    const alive = visibleBridgeClients(bridgeClients.clients).filter((client) => client && client.alive);
     if (alive.length <= 1) return "";
     const pids = alive.map((client) => firstDefined(client.pid, "?")).join(", ");
     return `Multiple live bridge clients were seen: ${pids}. Close extras before auto-collection.`;
+  }
+
+  function visibleBridgeClients(clients) {
+    return arrayOf(clients).filter(isNodeExeBridgeClient);
+  }
+
+  function isNodeExeBridgeClient(client) {
+    const name = String(firstDefined(client && client.name, "")).toLowerCase().split(/[\\/]/).pop();
+    return name === "node.exe";
   }
 
   function compactHistoryText(entry) {
@@ -2075,6 +2395,46 @@
             : "candidate availability unknown";
     msg.textContent = `${prefix}: ${detail} (${countText})`;
     el.collectorStatusPanel.appendChild(msg);
+  }
+
+  function renderSlaythedataSearchFilters() {
+    const filters = app.slaythedataLastFilters;
+    if (!filters) return;
+    const msg = document.createElement("div");
+    msg.className = "message info";
+    const victory = firstDefined(filters.victory, null);
+    const outcome = victory === true ? "wins" : victory === false ? "losses" : "wins and losses";
+    const maxFloor = firstDefined(filters.max_floor, null);
+    const floorText = maxFloor === null || maxFloor === undefined
+      ? `floor ${firstDefined(filters.min_floor, "-")}+`
+      : `floor ${firstDefined(filters.min_floor, "-")}-${maxFloor}`;
+    msg.textContent = `Last SlayTheData search: ${floorText}, ${outcome}.`;
+    el.collectorStatusPanel.appendChild(msg);
+  }
+
+  function renderSlaythedataDebugLog() {
+    const entries = arrayOf(app.slaythedataDebugLog);
+    if (!entries.length) return;
+    const details = document.createElement("details");
+    details.className = "slaythedata-debug-log";
+    const summary = document.createElement("summary");
+    summary.textContent = `SlayTheData debug log (${entries.length})`;
+    details.appendChild(summary);
+
+    const list = document.createElement("div");
+    list.className = "slaythedata-debug-list";
+    for (const entry of entries.slice(0, 6)) {
+      const item = document.createElement("div");
+      item.className = "slaythedata-debug-entry";
+      const title = document.createElement("strong");
+      title.textContent = `${entry.time} ${entry.event}`;
+      const body = document.createElement("code");
+      body.textContent = JSON.stringify(entry.detail);
+      item.append(title, body);
+      list.appendChild(item);
+    }
+    details.appendChild(list);
+    el.collectorStatusPanel.appendChild(details);
   }
 
   function renderSlaythedataSelectionAudit() {
@@ -2219,13 +2579,14 @@
       el.bridgeClientsPanel.appendChild(msg);
       return;
     }
-    if (!app.bridgeClients.length) {
-      empty(el.bridgeClientsPanel, "No bridge client PIDs found in current status or recent traces.");
+    const clients = visibleBridgeClients(app.bridgeClients);
+    if (!clients.length) {
+      empty(el.bridgeClientsPanel, "No node.exe bridge clients found in current status or recent traces.");
       return;
     }
 
     el.bridgeClientsPanel.className = "bridge-clients-panel";
-    app.bridgeClients.forEach((client) => {
+    clients.forEach((client) => {
       const card = document.createElement("article");
       card.className = `bridge-client-card${client.current ? " current" : ""}${client.alive ? "" : " dead"}`;
 
@@ -3016,6 +3377,59 @@
     const neow = neowBonus ? ` Neow ${neowBonus}${neowCost ? `:${neowCost}` : ""} |` : "";
     const preflight = candidate && candidate.autoplay_blocked ? " blocked |" : "";
     return `#${runId} ${seed} F${floor} path ${path} ${result} |${preflight}${neow} score ${score} cards ${cards} events ${events} shops ${shops} pots ${potions}`;
+  }
+
+  function filterSlaytheDataCandidates(candidates, filters) {
+    const minFloor = Number.isFinite(filters && filters.minFloor) ? filters.minFloor : null;
+    const victory = filters && filters.victory;
+    return candidates.filter((candidate) => {
+      if (minFloor !== null && Number(firstDefined(candidate.floor_reached, 0)) < minFloor) {
+        return false;
+      }
+      if (victory === true || victory === false) {
+        return Boolean(candidate.victory) === victory;
+      }
+      return true;
+    });
+  }
+
+  function summarizeSlaythedataCandidate(candidate) {
+    if (!candidate) return null;
+    return {
+      id: firstDefined(candidate.id, null),
+      seed_played: firstDefined(candidate.seed_played, null),
+      floor_reached: firstDefined(candidate.floor_reached, null),
+      victory: firstDefined(candidate.victory, null),
+      path_length: firstDefined(candidate.path_length, null),
+      guided_score: firstDefined(candidate.guided_score, null),
+      autoplay_blocked: Boolean(candidate.autoplay_blocked),
+      blocker: firstDefined(candidate.autoplay_blocker, candidate.rust_preflight_blocker, candidate.guided_support_blocker, null),
+    };
+  }
+
+  function logSlaythedataDebug(event, detail = {}) {
+    const entry = {
+      time: new Date().toLocaleTimeString(),
+      event,
+      detail,
+    };
+    app.slaythedataDebugLog = [entry, ...arrayOf(app.slaythedataDebugLog)].slice(0, 12);
+    try {
+      console.info("[SlayTheData]", event, detail);
+    } catch (_error) {
+      // Console logging is best-effort only.
+    }
+  }
+
+  function slaythedataMinFloor(fallback = 45) {
+    return boundedInteger(el.slaythedataMinFloorInput && el.slaythedataMinFloorInput.value, fallback, 1, 57);
+  }
+
+  function slaythedataVictoryFilter() {
+    const value = el.slaythedataOutcomeSelect && el.slaythedataOutcomeSelect.value;
+    if (value === "1") return true;
+    if (value === "0") return false;
+    return null;
   }
 
   function attachFidelityText() {

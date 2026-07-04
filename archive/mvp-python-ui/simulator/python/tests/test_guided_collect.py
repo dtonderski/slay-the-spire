@@ -434,6 +434,9 @@ class GuidedCollectTests(unittest.TestCase):
             "sts.guided_selection.export_guided_run_script",
             side_effect=[unsupported, supported],
         ) as export, patch(
+            "sts.guided_selection.slaythedata_rust_preflight_for_script",
+            return_value={"schema": 1, "steps": [], "diagnostics": []},
+        ), patch(
             "sts.guided_collect._tick_live_collector",
             side_effect=lambda *_args, **_kwargs: ticks.pop(0),
         ):
@@ -486,6 +489,9 @@ class GuidedCollectTests(unittest.TestCase):
         ), patch(
             "sts.guided_selection.export_guided_run_script",
             side_effect=[unsupported, supported],
+        ), patch(
+            "sts.guided_selection.slaythedata_rust_preflight_for_script",
+            return_value={"schema": 1, "steps": [], "diagnostics": []},
         ):
             report = select_run_audit_report(GuidedCollectConfig(run_id=None), started_at=0)
 
@@ -496,6 +502,64 @@ class GuidedCollectTests(unittest.TestCase):
         self.assertEqual(report["selection"]["skipped_unsupported"][0]["run_id"], 11)
         self.assertEqual(report["script_summary"]["floor_decision_count"], 1)
         self.assertEqual(report["script_summary"]["boss_relic_count"], 1)
+
+    def test_select_run_audit_report_auto_selection_skips_preflight_blocked_route(self):
+        impossible = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "BADROUTE",
+                "neow_bonus": "THREE_ENEMY_KILL",
+                "neow_cost": "NONE",
+            },
+            "route": {"path_taken": ["M", "?", "$"]},
+        }
+        possible = {
+            "config": {
+                "character": "IRONCLAD",
+                "ascension": 0,
+                "seed_played": "GOODROUTE",
+                "neow_bonus": "THREE_ENEMY_KILL",
+                "neow_cost": "NONE",
+            },
+            "route": {"path_taken": ["M", "M", "?"]},
+        }
+
+        with patch(
+            "sts.guided_selection.select_guided_collection_candidates",
+            return_value=[{"id": 11}, {"id": 22}],
+        ), patch(
+            "sts.guided_selection.export_guided_run_script",
+            side_effect=[impossible, possible],
+        ), patch(
+            "sts.guided_selection.slaythedata_rust_preflight_for_script",
+            side_effect=[
+                {
+                    "schema": 1,
+                    "steps": [
+                        {
+                            "status": "guided",
+                            "code": "guided_map_symbol_unmatched",
+                            "message": "no complete route can reach the recorded map symbol",
+                            "floor": 3,
+                            "ordinal": 5,
+                        }
+                    ],
+                    "route_fully_checked": False,
+                    "diagnostics": [],
+                },
+                {"schema": 1, "steps": [], "route_fully_checked": True, "diagnostics": []},
+            ],
+        ):
+            report = select_run_audit_report(GuidedCollectConfig(run_id=None), started_at=0)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["run_id"], 22)
+        self.assertEqual(report["seed"], "GOODROUTE")
+        skipped = report["selection"]["skipped_unsupported"][0]
+        self.assertEqual(skipped["run_id"], 11)
+        self.assertEqual(skipped["reason"], "route_not_fully_proven")
+        self.assertEqual(skipped["blockers"][0]["reason"], "route_not_fully_proven")
 
     def test_select_run_audit_report_reports_explicit_script_blockers(self):
         script = {
@@ -535,6 +599,9 @@ class GuidedCollectTests(unittest.TestCase):
                     "neow_cost": "NONE",
                 }
             },
+        ), patch(
+            "sts.guided_selection.slaythedata_rust_preflight_for_script",
+            return_value={"schema": 1, "steps": [], "diagnostics": []},
         ), patch(
             "sts.guided_collect._tick_live_collector",
             side_effect=lambda *_args, **_kwargs: {

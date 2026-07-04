@@ -298,6 +298,198 @@ class SlayTheDataIndexTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in rows], [1])
         self.assertEqual(rows[0]["seed_played"], "LIVE01")
 
+    def test_select_guided_collection_candidates_can_filter_victory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 30, 0, 0, 0, 0, "LOSS", 0, 30, 3, 2, 1, 0),
+                    (2, "IRONCLAD", 0, 55, 0, 0, 0, 0, "WIN", 1, 55, 3, 2, 1, 0),
+                    (3, "IRONCLAD", 0, 20, 0, 0, 0, 0, "EARLY", 1, 20, 3, 2, 1, 0),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,), (3,)])
+            conn.commit()
+            conn.close()
+
+            wins = select_guided_collection_candidates(db, min_floor_reached=25, victory=True, limit=10)
+            losses = select_guided_collection_candidates(db, min_floor_reached=25, victory=False, limit=10)
+
+        self.assertEqual([row["id"] for row in wins], [2])
+        self.assertEqual([row["id"] for row in losses], [1])
+
+    def test_select_guided_collection_candidates_excludes_divergent_seeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            divergent = Path(tmp) / "divergent.json"
+            divergent.write_text('{"seeds": ["BADSEED"]}', encoding="utf-8")
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 55, 0, 0, 0, 0, "BADSEED", 1, 55, 3, 2, 1, 0),
+                    (2, "IRONCLAD", 0, 55, 0, 0, 0, 0, "GOODSEED", 1, 55, 3, 2, 1, 0),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,)])
+            conn.commit()
+            conn.close()
+
+            rows = select_guided_collection_candidates(
+                db,
+                min_floor_reached=1,
+                divergent_seed_path=divergent,
+                limit=10,
+            )
+
+        self.assertEqual([row["seed_played"] for row in rows], ["GOODSEED"])
+
+    def test_select_seed_matching_candidates_returns_no_divergent_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            divergent = Path(tmp) / "divergent.json"
+            divergent.write_text('["LIVE01"]', encoding="utf-8")
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.execute(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (1, "IRONCLAD", 0, 55, 0, 0, 0, 0, "LIVE01", 1, 55, 3, 2, 1, 0),
+            )
+            conn.execute("INSERT INTO chunk_runs VALUES (?)", (1,))
+            conn.commit()
+            conn.close()
+
+            rows = select_seed_matching_candidates(
+                db,
+                seed_played="LIVE01",
+                min_floor_reached=1,
+                divergent_seed_path=divergent,
+            )
+
+        self.assertEqual(rows, [])
+
+    def test_divergent_seed_filter_matches_playable_seed_against_numeric_database_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "runs.sqlite3"
+            divergent = Path(tmp) / "divergent.json"
+            divergent.write_text('{"seeds": ["41UMZJ68CYRYR"]}', encoding="utf-8")
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE runs (
+                    id INTEGER PRIMARY KEY,
+                    character_chosen TEXT,
+                    ascension_level INTEGER,
+                    floor_reached INTEGER,
+                    is_daily INTEGER,
+                    is_endless INTEGER,
+                    is_trial INTEGER,
+                    unsupported_any INTEGER,
+                    seed_played TEXT,
+                    victory INTEGER,
+                    path_length INTEGER,
+                    card_choice_count INTEGER,
+                    event_choice_count INTEGER,
+                    shop_purchase_count INTEGER,
+                    potion_usage_count INTEGER
+                );
+                CREATE TABLE chunk_runs (run_id INTEGER);
+                """
+            )
+            conn.executemany(
+                "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (1, "IRONCLAD", 0, 55, 0, 0, 0, 0, "-4751503269128061835", 1, 55, 3, 2, 1, 0),
+                    (2, "IRONCLAD", 0, 55, 0, 0, 0, 0, "GOODSEED", 1, 55, 3, 2, 1, 0),
+                ],
+            )
+            conn.executemany("INSERT INTO chunk_runs VALUES (?)", [(1,), (2,)])
+            conn.commit()
+            conn.close()
+
+            rows = select_guided_collection_candidates(
+                db,
+                min_floor_reached=1,
+                divergent_seed_path=divergent,
+                limit=10,
+            )
+            exact = select_seed_matching_candidates(
+                db,
+                seed_played="-4751503269128061835",
+                min_floor_reached=1,
+                divergent_seed_path=divergent,
+            )
+
+        self.assertEqual([row["seed_played"] for row in rows], ["GOODSEED"])
+        self.assertEqual(exact, [])
+
     def test_ensure_slaythedata_lookup_indexes_creates_live_seed_index(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "runs.sqlite3"
@@ -359,7 +551,7 @@ class SlayTheDataIndexTests(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            rows = select_seed_matching_candidates(db, seed_played="LIVE01", min_floor_reached=1)
+            rows = select_seed_matching_candidates(db, seed_played="LIVE01", min_floor_reached=1, victory=False)
 
         self.assertEqual([row["id"] for row in rows], [1])
         self.assertEqual(rows[0]["seed_played"], "LIVE01")

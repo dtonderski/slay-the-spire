@@ -183,6 +183,50 @@ class BridgeMirrorTests(unittest.TestCase):
         self.assertEqual(preflight["pending_command"]["transport"], "tcp-jsonl")
         self.assertEqual(preflight["pending_command"]["command_id"], "tcp-cmd-1")
 
+    def test_status_treats_tcp_command_in_flight_as_pending(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "sent",
+                        "pending_command": True,
+                        "command": "CHOOSE 0",
+                        "command_meta": {
+                            "command_id": "tcp-cmd-2",
+                            "command": "CHOOSE 0",
+                            "protocol": "tcp-jsonl",
+                        },
+                        "command_in_flight": {
+                            "command_id": "tcp-cmd-2",
+                            "command": "CHOOSE 0",
+                            "accepted_state_seq": 9,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "state_id": "bridge-state",
+                        "ready_for_command": True,
+                        "available_commands": ["choose", "state"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status = BridgeMirror(root, stale_after_seconds=9999).status()
+            preflight = BridgeMirror(root, stale_after_seconds=9999).preflight()
+
+        self.assertTrue(status["pending_command"])
+        self.assertEqual(status["command_id"], "tcp-cmd-2")
+        self.assertEqual(status["pending_command_meta"]["command"], "CHOOSE 0")
+        self.assertFalse(preflight["ok"])
+        self.assertEqual(preflight["pending_command"]["transport"], "tcp-jsonl")
+        self.assertEqual(preflight["pending_command"]["command_id"], "tcp-cmd-2")
+
     def test_status_ignores_stale_tcp_pending_without_command_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1046,6 +1090,27 @@ class BridgeMirrorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, "UI service"):
                 BridgeMirror(Path(directory)).kill_client(__import__("os").getpid())
+
+    def test_kill_clients_only_terminates_killable_bridge_clients(self):
+        bridge = BridgeMirror(Path("unused"))
+        with unittest.mock.patch.object(
+            BridgeMirror,
+            "clients",
+            return_value={
+                "clients": [
+                    {"pid": 111, "alive": True, "killable": True},
+                    {"pid": 222, "alive": True, "killable": False},
+                    {"pid": 333, "alive": False, "killable": False},
+                    {"pid": os.getpid(), "alive": True, "killable": False},
+                ]
+            },
+        ), unittest.mock.patch("sts.bridge._kill_process") as kill:
+            result = bridge.kill_clients()
+
+        kill.assert_called_once_with(111)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["killed_count"], 1)
+        self.assertEqual(result["results"], [{"ok": True, "pid": 111, "already_exited": False}])
 
     def test_descriptor_translation_covers_known_command_families(self):
         cases = [

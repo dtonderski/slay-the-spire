@@ -10,6 +10,7 @@ import tempfile
 import sqlite3
 from typing import Any
 
+from sts.slaythedata_divergence import DEFAULT_DIVERGENT_SEEDS_PATH, load_divergent_seed_set
 from sts.slaythedata_policy import build_guided_run_script
 
 
@@ -57,8 +58,10 @@ def select_guided_collection_candidates(
     min_event_choices: int | None = None,
     min_shop_purchases: int | None = None,
     min_potion_usage: int | None = None,
+    victory: bool | None = None,
     require_guided_safe_neow: bool = False,
     require_supported: bool = True,
+    divergent_seed_path: str | Path = DEFAULT_DIVERGENT_SEEDS_PATH,
     limit: int = 50,
     ranked: bool = True,
 ) -> list[dict[str, Any]]:
@@ -78,8 +81,10 @@ def select_guided_collection_candidates(
         min_event_choices=min_event_choices,
         min_shop_purchases=min_shop_purchases,
         min_potion_usage=min_potion_usage,
+        victory=victory,
         require_guided_safe_neow=require_guided_safe_neow,
         require_supported=require_supported,
+        excluded_seeds=load_divergent_seed_set(divergent_seed_path),
     )
     conn = _connect_readonly(db_path)
     try:
@@ -134,9 +139,14 @@ def select_seed_matching_candidates(
     character: str = "IRONCLAD",
     ascension: int = 0,
     min_floor_reached: int = 1,
+    victory: bool | None = None,
+    divergent_seed_path: str | Path = DEFAULT_DIVERGENT_SEEDS_PATH,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Return exportable runs matching the exact live seed using a seed-first query."""
+
+    if str(seed_played).strip() in load_divergent_seed_set(divergent_seed_path):
+        return []
 
     ensure_slaythedata_lookup_indexes(db_path)
     conn = _connect_readonly(db_path)
@@ -150,14 +160,18 @@ def select_seed_matching_candidates(
               AND character_chosen = ?
               AND ascension_level = ?
               AND floor_reached >= ?
+              {victory_clause}
               AND id IN (SELECT run_id FROM chunk_runs)
             ORDER BY floor_reached DESC, path_length DESC, id ASC
             LIMIT ?
         """
+        params: list[Any] = [str(seed_played), character, int(ascension), int(min_floor_reached)]
+        if victory is not None:
+            params.append(1 if victory else 0)
         rows = _sqlite_fetchall_with_step_limit(
             conn,
-            query,
-            [str(seed_played), character, int(ascension), int(min_floor_reached), int(limit)],
+            query.format(victory_clause="AND victory = ?" if victory is not None else ""),
+            [*params, int(limit)],
             max_steps=2_000,
         )
         if rows is None:
@@ -364,8 +378,10 @@ def guided_collection_where(
     min_event_choices: int | None = None,
     min_shop_purchases: int | None = None,
     min_potion_usage: int | None = None,
+    victory: bool | None = None,
     require_guided_safe_neow: bool = False,
     require_supported: bool = True,
+    excluded_seeds: set[str] | None = None,
 ) -> tuple[str, list[Any]]:
     clauses = [
         "character_chosen = ?",
@@ -379,9 +395,16 @@ def guided_collection_where(
     if seed_played:
         clauses.append("seed_played = ?")
         params.append(str(seed_played))
+    if excluded_seeds:
+        excluded_seed_values = tuple(sorted(excluded_seeds))
+        clauses.append(f"seed_played NOT IN ({_placeholders(excluded_seed_values)})")
+        params.extend(excluded_seed_values)
     if max_floor_reached is not None:
         clauses.append("floor_reached <= ?")
         params.append(max_floor_reached)
+    if victory is not None:
+        clauses.append("victory = ?")
+        params.append(1 if victory else 0)
     if min_path_length is not None:
         clauses.append("path_length >= ?")
         params.append(min_path_length)

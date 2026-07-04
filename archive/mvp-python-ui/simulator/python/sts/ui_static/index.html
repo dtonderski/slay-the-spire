@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>STS Omniscient Combat</title>
-    <link rel="stylesheet" href="./styles.css?v=live-ui-5" />
+    <link rel="stylesheet" href="./styles.css?v=live-ui-7" />
   </head>
   <body>
     <div class="app-shell">
@@ -18,6 +18,7 @@
             <button id="liveModeButton" class="active" type="button">Live Game</button>
             <button id="simModeButton" type="button">Simulator Fixture</button>
           </div>
+          <button id="killAllBridgeClientsButton" class="danger-button compact-button" type="button">Kill bridges</button>
         </div>
       </header>
 
@@ -44,6 +45,10 @@
               <input id="startAscensionInput" type="number" min="0" max="20" value="0" />
               <label for="startSeedInput">Seed</label>
               <input id="startSeedInput" type="text" value="" />
+              <select id="startSeedFormatSelect" aria-label="Seed format">
+                <option value="playable">STS</option>
+                <option value="raw">Raw</option>
+              </select>
               <button id="startLiveRunButton" type="button">Start run</button>
             </div>
             <div id="liveWorkflow" class="live-workflow" aria-label="Live workflow"></div>
@@ -61,20 +66,36 @@
               <summary>Guided collector</summary>
               <div class="collector-grid">
                 <div class="collector-picker">
-                  <select id="slaythedataCandidateSelect" aria-label="SlayTheData run">
-                    <option value="">No SlayTheData runs loaded</option>
-                  </select>
-                  <button id="findSlaythedataRunsButton" type="button">Find runs</button>
-                  <button id="findCurrentSeedRunsButton" type="button">Find current seed</button>
-                  <button id="auditSlaythedataRunButton" type="button">Audit auto</button>
-                  <button id="loadSlaythedataRunButton" type="button">Load selected</button>
-                  <button id="downloadSlaythedataRunButton" type="button">Download JSON</button>
+                  <div class="collector-run-select">
+                    <select id="slaythedataCandidateSelect" aria-label="SlayTheData run">
+                      <option value="">No SlayTheData runs loaded</option>
+                    </select>
+                  </div>
+                  <div class="collector-filter">
+                    <label for="slaythedataMinFloorInput">Min floor</label>
+                    <input id="slaythedataMinFloorInput" type="number" min="1" max="57" value="45" />
+                  </div>
+                  <div class="collector-filter">
+                    <label for="slaythedataOutcomeSelect">Result</label>
+                    <select id="slaythedataOutcomeSelect">
+                      <option value="">Any</option>
+                      <option value="1">Win</option>
+                      <option value="0">Loss</option>
+                    </select>
+                  </div>
+                  <div class="collector-picker-actions">
+                    <button id="findSlaythedataRunsButton" type="button">Find runs</button>
+                    <button id="findCurrentSeedRunsButton" type="button">Find current seed</button>
+                    <button id="auditSlaythedataRunButton" type="button">Audit auto</button>
+                    <button id="loadSlaythedataRunButton" type="button">Load selected</button>
+                    <button id="downloadSlaythedataRunButton" type="button">Download JSON</button>
+                  </div>
                 </div>
                 <textarea id="collectorPayloadInput" rows="3" spellcheck="false" placeholder="Paste SlayTheData chunk-export JSON or GuidedRunScript"></textarea>
                 <div class="collector-actions">
                   <button id="startCollectorButton" type="button">Start</button>
                   <button id="startGuidedLiveRunButton" type="button">Start guided run</button>
-                  <button id="startGuidedAutoRunButton" class="primary" type="button">Auto-play run</button>
+                  <button id="startGuidedAutoRunButton" class="primary" data-testid="guided-auto-play-run" type="button">Auto-play run</button>
                   <button id="previewCollectorButton" type="button">Preview</button>
                   <button id="sendCollectorButton" class="primary" type="button">Send next</button>
                   <button id="autoCollectorButton" type="button">Auto</button>
@@ -120,6 +141,8 @@
               </select>
               <label for="maxDepthInput">Depth</label>
               <input id="maxDepthInput" type="number" min="1" max="80" value="40" />
+              <label for="beamWidthInput">Width</label>
+              <input id="beamWidthInput" type="number" min="1" max="512" value="32" />
               <button id="searchButton" type="button" disabled>Search</button>
               <button id="applyBestButton" type="button" disabled>Apply</button>
             </div>
@@ -285,6 +308,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=live-ui-14"></script>
+    <script src="./app.js?v=live-ui-23"></script>
   </body>
 </html>

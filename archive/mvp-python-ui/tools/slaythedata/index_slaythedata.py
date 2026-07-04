@@ -14,6 +14,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import tempfile
 import time
 import zstandard as zstd
 from dataclasses import dataclass
@@ -841,6 +842,17 @@ def index_file_batch(
     return indexed_runs
 
 
+def selected_file_list_arg(files: list[ArchiveFile]) -> tuple[str, str]:
+    handle = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".txt")
+    try:
+        for file in files:
+            handle.write(file.name)
+            handle.write("\n")
+        return f"@{handle.name}", handle.name
+    finally:
+        handle.close()
+
+
 def index_stream_all(
     conn: sqlite3.Connection,
     seven_zip: str,
@@ -854,12 +866,13 @@ def index_stream_all(
     if not selected_names:
         return 0
     started = time.time()
-    proc = subprocess.Popen([seven_zip, "e", "-so", archive, "*.json"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    selected_arg, list_path = selected_file_list_arg(selected)
+    proc = subprocess.Popen([seven_zip, "e", "-so", archive, selected_arg], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert proc.stdout is not None
     indexed_runs = 0
     indexed_files = 0
     try:
-        for file, run_array in zip(manifest, iter_concatenated_json_arrays(proc.stdout, len(manifest)), strict=True):
+        for file, run_array in zip(selected, iter_concatenated_json_arrays(proc.stdout, len(selected)), strict=True):
             if file.name not in selected_names:
                 continue
             count = index_run_array(conn, file, run_array, supported, store_offers)
@@ -873,6 +886,7 @@ def index_stream_all(
     finally:
         stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
         return_code = proc.wait()
+        os.unlink(list_path)
         if return_code not in (0, 1):
             raise RuntimeError(f"7z exited with {return_code}\n{stderr}")
     print(f"stream complete: {indexed_files} files, {indexed_runs} runs, {time.time() - started:.1f}s", flush=True)
@@ -1123,12 +1137,13 @@ def chunk_build_stream_all(
     if not selected_names:
         return 0
     started = time.time()
-    proc = subprocess.Popen([seven_zip, "e", "-so", archive, "*.json"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    selected_arg, list_path = selected_file_list_arg(selected)
+    proc = subprocess.Popen([seven_zip, "e", "-so", archive, selected_arg], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     assert proc.stdout is not None
     indexed_runs = 0
     indexed_files = 0
     try:
-        for file, run_array in zip(manifest, iter_concatenated_json_arrays(proc.stdout, len(manifest)), strict=True):
+        for file, run_array in zip(selected, iter_concatenated_json_arrays(proc.stdout, len(selected)), strict=True):
             if file.name not in selected_names:
                 continue
             count = index_run_array_with_chunks(conn, file, run_array, supported, writer, store_decisions)
@@ -1142,6 +1157,7 @@ def chunk_build_stream_all(
     finally:
         stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
         return_code = proc.wait()
+        os.unlink(list_path)
         if return_code not in (0, 1):
             raise RuntimeError(f"7z exited with {return_code}\n{stderr}")
     print(f"chunk stream complete: {indexed_files} files, {indexed_runs} runs, {time.time() - started:.1f}s", flush=True)

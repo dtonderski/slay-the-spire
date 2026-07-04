@@ -303,6 +303,15 @@ def match_visible_choice(
     return _blocked("ambiguous_target", f"{target!r} matched {len(matches)} visible choices")
 
 
+def neow_target_matches_live_choice(script: dict[str, Any], choice_labels: list[str], slot: int) -> bool:
+    """Return whether a live Neow slot still matches the script's expected choice."""
+
+    if slot < 0 or slot >= len(choice_labels):
+        return False
+    target = _neow_target_text(script, choice_labels)
+    return bool(target and _target_matches_label(target, choice_labels[slot]))
+
+
 def identity_blocker(script: dict[str, Any], bridge_summary: dict[str, Any]) -> dict[str, Any] | None:
     """Return a blocker when visible live-run identity disagrees with the script."""
 

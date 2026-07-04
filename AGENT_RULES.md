@@ -4,10 +4,10 @@ These rules are for Codex or any other coding agent working on this project.
 
 ## Core Rules
 
-1. Implement only one task from `TASKS.md` at a time.
+1. Keep each change scoped to one coherent task at a time.
 2. Add tests before or with implementation.
 3. Run `cargo fmt`, `cargo clippy`, and `cargo test` from `simulator/` before declaring a simulator code task complete.
-4. Update `STATUS.md` in the same change as the task.
+4. Document important verification, risks, and follow-up work in the commit message or a permanent project document when the change needs it.
 5. Never continue to a new task with failing tests.
 6. Never add unrelated mechanics.
 7. Write a short design note before risky mechanics.
@@ -90,10 +90,8 @@ These rules are for Codex or any other coding agent working on this project.
 
 ## Status Discipline
 
-Every completed task updates `STATUS.md` with:
-
-- completed task title
-- test commands run
-- current milestone
-- next task
-- known risks or limitations
+When completing a task, leave enough durable context for the next session to
+understand what changed, what was verified, and what remains risky. Prefer the
+commit message for ordinary implementation notes, and use permanent project
+documents only for decisions or design context that should outlive a single
+change.

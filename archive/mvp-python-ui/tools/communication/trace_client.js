@@ -336,7 +336,8 @@ function currentProtocolState() {
     state_id: latestSummary?.state_id ?? null,
     ready_for_command: latestSummary?.ready_for_command ?? false,
     available_commands: latestSummary?.available_commands ?? [],
-    pending_command: queuedCommands.length > 0,
+    pending_command: queuedCommands.length > 0 || Boolean(commandInFlight),
+    command_in_flight: commandInFlight,
     summary: latestSummary,
     state: latestState,
     status: latestStatus,
@@ -565,8 +566,10 @@ async function handleControlMessage(payload) {
         && commandInFlight.command_id === commandId
         && queuedCommands.length === 0
       ) {
-        commandInFlight = null;
+          commandInFlight = null;
       }
+    } else if (commandInFlight && commandInFlight.command_id === commandId) {
+      commandInFlight = null;
     }
     return response;
   }
@@ -696,6 +699,8 @@ async function handleLine(line) {
     trace_path: tracePath,
     command,
     command_meta: commandMeta,
+    pending_command: Boolean(commandInFlight),
+    command_in_flight: commandInFlight,
     sent_at: new Date().toISOString(),
   });
   process.stderr.write(`[step ${step}] ${command}\n`);

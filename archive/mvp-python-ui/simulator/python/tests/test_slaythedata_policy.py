@@ -8,6 +8,7 @@ from sts.slaythedata_policy import (
     identity_blocker,
     match_map_choice,
     match_visible_choice,
+    neow_target_matches_live_choice,
     potion_uses_allowed_on_floor,
 )
 
@@ -201,6 +202,23 @@ class SlayTheDataPolicyTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["descriptor"], {"kind": "ChooseVisibleOption", "option_slot": 0})
+
+    def test_neow_target_matches_live_choice_rejects_wrong_live_slot(self):
+        script = build_guided_run_script(
+            {
+                "event": {
+                    "neow_bonus": "THREE_ENEMY_KILL",
+                    "neow_cost": "NONE",
+                }
+            }
+        )
+        choices = [
+            "enemies in your next three combats have 1 hp",
+            "gain max hp",
+        ]
+
+        self.assertTrue(neow_target_matches_live_choice(script, choices, 0))
+        self.assertFalse(neow_target_matches_live_choice(script, choices, 1))
 
     def test_match_visible_choice_handles_guided_safe_neow_bonus_aliases(self):
         cases = [

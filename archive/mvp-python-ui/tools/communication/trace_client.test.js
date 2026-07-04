@@ -536,6 +536,13 @@ async function testTcpControlDisablesLegacyFileCommandsByDefault() {
     });
     assert.strictEqual(accepted.ok, true);
     await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    const acceptedStatusPath = path.join(sessionDir, "status.json");
+    const sentStatus = await waitFor(() => {
+      const parsed = JSON.parse(fs.readFileSync(acceptedStatusPath, "utf8"));
+      return parsed.status === "sent" && parsed.command === "CHOOSE 0" ? parsed : null;
+    });
+    assert.strictEqual(sentStatus.pending_command, false);
+    assert.strictEqual(sentStatus.command_in_flight, null);
 
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));

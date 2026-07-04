@@ -19,6 +19,7 @@ from sts.slaythedata_policy import (
     identity_blocker,
     match_map_choice,
     match_visible_choice,
+    neow_target_matches_live_choice,
     potion_uses_allowed_on_floor,
 )
 
@@ -52,13 +53,6 @@ class GuidedCollector:
             script=script,
             rust_preflight=rust_preflight if isinstance(rust_preflight, dict) else None,
         )
-        rust_blocker = rust_preflight_blocker(self._run.rust_preflight)
-        if rust_blocker is not None:
-            self._run.status = "blocked"
-            self._run.blocker = rust_blocker
-            self._run.last_suggestion = rust_blocker
-            self._run.history.append(rust_blocker)
-            return self.status()
         support_blocker = guided_script_support_blocker(script)
         if support_blocker is not None:
             self._run.status = "blocked"
@@ -90,6 +84,25 @@ class GuidedCollector:
             "pending_prediction": self._run.pending_prediction,
             "history_count": len(self._run.history),
         }
+
+    def clear_runtime_blocker(self, *reasons: str) -> dict[str, Any]:
+        if self._run is None:
+            return self.status()
+        blocker = self._run.blocker if isinstance(self._run.blocker, dict) else {}
+        if self._run.status == "blocked" and blocker.get("reason") in set(reasons):
+            self._run.status = "ready"
+            self._run.blocker = None
+        return self.status()
+
+    def reset_runtime_state(self) -> dict[str, Any]:
+        if self._run is None:
+            return self.status()
+        self._run.status = "ready"
+        self._run.blocker = None
+        self._run.last_suggestion = None
+        self._run.pending_prediction = None
+        self._run.history.clear()
+        return self.status()
 
     def tick(
         self,
@@ -185,6 +198,12 @@ class GuidedCollector:
             return _blocked("pending_command", "waiting for pending bridge command before verifying prediction")
         if bridge_status.get("ready_for_command") is not True:
             return _blocked("bridge_not_ready", "waiting for the next observed bridge state before verifying prediction")
+        stale_state_blocker = _pending_prediction_stale_state_blocker(
+            self._run.pending_prediction,
+            bridge_status,
+        )
+        if stale_state_blocker is not None:
+            return stale_state_blocker
         if verify_prediction is None:
             return _blocked("missing_prediction_verifier", "collector has a pending prediction but no verifier")
         try:
@@ -247,7 +266,7 @@ class GuidedCollector:
             raise ValueError("collector is not active")
         self._run.last_suggestion = suggestion
         self._run.history.append(suggestion)
-        if suggestion.get("status") == "blocked":
+        if suggestion.get("status") == "blocked" and not _is_soft_wait_suggestion(suggestion):
             self._run.status = "blocked"
             self._run.blocker = suggestion
         else:
@@ -326,6 +345,8 @@ def rust_preflight_suggestion(
                 continue
             if choices and not (0 <= slot < len(choices)):
                 continue
+            if category == "neow" and choices and not neow_target_matches_live_choice(run.script, choices, slot):
+                continue
         return {
             "status": "matched",
             "source": "rust_preflight",
@@ -352,7 +373,7 @@ def _rust_preflight_step_matches_category(
     step_floor = _parse_int(step.get("floor"))
     if category == "neow":
         return step_floor == 0 and code.startswith("legal_neow_")
-    if category == "map" and code in {"legal_map_room", "compatible_map_room"}:
+    if category == "map" and code == "legal_map_room":
         return floor is None or step_floor in {floor, floor + 1}
     if category == "card_reward" and code == "legal_card_reward":
         return floor is None or step_floor == floor
@@ -372,6 +393,9 @@ def suggest_guided_action(
         return blocker
     floor = _current_floor(summary, bridge_status)
     if floor is None:
+        waiting = _waiting_for_run_start(summary, bridge_status)
+        if waiting is not None:
+            return waiting
         return _blocked("missing_floor", "bridge status does not expose a current floor")
     act = _current_act(summary, bridge_status)
 
@@ -483,8 +507,7 @@ def send_guided_suggestion(
     try:
         send_kwargs = {
             "source_state_id": source_state_id,
-            "wait_for_state_update": True,
-            "update_timeout_seconds": 35.0,
+            "wait_for_state_update": False,
         }
         if metadata is not None:
             send_kwargs["metadata"] = metadata
@@ -493,7 +516,7 @@ def send_guided_suggestion(
         return suggestion | _blocked("send_failed", str(error))
 
     observed_update = result.get("observed_update")
-    if result.get("transport") == "tcp-jsonl":
+    if result.get("transport") == "tcp-jsonl" and "observed_update" in result:
         if not isinstance(observed_update, dict):
             return suggestion | _blocked(
                 "observed_update_missing",
@@ -515,6 +538,8 @@ def send_guided_suggestion(
             "command": result.get("command"),
             "transport": result.get("transport"),
             "observed_update": observed_update,
+            "accepted_state_id": result.get("accepted_state_id"),
+            "accepted_state_seq": result.get("accepted_state_seq"),
         },
     }
 
@@ -578,14 +603,62 @@ def send_guided_non_combat_suggestion(
 
 
 def _pending_prediction_from_simulator_send(send_result: dict[str, Any]) -> dict[str, Any]:
+    raw_send_result = send_result.get("send_result")
+    if not isinstance(raw_send_result, dict):
+        raw_send_result = {}
     return {
         "predicted_state_id": send_result.get("predicted_state_id"),
         "predicted_snapshot_json": send_result.get("predicted_snapshot_json"),
         "source_state_id": send_result.get("source_state_id"),
         "bridge_state_id": send_result.get("bridge_state_id"),
         "bridge_step": send_result.get("bridge_step"),
-        "command": (send_result.get("send_result") or {}).get("command"),
+        "command": raw_send_result.get("command"),
+        "accepted_state_id": raw_send_result.get("accepted_state_id"),
+        "accepted_state_seq": raw_send_result.get("accepted_state_seq"),
     }
+
+
+def _pending_prediction_stale_state_blocker(
+    pending_prediction: dict[str, Any],
+    bridge_status: dict[str, Any],
+) -> dict[str, Any] | None:
+    sent_bridge_state_id = pending_prediction.get("bridge_state_id")
+    current_bridge_state_id = bridge_status.get("state_id")
+    if not sent_bridge_state_id or current_bridge_state_id != sent_bridge_state_id:
+        return None
+    accepted_seq = _coerce_int(pending_prediction.get("accepted_state_seq"))
+    current_seq = _bridge_state_seq(bridge_status)
+    if accepted_seq is None and current_seq is None:
+        return None
+    if accepted_seq is not None and current_seq is not None and current_seq > accepted_seq:
+        return None
+    return _blocked(
+        "waiting_for_observed_state",
+        "waiting for a new observed bridge state before verifying the pending prediction",
+    )
+
+
+def _bridge_state_seq(bridge_status: dict[str, Any]) -> int | None:
+    direct = _coerce_int(bridge_status.get("state_seq"))
+    if direct is not None:
+        return direct
+    summary = bridge_status.get("summary")
+    if isinstance(summary, dict):
+        return _coerce_int(summary.get("state_seq"))
+    return None
+
+
+def _coerce_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _guided_provenance(run: CollectorRun, suggestion: dict[str, Any]) -> dict[str, Any]:
@@ -659,6 +732,22 @@ def _current_floor(summary: dict[str, Any], bridge_status: dict[str, Any]) -> in
         if parsed is not None:
             return parsed
     return None
+
+
+def _waiting_for_run_start(summary: dict[str, Any], bridge_status: dict[str, Any]) -> dict[str, Any] | None:
+    available = {str(command).lower() for command in bridge_status.get("available_commands") or []}
+    if not available:
+        available = {str(command).lower() for command in summary.get("available_commands") or []}
+    if summary.get("in_game") is False or "start" in available:
+        return _blocked("waiting_for_run_start", "waiting for START to create the first in-run bridge state") | {
+            "transient": True,
+            "category": "run_start",
+        }
+    return None
+
+
+def _is_soft_wait_suggestion(suggestion: dict[str, Any]) -> bool:
+    return suggestion.get("reason") == "waiting_for_run_start" or suggestion.get("transient") is True
 
 
 def _current_act(summary: dict[str, Any], bridge_status: dict[str, Any]) -> int | None:

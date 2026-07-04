@@ -103,7 +103,7 @@ they are usable as policy roots.
 Use `real-trace-report` to inspect that boundary:
 
 ```powershell
-uv run python -m sts.self_play real-trace-report --trace ..\verification\corpus\communication_mod\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl
+uv run python -m sts.self_play real-trace-report --trace ..\verification\corpus\permanent_traces\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl
 ```
 
 The report counts observed combat/potion combat states and explains whether
@@ -113,7 +113,7 @@ To try converting a real trace into simulator-backed roots, run trace-guided
 replay:
 
 ```powershell
-uv run python -m sts.self_play replay-real-trace --trace ..\verification\corpus\communication_mod\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl --output target\trace-guided\manual01-replayed.jsonl --report-output target\trace-guided\manual01-report.json
+uv run python -m sts.self_play replay-real-trace --trace ..\verification\corpus\permanent_traces\trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl --output target\trace-guided\manual01-replayed.jsonl --report-output target\trace-guided\manual01-report.json
 ```
 
 This starts `OmniRunEnv` from the trace `START` command, skips unsupported

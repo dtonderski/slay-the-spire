@@ -8,7 +8,7 @@
   },
   "entries": [
     {
-      "path": "communication_mod/trace-2026-06-21T09-57-10-380Z.jsonl",
+      "path": "permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl",
       "external_seed": "TEST",
       "numeric_seed": 1218623,
       "endpoint": "act1_boss_relic_return_to_map",
@@ -20,7 +20,7 @@
   ],
   "blocked_candidates": [
     {
-      "path": "communication_mod/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
+      "path": "permanent_traces/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
       "reason": "Structurally reaches beyond Act 1, but seed-start currently diverges at map generation and the raw trace has manual/bridge contamination notes."
     },
     {

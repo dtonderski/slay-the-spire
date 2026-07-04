@@ -35,6 +35,7 @@ def preflight_with_client_audit(bridge: BridgeMirror) -> dict[str, Any]:
         "clients": [
             {
                 "pid": client.get("pid"),
+                "name": client.get("name"),
                 "current": bool(client.get("current")),
                 "alive": bool(client.get("alive")),
                 "killable": client.get("killable"),

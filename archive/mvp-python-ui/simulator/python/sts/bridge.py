@@ -53,7 +53,7 @@ class BridgeMirror:
         command_meta = (
             _read_json(self.session_dir / "next_command.json")
             if file_pending
-            else status.get("queued_command_meta", {}) if isinstance(status, dict) and tcp_pending else {}
+            else _tcp_pending_command_meta(status) if isinstance(status, dict) and tcp_pending else {}
         )
         stale = observed_state_stale
         exited = status.get("status") == "exited" if isinstance(status, dict) else False
@@ -123,7 +123,7 @@ class BridgeMirror:
         command_meta = (
             _read_json(command_meta_path)
             if command_exists
-            else status.get("queued_command_meta", {}) if isinstance(status, dict) and tcp_pending else {}
+            else _tcp_pending_command_meta(status) if isinstance(status, dict) and tcp_pending else {}
         )
         problems = []
         warnings = []
@@ -491,6 +491,24 @@ class BridgeMirror:
         _kill_process(parsed)
         return {"ok": True, "pid": parsed, "already_exited": False}
 
+    def kill_clients(self) -> dict[str, Any]:
+        clients = self.clients()["clients"]
+        results = []
+        for client in clients:
+            if not client.get("killable"):
+                continue
+            pid = client.get("pid")
+            try:
+                _kill_process(int(pid))
+                results.append({"ok": True, "pid": int(pid), "already_exited": False})
+            except Exception as error:
+                results.append({"ok": False, "pid": pid, "error": str(error)})
+        return {
+            "ok": all(result.get("ok") for result in results),
+            "killed_count": sum(1 for result in results if result.get("ok") and not result.get("already_exited")),
+            "results": results,
+        }
+
 
 def command_for_descriptor(descriptor: dict[str, Any]) -> str:
     kind = str(descriptor.get("kind", "")).strip()
@@ -711,6 +729,23 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {"missing": True}
     except json.JSONDecodeError as error:
         return {"error": f"invalid JSON: {error}", "missing": False}
+
+
+def _tcp_pending_command_meta(status: dict[str, Any]) -> dict[str, Any]:
+    queued = status.get("queued_command_meta")
+    if isinstance(queued, dict):
+        return queued
+    sent = status.get("command_meta")
+    if isinstance(sent, dict):
+        return sent
+    in_flight = status.get("command_in_flight")
+    if isinstance(in_flight, dict):
+        return {
+            "command_id": in_flight.get("command_id"),
+            "command": in_flight.get("command"),
+            "protocol": "tcp-jsonl",
+        }
+    return {}
 
 
 def _summary_with_derived_potion_slots(

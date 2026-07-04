@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --bg: #f6f7f3;
   --ink: #18201f;
   --muted: #65706d;
@@ -8,12 +8,24 @@
   --panel-strong: #eef3f0;
   --accent: #1f6f68;
   --accent-strong: #14524d;
+  --on-accent: #ffffff;
   --danger: #a63d2f;
   --danger-bg: #fff0ed;
   --info-bg: #eef5ff;
   --info: #285b8f;
   --good: #2d6e42;
+  --good-bg: #edf8f0;
   --warn: #9b6a18;
+  --warn-bg: #fff8e8;
+  --ready-bg: #edf8f6;
+  --topbar-bg: rgba(246, 247, 243, 0.96);
+  --input-bg: #ffffff;
+  --empty-bg: rgba(255, 255, 255, 0.5);
+  --code-bg: #101413;
+  --code-ink: #e9f0ed;
+  --shadow: rgba(17, 24, 39, 0.05);
+  --modal-scrim: rgba(24, 32, 31, 0.72);
+  --flash: #f1c36d;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -59,7 +71,7 @@ button:disabled {
 button.primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 input,
@@ -70,7 +82,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.45rem 0.6rem;
-  background: white;
+  background: var(--input-bg);
   color: var(--ink);
 }
 
@@ -116,7 +128,7 @@ h3 {
   gap: 1rem;
   padding: 1rem clamp(1rem, 3vw, 2rem);
   border-bottom: 1px solid var(--line);
-  background: rgba(246, 247, 243, 0.96);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
 }
 
@@ -153,7 +165,7 @@ h3 {
 
 .mode-toggle button.active {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 
@@ -241,6 +253,10 @@ h3 {
   width: 8rem;
 }
 
+.live-start-row select#startSeedFormatSelect {
+  width: 4.8rem;
+}
+
 .live-primary-actions button {
   flex: 1 1 10rem;
 }
@@ -293,13 +309,13 @@ h3 {
 
 .status-badge.busy {
   border-color: var(--warn);
-  background: #fff8e8;
+  background: var(--warn-bg);
   color: var(--warn);
 }
 
 .status-badge.good {
   border-color: var(--good);
-  background: #edf8f0;
+  background: var(--good-bg);
   color: var(--good);
 }
 
@@ -530,7 +546,7 @@ h3 {
 }
 
 .message.flash {
-  outline: 3px solid #f1c36d;
+  outline: 3px solid var(--flash);
 }
 
 .hidden {
@@ -663,7 +679,7 @@ h3 {
   display: grid;
   place-items: center;
   padding: 1.5rem;
-  background: rgba(24, 32, 31, 0.72);
+  background: var(--modal-scrim);
 }
 
 .invariant-modal.hidden {
@@ -732,8 +748,8 @@ h3 {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #101413;
-  color: #e9f0ed;
+  background: var(--code-bg);
+  color: var(--code-ink);
   padding: 1rem;
   font: 0.86rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   tab-size: 2;
@@ -744,7 +760,7 @@ h3 {
   place-items: center;
   border: 1px dashed var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--empty-bg);
   padding: 1rem;
 }
 
@@ -841,8 +857,51 @@ h3 {
   --panel-strong: #f4f7f9;
   --accent: #256f88;
   --accent-strong: #144c61;
+  --on-accent: #ffffff;
   --good: #287248;
+  --good-bg: #edf8f0;
   --warn: #9b681a;
+  --warn-bg: #fff8e8;
+  --ready-bg: #edf8f6;
+  --topbar-bg: rgba(238, 241, 244, 0.97);
+  --input-bg: #ffffff;
+  --empty-bg: rgba(255, 255, 255, 0.5);
+  --code-bg: #101413;
+  --code-ink: #e9f0ed;
+  --shadow: rgba(17, 24, 39, 0.05);
+  --modal-scrim: rgba(24, 32, 31, 0.72);
+  --flash: #f1c36d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101315;
+    --ink: #e9eef0;
+    --muted: #9aa7af;
+    --line: #303941;
+    --panel: #171c20;
+    --panel-strong: #20272d;
+    --accent: #45a6bb;
+    --accent-strong: #8ed8e6;
+    --on-accent: #071114;
+    --danger: #ff8b7a;
+    --danger-bg: #351d1b;
+    --info-bg: #16283a;
+    --info: #8fc5f4;
+    --good: #75cf91;
+    --good-bg: #143021;
+    --warn: #e0b25f;
+    --warn-bg: #312716;
+    --ready-bg: #123139;
+    --topbar-bg: rgba(16, 19, 21, 0.96);
+    --input-bg: #11171b;
+    --empty-bg: rgba(255, 255, 255, 0.035);
+    --code-bg: #0b0f11;
+    --code-ink: #e9eef0;
+    --shadow: rgba(0, 0, 0, 0.28);
+    --modal-scrim: rgba(4, 7, 9, 0.78);
+    --flash: #c88f30;
+  }
 }
 
 body {
@@ -879,7 +938,7 @@ h3 {
 .topbar {
   min-height: 3.4rem;
   padding: 0.48rem clamp(0.7rem, 1.5vw, 1rem);
-  background: rgba(238, 241, 244, 0.97);
+  background: var(--topbar-bg);
 }
 
 .topbar-actions,
@@ -927,7 +986,7 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
-  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
+  box-shadow: 0 1px 2px var(--shadow);
 }
 
 .dashboard-card {
@@ -1042,7 +1101,7 @@ h3 {
 
 .live-start-row {
   display: grid;
-  grid-template-columns: auto minmax(5.2rem, 0.9fr) auto 4.1rem auto minmax(5rem, 0.8fr) auto;
+  grid-template-columns: auto minmax(5.2rem, 0.9fr) auto 4.1rem auto minmax(5rem, 0.8fr) 4.8rem auto;
 }
 
 .live-start-row label,
@@ -1087,7 +1146,7 @@ h3 {
   flex: 0 0 1.25rem;
   height: 1.25rem;
   border-radius: 50%;
-  background: white;
+  background: var(--input-bg);
   color: var(--muted);
   font-size: 0.72rem;
 }
@@ -1101,24 +1160,24 @@ h3 {
 
 .workflow-step.done {
   border-color: var(--good);
-  background: #edf8f0;
+  background: var(--good-bg);
   color: var(--good);
 }
 
 .workflow-step.done strong {
   background: var(--good);
-  color: white;
+  color: var(--on-accent);
 }
 
 .workflow-step.ready {
   border-color: var(--accent);
-  background: #edf8f6;
+  background: var(--ready-bg);
   color: var(--accent-strong);
 }
 
 .workflow-step.ready strong {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 .workflow-step.blocked {
@@ -1167,11 +1226,45 @@ h3 {
 
 .collector-picker {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  grid-template-columns: minmax(12rem, 1fr) minmax(5.8rem, auto) minmax(5.8rem, auto);
+  align-items: end;
   gap: 0.35rem;
 }
 
-.collector-picker select {
+.collector-run-select {
+  min-width: 0;
+}
+
+.collector-run-select select {
+  width: 100%;
+  min-width: 0;
+}
+
+.collector-filter {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.collector-filter label {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.collector-filter input,
+.collector-filter select {
+  width: 100%;
+  min-width: 0;
+}
+
+.collector-picker-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6.4rem, 1fr));
+  gap: 0.35rem;
+}
+
+.collector-picker-actions button {
   width: 100%;
 }
 
@@ -1196,6 +1289,47 @@ h3 {
   display: grid;
   gap: 0.35rem;
   min-height: 2.8rem;
+}
+
+.slaythedata-debug-log {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  padding: 0.45rem;
+}
+
+.slaythedata-debug-log summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.slaythedata-debug-list {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.slaythedata-debug-entry {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.slaythedata-debug-entry strong {
+  font-size: 0.74rem;
+}
+
+.slaythedata-debug-entry code {
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.32rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
 }
 
 .combat-grid {
@@ -1275,13 +1409,13 @@ h3 {
 
 .action-button.recommended-action {
   border-color: var(--accent);
-  background: #edf8f6;
+  background: var(--ready-bg);
   color: var(--accent-strong);
   font-weight: 800;
 }
 
 .action-button.unavailable-action {
-  background: #fafafa;
+  background: var(--panel-strong);
   color: var(--muted);
 }
 
@@ -1340,7 +1474,7 @@ h3 {
   padding: 0.15rem 0.45rem;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.035);
+  background: var(--empty-bg);
   color: var(--ink);
   white-space: nowrap;
 }
@@ -1366,7 +1500,7 @@ h3 {
 .bridge-maintenance-actions button {
   min-height: 2.1rem;
   border-color: var(--warn);
-  background: #fff8e8;
+  background: var(--warn-bg);
   color: var(--warn);
 }
 
@@ -1411,7 +1545,7 @@ h3 {
 
 .bridge-client-card.current {
   border-color: #9cc9b0;
-  background: #f1faf4;
+  background: var(--good-bg);
 }
 
 .bridge-client-card.dead {
@@ -1446,7 +1580,7 @@ h3 {
 .client-chip {
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: white;
+  background: var(--input-bg);
   padding: 0.12rem 0.4rem;
   color: var(--muted);
   font-size: 0.68rem;
@@ -1461,7 +1595,7 @@ h3 {
 
 .client-chip.warn {
   border-color: #edcf91;
-  background: #fff8e8;
+  background: var(--warn-bg);
   color: var(--warn);
 }
 
@@ -1469,6 +1603,11 @@ h3 {
   border-color: var(--danger);
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.compact-button {
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
 }
 
 .pv-list,
@@ -1620,6 +1759,14 @@ h3 {
   .bridge-client-card,
   .combat-grid {
     grid-template-columns: 1fr;
+  }
+
+  .collector-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .collector-picker-actions {
+    grid-column: auto;
   }
 
   .bridge-client-chips {

@@ -247,7 +247,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["source_state_id"], "before-state")
         self.assertTrue(calls[0][1]["require_tcp_control"])
         self.assertTrue(calls[0][1]["wait_for_state_update"])
-        self.assertEqual(calls[0][1]["update_timeout_seconds"], 10.0)
+        self.assertEqual(calls[0][1]["update_timeout_seconds"], 15.0)
         self.assertEqual(calls[0][1]["metadata"], {"source": "ui_manual"})
 
     def test_guided_script_payload_accepts_exported_slaythedata_run(self):
@@ -522,8 +522,8 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 3 LIVE01")
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "menu-state")
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
-        self.assertTrue(bridge.sent[0][1]["wait_for_state_update"])
-        self.assertEqual(bridge.sent[0][1]["update_timeout_seconds"], 30.0)
+        self.assertFalse(bridge.sent[0][1]["wait_for_state_update"])
+        self.assertNotIn("update_timeout_seconds", bridge.sent[0][1])
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector_start")
         self.assertEqual(bridge.sent[0][1]["metadata"]["script_source"]["run_id"], 77)
 
@@ -550,7 +550,42 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["command"], "START IRONCLAD 0 4E1F1EYL4U1M3")
         self.assertEqual(bridge.sent[0][0], "START IRONCLAD 0 4E1F1EYL4U1M3")
 
-    def test_start_guided_live_run_rejects_observed_state_timeout(self):
+    def test_start_guided_live_run_accepts_without_synchronous_observed_update(self):
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 3,
+                            "seed_played": "LIVE01",
+                        },
+                    }
+                )
+            }
+        )
+
+        class NoObservedUpdateBridge(FakeBridge):
+            def send_command(self, command, **kwargs):
+                self.sent.append((command, kwargs))
+                return {
+                    "ok": True,
+                    "command_id": "cmd-start",
+                    "command": command,
+                    "transport": "tcp-jsonl",
+                    "accepted_state_id": "menu-state",
+                    "accepted_state_seq": 3,
+                }
+
+        bridge = NoObservedUpdateBridge({"state_id": "menu-state"})
+        result = _start_guided_live_run(collector, bridge)
+
+        self.assertEqual(result["send_result"]["accepted_state_id"], "menu-state")
+        self.assertEqual(result["send_result"]["accepted_state_seq"], 3)
+        self.assertFalse(bridge.sent[0][1]["wait_for_state_update"])
+
+    def test_start_guided_live_run_does_not_block_on_observed_state_timeout_payload(self):
         collector = GuidedCollector()
         collector.start(
             {
@@ -577,10 +612,14 @@ class UiServiceTests(unittest.TestCase):
                     "observed_update": {"ok": False, "error": "timed out waiting for observed state update"},
                 }
 
-        with self.assertRaisesRegex(ValueError, "guided START did not observe"):
-            _start_guided_live_run(collector, TimeoutBridge({"state_id": "menu-state"}))
+        bridge = TimeoutBridge({"state_id": "menu-state"})
+        result = _start_guided_live_run(collector, bridge)
 
-    def test_start_guided_live_run_rejects_tcp_without_observed_update(self):
+        self.assertEqual(result["command"], "START IRONCLAD 3 LIVE01")
+        self.assertEqual(result["send_result"]["observed_update"]["ok"], False)
+        self.assertFalse(bridge.sent[0][1]["wait_for_state_update"])
+
+    def test_start_guided_live_run_clears_sticky_missing_floor_blocker(self):
         collector = GuidedCollector()
         collector.start(
             {
@@ -595,19 +634,78 @@ class UiServiceTests(unittest.TestCase):
                 )
             }
         )
+        collector._run.status = "blocked"
+        collector._run.blocker = {
+            "status": "blocked",
+            "reason": "missing_floor",
+            "detail": "bridge status does not expose a current floor",
+        }
+        bridge = FakeBridge({"state_id": "menu-state"})
 
-        class NoObservedUpdateBridge(FakeBridge):
-            def send_command(self, command, **kwargs):
-                self.sent.append((command, kwargs))
-                return {
-                    "ok": True,
-                    "command_id": "cmd-start",
-                    "command": command,
-                    "transport": "tcp-jsonl",
-                }
+        result = _start_guided_live_run(collector, bridge)
 
-        with self.assertRaisesRegex(ValueError, "guided START did not return an observed TCP state update"):
-            _start_guided_live_run(collector, NoObservedUpdateBridge({"state_id": "menu-state"}))
+        self.assertEqual(result["command"], "START IRONCLAD 3 LIVE01")
+        self.assertEqual(result["collector"]["status"], "ready")
+        self.assertIsNone(result["collector"]["blocker"])
+        self.assertEqual(bridge.sent[0][0], "START IRONCLAD 3 LIVE01")
+
+    def test_start_guided_live_run_resumes_in_game_and_resets_runtime_history(self):
+        collector = GuidedCollector()
+        collector.start(
+            {
+                "script": build_guided_run_script(
+                    {
+                        "event": {
+                            "character_chosen": "IRONCLAD",
+                            "ascension_level": 3,
+                            "seed_played": "LIVE01",
+                        },
+                    }
+                )
+            }
+        )
+        collector._run.history.append(
+            {
+                "status": "sent_non_combat",
+                "source": "rust_preflight",
+                "preflight_step_ordinal": 0,
+            }
+        )
+        collector._run.pending_prediction = {
+            "bridge_state_id": "old-state",
+            "accepted_state_seq": 4,
+        }
+        bridge = FakeBridge(
+            {
+                "state_id": "talk-state",
+                "available_commands": ["choose", "state"],
+                "summary": {
+                    "in_game": True,
+                    "floor": 0,
+                    "screen_type": "EVENT",
+                    "choices": ["talk"],
+                    "ready_for_command": True,
+                },
+                "current_state": {
+                    "message": {
+                        "game_state": {
+                            "floor": 0,
+                            "screen_type": "EVENT",
+                            "choice_list": ["talk"],
+                        }
+                    }
+                },
+            }
+        )
+
+        result = _start_guided_live_run(collector, bridge)
+
+        self.assertTrue(result["resumed"])
+        self.assertIsNone(result["command"])
+        self.assertIsNone(result["send_result"])
+        self.assertEqual(bridge.sent, [])
+        self.assertEqual(result["collector"]["history_count"], 0)
+        self.assertIsNone(result["collector"]["pending_prediction"])
 
     def test_start_guided_live_run_requires_active_script_seed(self):
         collector = GuidedCollector()
@@ -747,6 +845,12 @@ class UiServiceTests(unittest.TestCase):
             (root / "next_command.txt").unlink()
             (root / "next_command.json").unlink()
             observed_session = live_session | {"state_id": "predicted-event-state"}
+            observed_payload = {
+                "floor": 2,
+                "screen_type": "EVENT",
+                "choice_list": ["Leave"],
+            }
+            (root / "state.json").write_text(json.dumps(observed_payload), encoding="utf-8")
             with patch.object(manager, "create_live_session", return_value=observed_session):
                 verified = _tick_live_collector(collector, manager, bridge, {"send": False})
 
@@ -949,6 +1053,7 @@ class UiServiceTests(unittest.TestCase):
                     "min_event_choices": ["1"],
                     "min_shop_purchases": ["1"],
                     "min_potion_usage": ["0"],
+                    "victory": ["1"],
                     "seed_played": ["LIVE01"],
                     "safe_neow": ["1"],
                     "limit": ["3"],
@@ -959,6 +1064,7 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["candidates"], [{"id": 1}])
         self.assertEqual(result["filters"]["character"], "IRONCLAD")
         self.assertEqual(result["filters"]["seed_played"], "LIVE01")
+        self.assertTrue(result["filters"]["victory"])
         self.assertFalse(result["filters"]["ranked"])
         select.assert_called_once_with(
             character="IRONCLAD",
@@ -971,6 +1077,7 @@ class UiServiceTests(unittest.TestCase):
             min_event_choices=1,
             min_shop_purchases=1,
             min_potion_usage=0,
+            victory=True,
             require_guided_safe_neow=True,
             limit=3,
             ranked=False,
@@ -984,33 +1091,103 @@ class UiServiceTests(unittest.TestCase):
             result = _slaythedata_candidates_from_query({})
 
         self.assertTrue(result["filters"]["safe_neow"])
+        self.assertIsNone(result["filters"]["max_floor"])
         self.assertEqual(result["candidates"], [])
         self.assertTrue(select.call_args.kwargs["require_guided_safe_neow"])
+        self.assertIsNone(select.call_args.kwargs["max_floor_reached"])
 
     def test_slaythedata_seed_candidates_query_uses_fast_seed_selector(self):
         with patch(
             "sts.ui_service.select_seed_matching_candidates",
             return_value=[{"id": 7, "seed_played": "LIVE01"}],
-        ) as select:
+        ) as select, patch(
+            "sts.ui_service._slaythedata_candidate_with_preflight",
+            return_value={
+                "id": 7,
+                "seed_played": "LIVE01",
+                "autoplay_blocked": False,
+            },
+        ) as preflight:
             result = _slaythedata_seed_candidates_from_query(
                 {
                     "character": ["ironclad"],
                     "ascension": ["0"],
                     "seed_played": ["LIVE01"],
                     "min_floor": ["3"],
+                    "victory": ["0"],
                     "limit": ["5"],
                 }
             )
 
-        self.assertEqual(result["candidates"], [{"id": 7, "seed_played": "LIVE01"}])
+        self.assertEqual(result["candidates"], [{"id": 7, "seed_played": "LIVE01", "autoplay_blocked": False}])
         self.assertEqual(result["filters"]["seed_played"], "LIVE01")
+        self.assertFalse(result["filters"]["victory"])
+        self.assertTrue(result["filters"]["preflight"])
+        self.assertTrue(result["filters"]["require_playable"])
         select.assert_called_once_with(
             seed_played="LIVE01",
             character="IRONCLAD",
             ascension=0,
             min_floor_reached=3,
-            limit=5,
+            victory=False,
+            limit=25,
         )
+        preflight.assert_called_once_with({"id": 7, "seed_played": "LIVE01"})
+
+    def test_slaythedata_seed_candidates_filter_preflight_blocked_routes(self):
+        with patch(
+            "sts.ui_service.select_seed_matching_candidates",
+            return_value=[
+                {"id": 7, "seed_played": "LIVE01"},
+                {"id": 8, "seed_played": "LIVE01"},
+            ],
+        ), patch(
+            "sts.ui_service._slaythedata_candidate_with_preflight",
+            side_effect=[
+                {
+                    "id": 7,
+                    "seed_played": "LIVE01",
+                    "autoplay_blocked": True,
+                    "autoplay_blocker": {"reason": "guided_map_symbol_unmatched"},
+                },
+                {
+                    "id": 8,
+                    "seed_played": "LIVE01",
+                    "autoplay_blocked": False,
+                },
+            ],
+        ):
+            result = _slaythedata_seed_candidates_from_query(
+                {
+                    "seed_played": ["LIVE01"],
+                    "limit": ["1"],
+                }
+            )
+
+        self.assertEqual(result["candidates"], [{"id": 8, "seed_played": "LIVE01", "autoplay_blocked": False}])
+
+    def test_slaythedata_seed_candidates_can_return_blocked_routes_for_diagnostics(self):
+        with patch(
+            "sts.ui_service.select_seed_matching_candidates",
+            return_value=[{"id": 7, "seed_played": "LIVE01"}],
+        ), patch(
+            "sts.ui_service._slaythedata_candidate_with_preflight",
+            return_value={
+                "id": 7,
+                "seed_played": "LIVE01",
+                "autoplay_blocked": True,
+                "autoplay_blocker": {"reason": "guided_map_symbol_unmatched"},
+            },
+        ):
+            result = _slaythedata_seed_candidates_from_query(
+                {
+                    "seed_played": ["LIVE01"],
+                    "require_playable": ["0"],
+                }
+            )
+
+        self.assertFalse(result["filters"]["require_playable"])
+        self.assertEqual(result["candidates"][0]["autoplay_blocker"]["reason"], "guided_map_symbol_unmatched")
 
     def test_slaythedata_candidates_can_include_rust_preflight_blockers(self):
         with patch(
@@ -1032,7 +1209,10 @@ class UiServiceTests(unittest.TestCase):
             "sts.ui_service._slaythedata_rust_preflight_for_exported_run",
             side_effect=[
                 {"steps": [{"status": "checked", "code": "ok"}]},
-                {"steps": [{"status": "checked", "code": "ok"}]},
+                {
+                    "steps": [{"status": "blocked", "code": "neow_option_not_available"}],
+                    "diagnostics": [],
+                },
             ],
         ):
             result = _slaythedata_candidates_from_query({"preflight": ["1"]})
@@ -1042,10 +1222,11 @@ class UiServiceTests(unittest.TestCase):
         self.assertTrue(result["candidates"][0]["guided_support_blocked"])
         self.assertTrue(result["candidates"][0]["autoplay_blocked"])
         self.assertEqual(result["candidates"][0]["autoplay_blocker"]["reason"], "unsupported_event")
-        self.assertFalse(result["candidates"][1]["rust_preflight_blocked"])
+        self.assertTrue(result["candidates"][1]["rust_preflight_blocked"])
+        self.assertEqual(result["candidates"][1]["rust_preflight_blocker"]["reason"], "neow_option_not_available")
         self.assertFalse(result["candidates"][1]["guided_support_blocked"])
         self.assertFalse(result["candidates"][1]["autoplay_blocked"])
-        self.assertIsNone(result["candidates"][1]["rust_preflight_blocker"])
+        self.assertIsNone(result["candidates"][1]["autoplay_blocker"])
 
     def test_slaythedata_status_query_uses_filters(self):
         with patch(
@@ -1365,13 +1546,14 @@ class UiServiceTests(unittest.TestCase):
             {
                 "candidate": "rust_beam_terminal_w32_d40",
                 "max_depth": 1,
+                "beam_width": 96,
                 "allowed_potions": ["Weak Potion"],
             },
         )
 
         recommendation = result["recommendation"]
         self.assertEqual(recommendation["config"]["algorithm"], "rust_beam")
-        self.assertEqual(recommendation["config"]["beam_width"], 32)
+        self.assertEqual(recommendation["config"]["beam_width"], 96)
         self.assertEqual(recommendation["config"]["allowed_potions"], ("Weak Potion",))
 
     def test_search_rejects_unknown_named_policy(self):
@@ -1677,7 +1859,7 @@ class UiServiceTests(unittest.TestCase):
             result = manager.send_live_combat_action(
                 bridge_status,
                 {"status": "combat", "potion_uses_allowed": 0},
-                {"potion_uses_allowed": 0, "max_depth": 5},
+                {"potion_uses_allowed": 0, "max_depth": 5, "beam_width": 96},
                 send_command=lambda command, **kwargs: sent.append((command, kwargs))
                 or {"ok": True, "command_id": "cmd-1", "command": command},
             )
@@ -1690,6 +1872,7 @@ class UiServiceTests(unittest.TestCase):
             [("PLAY 1 0", {"source_state_id": "bridge-state", "wait_for_state_update": True})],
         )
         self.assertEqual(search.call_args.args[1]["source_state_id"], "fake-live-state")
+        self.assertEqual(search.call_args.args[1]["beam_width"], 96)
         self.assertEqual(search.call_args.args[1]["allowed_potions"], [])
         self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-live-state")
 
@@ -1747,12 +1930,12 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(result["predicted_snapshot_json"], "{\"phase\":\"event\"}")
         self.assertEqual(
             sent,
-            [("CHOOSE 0", {"source_state_id": "bridge-state", "wait_for_state_update": True})],
+            [("CHOOSE 0", {"source_state_id": "bridge-state", "wait_for_state_update": False})],
         )
         self.assertEqual(predict.call_args.args[1]["action_id"], "a0")
         self.assertEqual(predict.call_args.args[1]["source_state_id"], "fake-event-state")
 
-    def test_send_live_non_combat_action_rejects_tcp_without_observed_update(self):
+    def test_send_live_non_combat_action_accepts_tcp_without_synchronous_observed_update(self):
         manager = SessionManager()
         manager._sessions["live"] = CombatSession(
             id="live",
@@ -1789,7 +1972,123 @@ class UiServiceTests(unittest.TestCase):
                 "predicted_snapshot_json": "{\"phase\":\"event\"}",
             },
         ):
-            with self.assertRaisesRegex(ValueError, "observed TCP state update"):
+            result = manager.send_live_non_combat_action(
+                bridge_status,
+                {
+                    "status": "matched",
+                    "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 0},
+                },
+                {},
+                send_command=lambda command, **_kwargs: {
+                    "ok": True,
+                    "command_id": "cmd-event",
+                    "command": command,
+                    "transport": "tcp-jsonl",
+                    "accepted_state_id": "bridge-state",
+                    "accepted_state_seq": 12,
+                },
+            )
+
+        self.assertEqual(result["command"], "CHOOSE 0")
+        self.assertEqual(result["send_result"]["accepted_state_id"], "bridge-state")
+        self.assertEqual(result["send_result"]["accepted_state_seq"], 12)
+
+    def test_send_live_non_combat_action_accepts_null_observed_update(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeEventRunEnv(),
+        )
+        bridge_status = {
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 2,
+                        "screen_type": "EVENT",
+                        "choice_list": ["Pray", "Leave"],
+                    }
+                }
+            },
+        }
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-event-state",
+            "attach_fidelity": "seed_replay",
+            "state_kind": "run",
+            "state": {"phase": "event"},
+        }
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+            manager,
+            "predict",
+            return_value={
+                "predicted_state_id": "predicted-event-state",
+                "predicted_snapshot_json": "{\"phase\":\"event\"}",
+            },
+        ):
+            result = manager.send_live_non_combat_action(
+                bridge_status,
+                {
+                    "status": "matched",
+                    "descriptor": {"kind": "ChooseVisibleOption", "option_slot": 0},
+                },
+                {},
+                send_command=lambda command, **_kwargs: {
+                    "ok": True,
+                    "command_id": "cmd-event",
+                    "command": command,
+                    "transport": "tcp-jsonl",
+                    "accepted_state_id": "bridge-state",
+                    "accepted_state_seq": 12,
+                    "observed_update": None,
+                },
+            )
+
+        self.assertEqual(result["command"], "CHOOSE 0")
+        self.assertIsNone(result["send_result"]["observed_update"])
+
+    def test_send_live_non_combat_action_rejects_failed_tcp_observed_update(self):
+        manager = SessionManager()
+        manager._sessions["live"] = CombatSession(
+            id="live",
+            mode="live_bridge",
+            state_kind="run",
+            env=FakeEventRunEnv(),
+        )
+        bridge_status = {
+            "state_id": "bridge-state",
+            "last_state_step": 12,
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "floor": 2,
+                        "screen_type": "EVENT",
+                        "choice_list": ["Pray", "Leave"],
+                    }
+                }
+            },
+        }
+        live_session = {
+            "session_id": "live",
+            "state_id": "fake-event-state",
+            "attach_fidelity": "seed_replay",
+            "state_kind": "run",
+            "state": {"phase": "event"},
+        }
+
+        with patch.object(manager, "create_live_session", return_value=live_session), patch.object(
+            manager,
+            "predict",
+            return_value={
+                "predicted_state_id": "predicted-event-state",
+                "predicted_snapshot_json": "{\"phase\":\"event\"}",
+            },
+        ):
+            with self.assertRaisesRegex(ValueError, "timed out"):
                 manager.send_live_non_combat_action(
                     bridge_status,
                     {
@@ -1802,6 +2101,7 @@ class UiServiceTests(unittest.TestCase):
                         "command_id": "cmd-event",
                         "command": command,
                         "transport": "tcp-jsonl",
+                        "observed_update": {"ok": False, "error": "timed out"},
                     },
                 )
 
@@ -1910,7 +2210,7 @@ class UiServiceTests(unittest.TestCase):
                 "available_commands": ["choose"],
             },
         }
-        bridge = FakeBridge(bridge_status)
+        bridge = MutableFakeBridge(bridge_status)
         live_session = {
             "session_id": "live",
             "state_id": "fake-event-state",
@@ -1935,10 +2235,11 @@ class UiServiceTests(unittest.TestCase):
         self.assertEqual(bridge.sent[0][0], "CHOOSE 0")
         self.assertEqual(bridge.sent[0][1]["source_state_id"], "bridge-state")
         self.assertTrue(bridge.sent[0][1]["require_tcp_control"])
-        self.assertTrue(bridge.sent[0][1]["wait_for_state_update"])
+        self.assertFalse(bridge.sent[0][1]["wait_for_state_update"])
         self.assertEqual(bridge.sent[0][1]["metadata"]["source"], "guided_collector")
 
         observed_session = live_session | {"state_id": "predicted-event-state"}
+        bridge.set_status(bridge_status | {"state_id": "predicted-event-state"})
         with patch.object(manager, "create_live_session", return_value=observed_session):
             verified = _tick_live_collector(collector, manager, bridge, {"send": False})
 

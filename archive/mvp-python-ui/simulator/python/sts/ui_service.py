@@ -14,7 +14,11 @@ from sts import omni
 from sts.bridge import BridgeMirror, command_for_descriptor
 from sts.bridge_audit import preflight_with_client_audit
 from sts.guided_collector import GuidedCollector
-from sts.guided_selection import GuidedSelectionConfig, select_run_audit_report
+from sts.guided_selection import (
+    GuidedSelectionConfig,
+    select_run_audit_report,
+    slaythedata_rust_preflight_blocker,
+)
 from sts.parity import combat_parity
 from sts.search import CombatSearchConfig, search_combat
 from sts.search_lab import SELECTED_COMBAT_AUTOPILOT_CANDIDATE, trace_autopilot_candidate_by_name
@@ -309,6 +313,8 @@ class SessionManager:
             "max_depth": int(payload.get("max_depth", 40)),
             "source_state_id": live_session["state_id"],
         }
+        if "beam_width" in payload:
+            search_payload["beam_width"] = int(payload["beam_width"])
         if "allowed_potions" in payload:
             search_payload["allowed_potions"] = payload["allowed_potions"]
         elif int(suggestion.get("potion_uses_allowed", 0) or 0) <= 0:
@@ -404,12 +410,14 @@ class SessionManager:
         source_state_id = bridge_status.get("state_id")
         send_kwargs = {
             "source_state_id": source_state_id,
-            "wait_for_state_update": True,
+            "wait_for_state_update": False,
         }
         if payload.get("provenance") is not None:
             send_kwargs["metadata"] = payload["provenance"]
         result = send_command(command, **send_kwargs)
-        observed_update = _observed_update_or_raise(result, "live non-combat send")
+        observed_update = result.get("observed_update")
+        if isinstance(observed_update, dict):
+            _observed_update_or_raise(result, "live non-combat send")
         return {
             "session_id": live_session["session_id"],
             "source_state_id": live_session["state_id"],
@@ -425,6 +433,8 @@ class SessionManager:
                 "command": result.get("command"),
                 "transport": result.get("transport"),
                 "observed_update": observed_update,
+                "accepted_state_id": result.get("accepted_state_id"),
+                "accepted_state_seq": result.get("accepted_state_seq"),
             },
         }
 
@@ -716,6 +726,9 @@ class UiRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parts == ["api", "bridge", "clients", "kill"]:
                 self._send_json(self.bridge.kill_client(payload.get("pid")))
+                return
+            if parts == ["api", "bridge", "clients", "kill-all"]:
+                self._send_json(self.bridge.kill_clients())
                 return
             if parts == ["api", "bridge", "orphan-command-metadata", "clear"]:
                 self._send_json(self.bridge.clear_orphan_command_metadata())
@@ -1271,7 +1284,7 @@ def _send_ui_bridge_command(
         source_state_id=source_state_id,
         require_tcp_control=True,
         wait_for_state_update=True,
-        update_timeout_seconds=10.0,
+        update_timeout_seconds=15.0,
         metadata={"source": "ui_manual"},
     )
     observed_update = result.get("observed_update")
@@ -1356,6 +1369,13 @@ def _start_guided_live_run(
         raise ValueError("start guided live run requires an active collector")
     if collector_status.get("status") == "blocked":
         blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {}
+        if blocker.get("reason") in {"missing_floor", "waiting_for_run_start"}:
+            collector_status = collector.clear_runtime_blocker("missing_floor", "waiting_for_run_start")
+            blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {}
+        if collector_status.get("status") != "blocked":
+            blocker = {}
+    if collector_status.get("status") == "blocked":
+        blocker = collector_status.get("blocker") if isinstance(collector_status.get("blocker"), dict) else {}
         detail = blocker.get("detail") or blocker.get("reason") or "collector is blocked"
         raise ValueError(f"start guided live run blocked: {detail}")
 
@@ -1366,6 +1386,15 @@ def _start_guided_live_run(
     )
     seed = _bridge_seed_token(config.get("seed_played") or config.get("seed"))
     bridge_status = bridge.status()
+    collector_status = collector.reset_runtime_state()
+    if _bridge_has_in_game_state(bridge_status):
+        return {
+            "ok": True,
+            "resumed": True,
+            "command": None,
+            "collector": collector_status,
+            "send_result": None,
+        }
     command = f"START {character} {ascension} {seed}"
     metadata = {
         "source": "guided_collector_start",
@@ -1378,10 +1407,9 @@ def _start_guided_live_run(
         source_state_id=bridge_status.get("state_id"),
         metadata=metadata,
         require_tcp_control=require_tcp_control,
-        wait_for_state_update=True,
-        update_timeout_seconds=30.0,
+        wait_for_state_update=False,
     )
-    observed_update = _observed_update_or_raise(send_result, "guided START")
+    observed_update = send_result.get("observed_update")
     return {
         "ok": True,
         "command": command,
@@ -1392,8 +1420,36 @@ def _start_guided_live_run(
             "command": send_result.get("command"),
             "transport": send_result.get("transport"),
             "observed_update": observed_update,
+            "accepted_state_id": send_result.get("accepted_state_id"),
+            "accepted_state_seq": send_result.get("accepted_state_seq"),
         },
     }
+
+
+def _bridge_has_in_game_state(bridge_status: dict[str, Any]) -> bool:
+    summary = bridge_status.get("summary") if isinstance(bridge_status.get("summary"), dict) else {}
+    if summary.get("in_game") is False:
+        return False
+    available = {str(command).lower() for command in bridge_status.get("available_commands") or []}
+    if not available:
+        available = {str(command).lower() for command in summary.get("available_commands") or []}
+    if "start" in available:
+        return False
+    current_state = bridge_status.get("current_state") if isinstance(bridge_status.get("current_state"), dict) else {}
+    message = current_state.get("message") if isinstance(current_state.get("message"), dict) else {}
+    observed = message.get("game_state") if isinstance(message.get("game_state"), dict) else {}
+    return any(
+        value is not None and value != [] and value != ""
+        for value in (
+            summary.get("floor"),
+            summary.get("screen_type"),
+            summary.get("room_phase"),
+            summary.get("choices"),
+            observed.get("floor"),
+            observed.get("screen_type"),
+            observed.get("choice_list"),
+        )
+    )
 
 
 def _bridge_seed_token(value: Any) -> str:
@@ -1508,6 +1564,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
     min_event_choices = _query_optional_int(query, "min_event_choices")
     min_shop_purchases = _query_optional_int(query, "min_shop_purchases")
     min_potion_usage = _query_optional_int(query, "min_potion_usage")
+    victory = _query_optional_bool(query, "victory")
     safe_neow = _query_bool(query, "safe_neow", True)
     limit = _query_int(query, "limit", 25)
     ranked = _query_bool(query, "ranked", True)
@@ -1523,6 +1580,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
         min_event_choices=min_event_choices,
         min_shop_purchases=min_shop_purchases,
         min_potion_usage=min_potion_usage,
+        victory=victory,
         require_guided_safe_neow=safe_neow,
         limit=limit,
         ranked=ranked,
@@ -1542,6 +1600,7 @@ def _slaythedata_candidates_from_query(query: dict[str, list[str]]) -> dict[str,
             "min_event_choices": min_event_choices,
             "min_shop_purchases": min_shop_purchases,
             "min_potion_usage": min_potion_usage,
+            "victory": victory,
             "safe_neow": safe_neow,
             "limit": limit,
             "ranked": ranked,
@@ -1557,14 +1616,22 @@ def _slaythedata_seed_candidates_from_query(query: dict[str, list[str]]) -> dict
     if not seed_played:
         raise ValueError("seed_played is required")
     min_floor = _query_int(query, "min_floor", 1)
+    victory = _query_optional_bool(query, "victory")
     limit = _query_int(query, "limit", 5)
+    require_playable = _query_bool(query, "require_playable", True)
     rows = select_seed_matching_candidates(
         seed_played=seed_played,
         character=character,
         ascension=ascension,
         min_floor_reached=min_floor,
-        limit=limit,
+        victory=victory,
+        limit=limit * 5 if require_playable else limit,
     )
+    annotated_rows = [_slaythedata_candidate_with_preflight(row) for row in rows]
+    if require_playable:
+        rows = [row for row in annotated_rows if not row.get("autoplay_blocked")][:limit]
+    else:
+        rows = annotated_rows[:limit]
     return {
         "candidates": rows,
         "filters": {
@@ -1572,8 +1639,10 @@ def _slaythedata_seed_candidates_from_query(query: dict[str, list[str]]) -> dict
             "ascension": ascension,
             "seed_played": seed_played,
             "min_floor": min_floor,
+            "victory": victory,
             "limit": limit,
-            "preflight": False,
+            "preflight": True,
+            "require_playable": require_playable,
         },
     }
 
@@ -1590,8 +1659,8 @@ def _slaythedata_candidate_with_preflight(row: dict[str, Any]) -> dict[str, Any]
         candidate["rust_preflight_blocker"] = blocker
         candidate["guided_support_blocked"] = bool(support_blockers)
         candidate["guided_support_blocker"] = support_blockers[0] if support_blockers else None
-        candidate["autoplay_blocked"] = bool(blocker or support_blockers)
-        candidate["autoplay_blocker"] = blocker or (support_blockers[0] if support_blockers else None)
+        candidate["autoplay_blocked"] = bool(support_blockers)
+        candidate["autoplay_blocker"] = support_blockers[0] if support_blockers else None
     except Exception as error:
         candidate["rust_preflight_blocked"] = True
         candidate["rust_preflight_blocker"] = {
@@ -1612,25 +1681,7 @@ def _slaythedata_candidate_with_preflight(row: dict[str, Any]) -> dict[str, Any]
 
 
 def _slaythedata_rust_preflight_blocker(preflight: dict[str, Any]) -> dict[str, Any] | None:
-    diagnostics = preflight.get("diagnostics") if isinstance(preflight, dict) else None
-    if isinstance(diagnostics, list):
-        for diagnostic in diagnostics:
-            if isinstance(diagnostic, dict) and diagnostic.get("severity") == "error":
-                return {
-                    "reason": diagnostic.get("code") or "rust_preflight_error",
-                    "detail": diagnostic.get("message"),
-                }
-    steps = preflight.get("steps") if isinstance(preflight, dict) else None
-    if isinstance(steps, list):
-        for step in steps:
-            if isinstance(step, dict) and step.get("status") == "blocked":
-                return {
-                    "reason": step.get("code") or "rust_preflight_blocked",
-                    "detail": step.get("message"),
-                    "floor": step.get("floor"),
-                    "ordinal": step.get("ordinal"),
-                }
-    return None
+    return slaythedata_rust_preflight_blocker(preflight)
 
 
 def _slaythedata_status_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
@@ -1830,6 +1881,18 @@ def _query_bool(query: dict[str, list[str]], name: str, default: bool) -> bool:
     if value in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _query_optional_bool(query: dict[str, list[str]], name: str) -> bool | None:
+    values = query.get(name)
+    if not values or values[0] == "":
+        return None
+    value = str(values[0]).strip().lower()
+    if value in {"1", "true", "yes", "on", "win", "won", "victory"}:
+        return True
+    if value in {"0", "false", "no", "off", "loss", "lose", "lost", "defeat"}:
+        return False
+    return None
 
 
 def _optional_string(value: Any) -> str | None:
