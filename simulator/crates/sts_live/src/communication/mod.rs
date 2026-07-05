@@ -50,7 +50,7 @@ impl CommunicationBridgeConfig {
             session_dir: session_dir.into(),
             stale_after: Duration::from_secs(120),
             allow_file_commands: false,
-            command_timeout: Duration::from_secs(5),
+            command_timeout: Duration::from_secs(15),
             discover_local_processes: true,
         }
     }

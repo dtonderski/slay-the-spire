@@ -486,6 +486,89 @@ fn communication_bridge_tcp_command_result_survives_release_failure() {
 }
 
 #[test]
+fn communication_bridge_rejects_observed_update_timeout_instead_of_returning_stale_state() {
+    let root = temp_dir("tcp-observed-timeout");
+    write_bridge_files(&root, neow_summary());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let server_received = Arc::clone(&received);
+    let server = thread::spawn(move || {
+        let responses = [
+            json!({"ok": true, "owner_token": "owner-1"}),
+            json!({
+                "ok": true,
+                "observed_update": {
+                    "ok": false,
+                    "error": "timed out waiting for observed state update",
+                    "accepted_state_id": "state-1",
+                    "accepted_state_seq": 3,
+                    "observed_changed": false,
+                    "application_status": "timeout",
+                    "step": 2
+                }
+            }),
+            json!({"ok": true, "released": true}),
+        ];
+        for response in responses {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            server_received
+                .lock()
+                .unwrap()
+                .push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+            serde_json::to_writer(&mut stream, &response).unwrap();
+            stream.write_all(b"\n").unwrap();
+        }
+    });
+    fs::write(
+        root.join("status.json"),
+        serde_json::to_vec(&json!({
+            "step": 1,
+            "client_pid": 1234,
+            "status": "ready",
+            "trace_path": "trace.jsonl",
+            "control": {
+                "host": "127.0.0.1",
+                "port": port,
+                "protocol": "tcp-jsonl"
+            },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut bridge = bridge(&root, false);
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseNeow,
+        label: "Talk".to_owned(),
+        enabled: true,
+        command: json!({
+            "transport": "communication_mod",
+            "command": "CHOOSE 0",
+            "source_state_id": "state-1",
+        }),
+        disabled_reason: None,
+    };
+
+    let err = bridge
+        .send_action(&BridgeId("communication-mod".to_owned()), &action)
+        .unwrap_err();
+
+    server.join().unwrap();
+    assert!(matches!(err, LiveError::Bridge(message) if message.contains("observed state update")));
+    let requests = received.lock().unwrap();
+    assert_eq!(requests[0]["type"], "acquire");
+    assert_eq!(requests[1]["type"], "command");
+    assert_eq!(requests[1]["update_timeout_ms"], 15_000);
+    assert_eq!(requests[2]["type"], "release");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn communication_bridge_file_command_fallback_is_opt_in() {
     let root = temp_dir("file-fallback");
     write_bridge_files(&root, menu_summary());

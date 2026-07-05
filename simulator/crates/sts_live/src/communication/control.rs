@@ -182,6 +182,17 @@ fn observed_response(
                 .to_owned(),
         ));
     }
+    if let Some(update) = response.get("observed_update") {
+        if update.get("ok").and_then(Value::as_bool) == Some(false) {
+            return Err(LiveError::Bridge(
+                update
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("timed out waiting for observed state update")
+                    .to_owned(),
+            ));
+        }
+    }
     if let Some(protocol_state) = response
         .get("observed_update")
         .and_then(|update| update.get("state"))
