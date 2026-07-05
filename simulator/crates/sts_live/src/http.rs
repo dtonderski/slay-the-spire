@@ -480,6 +480,37 @@ mod tests {
     }
 
     #[test]
+    fn http_manual_action_returns_cached_fidelity_without_replay() {
+        let root = temp_dir("http-action-cached-fidelity");
+        let checks = Arc::new(AtomicUsize::new(0));
+        let app = LiveHttpApp::new(SessionStore::new(
+            FakeBridgeManager::with_default_bridge(),
+            CountingFidelity {
+                checks: Arc::clone(&checks),
+            },
+            &root,
+        ));
+        app.handle(
+            "POST",
+            "/sessions/start",
+            r#"{"bridge_id":"fake-bridge-1","config":{"character":"ironclad","ascension":0,"seed":{"external":"CODEX04"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(checks.load(Ordering::SeqCst), 1);
+
+        let response = app
+            .handle("POST", "/sessions/session-1/actions/talk", "{}")
+            .unwrap();
+        assert_eq!(response["latest_state"]["phase"], "combat");
+        assert_eq!(checks.load(Ordering::SeqCst), 1);
+
+        app.handle("GET", "/sessions/session-1/fidelity", "")
+            .unwrap();
+        assert_eq!(checks.load(Ordering::SeqCst), 2);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn http_e2e_serves_one_request() {
         let root = temp_dir("http-e2e");
         let app = LiveHttpApp::new(SessionStore::new(
