@@ -716,7 +716,7 @@ function renderAutomationSummary(automation: AutomationJobSnapshot): void {
     const metrics = document.createElement("div");
     metrics.className = "plan-metrics";
     for (const [label, value] of [
-      ["HP", hp],
+      ["Final HP", hp],
       ["Monsters", monsterHp],
       ["Nodes", automation.plan.nodes],
       ["Result", terminal]

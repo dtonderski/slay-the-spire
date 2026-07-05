@@ -180,7 +180,7 @@ where
         session_id: &SessionId,
         action_id: &ActionId,
     ) -> LiveResult<SessionSnapshot> {
-        self.send_action_with_fidelity(session_id, action_id, false)
+        self.send_action_with_fidelity(session_id, action_id, true)
     }
 
     fn send_action_with_fidelity(

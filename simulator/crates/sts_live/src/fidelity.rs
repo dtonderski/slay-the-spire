@@ -1,5 +1,7 @@
 use crate::{
-    fidelity_status::{unexpected_diff_status, verify_seed_start_trace},
+    fidelity_status::{
+        observed_state_restoration_status, unexpected_diff_status, verify_seed_start_trace,
+    },
     model::{FidelityKind, FidelityStatus, LiveResult, TraceRecord},
 };
 use serde_json::{json, Value};
@@ -34,16 +36,19 @@ impl FidelityChecker for TraceFidelityChecker {
         }
 
         let seed_start_trace = communication_mod_trace(&records, TraceMode::SeedStart)?;
-        if has_run_config(&records)
-            && seed_start_trace.has_start
-            && seed_start_trace.transitions > 0
-        {
-            let seed_start_status = verify_seed_start_trace(&seed_start_trace.jsonl)?;
-            if !is_seed_start_waiting_for_boundary(&seed_start_status)
-                && !is_seed_start_non_blocking_coverage_gap(&seed_start_status)
-            {
-                return Ok(seed_start_status);
+        if has_run_config(&records) && seed_start_trace.has_start {
+            if seed_start_trace.transitions == 0 {
+                return Ok(FidelityStatus {
+                    kind: FidelityKind::Unknown,
+                    first_divergent_step: None,
+                    compact_diff: Vec::new(),
+                    message: Some(
+                        "waiting for a recorded state-action-state transition before strict seed-start replay is meaningful"
+                            .to_owned(),
+                    ),
+                });
             }
+            return verify_seed_start_trace(&seed_start_trace.jsonl);
         }
 
         observed_state_status(&records)
@@ -83,6 +88,9 @@ fn observed_state_status(records: &[TraceRecord]) -> LiveResult<FidelityStatus> 
         VerificationMode::ObservedState,
     ) {
         Ok(report) if !report.unexpected_diffs.is_empty() => Ok(unexpected_diff_status(&report)),
+        Ok(report) if !report.observed_state_restorations.is_empty() => {
+            Ok(observed_state_restoration_status(&report))
+        }
         Ok(report) if report.unsupported.iter().any(is_reportable_unsupported) => {
             let unsupported = report
                 .unsupported
@@ -100,12 +108,17 @@ fn observed_state_status(records: &[TraceRecord]) -> LiveResult<FidelityStatus> 
             })
         }
         Ok(report) if report.unsupported.iter().any(is_non_reportable_unsupported) => {
+            let unsupported = report
+                .unsupported
+                .iter()
+                .find(|transition| is_non_reportable_unsupported(transition))
+                .expect("guarded by any unsupported coverage transition");
             Ok(FidelityStatus {
-                kind: FidelityKind::Ok,
-                first_divergent_step: None,
-                compact_diff: Vec::new(),
+                kind: FidelityKind::Unknown,
+                first_divergent_step: Some(unsupported.action_step as u64),
+                compact_diff: vec![unsupported.reason.clone()],
                 message: Some(
-                    "observed-state replay matched supported transitions; Neow, map, reward, and shop UI transitions are covered by seed-start/reward replay"
+                    "observed-state replay hit a non-strict coverage gap; fidelity is not proven"
                         .to_owned(),
                 ),
             })
@@ -152,27 +165,6 @@ fn is_non_reportable_unsupported(transition: &sts_verify::UnsupportedTransition)
         || transition
             .reason
             .contains("shop UI choices are covered by seed-start shop replay")
-}
-
-fn is_seed_start_waiting_for_boundary(status: &FidelityStatus) -> bool {
-    status.kind == FidelityKind::Unknown
-        && status.compact_diff.is_empty()
-        && status
-            .message
-            .as_deref()
-            .is_some_and(|message| message.contains("next seed-start verifier boundary"))
-}
-
-fn is_seed_start_non_blocking_coverage_gap(status: &FidelityStatus) -> bool {
-    status.kind == FidelityKind::Unknown
-        && status
-            .message
-            .as_deref()
-            .is_some_and(|message| message.contains("unexpected_seed_start_command"))
-        && status
-            .compact_diff
-            .iter()
-            .any(|diff| diff.contains("seed-start bootstrap harness did not expect command"))
 }
 
 struct CommunicationTrace {
@@ -325,11 +317,7 @@ fn communication_message(raw: &Value) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        is_non_reportable_unsupported, is_reportable_unsupported,
-        is_seed_start_non_blocking_coverage_gap,
-    };
-    use crate::model::{FidelityKind, FidelityStatus};
+    use super::{is_non_reportable_unsupported, is_reportable_unsupported};
     use sts_verify::UnsupportedTransition;
 
     fn unsupported(reason: &str) -> UnsupportedTransition {
@@ -377,23 +365,5 @@ mod tests {
                 "expected caveat not to be rendered as red fidelity failure: {reason}"
             );
         }
-    }
-
-    #[test]
-    fn unexpected_seed_start_command_is_a_non_blocking_live_coverage_gap() {
-        let status = FidelityStatus {
-            kind: FidelityKind::Unknown,
-            first_divergent_step: None,
-            compact_diff: vec![
-                "seed-start bootstrap harness did not expect command 'PLAY 1' in phase Event"
-                    .to_owned(),
-            ],
-            message: Some(
-                "seed-start replay reached boundary unexpected_seed_start_command: seed-start bootstrap harness did not expect command 'PLAY 1' in phase Event"
-                    .to_owned(),
-            ),
-        };
-
-        assert!(is_seed_start_non_blocking_coverage_gap(&status));
     }
 }

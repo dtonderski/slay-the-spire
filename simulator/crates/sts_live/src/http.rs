@@ -480,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn http_manual_action_returns_cached_fidelity_without_replay() {
+    fn http_manual_action_refreshes_fidelity_before_response() {
         let root = temp_dir("http-action-cached-fidelity");
         let checks = Arc::new(AtomicUsize::new(0));
         let app = LiveHttpApp::new(SessionStore::new(
@@ -502,11 +502,11 @@ mod tests {
             .handle("POST", "/sessions/session-1/actions/talk", "{}")
             .unwrap();
         assert_eq!(response["latest_state"]["phase"], "combat");
-        assert_eq!(checks.load(Ordering::SeqCst), 1);
+        assert_eq!(checks.load(Ordering::SeqCst), 2);
 
         app.handle("GET", "/sessions/session-1/fidelity", "")
             .unwrap();
-        assert_eq!(checks.load(Ordering::SeqCst), 2);
+        assert_eq!(checks.load(Ordering::SeqCst), 3);
         fs::remove_dir_all(root).ok();
     }
 

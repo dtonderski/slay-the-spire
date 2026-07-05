@@ -125,7 +125,7 @@ fn checker_uses_seed_start_for_complete_start_traces() {
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
     assert_eq!(status.kind, FidelityKind::Unknown);
-    assert!(status.message.unwrap().contains("recorded live action"));
+    assert!(status.message.unwrap().contains("waiting"));
     assert!(status.compact_diff.is_empty());
     fs::remove_file(path).ok();
 }
@@ -278,11 +278,8 @@ fn checker_ignores_start_before_first_state_when_waiting_for_seed_boundary() {
         .unwrap();
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
-    assert_eq!(status.kind, FidelityKind::Ok);
-    assert_eq!(
-        status.message.as_deref(),
-        Some("observed-state replay matched supported transitions")
-    );
+    assert_eq!(status.kind, FidelityKind::Unknown);
+    assert!(status.message.unwrap().contains("waiting"));
     fs::remove_file(path).ok();
 }
 
@@ -356,7 +353,7 @@ fn checker_does_not_surface_shop_entry_as_observed_state_unsupported() {
         .unwrap();
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
-    assert_eq!(status.kind, FidelityKind::Ok);
+    assert_eq!(status.kind, FidelityKind::Unknown);
     assert!(!status.message.unwrap().contains("unsupported"));
     fs::remove_file(path).ok();
 }
@@ -414,7 +411,7 @@ fn checker_does_not_surface_shop_grid_confirm_or_leave_as_observed_state_unsuppo
         .unwrap();
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
-    assert_eq!(status.kind, FidelityKind::Ok);
+    assert_eq!(status.kind, FidelityKind::Unknown);
     assert!(!status.message.unwrap().contains("unsupported"));
     fs::remove_file(path).ok();
 }

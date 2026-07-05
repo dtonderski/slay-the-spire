@@ -119,20 +119,15 @@ fn fidelity_loss_after_action_stays_visible_without_blocking_manual_collection()
         )
         .unwrap();
 
-    let next = store
+    let lost = store
         .send_action(&snapshot.session_id, &ActionId("talk".to_owned()))
         .unwrap();
 
-    assert_eq!(next.lifecycle, SessionLifecycle::Recording);
-    assert_eq!(next.fidelity.kind, FidelityKind::Unknown);
-    assert!(next.blocked.is_none());
-    let trace = fs::read_to_string(&next.trace_path).unwrap();
-    assert!(!trace.contains("\"reason_code\":\"fidelity_lost\""));
-
-    let lost = store.refresh_fidelity(&snapshot.session_id).unwrap();
     assert_eq!(lost.lifecycle, SessionLifecycle::FidelityLost);
     assert_eq!(lost.fidelity.kind, FidelityKind::Lost);
     assert!(lost.blocked.is_none());
+    let trace = fs::read_to_string(&lost.trace_path).unwrap();
+    assert!(!trace.contains("\"reason_code\":\"fidelity_lost\""));
 
     let continued = store
         .send_action(
