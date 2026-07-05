@@ -165,6 +165,8 @@ let sessionRefreshInFlight = false;
 let activeSessionRefreshTimer: number | null = null;
 let pendingCommand: PendingCommand | null = null;
 let pendingCommandTimer: number | null = null;
+let renderedActionsKey: string | null = null;
+let renderedAutomationSummaryKey: string | null = null;
 const BRIDGE_REFRESH_MS = 1000;
 const SESSION_REFRESH_MS = 2000;
 const ACTIVE_SESSION_REFRESH_MS = 150;
@@ -522,6 +524,15 @@ function formatAge(ageMs: number): string {
 
 function renderActions(actions: LegalAction[]): void {
   const container = byId<HTMLDivElement>("actions");
+  const renderKey = actionsRenderKey(actions);
+  if (renderKey === renderedActionsKey) {
+    return;
+  }
+  const scrollTop = container.scrollTop;
+  const scrollLeft = container.scrollLeft;
+  const pageScrollX = window.scrollX;
+  const pageScrollY = window.scrollY;
+  renderedActionsKey = renderKey;
   container.replaceChildren();
   if (actions.length === 0) {
     const empty = document.createElement("div");
@@ -530,6 +541,7 @@ function renderActions(actions: LegalAction[]): void {
       ? "No legal actions were reported for the current state."
       : "Open a trace or start a run to populate legal actions.";
     container.appendChild(empty);
+    restoreActionScroll(container, scrollTop, scrollLeft, pageScrollX, pageScrollY);
     return;
   }
   for (const group of groupedActions(actions)) {
@@ -584,6 +596,41 @@ function renderActions(actions: LegalAction[]): void {
     section.appendChild(row);
     container.appendChild(section);
   }
+  restoreActionScroll(container, scrollTop, scrollLeft, pageScrollX, pageScrollY);
+}
+
+function actionsRenderKey(actions: LegalAction[]): string {
+  const pendingKey = pendingCommand
+    ? `${pendingCommand.sessionId}:${pendingCommand.actionId}:${pendingCommand.timedOut ? "timed-out" : "waiting"}`
+    : "none";
+  return JSON.stringify({
+    session: currentSession?.session_id ?? null,
+    sequence: currentSession?.latest_state?.sequence ?? null,
+    planned: currentPlannedActionId(),
+    pending: pendingKey,
+    actions: actions.map((action) => ({
+      id: action.id,
+      kind: action.kind,
+      label: action.label,
+      enabled: action.enabled,
+      disabled_reason: action.disabled_reason ?? null,
+      command: action.command ?? null
+    }))
+  });
+}
+
+function restoreActionScroll(
+  container: HTMLElement,
+  scrollTop: number,
+  scrollLeft: number,
+  pageScrollX: number,
+  pageScrollY: number
+): void {
+  container.scrollTop = Math.min(scrollTop, container.scrollHeight);
+  container.scrollLeft = Math.min(scrollLeft, container.scrollWidth);
+  if (window.scrollX !== pageScrollX || window.scrollY !== pageScrollY) {
+    window.scrollTo(pageScrollX, pageScrollY);
+  }
 }
 
 function actionBlockedByPendingCommand(action: LegalAction): boolean {
@@ -627,6 +674,11 @@ function renderAutomation(session: SessionSnapshot): void {
 }
 
 function renderAutomationSummary(automation: AutomationJobSnapshot): void {
+  const summaryKey = automationSummaryRenderKey(automation);
+  if (summaryKey === renderedAutomationSummaryKey) {
+    return;
+  }
+  renderedAutomationSummaryKey = summaryKey;
   const summary = byId<HTMLDivElement>("automation-summary");
   const previousPlanList = summary.querySelector<HTMLDivElement>(".plan-list");
   const previousPlanKey = previousPlanList?.dataset.planKey;
@@ -689,6 +741,18 @@ function renderAutomationSummary(automation: AutomationJobSnapshot): void {
     empty.textContent = "No plan";
     summary.appendChild(empty);
   }
+}
+
+function automationSummaryRenderKey(automation: AutomationJobSnapshot): string {
+  return JSON.stringify({
+    session: currentSession?.session_id ?? null,
+    state: automation.state,
+    last_message: automation.last_message ?? null,
+    blocked: automation.blocked ?? null,
+    planned_action: automation.planned_action ?? null,
+    plan: automation.plan ?? null,
+    executed_actions: automation.executed_actions ?? []
+  });
 }
 
 function renderPlanList(
