@@ -533,7 +533,12 @@ where
             return Ok((self.finish_auto_play(session_id, actions_sent)?, false));
         }
 
-        let planned = self.automation_plan_with_fidelity_check(session_id, false)?;
+        let planned = if self.bind_existing_automation_plan_to_latest_state(session_id)? {
+            self.set_automation_state(session_id, AutomationState::ReadyToSend)?;
+            self.session(session_id)?.snapshot()
+        } else {
+            self.automation_plan_with_fidelity_check(session_id, false)?
+        };
         if planned.automation.state != AutomationState::ReadyToSend {
             return Ok((planned, false));
         }
@@ -556,6 +561,31 @@ where
         let snapshot = session.snapshot();
         self.append_automation_trace(session_id, "auto_play_progress", json!(snapshot.automation))?;
         Ok((snapshot, true))
+    }
+
+    fn bind_existing_automation_plan_to_latest_state(
+        &mut self,
+        session_id: &SessionId,
+    ) -> LiveResult<bool> {
+        let Some(state) = self.session(session_id)?.latest_state.clone() else {
+            return Ok(false);
+        };
+        let session = self.session_mut(session_id)?;
+        let Some(plan) = session.automation.plan.as_mut() else {
+            return Ok(false);
+        };
+        let Some(step) = plan.actions.get(plan.played_actions).cloned() else {
+            session.automation.planned_action = None;
+            return Ok(false);
+        };
+        let Some(live_step) = bind_plan_step_to_live_action(&state, &step) else {
+            return Ok(false);
+        };
+        if let Some(plan_step) = plan.actions.get_mut(plan.played_actions) {
+            *plan_step = live_step.clone();
+        }
+        session.automation.planned_action = Some(live_step);
+        Ok(true)
     }
 
     pub fn automation_fail_auto_play(

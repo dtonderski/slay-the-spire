@@ -446,15 +446,34 @@ fn backend_auto_play_history_keeps_all_executed_actions() {
         .automation_start_auto_play(&started.session_id)
         .unwrap();
 
-    let (_, keep_going) = store
+    let (first, keep_going) = store
         .automation_auto_play_tick(&started.session_id, 0)
         .unwrap();
     assert!(keep_going);
+    let first_plan = first
+        .automation
+        .plan
+        .as_ref()
+        .expect("first tick should keep an active plan");
+    let first_plan_nodes = first_plan.nodes;
+    assert_eq!(first_plan.played_actions, 1);
+    assert!(
+        first_plan.actions.len() > first_plan.played_actions,
+        "fixture should leave a second planned action to continue"
+    );
+
     let (second, _) = store
         .automation_auto_play_tick(&started.session_id, 1)
         .unwrap();
 
     assert_eq!(second.automation.executed_actions.len(), 2);
+    let second_plan = second
+        .automation
+        .plan
+        .as_ref()
+        .expect("second tick should continue the same plan");
+    assert_eq!(second_plan.nodes, first_plan_nodes);
+    assert_eq!(second_plan.played_actions, 2);
     assert!(second
         .automation
         .executed_actions
