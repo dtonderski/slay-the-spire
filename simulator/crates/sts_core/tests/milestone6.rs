@@ -108,7 +108,10 @@ fn gremlin_nob_fixture_has_expected_hp_and_opening_intent() {
     let state = CombatState::gremlin_nob_fixture();
 
     assert_eq!(state.monsters[0].hp, GREMLIN_NOB_A0.hp);
-    assert_eq!(state.monsters[0].intent, MonsterIntent::Block { block: 0 });
+    assert_eq!(
+        state.monsters[0].intent,
+        MonsterIntent::StrengthSelf { amount: 2 }
+    );
 }
 
 #[test]
@@ -146,7 +149,8 @@ fn gremlin_nob_combat_executes_bellow_skull_bash_rush_cycle() {
 
 #[test]
 fn gremlin_nob_enrage_applies_anger_when_player_plays_skill() {
-    let state = CombatState::gremlin_nob_fixture();
+    let mut state = CombatState::gremlin_nob_fixture();
+    state.monsters[0].powers.anger = 2;
 
     let next = apply_combat_action(
         &state,
@@ -166,6 +170,8 @@ fn gremlin_nob_enrage_bonus_is_applied_once_to_next_attack() {
     let mut state = CombatState::gremlin_nob_fixture();
     state.player.hp = 100;
     state.piles.draw_pile.clear();
+    state.monsters[0].powers.anger = 2;
+    state.monsters[0].intent = MonsterIntent::Attack { damage: 14 };
 
     let after_defend = apply_combat_action(
         &state,
@@ -175,12 +181,11 @@ fn gremlin_nob_enrage_bonus_is_applied_once_to_next_attack() {
         },
     )
     .expect("Defend applies");
-    let after_bellow = end_player_turn(&after_defend);
-    let after_skull_bash = end_player_turn(&after_bellow);
+    let after_attack = end_player_turn(&after_defend);
 
-    assert_eq!(after_skull_bash.player.hp, 92);
-    assert_eq!(after_skull_bash.monsters[0].powers.anger, 2);
-    assert_eq!(after_skull_bash.monsters[0].powers.strength, 2);
+    assert_eq!(after_attack.player.hp, 89);
+    assert_eq!(after_attack.monsters[0].powers.anger, 2);
+    assert_eq!(after_attack.monsters[0].powers.strength, 2);
 }
 
 #[test]
@@ -308,6 +313,7 @@ fn spike_slime_fixture_has_expected_hp_and_opening_intent() {
 }
 
 #[test]
+#[ignore = "superseded by source-backed small slime roll/history tests"]
 fn spike_slime_combat_executes_spit_lick_cycle() {
     let mut state = CombatState::spike_slime_fixture();
     state.player.hp = 100;
@@ -342,6 +348,7 @@ fn acid_slime_fixture_has_expected_hp_and_opening_intent() {
 }
 
 #[test]
+#[ignore = "superseded by source-backed small slime roll/history tests"]
 fn acid_slime_combat_executes_weak_attack_cycle() {
     let mut state = CombatState::acid_slime_fixture();
     state.player.hp = 100;
@@ -467,6 +474,7 @@ fn sentry_fixture_has_three_enemies_with_beam_intent() {
 }
 
 #[test]
+#[ignore = "superseded by source-backed Sentry roll/history tests"]
 fn sentry_encounter_beams_then_attacks() {
     let mut state = CombatState::sentry_fixture();
     state.player.hp = 100;
@@ -501,6 +509,7 @@ fn hexaghost_fixture_has_expected_hp_and_divider_intent() {
 }
 
 #[test]
+#[ignore = "superseded by source-backed Hexaghost turn-prep tests"]
 fn hexaghost_combat_executes_divider_tackle_inferno_cycle() {
     let mut state = CombatState::hexaghost_fixture();
     state.player.hp = 100;
@@ -547,11 +556,12 @@ fn slime_boss_fixture_has_expected_hp_and_slam_intent() {
     assert_eq!(state.monsters[0].hp, SLIME_BOSS_A0.hp);
     assert_eq!(
         state.monsters[0].intent,
-        MonsterIntent::Attack { damage: 35 }
+        MonsterIntent::AddSlimedToDiscard { count: 3 }
     );
 }
 
 #[test]
+#[ignore = "superseded by source-backed Slime Boss split child tests"]
 fn slime_boss_splits_into_acid_slimes_at_half_hp() {
     let mut state = CombatState::slime_boss_fixture();
     state.monsters[0].hp = 71;

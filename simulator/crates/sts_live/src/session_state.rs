@@ -1,7 +1,7 @@
 use crate::{
     model::{
-        BlockedState, BridgeId, FidelityKind, FidelityStatus, LiveState, RunConfig, SessionId,
-        SessionLifecycle, SessionSnapshot, TraceRecord,
+        AutomationJobSnapshot, BlockedState, BridgeId, FidelityKind, FidelityStatus, LiveState,
+        RunConfig, SessionId, SessionLifecycle, SessionSnapshot, TraceRecord,
     },
     trace_writer::TraceWriter,
 };
@@ -15,6 +15,7 @@ pub(super) struct SessionData {
     pub(super) latest_state: Option<LiveState>,
     pub(super) fidelity: FidelityStatus,
     pub(super) blocked: Option<BlockedState>,
+    pub(super) automation: AutomationJobSnapshot,
 }
 
 impl SessionData {
@@ -28,6 +29,7 @@ impl SessionData {
             latest_state: self.latest_state.clone(),
             fidelity: self.fidelity.clone(),
             blocked: self.blocked.clone(),
+            automation: self.automation.clone(),
         }
     }
 }

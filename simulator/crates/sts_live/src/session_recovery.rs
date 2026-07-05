@@ -1,8 +1,9 @@
 use crate::{
+    communication::{live_state_from_files, BridgeFiles},
     fidelity::FidelityChecker,
     model::{
-        BlockedState, FidelityKind, FidelityStatus, LiveError, LiveResult, RunConfig, SessionId,
-        SessionLifecycle, TraceRecord,
+        AutomationJobSnapshot, BlockedState, FidelityKind, FidelityStatus, LiveError, LiveResult,
+        LiveState, RunConfig, SessionId, SessionLifecycle, TraceRecord,
     },
     session_state::{lifecycle_for_fidelity, SessionData},
     trace_writer::{read_records, TraceWriter},
@@ -45,6 +46,7 @@ where
         latest_state: recovered.latest_state,
         fidelity,
         blocked: recovered.blocked,
+        automation: AutomationJobSnapshot::default(),
     })
 }
 
@@ -61,7 +63,7 @@ struct RecoveredSessionData {
     id: SessionId,
     bridge_id: crate::model::BridgeId,
     run_config: Option<RunConfig>,
-    latest_state: Option<crate::model::LiveState>,
+    latest_state: Option<LiveState>,
     blocked: Option<BlockedState>,
 }
 
@@ -78,7 +80,7 @@ fn recovered_session_data(records: &[TraceRecord]) -> LiveResult<RecoveredSessio
                 ..
             } => metadata = Some((session_id.clone(), bridge_id.clone(), run_config.clone())),
             TraceRecord::State { state, .. } => {
-                latest_state = Some(state.clone());
+                latest_state = Some(rehydrated_state(state));
                 blocked = None;
             }
             TraceRecord::Error {
@@ -104,6 +106,20 @@ fn recovered_session_data(records: &[TraceRecord]) -> LiveResult<RecoveredSessio
         latest_state,
         blocked,
     })
+}
+
+fn rehydrated_state(state: &LiveState) -> LiveState {
+    let Some(summary) = state.raw.get("summary") else {
+        return state.clone();
+    };
+    let files = BridgeFiles {
+        status: state.raw.get("status").cloned().unwrap_or_default(),
+        summary: summary.clone(),
+        current_state: state.raw.get("current_state").cloned().unwrap_or_default(),
+        status_age: None,
+        summary_age: None,
+    };
+    live_state_from_files(&files)
 }
 
 fn recovered_lifecycle(

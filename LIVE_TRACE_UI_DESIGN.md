@@ -172,6 +172,21 @@ Mid-run attach is allowed, but it must be honest:
 Combat automation lives in the backend as a session-scoped automation job, not
 as frontend clicks or sleeps.
 
+Implementation note:
+
+- Stage 2 now has a session-scoped automation job with real greedy and beam
+  combat-search policies backed by `sts_core`, plus a deterministic fake policy
+  kept for narrow safety tests.
+- Automation requires fidelity `ok` before planning/sending and after the
+  observed transition.
+- Stale, ambiguous, desynced, unsupported, unreadable, or non-combat planned
+  actions block only the automation job. Manual collection remains available
+  unless the session itself is blocked for an independent bridge/fidelity
+  reason.
+- Full current-combat auto-play is available through CLI, HTTP, and UI controls
+  and is covered by deterministic fake-bridge tests. Real-game smoke remains an
+  explicit manual gate.
+
 Frontend controls:
 
 - select policy
@@ -326,6 +341,22 @@ The first implementation slice provides:
   files, without launching Slay the Spire
 - manual/quarantined real-game smoke checklist for validating `sts_live`
   against an actual ModTheSpire + CommunicationMod process
+- Stage 2 combat automation contract:
+  - real `greedy_search` and `beam_search` policies with configurable depth,
+    width, allowed potion slots, and auto-play action limit
+  - plan snapshots with principal variation, predicted player HP, predicted
+    remaining monster HP, node count, value, and terminal reason
+  - exact mapping from planner commands such as `PLAY h t`, `PLAY h`, `END`,
+    and allowed `POTION USE` commands to exactly one current live legal action
+  - run-one, send-ready, auto-play-current-combat, pause, resume, cancel, and
+    configure controls through the shared CLI/HTTP backend
+  - web UI policy/depth/width/limit/potion controls, best-plan summary, and
+    next-planned-action highlighting in the manual legal-action list
+  - append-only automation trace records for configure, plan-ready, sent-action,
+    blocked, pause, resume, cancel, and auto-play completion events
+  - deterministic real-planner fake-bridge tests for planning/action matching,
+    full current-combat auto-play, fidelity gates, blocked stale/desynced and
+    ambiguous states, and pause/resume/cancel
 
 Optional follow-up:
 
@@ -342,6 +373,12 @@ Not in Stage 1:
 - database indexing
 - browser-driven clicking
 - unsupported state repair
+
+Still outside the implemented Stage 2 smoke gate:
+
+- unattended run-level decisions outside combat
+- real-game auto-play certification without a manual CommunicationMod smoke
+  trace
 
 Not ever:
 

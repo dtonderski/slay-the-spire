@@ -1,8 +1,10 @@
 use crate::{
+    automation::{bind_plan_step_to_live_action, blocked as automation_blocked, plan_action},
     bridge::BridgeManager,
     fidelity::FidelityChecker,
     model::{
-        ActionId, BridgeId, FidelityStatus, LiveError, LiveResult, RunConfig, SessionId,
+        ActionId, AutomationConfig, AutomationJobSnapshot, AutomationState, BlockedState, BridgeId,
+        FidelityKind, FidelityStatus, LiveError, LiveResult, RunConfig, SessionId,
         SessionLifecycle, SessionSnapshot, TraceRecord,
     },
     operator_actions::{request_state_action, start_run_action},
@@ -12,6 +14,7 @@ use crate::{
     session_state::{lifecycle_for_fidelity, metadata_record, SessionData},
     trace_writer::TraceWriter,
 };
+use serde_json::json;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -78,7 +81,11 @@ where
             .values()
             .map(SessionData::snapshot)
             .collect::<Vec<_>>();
-        snapshots.sort_by(|left, right| left.session_id.0.cmp(&right.session_id.0));
+        snapshots.sort_by(|left, right| {
+            session_number(&left.session_id)
+                .cmp(&session_number(&right.session_id))
+                .then_with(|| left.session_id.0.cmp(&right.session_id.0))
+        });
         snapshots
     }
 
@@ -109,6 +116,14 @@ where
     }
 
     pub fn request_state(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        self.request_state_with_fidelity(session_id, true)
+    }
+
+    fn request_state_with_fidelity(
+        &mut self,
+        session_id: &SessionId,
+        refresh_fidelity: bool,
+    ) -> LiveResult<SessionSnapshot> {
         let bridge_id = self.session(session_id)?.bridge_id.clone();
         let state = match self.bridge.request_state(&bridge_id) {
             Ok(state) => state,
@@ -129,7 +144,11 @@ where
         if matches!(session.lifecycle, SessionLifecycle::Blocked) {
             session.lifecycle = lifecycle_for_fidelity(&session.fidelity);
         }
-        self.refresh_fidelity(session_id)
+        if refresh_fidelity {
+            self.refresh_fidelity(session_id)
+        } else {
+            Ok(self.session(session_id)?.snapshot())
+        }
     }
 
     pub fn abandon_run(
@@ -160,6 +179,15 @@ where
         &mut self,
         session_id: &SessionId,
         action_id: &ActionId,
+    ) -> LiveResult<SessionSnapshot> {
+        self.send_action_with_fidelity(session_id, action_id, true)
+    }
+
+    fn send_action_with_fidelity(
+        &mut self,
+        session_id: &SessionId,
+        action_id: &ActionId,
+        refresh_fidelity: bool,
     ) -> LiveResult<SessionSnapshot> {
         let action = {
             let session = self.session_mut(session_id)?;
@@ -198,14 +226,26 @@ where
                 return Err(err);
             }
         };
-        let session = self.session_mut(session_id)?;
-        session.trace_writer.append(&TraceRecord::Action {
-            sequence: state.sequence.saturating_sub(1),
-            action,
-        })?;
-        append_bridge_response_and_state(session, "send_action", &state)?;
-        session.latest_state = Some(state);
-        self.refresh_fidelity(session_id)
+        let sync_manual_plan = {
+            let session = self.session_mut(session_id)?;
+            let sync_manual_plan =
+                !matches!(session.automation.state, AutomationState::SendingAction);
+            session.trace_writer.append(&TraceRecord::Action {
+                sequence: state.sequence.saturating_sub(1),
+                action: action.clone(),
+            })?;
+            append_bridge_response_and_state(session, "send_action", &state)?;
+            session.latest_state = Some(state);
+            sync_manual_plan
+        };
+        if sync_manual_plan {
+            self.sync_automation_plan_after_action(session_id, &action, true)?;
+        }
+        if refresh_fidelity {
+            self.refresh_fidelity(session_id)
+        } else {
+            Ok(self.session(session_id)?.snapshot())
+        }
     }
 
     pub fn session_snapshot(&self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
@@ -219,6 +259,349 @@ where
             .as_ref()
             .map(|state| state.legal_actions.clone())
             .unwrap_or_default())
+    }
+
+    pub fn automation_status(&self, session_id: &SessionId) -> LiveResult<AutomationJobSnapshot> {
+        Ok(self.session(session_id)?.automation.clone())
+    }
+
+    pub fn configure_automation(
+        &mut self,
+        session_id: &SessionId,
+        config: AutomationConfig,
+    ) -> LiveResult<AutomationJobSnapshot> {
+        let session = self.session_mut(session_id)?;
+        let policy = config.policy.clone();
+        session.automation = AutomationJobSnapshot {
+            policy,
+            config,
+            ..AutomationJobSnapshot::default()
+        };
+        let automation = session.automation.clone();
+        let details = json!(automation);
+        self.append_automation_trace(session_id, "configure", details)?;
+        Ok(automation)
+    }
+
+    pub fn automation_plan(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        self.automation_plan_with_fidelity_check(session_id, true)
+    }
+
+    fn automation_plan_with_fidelity_check(
+        &mut self,
+        session_id: &SessionId,
+        refresh_fidelity: bool,
+    ) -> LiveResult<SessionSnapshot> {
+        if refresh_fidelity {
+            self.set_automation_state(session_id, AutomationState::WaitingForFidelity)?;
+            self.refresh_fidelity(session_id)?;
+        }
+        if let Some(blocked) = self.block_if_automation_fidelity_not_ok(
+            session_id,
+            "automation requires fidelity ok before planning",
+        )? {
+            return Ok(blocked);
+        }
+        self.set_automation_state(session_id, AutomationState::Planning)?;
+        let (config, state) = {
+            let session = self.session(session_id)?;
+            let state = session.latest_state.clone().ok_or_else(|| {
+                LiveError::Blocked("automation cannot plan without a live state".to_owned())
+            })?;
+            (session.automation.config.clone(), state)
+        };
+
+        match plan_action(&config, &state) {
+            Ok((planned_action, plan)) => {
+                let session = self.session_mut(session_id)?;
+                session.automation.state = AutomationState::ReadyToSend;
+                session.automation.planned_action = Some(planned_action);
+                session.automation.plan = Some(plan);
+                session.automation.blocked = None;
+                session.automation.last_message = Some("automation plan is ready".to_owned());
+                let snapshot = session.snapshot();
+                self.append_automation_trace(session_id, "plan_ready", json!(snapshot.automation))?;
+                Ok(snapshot)
+            }
+            Err(blocked) => self.block_automation_with_state(session_id, blocked),
+        }
+    }
+
+    pub fn automation_send_ready(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        self.automation_send_ready_with_fidelity_checks(session_id, true, true)
+    }
+
+    fn automation_send_ready_with_fidelity_checks(
+        &mut self,
+        session_id: &SessionId,
+        refresh_before_send: bool,
+        refresh_after_send: bool,
+    ) -> LiveResult<SessionSnapshot> {
+        if refresh_before_send {
+            self.set_automation_state(session_id, AutomationState::WaitingForFidelity)?;
+            self.refresh_fidelity(session_id)?;
+        }
+        if let Some(blocked) = self.block_if_automation_fidelity_not_ok(
+            session_id,
+            "automation requires fidelity ok before sending",
+        )? {
+            return Ok(blocked);
+        }
+        let planned = match self.session(session_id)?.automation.planned_action.clone() {
+            Some(planned) => planned,
+            None => {
+                return self.block_automation(
+                    session_id,
+                    "automation_no_ready_action",
+                    "automation has no ready planned action",
+                )
+            }
+        };
+
+        let current_state = self
+            .session(session_id)?
+            .latest_state
+            .clone()
+            .ok_or_else(|| {
+                LiveError::Blocked("automation cannot send without a live state".to_owned())
+            })?;
+
+        if current_state.sequence != planned.source_sequence {
+            return self.block_automation(
+                session_id,
+                "automation_stale_state",
+                "planned action was based on an older live state",
+            );
+        }
+
+        let Some(action) = current_state
+            .legal_actions
+            .iter()
+            .find(|action| action.id == planned.action_id)
+        else {
+            return self.block_automation(
+                session_id,
+                "automation_desynced_action",
+                "planned action is no longer present in the live legal actions",
+            );
+        };
+        let action = action.clone();
+
+        if action.kind != planned.kind || action.label != planned.label {
+            return self.block_automation(
+                session_id,
+                "automation_desynced_action",
+                "planned action identity no longer matches the live legal action",
+            );
+        }
+
+        if let Some(expected_command) = planned.command.as_deref() {
+            let actual_command = action
+                .command
+                .get("command")
+                .and_then(|value| value.as_str());
+            if actual_command.is_none_or(|command| !command.eq_ignore_ascii_case(expected_command))
+            {
+                return self.block_automation(
+                    session_id,
+                    "automation_desynced_action",
+                    "planned command no longer matches the live legal action",
+                );
+            }
+        }
+
+        if !action.enabled {
+            return self.block_automation(
+                session_id,
+                "automation_disabled_action",
+                action
+                    .disabled_reason
+                    .as_deref()
+                    .unwrap_or("planned action is disabled"),
+            );
+        }
+
+        self.set_automation_state(session_id, AutomationState::SendingAction)?;
+        let action_id = planned.action_id.clone();
+        let result = self.send_action_with_fidelity(session_id, &action_id, false);
+        if let Err(err) = result {
+            if let Ok(session) = self.session_mut(session_id) {
+                session.automation.state = AutomationState::Failed;
+                session.automation.blocked = Some(automation_blocked(
+                    "automation_send_failed",
+                    &err.to_string(),
+                ));
+                session.automation.last_message = Some(err.to_string());
+            }
+            return Err(err);
+        }
+
+        self.set_automation_state(session_id, AutomationState::VerifyingTransition)?;
+        if refresh_after_send {
+            self.refresh_fidelity(session_id)?;
+        }
+        if let Some(blocked) = self.block_if_automation_fidelity_not_ok(
+            session_id,
+            "automation transition did not verify with fidelity ok",
+        )? {
+            return Ok(blocked);
+        }
+
+        self.sync_automation_plan_after_action(session_id, &action, false)?;
+        let session = self.session_mut(session_id)?;
+        session.automation.executed_actions.push(planned);
+        session.automation.state = AutomationState::Done;
+        session.automation.blocked = None;
+        session.automation.last_message = Some("automation sent one action".to_owned());
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "sent_action", json!(snapshot.automation))?;
+        Ok(snapshot)
+    }
+
+    pub fn automation_step(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        self.automation_resume_if_idle_or_done(session_id)?;
+        self.set_automation_state(session_id, AutomationState::WaitingForObservedState)?;
+        self.request_state(session_id)?;
+        let planned = self.automation_plan(session_id)?;
+        if planned.automation.state != AutomationState::ReadyToSend {
+            return Ok(planned);
+        }
+        self.automation_send_ready(session_id)
+    }
+
+    pub fn automation_auto_play(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        let (_, limit, _) = self.automation_start_auto_play(session_id)?;
+        for actions_sent in 0..limit {
+            let (snapshot, keep_going) =
+                self.automation_auto_play_tick(session_id, actions_sent)?;
+            if !keep_going {
+                return Ok(snapshot);
+            }
+        }
+        self.block_automation(
+            session_id,
+            "automation_auto_action_limit",
+            "automation reached the configured auto-play action limit",
+        )
+    }
+
+    pub fn automation_start_auto_play(
+        &mut self,
+        session_id: &SessionId,
+    ) -> LiveResult<(SessionSnapshot, usize, bool)> {
+        self.automation_resume_if_idle_or_done(session_id)?;
+        let limit = self
+            .session(session_id)?
+            .automation
+            .config
+            .auto_action_limit
+            .max(1);
+        let session = self.session_mut(session_id)?;
+        let started = session.automation.state != AutomationState::AutoPlaying;
+        if started {
+            session.automation.state = AutomationState::AutoPlaying;
+            session.automation.blocked = None;
+            session.automation.last_message = Some("automation auto-play started".to_owned());
+        }
+        let snapshot = session.snapshot();
+        if started {
+            self.append_automation_trace(
+                session_id,
+                "auto_play_started",
+                json!(snapshot.automation),
+            )?;
+        }
+        Ok((snapshot, limit, started))
+    }
+
+    pub fn automation_auto_play_tick(
+        &mut self,
+        session_id: &SessionId,
+        actions_sent: usize,
+    ) -> LiveResult<(SessionSnapshot, bool)> {
+        if self.session(session_id)?.automation.state != AutomationState::AutoPlaying {
+            return Ok((self.session(session_id)?.snapshot(), false));
+        }
+
+        self.set_automation_state(session_id, AutomationState::WaitingForObservedState)?;
+        let refreshed = self.request_state_with_fidelity(session_id, false)?;
+        if refreshed
+            .latest_state
+            .as_ref()
+            .is_none_or(|state| state.phase != crate::model::LivePhase::Combat)
+        {
+            return Ok((self.finish_auto_play(session_id, actions_sent)?, false));
+        }
+
+        let planned = self.automation_plan_with_fidelity_check(session_id, false)?;
+        if planned.automation.state != AutomationState::ReadyToSend {
+            return Ok((planned, false));
+        }
+        let sent = self.automation_send_ready_with_fidelity_checks(session_id, false, false)?;
+        if sent
+            .latest_state
+            .as_ref()
+            .is_none_or(|state| state.phase != crate::model::LivePhase::Combat)
+        {
+            return Ok((self.finish_auto_play(session_id, actions_sent + 1)?, false));
+        }
+
+        let session = self.session_mut(session_id)?;
+        session.automation.state = AutomationState::AutoPlaying;
+        session.automation.blocked = None;
+        session.automation.last_message = Some(format!(
+            "automation auto-play sent {} actions",
+            actions_sent + 1
+        ));
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "auto_play_progress", json!(snapshot.automation))?;
+        Ok((snapshot, true))
+    }
+
+    pub fn automation_fail_auto_play(
+        &mut self,
+        session_id: &SessionId,
+        message: &str,
+    ) -> LiveResult<SessionSnapshot> {
+        let session = self.session_mut(session_id)?;
+        session.automation.state = AutomationState::Failed;
+        session.automation.blocked =
+            Some(automation_blocked("automation_auto_play_failed", message));
+        session.automation.last_message = Some(message.to_owned());
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "auto_play_failed", json!(snapshot.automation))?;
+        Ok(snapshot)
+    }
+
+    pub fn automation_pause(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        let session = self.session_mut(session_id)?;
+        session.automation.state = AutomationState::Paused;
+        session.automation.last_message = Some("automation paused".to_owned());
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "pause", json!(snapshot.automation))?;
+        Ok(snapshot)
+    }
+
+    pub fn automation_resume(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        let session = self.session_mut(session_id)?;
+        if session.automation.state == AutomationState::Paused {
+            session.automation.state = AutomationState::Idle;
+            session.automation.last_message = Some("automation resumed".to_owned());
+        }
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "resume", json!(snapshot.automation))?;
+        Ok(snapshot)
+    }
+
+    pub fn automation_cancel(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        let session = self.session_mut(session_id)?;
+        session.automation.state = AutomationState::Done;
+        session.automation.planned_action = None;
+        session.automation.plan = None;
+        session.automation.last_message = Some("automation canceled".to_owned());
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "cancel", json!(snapshot.automation))?;
+        Ok(snapshot)
     }
 
     pub fn refresh_fidelity(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
@@ -261,7 +644,160 @@ where
             latest_state: None,
             fidelity: FidelityStatus::unknown(),
             blocked: None,
+            automation: AutomationJobSnapshot::default(),
         })
+    }
+
+    fn set_automation_state(
+        &mut self,
+        session_id: &SessionId,
+        state: AutomationState,
+    ) -> LiveResult<()> {
+        let session = self.session_mut(session_id)?;
+        session.automation.state = state;
+        session.automation.last_message = None;
+        Ok(())
+    }
+
+    fn block_automation(
+        &mut self,
+        session_id: &SessionId,
+        reason_code: &str,
+        message: &str,
+    ) -> LiveResult<SessionSnapshot> {
+        self.block_automation_with_state(session_id, automation_blocked(reason_code, message))
+    }
+
+    fn block_if_automation_fidelity_not_ok(
+        &mut self,
+        session_id: &SessionId,
+        message: &str,
+    ) -> LiveResult<Option<SessionSnapshot>> {
+        if self.session(session_id)?.fidelity.kind == FidelityKind::Ok {
+            return Ok(None);
+        }
+        self.block_automation(session_id, "automation_fidelity_not_ok", message)
+            .map(Some)
+    }
+
+    fn block_automation_with_state(
+        &mut self,
+        session_id: &SessionId,
+        blocked: BlockedState,
+    ) -> LiveResult<SessionSnapshot> {
+        let session = self.session_mut(session_id)?;
+        session.automation.state = AutomationState::Blocked;
+        session.automation.planned_action = None;
+        session.automation.last_message = Some(blocked.message.clone());
+        session.automation.blocked = Some(blocked);
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "blocked", json!(snapshot.automation))?;
+        Ok(snapshot)
+    }
+
+    fn finish_auto_play(
+        &mut self,
+        session_id: &SessionId,
+        actions_sent: usize,
+    ) -> LiveResult<SessionSnapshot> {
+        self.refresh_fidelity(session_id)?;
+        if let Some(blocked) = self.block_if_automation_fidelity_not_ok(
+            session_id,
+            "automation auto-play trace did not verify with fidelity ok",
+        )? {
+            return Ok(blocked);
+        }
+        let session = self.session_mut(session_id)?;
+        session.automation.state = AutomationState::Done;
+        session.automation.planned_action = None;
+        session.automation.last_message = Some(format!(
+            "automation finished combat after {actions_sent} actions"
+        ));
+        let snapshot = session.snapshot();
+        self.append_automation_trace(session_id, "auto_play_done", json!(snapshot.automation))?;
+        Ok(snapshot)
+    }
+
+    fn append_automation_trace(
+        &mut self,
+        session_id: &SessionId,
+        event: &str,
+        details: serde_json::Value,
+    ) -> LiveResult<()> {
+        let sequence = self
+            .session(session_id)?
+            .latest_state
+            .as_ref()
+            .map(|state| state.sequence)
+            .unwrap_or_default();
+        let session = self.session_mut(session_id)?;
+        session.trace_writer.append(&TraceRecord::Automation {
+            sequence,
+            event: event.to_owned(),
+            details,
+        })?;
+        Ok(())
+    }
+
+    fn sync_automation_plan_after_action(
+        &mut self,
+        session_id: &SessionId,
+        sent_action: &crate::model::LegalAction,
+        clear_on_mismatch: bool,
+    ) -> LiveResult<()> {
+        let latest_state = self.session(session_id)?.latest_state.clone();
+        let session = self.session_mut(session_id)?;
+        let Some(plan) = session.automation.plan.as_mut() else {
+            return Ok(());
+        };
+        let next_index = plan.played_actions;
+        let Some(expected) = plan.actions.get(next_index).cloned() else {
+            session.automation.planned_action = None;
+            return Ok(());
+        };
+
+        if !planned_step_matches_action(&expected, sent_action) {
+            if clear_on_mismatch {
+                session.automation.state = AutomationState::Done;
+                session.automation.planned_action = None;
+                session.automation.plan = None;
+                session.automation.blocked = None;
+                session.automation.last_message =
+                    Some("manual action differed from plan; plan cleared".to_owned());
+            }
+            return Ok(());
+        }
+
+        plan.played_actions = (plan.played_actions + 1).min(plan.actions.len());
+        session.automation.planned_action = latest_state.as_ref().and_then(|state| {
+            plan.actions
+                .get(plan.played_actions)
+                .cloned()
+                .and_then(|step| {
+                    let live_step = bind_plan_step_to_live_action(state, &step)?;
+                    if let Some(plan_step) = plan.actions.get_mut(plan.played_actions) {
+                        *plan_step = live_step.clone();
+                    }
+                    Some(live_step)
+                })
+        });
+        if clear_on_mismatch {
+            session.automation.state = if session.automation.planned_action.is_some() {
+                AutomationState::ReadyToSend
+            } else {
+                AutomationState::Done
+            };
+            session.automation.blocked = None;
+            session.automation.last_message = Some("manual action matched plan".to_owned());
+        }
+        Ok(())
+    }
+
+    fn automation_resume_if_idle_or_done(&mut self, session_id: &SessionId) -> LiveResult<()> {
+        if self.session(session_id)?.automation.state == AutomationState::Paused {
+            return Err(LiveError::Blocked("automation is paused".to_owned()));
+        }
+        Ok(())
     }
 
     fn next_session_id(&mut self) -> SessionId {
@@ -281,4 +817,28 @@ where
             .get_mut(session_id)
             .ok_or_else(|| LiveError::NotFound(format!("session {}", session_id.0)))
     }
+}
+
+fn session_number(session_id: &SessionId) -> Option<u64> {
+    session_id
+        .0
+        .strip_prefix("session-")
+        .and_then(|number| number.parse::<u64>().ok())
+}
+
+fn planned_step_matches_action(
+    expected: &crate::model::AutomationPlannedAction,
+    action: &crate::model::LegalAction,
+) -> bool {
+    if expected.kind != action.kind {
+        return false;
+    }
+    if let Some(expected_command) = expected.command.as_deref() {
+        return action
+            .command
+            .get("command")
+            .and_then(|value| value.as_str())
+            .is_some_and(|command| command.eq_ignore_ascii_case(expected_command));
+    }
+    expected.action_id == action.id && expected.label == action.label
 }

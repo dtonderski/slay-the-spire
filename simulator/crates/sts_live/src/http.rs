@@ -2,7 +2,7 @@ use crate::{
     bridge::BridgeManager,
     error_payload::error_payload,
     fidelity::FidelityChecker,
-    model::{ActionId, BridgeId, LiveError, LiveResult, RunConfig, SessionId},
+    model::{ActionId, AutomationConfig, BridgeId, LiveError, LiveResult, RunConfig, SessionId},
     session::SessionStore,
 };
 use serde_json::{json, Value};
@@ -12,6 +12,7 @@ use std::{
     net::{TcpListener, TcpStream},
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
+    thread,
     time::Duration,
 };
 
@@ -29,8 +30,8 @@ impl<B, F> Clone for LiveHttpApp<B, F> {
 
 impl<B, F> LiveHttpApp<B, F>
 where
-    B: BridgeManager,
-    F: FidelityChecker,
+    B: BridgeManager + Send + 'static,
+    F: FidelityChecker + Send + 'static,
 {
     pub fn new(store: SessionStore<B, F>) -> Self {
         Self {
@@ -39,15 +40,22 @@ where
     }
 
     pub fn handle(&self, method: &str, path: &str, body: &str) -> LiveResult<Value> {
-        let mut store = self
-            .store
-            .lock()
-            .map_err(|_| LiveError::Blocked("session store lock poisoned".to_owned()))?;
         let parts = path
             .trim_matches('/')
             .split('/')
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>();
+
+        if let ("POST", ["sessions", session_id, "automation", "auto-play"]) =
+            (method, parts.as_slice())
+        {
+            return self.start_auto_play_job(SessionId((*session_id).to_owned()));
+        }
+
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| LiveError::Blocked("session store lock poisoned".to_owned()))?;
 
         match (method, parts.as_slice()) {
             ("GET", ["bridges"]) => Ok(json!({"bridges": store.list_bridges()?})),
@@ -64,7 +72,7 @@ where
                 )?)
             }
             ("GET", ["sessions", session_id]) => Ok(serde_json::to_value(
-                store.refresh_fidelity(&SessionId((*session_id).to_owned()))?,
+                store.session_snapshot(&SessionId((*session_id).to_owned()))?,
             )?),
             ("POST", ["sessions", session_id, "request-state"]) => Ok(serde_json::to_value(
                 store.request_state(&SessionId((*session_id).to_owned()))?,
@@ -82,12 +90,98 @@ where
                     &ActionId((*action_id).to_owned()),
                 )?)?)
             }
+            ("GET", ["sessions", session_id, "automation"]) => Ok(serde_json::to_value(
+                store.automation_status(&SessionId((*session_id).to_owned()))?,
+            )?),
+            ("POST", ["sessions", session_id, "automation", "configure"]) => {
+                let request: AutomationConfig = serde_json::from_str(body)?;
+                Ok(serde_json::to_value(store.configure_automation(
+                    &SessionId((*session_id).to_owned()),
+                    request,
+                )?)?)
+            }
+            ("POST", ["sessions", session_id, "automation", "plan"]) => Ok(serde_json::to_value(
+                store.automation_plan(&SessionId((*session_id).to_owned()))?,
+            )?),
+            ("POST", ["sessions", session_id, "automation", "send-ready"]) => {
+                Ok(serde_json::to_value(store.automation_send_ready(
+                    &SessionId((*session_id).to_owned()),
+                )?)?)
+            }
+            ("POST", ["sessions", session_id, "automation", "step"]) => Ok(serde_json::to_value(
+                store.automation_step(&SessionId((*session_id).to_owned()))?,
+            )?),
+            ("POST", ["sessions", session_id, "automation", "run-one"]) => Ok(
+                serde_json::to_value(store.automation_step(&SessionId((*session_id).to_owned()))?)?,
+            ),
+            ("POST", ["sessions", session_id, "automation", "pause"]) => Ok(serde_json::to_value(
+                store.automation_pause(&SessionId((*session_id).to_owned()))?,
+            )?),
+            ("POST", ["sessions", session_id, "automation", "resume"]) => Ok(serde_json::to_value(
+                store.automation_resume(&SessionId((*session_id).to_owned()))?,
+            )?),
+            ("POST", ["sessions", session_id, "automation", "cancel"]) => Ok(serde_json::to_value(
+                store.automation_cancel(&SessionId((*session_id).to_owned()))?,
+            )?),
             ("GET", ["sessions", session_id, "fidelity"]) => {
                 let snapshot = store.refresh_fidelity(&SessionId((*session_id).to_owned()))?;
                 Ok(serde_json::to_value(snapshot.fidelity)?)
             }
             _ => Err(LiveError::NotFound(format!("{method} {path}"))),
         }
+    }
+
+    fn start_auto_play_job(&self, session_id: SessionId) -> LiveResult<Value> {
+        let (snapshot, limit, started) = {
+            let mut store = self
+                .store
+                .lock()
+                .map_err(|_| LiveError::Blocked("session store lock poisoned".to_owned()))?;
+            store.automation_start_auto_play(&session_id)?
+        };
+        if started {
+            let store = Arc::clone(&self.store);
+            let worker_session_id = session_id.clone();
+            thread::spawn(move || {
+                run_auto_play_job(store, worker_session_id, limit);
+            });
+        }
+        Ok(serde_json::to_value(snapshot)?)
+    }
+}
+
+fn run_auto_play_job<B, F>(
+    store: Arc<Mutex<SessionStore<B, F>>>,
+    session_id: SessionId,
+    limit: usize,
+) where
+    B: BridgeManager + Send + 'static,
+    F: FidelityChecker + Send + 'static,
+{
+    for actions_sent in 0..limit {
+        let tick = {
+            let mut store = match store.lock() {
+                Ok(store) => store,
+                Err(_) => return,
+            };
+            store.automation_auto_play_tick(&session_id, actions_sent)
+        };
+        match tick {
+            Ok((_, true)) => thread::sleep(Duration::from_millis(50)),
+            Ok((_, false)) => return,
+            Err(err) => {
+                if let Ok(mut store) = store.lock() {
+                    let _ = store.automation_fail_auto_play(&session_id, &err.to_string());
+                }
+                return;
+            }
+        }
+    }
+    if let Ok(mut store) = store.lock() {
+        let _ = store.automation_fail_auto_play(
+            &session_id,
+            "automation reached the configured auto-play action limit",
+        );
     }
 }
 
@@ -103,8 +197,8 @@ pub const UI_STYLES_CSS: &str = include_str!("../ui/src/styles.css");
 
 pub fn serve_one<B, F>(listener: &TcpListener, app: &LiveHttpApp<B, F>) -> LiveResult<()>
 where
-    B: BridgeManager,
-    F: FidelityChecker,
+    B: BridgeManager + Send + 'static,
+    F: FidelityChecker + Send + 'static,
 {
     let (stream, _) = listener.accept()?;
     serve_stream(stream, app)
@@ -112,8 +206,8 @@ where
 
 pub fn serve_stream<B, F>(mut stream: TcpStream, app: &LiveHttpApp<B, F>) -> LiveResult<()>
 where
-    B: BridgeManager,
-    F: FidelityChecker,
+    B: BridgeManager + Send + 'static,
+    F: FidelityChecker + Send + 'static,
 {
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -279,6 +373,10 @@ mod tests {
         fs,
         io::{Read, Write},
         net::TcpListener,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
         thread,
         time::SystemTime,
     };
@@ -354,6 +452,34 @@ mod tests {
     }
 
     #[test]
+    fn http_session_get_returns_cached_snapshot_without_fidelity_replay() {
+        let root = temp_dir("http-session-get-snapshot");
+        let checks = Arc::new(AtomicUsize::new(0));
+        let app = LiveHttpApp::new(SessionStore::new(
+            FakeBridgeManager::with_default_bridge(),
+            CountingFidelity {
+                checks: Arc::clone(&checks),
+            },
+            &root,
+        ));
+        app.handle(
+            "POST",
+            "/sessions/start",
+            r#"{"bridge_id":"fake-bridge-1","config":{"character":"ironclad","ascension":0,"seed":{"external":"CODEX04"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(checks.load(Ordering::SeqCst), 1);
+
+        app.handle("GET", "/sessions/session-1", "").unwrap();
+        assert_eq!(checks.load(Ordering::SeqCst), 1);
+
+        app.handle("GET", "/sessions/session-1/fidelity", "")
+            .unwrap();
+        assert_eq!(checks.load(Ordering::SeqCst), 2);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn http_e2e_serves_one_request() {
         let root = temp_dir("http-e2e");
         let app = LiveHttpApp::new(SessionStore::new(
@@ -412,5 +538,16 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("sts-live-http-{name}-{nonce}"))
+    }
+
+    struct CountingFidelity {
+        checks: Arc<AtomicUsize>,
+    }
+
+    impl FidelityChecker for CountingFidelity {
+        fn check_trace(&self, _path: &Path) -> LiveResult<crate::model::FidelityStatus> {
+            self.checks.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::model::FidelityStatus::unknown())
+        }
     }
 }

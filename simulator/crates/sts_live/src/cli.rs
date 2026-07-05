@@ -1,7 +1,10 @@
 use crate::{
     bridge::BridgeManager,
     fidelity::FidelityChecker,
-    model::{BridgeId, Character, LiveError, LiveResult, RunConfig, RunSeed, SessionId},
+    model::{
+        AutomationConfig, AutomationPolicy, BridgeId, Character, LiveError, LiveResult, RunConfig,
+        RunSeed, SessionId,
+    },
     session::SessionStore,
 };
 use serde_json::{json, Value};
@@ -58,6 +61,43 @@ where
                 &crate::model::ActionId(action_id.clone()),
             )?)?)
         }
+        [area, command, session_id] if area == "automation" && command == "status" => Ok(
+            serde_json::to_value(store.automation_status(&SessionId(session_id.clone()))?)?,
+        ),
+        [area, command, session_id, rest @ ..]
+            if area == "automation" && command == "configure" =>
+        {
+            let config = parse_automation_config(rest)?;
+            Ok(serde_json::to_value(store.configure_automation(
+                &SessionId(session_id.clone()),
+                config,
+            )?)?)
+        }
+        [area, command, session_id] if area == "automation" && command == "plan" => Ok(
+            serde_json::to_value(store.automation_plan(&SessionId(session_id.clone()))?)?,
+        ),
+        [area, command, session_id] if area == "automation" && command == "send-ready" => Ok(
+            serde_json::to_value(store.automation_send_ready(&SessionId(session_id.clone()))?)?,
+        ),
+        [area, command, session_id]
+            if area == "automation" && (command == "step" || command == "run-one") =>
+        {
+            Ok(serde_json::to_value(
+                store.automation_step(&SessionId(session_id.clone()))?,
+            )?)
+        }
+        [area, command, session_id] if area == "automation" && command == "auto-play" => Ok(
+            serde_json::to_value(store.automation_auto_play(&SessionId(session_id.clone()))?)?,
+        ),
+        [area, command, session_id] if area == "automation" && command == "pause" => Ok(
+            serde_json::to_value(store.automation_pause(&SessionId(session_id.clone()))?)?,
+        ),
+        [area, command, session_id] if area == "automation" && command == "resume" => Ok(
+            serde_json::to_value(store.automation_resume(&SessionId(session_id.clone()))?)?,
+        ),
+        [area, command, session_id] if area == "automation" && command == "cancel" => Ok(
+            serde_json::to_value(store.automation_cancel(&SessionId(session_id.clone()))?)?,
+        ),
         [area, command, session_id] if area == "fidelity" && command == "status" => {
             let snapshot = store.session_snapshot(&SessionId(session_id.clone()))?;
             Ok(serde_json::to_value(snapshot.fidelity)?)
@@ -131,6 +171,73 @@ fn parse_start_args(args: &[String]) -> LiveResult<StartRequest> {
     })
 }
 
+fn parse_automation_config(args: &[String]) -> LiveResult<AutomationConfig> {
+    let mut config = AutomationConfig::default();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--policy" => {
+                index += 1;
+                config.policy = parse_automation_policy(required(args, index, "--policy")?)?;
+            }
+            "--depth" => {
+                index += 1;
+                config.depth = parse_usize(required(args, index, "--depth")?, "--depth")?;
+            }
+            "--width" => {
+                index += 1;
+                config.width = parse_usize(required(args, index, "--width")?, "--width")?;
+            }
+            "--auto-action-limit" => {
+                index += 1;
+                config.auto_action_limit = parse_usize(
+                    required(args, index, "--auto-action-limit")?,
+                    "--auto-action-limit",
+                )?;
+            }
+            "--potions" | "--potion-slots" => {
+                index += 1;
+                config.allowed_potion_slots =
+                    parse_potion_slots(required(args, index, "--potions")?)?;
+            }
+            other => return Err(LiveError::InvalidAction(format!("unknown flag {other}"))),
+        }
+        index += 1;
+    }
+    Ok(config)
+}
+
+fn parse_automation_policy(value: &str) -> LiveResult<AutomationPolicy> {
+    match value {
+        "fake-play-first-card" | "fake_play_first_card" => Ok(AutomationPolicy::FakePlayFirstCard),
+        "greedy-search" | "greedy_search" | "greedy" => Ok(AutomationPolicy::GreedySearch),
+        "beam-search" | "beam_search" | "beam" => Ok(AutomationPolicy::BeamSearch),
+        other => Err(LiveError::InvalidAction(format!(
+            "unsupported automation policy {other}"
+        ))),
+    }
+}
+
+fn parse_usize(value: &str, flag: &str) -> LiveResult<usize> {
+    value
+        .parse()
+        .map_err(|err| LiveError::InvalidAction(format!("invalid {flag}: {err}")))
+}
+
+fn parse_potion_slots(value: &str) -> LiveResult<Vec<usize>> {
+    if value.trim().is_empty() || value.eq_ignore_ascii_case("none") {
+        return Ok(Vec::new());
+    }
+    value
+        .split(',')
+        .map(|slot| {
+            slot.trim()
+                .parse()
+                .map_err(|err| LiveError::InvalidAction(format!("invalid potion slot: {err}")))
+        })
+        .collect()
+}
+
 fn required<'a>(args: &'a [String], index: usize, flag: &str) -> LiveResult<&'a str> {
     args.get(index)
         .map(String::as_str)
@@ -138,7 +245,7 @@ fn required<'a>(args: &'a [String], index: usize, flag: &str) -> LiveResult<&'a 
 }
 
 fn usage() -> String {
-    "usage: live-trace bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace fidelity status SESSION; live-trace trace path SESSION".to_owned()
+    "usage: live-trace bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace fidelity status SESSION; live-trace trace path SESSION".to_owned()
 }
 
 #[cfg(test)]

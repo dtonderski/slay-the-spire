@@ -251,6 +251,79 @@ fn recovers_existing_sessions_from_trace_root() {
 }
 
 #[test]
+fn recovery_rehydrates_stale_shop_actions_from_raw_summary() {
+    let root = temp_dir("recover-shop-actions");
+    fs::create_dir_all(&root).unwrap();
+    let trace_path = root.join("session-1.jsonl");
+    let stale_state = LiveState {
+        sequence: 84,
+        phase: LivePhase::Unknown,
+        legal_actions: vec![request_state_action()],
+        raw: json!({
+            "status": {},
+            "summary": {
+                "state_seq": 84,
+                "state_id": "shop-state",
+                "available_commands": ["choose", "potion", "leave", "state", "abandon"],
+                "ready_for_command": true,
+                "in_game": true,
+                "screen_type": "SHOP_SCREEN",
+                "screen_name": "SHOP",
+                "room_phase": "COMPLETE",
+                "room_type": "ShopRoom",
+                "choices": ["purge", "hemokinesis", "disarm", "swift potion", "strength potion"]
+            },
+            "current_state": {
+                "message": {
+                    "available_commands": ["choose", "potion", "leave", "state", "abandon"],
+                    "ready_for_command": true,
+                    "game_state": {
+                        "screen_type": "SHOP_SCREEN",
+                        "room_type": "ShopRoom"
+                    }
+                }
+            }
+        }),
+    };
+    let records = [
+        TraceRecord::Metadata {
+            schema: 1,
+            source: "live_trace".to_owned(),
+            session_id: SessionId("session-1".to_owned()),
+            bridge_id: BridgeId("fake-bridge-1".to_owned()),
+            run_config: None,
+        },
+        TraceRecord::State {
+            sequence: 84,
+            state: stale_state,
+        },
+    ];
+    fs::write(
+        &trace_path,
+        records
+            .iter()
+            .map(|record| serde_json::to_string(record).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .unwrap();
+
+    let mut store = fake_store(&root);
+    let recovered = store.recover_existing_sessions().unwrap();
+    let state = recovered[0].latest_state.as_ref().unwrap();
+
+    assert_eq!(state.phase, LivePhase::Shop);
+    assert!(state.legal_actions.iter().any(|action| {
+        action.id == ActionId("leave".to_owned())
+            && action.kind == LegalActionKind::Confirm
+            && action.label == "Leave shop"
+            && action.command["command"] == "LEAVE"
+            && action.command["source_state_id"] == "shop-state"
+    }));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn recovery_does_not_restore_old_fidelity_lost_blocks() {
     let root = temp_dir("recover-fidelity-lost");
     fs::create_dir_all(&root).unwrap();
@@ -319,6 +392,22 @@ fn lists_sessions_in_stable_id_order() {
     let sessions = store.list_sessions();
     assert_eq!(sessions[0].session_id.0, "session-1");
     assert_eq!(sessions[1].session_id.0, "session-2");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lists_recovered_sessions_in_numeric_id_order() {
+    let root = temp_dir("list-recovered-numeric");
+    fs::create_dir_all(&root).unwrap();
+    write_metadata_trace(&root, "session-10");
+    write_metadata_trace(&root, "session-2");
+
+    let mut store = fake_store(&root);
+    store.recover_existing_sessions().unwrap();
+
+    let sessions = store.list_sessions();
+    assert_eq!(sessions[0].session_id.0, "session-2");
+    assert_eq!(sessions[1].session_id.0, "session-10");
     fs::remove_dir_all(root).ok();
 }
 
@@ -407,6 +496,21 @@ fn fake_store(root: &std::path::Path) -> SessionStore<FakeBridgeManager, TraceFi
         TraceFidelityChecker,
         root,
     )
+}
+
+fn write_metadata_trace(root: &std::path::Path, session_id: &str) {
+    let record = TraceRecord::Metadata {
+        schema: 1,
+        source: "live_trace".to_owned(),
+        session_id: SessionId(session_id.to_owned()),
+        bridge_id: BridgeId("fake-bridge-1".to_owned()),
+        run_config: None,
+    };
+    fs::write(
+        root.join(format!("{session_id}.jsonl")),
+        format!("{}\n", serde_json::to_string(&record).unwrap()),
+    )
+    .unwrap();
 }
 
 fn temp_dir(name: &str) -> PathBuf {

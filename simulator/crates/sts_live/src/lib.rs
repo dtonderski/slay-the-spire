@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![doc = "Live trace collection backend primitives and operator surfaces."]
 
+mod automation;
 pub mod bridge;
 pub mod cli;
 pub mod cli_output;
@@ -18,6 +19,8 @@ mod session_response;
 mod session_state;
 pub mod trace_writer;
 
+#[cfg(test)]
+mod automation_tests;
 #[cfg(test)]
 mod communication_tests;
 #[cfg(test)]

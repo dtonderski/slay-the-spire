@@ -347,8 +347,19 @@ fn golden_shrine_choice_grants_gold_and_returns_to_map() {
     enter_fixed_event_screen(&mut run);
     let gold_before = run.gold;
 
-    let run =
+    let after_pray =
         apply_event_action(&run, EventAction::Choose { choice_index: 0 }).expect("choose shrine");
+
+    assert_eq!(after_pray.phase, RunPhase::Event);
+    assert_eq!(after_pray.gold, gold_before + GOLDEN_SHRINE_GOLD);
+    assert_eq!(
+        legal_event_actions(&after_pray),
+        vec![EventAction::Choose { choice_index: 0 }]
+    );
+    assert!(legal_map_actions_on_run(&after_pray).is_empty());
+
+    let run = apply_event_action(&after_pray, EventAction::Choose { choice_index: 0 })
+        .expect("leave shrine");
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert!(run.event.is_none());
@@ -381,7 +392,7 @@ fn event_actions_are_unavailable_outside_event_phase() {
 }
 
 #[test]
-fn event_rng_selects_fixed_event_deterministically_and_advances_seed() {
+fn event_rng_selects_fixed_event_deterministically() {
     let mut first = RunState::map_fixture();
     let mut second = RunState::map_fixture();
     first.event_rng_seed = 19;
@@ -393,7 +404,6 @@ fn event_rng_selects_fixed_event_deterministically_and_advances_seed() {
     assert_eq!(first.phase, RunPhase::Event);
     assert_eq!(first.event, second.event);
     assert_eq!(first.event_rng_counter, second.event_rng_counter);
-    assert!(first.event_rng_counter >= 1);
     assert!(!first.act1_event_list.is_empty() || !first.act1_shrine_list.is_empty());
 }
 

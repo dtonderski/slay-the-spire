@@ -95,6 +95,119 @@ pub struct LiveState {
     pub raw: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutomationPolicy {
+    FakePlayFirstCard,
+    GreedySearch,
+    BeamSearch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutomationState {
+    Idle,
+    AutoPlaying,
+    Planning,
+    WaitingForFidelity,
+    ReadyToSend,
+    SendingAction,
+    WaitingForObservedState,
+    VerifyingTransition,
+    Paused,
+    Blocked,
+    Done,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutomationConfig {
+    pub policy: AutomationPolicy,
+    #[serde(default = "default_automation_depth")]
+    pub depth: usize,
+    #[serde(default = "default_automation_width")]
+    pub width: usize,
+    #[serde(default)]
+    pub allowed_potion_slots: Vec<usize>,
+    #[serde(default = "default_automation_auto_action_limit")]
+    pub auto_action_limit: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutomationPlannedAction {
+    pub action_id: ActionId,
+    pub kind: LegalActionKind,
+    pub label: String,
+    pub source_sequence: u64,
+    pub command: Option<String>,
+    pub planner_action: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutomationPlanSnapshot {
+    pub actions: Vec<AutomationPlannedAction>,
+    #[serde(default)]
+    pub played_actions: usize,
+    pub predicted_final_hp: Option<i32>,
+    pub predicted_monster_hp: Option<i32>,
+    pub value: Option<f64>,
+    pub nodes: usize,
+    pub terminal_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AutomationJobSnapshot {
+    pub state: AutomationState,
+    pub policy: AutomationPolicy,
+    pub config: AutomationConfig,
+    pub planned_action: Option<AutomationPlannedAction>,
+    pub plan: Option<AutomationPlanSnapshot>,
+    #[serde(default)]
+    pub executed_actions: Vec<AutomationPlannedAction>,
+    pub blocked: Option<BlockedState>,
+    pub last_message: Option<String>,
+}
+
+impl Default for AutomationJobSnapshot {
+    fn default() -> Self {
+        let config = AutomationConfig::default();
+        Self {
+            state: AutomationState::Idle,
+            policy: config.policy.clone(),
+            config,
+            planned_action: None,
+            plan: None,
+            executed_actions: Vec::new(),
+            blocked: None,
+            last_message: None,
+        }
+    }
+}
+
+fn default_automation_depth() -> usize {
+    50
+}
+
+fn default_automation_width() -> usize {
+    50
+}
+
+fn default_automation_auto_action_limit() -> usize {
+    80
+}
+
+impl Default for AutomationConfig {
+    fn default() -> Self {
+        Self {
+            policy: AutomationPolicy::BeamSearch,
+            depth: default_automation_depth(),
+            width: default_automation_width(),
+            allowed_potion_slots: Vec::new(),
+            auto_action_limit: default_automation_auto_action_limit(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FidelityKind {
@@ -151,6 +264,7 @@ pub struct SessionSnapshot {
     pub latest_state: Option<LiveState>,
     pub fidelity: FidelityStatus,
     pub blocked: Option<BlockedState>,
+    pub automation: AutomationJobSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -179,6 +293,11 @@ pub enum TraceRecord {
         sequence: u64,
         reason_code: String,
         message: String,
+    },
+    Automation {
+        sequence: u64,
+        event: String,
+        details: Value,
     },
     RunAbandoned {
         sequence: u64,

@@ -131,11 +131,13 @@ function summarize(message) {
   const gs = message.game_state ?? {};
   const combat = gs.combat_state ?? null;
   const potions = gs.potions ?? [];
-  const occupiedPotions = potions.filter((potion) => {
-    const name = String(potion.name ?? "");
-    const id = String(potion.id ?? "");
-    return name.toLowerCase() !== "potion slot" && id.toLowerCase() !== "potion slot";
-  });
+  const occupiedPotions = potions
+    .map((potion, index) => ({ potion, index }))
+    .filter(({ potion }) => {
+      const name = String(potion.name ?? "");
+      const id = String(potion.id ?? "");
+      return name.toLowerCase() !== "potion slot" && id.toLowerCase() !== "potion slot";
+    });
   const openPotionSlots = potions.length - occupiedPotions.length;
   const summary = {
     step,
@@ -155,7 +157,7 @@ function summarize(message) {
     current_hp: gs.current_hp ?? null,
     max_hp: gs.max_hp ?? null,
     gold: gs.gold ?? null,
-    potions: occupiedPotions.map((potion, index) => ({
+    potions: occupiedPotions.map(({ potion, index }) => ({
       index,
       name: potion.name,
       id: potion.id,

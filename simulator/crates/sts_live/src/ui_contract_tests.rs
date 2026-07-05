@@ -21,10 +21,28 @@ fn static_ui_exposes_stage_1_manual_controls() {
         "abandon",
         "kill-selected",
         "kill-all",
+        "automation-policy",
+        "automation-depth",
+        "automation-width",
+        "automation-limit",
+        "automation-potions",
+        "automation-plan",
+        "automation-run-one",
+        "automation-auto-play",
+        "automation-pause",
+        "automation-resume",
+        "automation-cancel",
+        "automation-summary",
         "actions",
+        "command-status",
+        "session-alert",
         "notifications",
+        "lifecycle",
         "trace",
         "fidelity",
+        "reason",
+        "first-divergent",
+        "state-freshness",
     ] {
         assert!(
             UI_INDEX_HTML.contains(&format!("id=\"{id}\"")),
@@ -38,6 +56,8 @@ fn static_ui_exposes_stage_1_manual_controls() {
         "Start New Run",
         "Running Game",
         "Bridge Manager",
+        "Combat Agent",
+        "Session Health",
     ] {
         assert!(UI_INDEX_HTML.contains(text), "missing UI text {text:?}");
     }
@@ -50,10 +70,16 @@ fn static_ui_exposes_stage_1_manual_controls() {
         "primary connect action should not use backend jargon"
     );
 
-    assert!(UI_STYLES_CSS.contains("max-width: 1760px"));
-    assert!(UI_STYLES_CSS.contains("@media (min-width: 1350px)"));
-    assert!(UI_STYLES_CSS.contains(".control-group:not(:first-child)"));
-    assert!(UI_STYLES_CSS.contains("border-left: 1px solid #34404b"));
+    assert!(UI_STYLES_CSS.contains("max-width: none"));
+    assert!(UI_STYLES_CSS.contains(".workspace"));
+    assert!(UI_STYLES_CSS.contains(".empty-state"));
+    assert!(UI_STYLES_CSS.contains(".command-status"));
+    assert!(UI_STYLES_CSS.contains(".fidelity-chip"));
+    assert!(UI_STYLES_CSS.contains(
+        "grid-template-columns: minmax(540px, 1fr) minmax(360px, 430px) minmax(330px, 400px)"
+    ));
+    assert!(UI_INDEX_HTML.contains("class=\"workspace\""));
+    assert!(UI_INDEX_HTML.contains("class=\"health-card\""));
 }
 
 #[test]
@@ -66,8 +92,45 @@ fn static_ui_sends_backend_action_ids() {
     assert!(!UI_MAIN_TS.contains("/sessions/attach"));
     assert!(!UI_MAIN_TS.contains("session_id?:"));
     assert!(UI_MAIN_TS.contains("payload.error?.message"));
+    assert!(UI_MAIN_TS.contains("blocked?: BlockedState"));
+    assert!(UI_MAIN_TS.contains("first_divergent_step?: number"));
+    assert!(UI_MAIN_TS.contains("renderFidelityChip"));
+    assert!(UI_MAIN_TS.contains("fidelityClass"));
+    assert!(UI_MAIN_TS.contains("fidelity-ok"));
+    assert!(UI_MAIN_TS.contains("fidelity-lost"));
+    assert!(UI_MAIN_TS.contains("fidelity-unverified"));
+    assert!(UI_MAIN_TS.contains("window.confirm"));
+    assert!(UI_MAIN_TS.contains("stateFreshness"));
+    assert!(UI_MAIN_TS.contains("sessionStatusLabel"));
+    assert!(UI_MAIN_TS.contains("renderSessionAlert"));
+    assert!(UI_MAIN_TS.contains("No legal actions were reported"));
+    assert!(UI_MAIN_TS.contains("healthReason"));
     assert!(UI_MAIN_TS.contains("/bridges/${bridgeId}/kill"));
     assert!(UI_MAIN_TS.contains("/bridges/kill-all"));
+    assert!(UI_MAIN_TS.contains("/automation/configure"));
+    assert!(UI_MAIN_TS.contains("/automation/${command}"));
+    assert!(UI_MAIN_TS.contains("automationCommand(\"plan\")"));
+    assert!(UI_MAIN_TS.contains("automationCommand(\"run-one\")"));
+    assert!(UI_MAIN_TS.contains("automationAutoPlay"));
+    assert!(UI_MAIN_TS.contains("/automation/auto-play"));
+    assert!(UI_MAIN_TS.contains("automationControlCommand(\"cancel\")"));
+    assert!(UI_MAIN_TS.contains("planned-action"));
+    assert!(UI_MAIN_TS.contains("allowed_potion_slots"));
+    assert!(UI_MAIN_TS.contains("played_actions"));
+    assert!(UI_MAIN_TS.contains("executed_actions"));
+    assert!(UI_MAIN_TS.contains("renderPlanList"));
+    assert!(UI_MAIN_TS.contains("planScrollKey"));
+    assert!(UI_MAIN_TS.contains("previousPlanScrollTop"));
+    assert!(UI_MAIN_TS.contains("PendingCommand"));
+    assert!(UI_MAIN_TS.contains("setPendingCommand"));
+    assert!(UI_MAIN_TS.contains("clearPendingCommand"));
+    assert!(UI_MAIN_TS.contains("actionBlockedByPendingCommand"));
+    assert!(UI_MAIN_TS.contains("COMMAND_PENDING_TIMEOUT_MS"));
+    assert!(UI_MAIN_TS.contains("Still waiting for the game state"));
+    assert!(UI_MAIN_TS.contains("automationDrafts"));
+    assert!(UI_MAIN_TS.contains("rememberAutomationDraft"));
+    assert!(UI_MAIN_TS.contains("renderAutomationSummary"));
+    assert!(UI_MAIN_TS.contains("currentPlannedActionId"));
     assert!(UI_MAIN_TS.contains("bridgeStatuses"));
     assert!(UI_MAIN_TS.contains("(kill only)"));
     assert!(UI_MAIN_TS.contains("(not connected)"));
@@ -77,11 +140,34 @@ fn static_ui_sends_backend_action_ids() {
     assert!(UI_MAIN_TS.contains("setInterval"));
     assert!(UI_MAIN_TS.contains("GROUP_LABELS"));
     assert!(UI_MAIN_TS.contains("dataset.groupKey"));
+    assert!(UI_MAIN_TS.contains("compareSessionsNewestFirst"));
+    assert!(UI_MAIN_TS.contains("sessionNumber"));
+    assert!(UI_MAIN_TS.contains("loadLatestSessionOnStartup"));
+    assert!(UI_MAIN_TS.contains(".then(loadLatestSessionOnStartup)"));
     assert!(UI_MAIN_TS.contains("notifyError"));
     assert!(UI_MAIN_TS.contains("const sessionId = currentSession.session_id"));
     assert!(UI_MAIN_TS.contains("currentSession?.session_id === sessionId"));
     assert!(!UI_MAIN_TS.contains("catch(alert)"));
     assert!(!UI_MAIN_TS.contains("alert("));
+}
+
+#[test]
+fn static_ui_exposes_stage_2_combat_agent_controls() {
+    assert!(UI_STYLES_CSS.contains(".automation-card"));
+    assert!(UI_STYLES_CSS.contains(".automation-buttons-row"));
+    assert!(UI_STYLES_CSS.contains(".potion-slots"));
+    assert!(UI_STYLES_CSS.contains(".actions button.planned-action"));
+    assert!(UI_STYLES_CSS.contains(".actions button.sending-action"));
+    assert!(UI_STYLES_CSS.contains(".plan-list"));
+    assert!(UI_STYLES_CSS.contains(".plan-step"));
+    assert!(UI_STYLES_CSS.contains(".played-plan-step"));
+    assert!(UI_STYLES_CSS.contains("max-height: 178px"));
+    assert!(UI_STYLES_CSS.contains("overflow-y: auto"));
+    assert!(!UI_STYLES_CSS.contains(".plan-arrow"));
+    assert!(!UI_STYLES_CSS.contains("overflow-x: auto"));
+    assert!(UI_INDEX_HTML.contains("Beam search"));
+    assert!(UI_INDEX_HTML.contains("Greedy search"));
+    assert!(UI_INDEX_HTML.contains("Fake first card"));
 }
 
 #[test]

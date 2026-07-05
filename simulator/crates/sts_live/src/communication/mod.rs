@@ -11,13 +11,14 @@ use crate::{
         RunConfig, RunSeed,
     },
 };
-use actions::live_state_from_files;
+pub(crate) use actions::live_state_from_files;
 use control::{
     control_address, control_is_reachable, request_control_files,
     send_abandon_run as send_abandon_control, send_guarded_command as send_control_command,
     ControlAddress,
 };
-use files::{file_age_ms, read_bridge_files, BridgeFiles};
+pub(crate) use files::BridgeFiles;
+use files::{file_age_ms, read_bridge_files};
 use guard::validate_ready_for_command;
 use process::{kill_process, process_exists, process_is_nodejs};
 use serde_json::{json, Value};
@@ -107,14 +108,29 @@ impl CommunicationModBridgeManager {
     ) -> LiveResult<LiveState> {
         let files = self.require_bridge(bridge_id)?;
         if let Some(control) = control_address(&files.status) {
-            let control_files =
-                request_control_files(&control, &files.status, self.config.command_timeout)?;
-            validate_ready_for_command(
-                &control_files,
+            let effective_files = self.effective_command_files(&files, command);
+            let control_files = match validate_ready_for_command(
+                &effective_files,
                 command,
                 source_state_id,
                 self.config.stale_after,
-            )?;
+            ) {
+                Ok(()) => effective_files,
+                Err(_) => {
+                    let control_files = request_control_files(
+                        &control,
+                        &files.status,
+                        self.config.command_timeout,
+                    )?;
+                    validate_ready_for_command(
+                        &control_files,
+                        command,
+                        source_state_id,
+                        self.config.stale_after,
+                    )?;
+                    control_files
+                }
+            };
             return send_control_command(
                 &control,
                 command,

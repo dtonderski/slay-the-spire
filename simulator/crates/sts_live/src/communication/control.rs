@@ -106,7 +106,7 @@ pub(crate) fn send_guarded_command(
         }),
         timeout,
     );
-    release_control(control, &owner_token, timeout)?;
+    let _ = release_control(control, &owner_token, timeout);
     observed_response(response?, "bridge control command rejected", files)
 }
 
@@ -129,7 +129,7 @@ pub(crate) fn send_abandon_run(
         }),
         timeout,
     );
-    release_control(control, &owner_token, timeout)?;
+    let _ = release_control(control, &owner_token, timeout);
     observed_response(response?, "bridge abandon_run rejected", files)
 }
 

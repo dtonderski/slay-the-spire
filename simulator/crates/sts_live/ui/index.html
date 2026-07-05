@@ -12,6 +12,7 @@
         <h1>Live Trace Collector</h1>
         <div id="status" class="status">Not attached</div>
       </header>
+      <section id="session-alert" class="session-alert" hidden></section>
       <div id="notifications" class="notifications" aria-live="polite"></div>
 
       <section class="controls" aria-label="Trace controls">
@@ -68,20 +69,64 @@
         </div>
       </section>
 
-      <section class="grid">
-        <article>
+      <section class="workspace">
+        <article class="actions-panel">
           <h2>Legal Actions</h2>
+          <div id="command-status" class="command-status" hidden></div>
           <div id="actions" class="actions"></div>
         </article>
-        <article>
-          <h2>Trace & Fidelity</h2>
+        <article class="automation-card automation-group">
+          <h2>Combat Agent</h2>
+          <div class="automation-config-row">
+            <label>
+              Policy
+              <select id="automation-policy">
+                <option value="beam_search">Beam search</option>
+                <option value="greedy_search">Greedy search</option>
+                <option value="fake_play_first_card">Fake first card</option>
+              </select>
+            </label>
+            <label>
+              Depth
+              <input id="automation-depth" type="number" min="1" max="200" value="12">
+            </label>
+            <label>
+              Width
+              <input id="automation-width" type="number" min="1" max="200" value="24">
+            </label>
+            <label>
+              Limit
+              <input id="automation-limit" type="number" min="1" max="500" value="80">
+            </label>
+          </div>
+          <div id="automation-potions" class="potion-slots" aria-label="Usable potions"></div>
+          <div class="automation-buttons-row">
+            <button id="automation-plan" disabled>Plan</button>
+            <button id="automation-run-one" disabled>Run one</button>
+            <button id="automation-auto-play" disabled>Auto-play</button>
+            <button id="automation-pause" disabled>Pause</button>
+            <button id="automation-resume" disabled>Resume</button>
+            <button id="automation-cancel" disabled>Cancel</button>
+          </div>
+          <div id="automation-summary" class="automation-summary">No plan</div>
+        </article>
+        <article class="health-card">
+          <h2>Session Health</h2>
           <dl>
+            <dt>Lifecycle</dt>
+            <dd id="lifecycle">not_attached</dd>
             <dt>Trace</dt>
             <dd id="trace">-</dd>
             <dt>Fidelity</dt>
-            <dd id="fidelity">unknown</dd>
+            <dd id="fidelity" class="fidelity-chip fidelity-unverified">unknown</dd>
+            <dt>Reason</dt>
+            <dd id="reason">-</dd>
+            <dt>Divergence</dt>
+            <dd id="first-divergent">-</dd>
             <dt>Phase</dt>
             <dd id="phase">-</dd>
+            <dt>State</dt>
+            <dd id="state-freshness">-</dd>
           </dl>
           <pre id="diff"></pre>
         </article>

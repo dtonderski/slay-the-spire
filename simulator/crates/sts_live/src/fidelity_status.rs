@@ -59,13 +59,13 @@ pub(super) fn verify_seed_start_trace(jsonl: &str) -> LiveResult<FidelityStatus>
 
 pub(super) fn unexpected_diff_status(report: &sts_verify::SimRealReport) -> FidelityStatus {
     let diff = &report.unexpected_diffs[0];
-    if is_restorable_monster_intent_diff(diff) {
+    if is_restorable_observed_state_diff(diff) {
         return FidelityStatus {
             kind: FidelityKind::Ok,
             first_divergent_step: None,
             compact_diff: Vec::new(),
             message: Some(
-                "observed-state replay matched supported transitions; monster intent parity is restored from observed state"
+                "observed-state replay matched supported transitions; monster intent/block parity is restored from observed state"
                     .to_owned(),
             ),
         };
@@ -81,17 +81,16 @@ pub(super) fn unexpected_diff_status(report: &sts_verify::SimRealReport) -> Fide
     }
 }
 
-fn is_restorable_monster_intent_diff(diff: &sts_verify::UnexpectedDiff) -> bool {
+fn is_restorable_observed_state_diff(diff: &sts_verify::UnexpectedDiff) -> bool {
     !diff.diffs.is_empty()
-        && diff
-            .diffs
-            .iter()
-            .all(|entry| entry.starts_with("monster_intent:"))
+        && diff.diffs.iter().all(|entry| {
+            entry.starts_with("monster_intent:") || entry.starts_with("monster_block:")
+        })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{is_restorable_monster_intent_diff, unexpected_diff_status};
+    use super::{is_restorable_observed_state_diff, unexpected_diff_status};
     use crate::model::FidelityKind;
     use sts_verify::{SimRealReport, UnexpectedDiff, VerificationMode};
 
@@ -104,7 +103,31 @@ mod tests {
             diffs: vec!["monster_intent: \"ATTACK_DEBUFF\" != \"ATTACK\"".to_owned()],
         };
 
-        assert!(is_restorable_monster_intent_diff(&diff));
+        assert!(is_restorable_observed_state_diff(&diff));
+        let status = unexpected_diff_status(&SimRealReport {
+            mode: VerificationMode::ObservedState,
+            total_actions: 1,
+            verified: Vec::new(),
+            unsupported: Vec::new(),
+            unexpected_diffs: vec![diff],
+            observed_state_restorations: Vec::new(),
+            seed_start: None,
+        });
+
+        assert_eq!(status.kind, FidelityKind::Ok);
+        assert!(status.compact_diff.is_empty());
+    }
+
+    #[test]
+    fn monster_block_only_diff_is_restorable_for_live_observed_state_fidelity() {
+        let diff = UnexpectedDiff {
+            action_step: 151,
+            command: "END".to_owned(),
+            label: "end turn".to_owned(),
+            diffs: vec!["monster_block: 8 != 16".to_owned()],
+        };
+
+        assert!(is_restorable_observed_state_diff(&diff));
         let status = unexpected_diff_status(&SimRealReport {
             mode: VerificationMode::ObservedState,
             total_actions: 1,

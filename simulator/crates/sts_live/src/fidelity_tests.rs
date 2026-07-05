@@ -322,6 +322,103 @@ fn checker_does_not_surface_neow_choose_as_observed_state_unsupported() {
     fs::remove_file(path).ok();
 }
 
+#[test]
+fn checker_does_not_surface_shop_entry_as_observed_state_unsupported() {
+    let path = temp_trace_path("shop-entry-unsupported");
+    let mut writer = TraceWriter::create_new(&path).unwrap();
+    writer
+        .append(&TraceRecord::State {
+            sequence: 42,
+            state: live_state(shop_message("SHOP_ROOM", ["shop"])),
+        })
+        .unwrap();
+    writer
+        .append(&TraceRecord::Action {
+            sequence: 43,
+            action: LegalAction {
+                id: ActionId("shop".to_owned()),
+                kind: LegalActionKind::ShopBuy,
+                label: "shop".to_owned(),
+                enabled: true,
+                command: json!({"command": "CHOOSE 0"}),
+                disabled_reason: None,
+            },
+        })
+        .unwrap();
+    writer
+        .append(&TraceRecord::State {
+            sequence: 44,
+            state: live_state(shop_message(
+                "SHOP_SCREEN",
+                ["offering", "wild strike", "purge", "leave"],
+            )),
+        })
+        .unwrap();
+
+    let status = TraceFidelityChecker.check_trace(&path).unwrap();
+    assert_eq!(status.kind, FidelityKind::Ok);
+    assert!(!status.message.unwrap().contains("unsupported"));
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn checker_does_not_surface_shop_grid_confirm_or_leave_as_observed_state_unsupported() {
+    let path = temp_trace_path("shop-grid-unsupported");
+    let mut writer = TraceWriter::create_new(&path).unwrap();
+    writer
+        .append(&TraceRecord::State {
+            sequence: 46,
+            state: live_state(shop_message("GRID", ["strike"])),
+        })
+        .unwrap();
+    writer
+        .append(&TraceRecord::Action {
+            sequence: 47,
+            action: LegalAction {
+                id: ActionId("confirm".to_owned()),
+                kind: LegalActionKind::Confirm,
+                label: "Confirm".to_owned(),
+                enabled: true,
+                command: json!({"command": "CONFIRM"}),
+                disabled_reason: None,
+            },
+        })
+        .unwrap();
+    writer
+        .append(&TraceRecord::State {
+            sequence: 48,
+            state: live_state(shop_message(
+                "SHOP_SCREEN",
+                ["hemokinesis", "purge", "leave"],
+            )),
+        })
+        .unwrap();
+    writer
+        .append(&TraceRecord::Action {
+            sequence: 49,
+            action: LegalAction {
+                id: ActionId("leave".to_owned()),
+                kind: LegalActionKind::Confirm,
+                label: "Leave shop".to_owned(),
+                enabled: true,
+                command: json!({"command": "LEAVE"}),
+                disabled_reason: None,
+            },
+        })
+        .unwrap();
+    writer
+        .append(&TraceRecord::State {
+            sequence: 50,
+            state: live_state(shop_message("SHOP_ROOM", ["shop"])),
+        })
+        .unwrap();
+
+    let status = TraceFidelityChecker.check_trace(&path).unwrap();
+    assert_eq!(status.kind, FidelityKind::Ok);
+    assert!(!status.message.unwrap().contains("unsupported"));
+    fs::remove_file(path).ok();
+}
+
 fn live_state(message: serde_json::Value) -> LiveState {
     LiveState {
         sequence: 0,
@@ -345,6 +442,20 @@ fn combat_message() -> serde_json::Value {
                 "discard_pile": [],
                 "exhaust_pile": []
             }
+        }
+    })
+}
+
+fn shop_message<const N: usize>(screen_type: &str, choices: [&str; N]) -> serde_json::Value {
+    let choices = choices.to_vec();
+    json!({
+        "ready_for_command": true,
+        "available_commands": ["choose", "state"],
+        "game_state": {
+            "screen_type": screen_type,
+            "room_type": "ShopRoom",
+            "choice_list": choices,
+            "screen_state": {}
         }
     })
 }

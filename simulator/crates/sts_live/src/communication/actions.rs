@@ -63,11 +63,12 @@ fn protocol_status(value: &Value) -> Value {
 }
 
 pub(crate) fn live_state_from_files(files: &BridgeFiles) -> LiveState {
+    let summary = summary_with_raw_potion_slots(&files.summary, &files.current_state);
     let sequence = files
         .summary
         .get("state_seq")
         .or_else(|| files.current_state.get("state_seq"))
-        .or_else(|| files.summary.get("step"))
+        .or_else(|| summary.get("step"))
         .and_then(Value::as_u64)
         .unwrap_or_default();
     let source_state_id = files
@@ -77,14 +78,58 @@ pub(crate) fn live_state_from_files(files: &BridgeFiles) -> LiveState {
         .and_then(Value::as_str);
     LiveState {
         sequence,
-        phase: phase_from_summary(&files.summary),
-        legal_actions: actions_from_summary(&files.summary, source_state_id),
+        phase: phase_from_summary(&summary),
+        legal_actions: actions_from_summary(&summary, source_state_id),
         raw: json!({
             "status": files.status,
-            "summary": files.summary,
+            "summary": summary,
             "current_state": files.current_state,
         }),
     }
+}
+
+fn summary_with_raw_potion_slots(summary: &Value, current_state: &Value) -> Value {
+    let Some(raw_potions) = current_state
+        .pointer("/message/game_state/potions")
+        .and_then(Value::as_array)
+    else {
+        return summary.clone();
+    };
+    if !summary.is_object() {
+        return summary.clone();
+    }
+
+    let mut occupied = Vec::new();
+    for (index, potion) in raw_potions.iter().enumerate() {
+        if is_empty_potion_slot(potion) {
+            continue;
+        }
+        let mut potion = potion.clone();
+        if let Some(object) = potion.as_object_mut() {
+            object.insert("index".to_owned(), json!(index));
+        }
+        occupied.push(potion);
+    }
+
+    let mut patched = summary.clone();
+    if let Some(object) = patched.as_object_mut() {
+        object.insert("potions".to_owned(), Value::Array(occupied.clone()));
+        object.insert("potion_capacity".to_owned(), json!(raw_potions.len()));
+        object.insert(
+            "open_potion_slots".to_owned(),
+            json!(raw_potions.len().saturating_sub(occupied.len())),
+        );
+    }
+    patched
+}
+
+fn is_empty_potion_slot(potion: &Value) -> bool {
+    let name = potion
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let id = potion.get("id").and_then(Value::as_str).unwrap_or_default();
+    name.eq_ignore_ascii_case("Potion Slot") || id.eq_ignore_ascii_case("Potion Slot")
 }
 
 pub(crate) fn available_commands(summary: &Value) -> HashSet<String> {
@@ -120,6 +165,13 @@ fn actions_from_summary(summary: &Value, source_state_id: Option<&str>) -> Vec<L
         source_state_id,
     );
     add_card_actions(
+        &mut actions,
+        summary,
+        &available,
+        disabled.clone(),
+        source_state_id,
+    );
+    add_potion_actions(
         &mut actions,
         summary,
         &available,
@@ -261,6 +313,81 @@ fn add_card_action(
     }
 }
 
+fn add_potion_actions(
+    actions: &mut Vec<LegalAction>,
+    summary: &Value,
+    available: &HashSet<String>,
+    disabled: Option<String>,
+    source_state_id: Option<&str>,
+) {
+    if !available.contains("potion") {
+        return;
+    }
+    let Some(potions) = summary.get("potions").and_then(Value::as_array) else {
+        return;
+    };
+    let monsters = summary
+        .pointer("/combat/monsters")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    for (fallback_slot, potion) in potions.iter().enumerate() {
+        if potion.get("can_use").and_then(Value::as_bool) != Some(true) {
+            continue;
+        }
+        let slot = potion
+            .get("index")
+            .and_then(Value::as_u64)
+            .unwrap_or(fallback_slot as u64);
+        let potion_label = potion
+            .get("name")
+            .or_else(|| potion.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or("Potion");
+        if potion
+            .get("requires_target")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            for monster in living_monsters(&monsters) {
+                let Some(target_slot) = monster.get("index").and_then(Value::as_u64) else {
+                    continue;
+                };
+                let monster_label = monster
+                    .get("name")
+                    .or_else(|| monster.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("Monster");
+                actions.push(bridge_action(
+                    &format!("potion-{slot}-{target_slot}"),
+                    LegalActionKind::UsePotion,
+                    &format!("Use {potion_label} -> {monster_label}"),
+                    &format!("POTION USE {slot} {target_slot}"),
+                    disabled.clone(),
+                    source_state_id,
+                ));
+            }
+        } else {
+            actions.push(bridge_action(
+                &format!("potion-{slot}"),
+                LegalActionKind::UsePotion,
+                &format!("Use {potion_label}"),
+                &format!("POTION USE {slot}"),
+                disabled.clone(),
+                source_state_id,
+            ));
+        }
+    }
+}
+
+fn living_monsters(monsters: &[Value]) -> impl Iterator<Item = &Value> {
+    monsters.iter().filter(|monster| {
+        monster.get("gone").and_then(Value::as_bool) != Some(true)
+            && monster.get("half_dead").and_then(Value::as_bool) != Some(true)
+    })
+}
+
 fn add_simple_actions(
     actions: &mut Vec<LegalAction>,
     available: &HashSet<String>,
@@ -271,6 +398,7 @@ fn add_simple_actions(
         ("end", "End turn", LegalActionKind::EndTurn),
         ("proceed", "Proceed", LegalActionKind::Confirm),
         ("confirm", "Confirm", LegalActionKind::Confirm),
+        ("leave", "Leave shop", LegalActionKind::Confirm),
         ("skip", "Skip", LegalActionKind::SkipReward),
     ] {
         if available.contains(verb) {
@@ -348,7 +476,7 @@ fn phase_from_summary(summary: &Value) -> LivePhase {
         "MAP" => LivePhase::Map,
         "COMBAT" => LivePhase::Combat,
         "COMBAT_REWARD" | "CARD_REWARD" | "GRID" | "BOSS_REWARD" => LivePhase::Reward,
-        "SHOP" => LivePhase::Shop,
+        "SHOP" | "SHOP_SCREEN" => LivePhase::Shop,
         "REST" => LivePhase::Rest,
         "GAME_OVER" => LivePhase::GameOver,
         "EVENT" if room_type == "NeowRoom" => LivePhase::Neow,
