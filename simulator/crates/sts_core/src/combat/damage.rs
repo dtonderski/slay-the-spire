@@ -1,7 +1,8 @@
 use crate::{
     combat::{MonsterState, PlayerState},
     content::monsters::{
-        large_acid_slime_on_hp_damage, DARKLING_ID, GREMLIN_WARRIOR_ID, TRANSIENT_ID,
+        guardian_on_hp_damage, large_acid_slime_on_hp_damage, DARKLING_ID, GREMLIN_WARRIOR_ID,
+        TRANSIENT_ID,
     },
     ids::{CardId, MonsterId},
     power::PlayerPowers,
@@ -45,6 +46,7 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
             monster.powers = Default::default();
         }
     }
+    guardian_on_hp_damage(monster, hp_damage);
     large_acid_slime_on_hp_damage(monster, hp_damage);
     transient_shifting_on_hp_damage(monster, hp_damage);
 

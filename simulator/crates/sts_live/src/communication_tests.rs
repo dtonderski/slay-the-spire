@@ -283,8 +283,8 @@ fn communication_bridge_maps_shop_screen_leave_action() {
 }
 
 #[test]
-fn communication_bridge_attach_falls_back_when_no_observed_state_exists_yet() {
-    let root = temp_dir("no-observed-state");
+fn communication_bridge_attach_falls_back_when_no_live_state_exists_yet() {
+    let root = temp_dir("no-live-state");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = thread::spawn(move || {

@@ -77,6 +77,8 @@ pub struct RunState {
     pub event: Option<super::event::EventScreen>,
     pub shop: Option<super::shop::ShopScreen>,
     #[serde(default)]
+    pub shop_merchant_open: bool,
+    #[serde(default)]
     pub card_grid: Option<super::grid::CardGridScreen>,
     #[serde(default)]
     pub relics: Vec<Relic>,
@@ -84,6 +86,10 @@ pub struct RunState {
     pub potions: Vec<Potion>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub empty_potion_slots: Vec<usize>,
+    /// Cards queued by visual obtain effects that have not committed to the
+    /// master deck in the canonical simulator state yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_obtain_cards: Vec<ContentId>,
     #[serde(default)]
     pub event_rng_seed: u64,
     #[serde(default)]
@@ -126,6 +132,8 @@ pub struct RunState {
     pub matryoshka_chests_opened: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub incense_burner_counter: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub pen_nib_attacks_played: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub tiny_chest_counter: u32,
     #[serde(default = "default_event_room_monster_chance")]
@@ -181,9 +189,15 @@ pub struct RunState {
     #[serde(default)]
     pub act3_shrine_list: Vec<super::event::Event>,
     #[serde(default)]
+    pub special_one_time_event_list: Vec<super::event::Event>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub special_one_time_events_initialized: bool,
+    #[serde(default)]
     pub ascension: u8,
     #[serde(default)]
     pub treasure_room: Option<super::reward::TreasureRoomState>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub boss_chest_opened: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub rest_room_complete: bool,
 }
@@ -524,6 +538,9 @@ impl RunState {
         if self.relics.contains(&Relic::IncenseBurner) {
             combat.relic_counters.incense_burner_counter = self.incense_burner_counter;
         }
+        if self.relics.contains(&Relic::PenNib) {
+            combat.relic_counters.pen_nib_attacks_played = self.pen_nib_attacks_played;
+        }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         if self.relics.contains(&Relic::Enchiridion) {
             add_enchiridion_power_to_hand(&mut combat);
@@ -564,6 +581,9 @@ impl RunState {
         }
         if self.relics.contains(&Relic::IncenseBurner) {
             self.incense_burner_counter = combat.relic_counters.incense_burner_counter;
+        }
+        if self.relics.contains(&Relic::PenNib) {
+            self.pen_nib_attacks_played = combat.relic_counters.pen_nib_attacks_played;
         }
         if self.relics.contains(&Relic::Toolbox) || self.relics.contains(&Relic::Enchiridion) {
             if let Some(rng) = combat.card_random_rng.as_ref() {
@@ -631,10 +651,12 @@ impl RunState {
             reward: None,
             event: None,
             shop: None,
+            shop_merchant_open: false,
             card_grid: None,
             relics,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
+            pending_obtain_cards: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -656,6 +678,7 @@ impl RunState {
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
+            pen_nib_attacks_played: 0,
             tiny_chest_counter: 0,
             event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
@@ -683,8 +706,11 @@ impl RunState {
             act2_shrine_list: Vec::new(),
             act3_event_list: Vec::new(),
             act3_shrine_list: Vec::new(),
+            special_one_time_event_list: Vec::new(),
+            special_one_time_events_initialized: false,
             ascension,
             treasure_room: None,
+            boss_chest_opened: false,
             rest_room_complete: false,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
@@ -709,10 +735,12 @@ impl RunState {
             reward: None,
             event: None,
             shop: None,
+            shop_merchant_open: false,
             card_grid: None,
             relics: Vec::new(),
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
+            pending_obtain_cards: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -734,6 +762,7 @@ impl RunState {
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
+            pen_nib_attacks_played: 0,
             tiny_chest_counter: 0,
             event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
@@ -761,8 +790,11 @@ impl RunState {
             act2_shrine_list: Vec::new(),
             act3_event_list: Vec::new(),
             act3_shrine_list: Vec::new(),
+            special_one_time_event_list: Vec::new(),
+            special_one_time_events_initialized: false,
             ascension: 0,
             treasure_room: None,
+            boss_chest_opened: false,
             rest_room_complete: false,
         }
     }
@@ -865,6 +897,17 @@ impl RunState {
     pub fn gain_deck_card(&mut self, content_id: ContentId) {
         let id = CardId::new(self.next_card_instance_id());
         self.add_deck_card(CardInstance::new(id, content_id));
+    }
+
+    pub fn queue_pending_obtain_card(&mut self, content_id: ContentId) {
+        self.pending_obtain_cards.push(content_id);
+    }
+
+    pub fn flush_pending_obtain_cards(&mut self) {
+        let pending = std::mem::take(&mut self.pending_obtain_cards);
+        for content_id in pending {
+            self.gain_deck_card(content_id);
+        }
     }
 
     pub fn add_deck_card(&mut self, mut card: CardInstance) {
@@ -1068,8 +1111,10 @@ impl RunState {
         if let Some(pools) = self.relic_pools.as_mut() {
             pools.remove_relic(relic.key());
         }
-        self.remove_replaced_starter_relic(relic);
-        self.relics.push(relic);
+        let replaced_starter = self.replace_starter_relic_slot(relic);
+        if !replaced_starter {
+            self.relics.push(relic);
+        }
         match relic {
             Relic::Strawberry => {
                 self.player_max_hp += STRAWBERRY_MAX_HP;
@@ -1300,7 +1345,7 @@ impl RunState {
         }
     }
 
-    fn remove_replaced_starter_relic(&mut self, relic: Relic) {
+    fn replace_starter_relic_slot(&mut self, relic: Relic) -> bool {
         let replaced = match relic {
             Relic::BlackBlood => Some((Relic::BurningBlood, RelicKey::BurningBlood)),
             Relic::FrozenCore => Some((Relic::CrackedCore, RelicKey::CrackedCore)),
@@ -1309,10 +1354,17 @@ impl RunState {
             _ => None,
         };
         let Some((starter_relic, starter_key)) = replaced else {
-            return;
+            return false;
         };
-        self.relics.retain(|owned| *owned != starter_relic);
+        let mut replaced_relic = false;
+        for owned in &mut self.relics {
+            if *owned == starter_relic {
+                *owned = relic;
+                replaced_relic = true;
+            }
+        }
         self.relic_keys.retain(|owned| *owned != starter_key);
+        replaced_relic
     }
 
     fn fill_potions_from_cauldron(&mut self) {

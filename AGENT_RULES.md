@@ -72,6 +72,12 @@ These rules are for Codex or any other coding agent working on this project.
 - Treat wiki and community references as starting points, not final proof.
 - Mark hidden or unobservable fields explicitly.
 - Never make diffs pass by silently ignoring gameplay-affecting state.
+- Never anchor, re-anchor, synchronize, restore, repair, hydrate, or otherwise
+  mutate simulator state from observed trace/game state during replay or
+  verification. A trace observation is expected output only. The simulator must
+  advance solely from the initial seed/state plus accepted actions and
+  implemented game rules. If simulated state diverges from observed state, stop
+  at the first divergence and fix the simulator bug.
 
 ## Rust Hygiene
 

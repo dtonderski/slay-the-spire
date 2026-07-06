@@ -80,7 +80,7 @@ fn recovered_session_data(records: &[TraceRecord]) -> LiveResult<RecoveredSessio
                 ..
             } => metadata = Some((session_id.clone(), bridge_id.clone(), run_config.clone())),
             TraceRecord::State { state, .. } => {
-                latest_state = Some(rehydrated_state(state));
+                latest_state = Some(recomputed_state_from_raw_summary(state));
                 blocked = None;
             }
             TraceRecord::Error {
@@ -108,7 +108,7 @@ fn recovered_session_data(records: &[TraceRecord]) -> LiveResult<RecoveredSessio
     })
 }
 
-fn rehydrated_state(state: &LiveState) -> LiveState {
+fn recomputed_state_from_raw_summary(state: &LiveState) -> LiveState {
     let Some(summary) = state.raw.get("summary") else {
         return state.clone();
     };

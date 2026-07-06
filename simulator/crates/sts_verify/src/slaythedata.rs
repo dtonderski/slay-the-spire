@@ -1263,6 +1263,7 @@ fn run_completed_for_route_lookahead(mut run: RunState) -> RunState {
     run.reward = None;
     run.event = None;
     run.shop = None;
+    run.shop_merchant_open = false;
     run.card_grid = None;
     run.treasure_room = None;
     run.rest_room_complete = false;

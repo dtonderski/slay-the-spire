@@ -10,7 +10,6 @@ use sts_core::{
     legal_combat_actions, validate_potion_action, CardId, CombatAction, CombatPhase, CombatState,
     ContentId, MonsterId, MonsterIntent, RunAction, RunPhase, RunState,
 };
-use sts_verify::run_state_from_observed_message;
 
 #[derive(Clone)]
 enum PlannerAction {
@@ -192,18 +191,10 @@ fn observed_run_state(state: &LiveState) -> Result<RunState, BlockedState> {
             return Ok(run);
         }
     }
-    let message = state
-        .raw
-        .pointer("/current_state/message")
-        .or_else(|| state.raw.pointer("/state/message"))
-        .or_else(|| state.raw.get("message"))
-        .unwrap_or(&state.raw);
-    run_state_from_observed_message(message).ok_or_else(|| {
-        blocked(
-            "automation_unreadable_state",
-            "latest observed state cannot be converted to a simulator run state",
-        )
-    })
+    Err(blocked(
+        "automation_missing_sim_state",
+        "automation requires simulator-tracked run state; hydrating from live observations is forbidden",
+    ))
 }
 
 fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommendation {

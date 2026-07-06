@@ -1013,6 +1013,33 @@ mod tests {
     }
 
     #[test]
+    fn hjtgfct_map_path_third_pick_enters_event_room() {
+        let mut run = RunState::placeholder_seeded_ironclad(32_291_153_573, 0);
+        run.phase = RunPhase::Idle;
+        run.event = None;
+
+        let first = legal_map_actions_on_run(&run);
+        assert_eq!(first.len(), 3);
+        run = apply_map_action_on_run(&run, first[1]).expect("x=2 first node");
+        assert_eq!(run.current_room_kind(), Some(RoomKind::Combat));
+
+        run.phase = RunPhase::Idle;
+        run.combat = None;
+        let second = legal_map_actions_on_run(&run);
+        assert_eq!(second.len(), 1);
+        run = apply_map_action_on_run(&run, second[0]).expect("x=3 second node");
+        assert_eq!(run.current_room_kind(), Some(RoomKind::Combat));
+
+        run.phase = RunPhase::Idle;
+        run.combat = None;
+        let third = legal_map_actions_on_run(&run);
+        assert_eq!(third.len(), 1);
+        run = apply_map_action_on_run(&run, third[0]).expect("x=2 third node");
+        assert_eq!(run.current_room_kind(), Some(RoomKind::Event));
+        assert_eq!(run.phase, RunPhase::Event);
+    }
+
+    #[test]
     fn sentry_entry_ignores_roll_value_and_uses_group_index_for_first_move() {
         let mut combat = CombatState::initial_fixture();
         combat.ascension = 3;

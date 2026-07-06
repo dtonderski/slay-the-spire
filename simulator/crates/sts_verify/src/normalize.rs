@@ -1,4 +1,4 @@
-//! Canonical observed-state normalization for CommunicationMod exports.
+//! Canonical CommunicationMod observation normalization for verifier comparisons.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

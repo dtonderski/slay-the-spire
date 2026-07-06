@@ -1,4 +1,8 @@
-use std::{env, fs, process::exit};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::exit,
+};
 
 use sts_verify::{
     canonical_diff, corpus_path, import_communication_mod_trace, import_slaythedata_jsonl_line,
@@ -11,7 +15,7 @@ use sts_verify::{
 fn main() {
     let mut args = env::args().skip(1);
     let Some(command) = args.next() else {
-        eprintln!("usage: sts_verify <trace|diff|parity|minimize|corpus> ...");
+        eprintln!("usage: sts_verify <trace|diff|parity|minimize|status|corpus> ...");
         exit(1);
     };
 
@@ -73,22 +77,17 @@ fn main() {
             }
         }
         "parity" => {
-            let mut mode = VerificationMode::ObservedState;
+            let mut mode = VerificationMode::SeedStart;
             let Some(mut path) = args.next() else {
-                eprintln!(
-                    "usage: sts_verify parity [--mode observed-state|seed-start] <trace.jsonl>"
-                );
+                eprintln!("usage: sts_verify parity [--mode seed-start] <trace.jsonl>");
                 exit(1);
             };
             if path == "--mode" {
                 let Some(mode_name) = args.next() else {
-                    eprintln!(
-                        "usage: sts_verify parity [--mode observed-state|seed-start] <trace.jsonl>"
-                    );
+                    eprintln!("usage: sts_verify parity [--mode seed-start] <trace.jsonl>");
                     exit(1);
                 };
                 mode = match mode_name.as_str() {
-                    "observed-state" => VerificationMode::ObservedState,
                     "seed-start" => VerificationMode::SeedStart,
                     _ => {
                         eprintln!("unknown parity mode: {mode_name}");
@@ -96,9 +95,7 @@ fn main() {
                     }
                 };
                 let Some(next_path) = args.next() else {
-                    eprintln!(
-                        "usage: sts_verify parity [--mode observed-state|seed-start] <trace.jsonl>"
-                    );
+                    eprintln!("usage: sts_verify parity [--mode seed-start] <trace.jsonl>");
                     exit(1);
                 };
                 path = next_path;
@@ -126,10 +123,6 @@ fn main() {
             println!("verified={}", report.verified.len());
             println!("unsupported={}", report.unsupported.len());
             println!("unexpected_diffs={}", report.unexpected_diffs.len());
-            println!(
-                "observed_state_restorations={}",
-                report.observed_state_restorations.len()
-            );
             if let Some(seed_start) = &report.seed_start {
                 println!(
                     "seed_start.expected_failure={}",
@@ -215,13 +208,6 @@ fn main() {
                 println!(
                     "unsupported step={} command=\"{}\" reason=\"{}\"",
                     unsupported.action_step, unsupported.command, unsupported.reason
-                );
-            }
-
-            for restoration in &report.observed_state_restorations {
-                println!(
-                    "observed_state_restoration step={} command=\"{}\" reason=\"{}\"",
-                    restoration.action_step, restoration.command, restoration.reason
                 );
             }
 
@@ -459,12 +445,11 @@ fn main() {
                     "--mode" => {
                         let Some(mode_name) = args.next() else {
                             eprintln!(
-                                "usage: sts_verify minimize [--mode observed-state|seed-start] [-o path] <trace.jsonl>"
+                                "usage: sts_verify minimize [--mode seed-start] [-o path] <trace.jsonl>"
                             );
                             exit(1);
                         };
                         mode = match mode_name.as_str() {
-                            "observed-state" => VerificationMode::ObservedState,
                             "seed-start" => VerificationMode::SeedStart,
                             _ => {
                                 eprintln!("unknown minimize mode: {mode_name}");
@@ -489,9 +474,7 @@ fn main() {
                 }
             }
             let Some(path) = path else {
-                eprintln!(
-                    "usage: sts_verify minimize [--mode observed-state|seed-start] [-o path] <trace.jsonl>"
-                );
+                eprintln!("usage: sts_verify minimize [--mode seed-start] [-o path] <trace.jsonl>");
                 exit(1);
             };
             let content = fs::read_to_string(&path).unwrap_or_else(|err| {
@@ -554,9 +537,205 @@ fn main() {
                 exit(1);
             }
         }
+        "status" => {
+            let mut mode = VerificationMode::SeedStart;
+            let mut markdown = false;
+            let mut path: Option<String> = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--mode" => {
+                        let Some(mode_name) = args.next() else {
+                            eprintln!(
+                                "usage: sts_verify status [--mode seed-start] [--markdown] [permanent_traces|path]"
+                            );
+                            exit(1);
+                        };
+                        mode = match mode_name.as_str() {
+                            "seed-start" => VerificationMode::SeedStart,
+                            _ => {
+                                eprintln!("unknown status mode: {mode_name}");
+                                exit(1);
+                            }
+                        };
+                    }
+                    "--markdown" => markdown = true,
+                    other if other.starts_with('-') => {
+                        eprintln!("unknown status flag: {other}");
+                        exit(1);
+                    }
+                    other => {
+                        path = Some(other.to_owned());
+                        break;
+                    }
+                }
+            }
+
+            let root = status_path(path.as_deref().unwrap_or("permanent_traces"));
+            let entries = trace_status_entries(&root, mode).unwrap_or_else(|err| {
+                eprintln!("failed to build status for {}: {err}", root.display());
+                exit(1);
+            });
+            print_trace_status(&entries, markdown);
+        }
         _ => {
             eprintln!("unknown command: {command}");
             exit(1);
         }
     }
+}
+
+#[derive(Debug)]
+struct TraceStatusEntry {
+    trace: String,
+    total_actions: usize,
+    verified: usize,
+    raw_diffs: usize,
+    remaining_failures: usize,
+    boundary: String,
+    frontier: String,
+}
+
+fn status_path(input: &str) -> PathBuf {
+    let path = PathBuf::from(input);
+    if path.is_absolute() || path.exists() {
+        path
+    } else {
+        corpus_path(input)
+    }
+}
+
+fn trace_status_entries(
+    root: &Path,
+    mode: VerificationMode,
+) -> Result<Vec<TraceStatusEntry>, String> {
+    let mut paths = fs::read_dir(root)
+        .map_err(|err| err.to_string())?
+        .map(|entry| {
+            entry
+                .map(|entry| entry.path())
+                .map_err(|err| err.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.retain(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"));
+    paths.sort();
+
+    let mut entries = Vec::new();
+    for path in paths {
+        let trace_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("<unknown>")
+            .to_owned();
+        let content =
+            fs::read_to_string(&path).map_err(|err| format!("{}: {err}", path.display()))?;
+        let report = verify_communication_mod_trace_with_mode(&content, mode)
+            .map_err(|err| format!("{}: {err}", path.display()))?;
+        let boundary = report.seed_start.as_ref().map(|seed_start| {
+            format!(
+                "{} at {}",
+                seed_start.first_boundary.category, seed_start.first_boundary.path
+            )
+        });
+        let complete = report.unexpected_diffs.is_empty()
+            && report
+                .seed_start
+                .as_ref()
+                .map(|seed_start| seed_start.first_boundary.category == "none")
+                .unwrap_or(false);
+        entries.push(TraceStatusEntry {
+            trace: trace_name,
+            total_actions: report.total_actions,
+            verified: report.verified.len(),
+            raw_diffs: report.unexpected_diffs.len(),
+            remaining_failures: usize::from(!complete),
+            boundary: boundary.unwrap_or_else(|| "-".to_owned()),
+            frontier: trace_frontier(&report),
+        });
+    }
+
+    Ok(entries)
+}
+
+fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
+    if let Some(diff) = report.unexpected_diffs.first() {
+        let first_line = diff
+            .diffs
+            .iter()
+            .find(|line| line.starts_with("event_id:"))
+            .or_else(|| diff.diffs.first())
+            .map(String::as_str)
+            .unwrap_or("unexpected diff");
+        return format!(
+            "step {} `{}` {}: {}",
+            diff.action_step, diff.command, diff.label, first_line
+        );
+    }
+
+    if let Some(unsupported) = report.unsupported.first() {
+        return format!(
+            "step {} `{}` unsupported: {}",
+            unsupported.action_step, unsupported.command, unsupported.reason
+        );
+    }
+
+    if let Some(seed_start) = &report.seed_start {
+        if seed_start.first_boundary.category == "none" {
+            return "complete".to_owned();
+        }
+        return format!(
+            "{}: {}",
+            seed_start.first_boundary.category, seed_start.first_boundary.reason
+        );
+    }
+
+    "no seed-start report".to_owned()
+}
+
+fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
+    let remaining = entries
+        .iter()
+        .filter(|entry| entry.remaining_failures > 0)
+        .count();
+    let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
+    println!("traces={}", entries.len());
+    println!("remaining_trace_failures={remaining}");
+    println!("complete={}", entries.len().saturating_sub(remaining));
+    println!("raw_unexpected_diffs={raw_diffs}");
+
+    if markdown {
+        println!();
+        println!(
+            "| Trace | Actions | Verified | Remaining failures | Raw diffs | Boundary | Frontier |"
+        );
+        println!("|---|---:|---:|---:|---:|---|---|");
+        for entry in entries {
+            println!(
+                "| `{}` | {} | {} | {} | {} | `{}` | {} |",
+                escape_markdown_cell(&entry.trace),
+                entry.total_actions,
+                entry.verified,
+                entry.remaining_failures,
+                entry.raw_diffs,
+                escape_markdown_cell(&entry.boundary),
+                escape_markdown_cell(&entry.frontier)
+            );
+        }
+    } else {
+        for entry in entries {
+            println!(
+                "trace=\"{}\" actions={} verified={} remaining_failures={} raw_diffs={} boundary=\"{}\" frontier=\"{}\"",
+                entry.trace,
+                entry.total_actions,
+                entry.verified,
+                entry.remaining_failures,
+                entry.raw_diffs,
+                entry.boundary,
+                entry.frontier
+            );
+        }
+    }
+}
+
+fn escape_markdown_cell(value: &str) -> String {
+    value.replace('|', "\\|")
 }

@@ -13,7 +13,7 @@ use crate::{
         piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
     },
     combat::{CombatPhase, CombatState},
-    content::cards::{BURN_ID, WOUND_ID},
+    content::cards::{BURN_ID, SLIMED_ID, WOUND_ID},
     content::monsters::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
         apply_gremlin_leader_encourage, apply_gremlin_leader_rally_representative,
@@ -36,7 +36,7 @@ use crate::{
         target_lagavulin_direct_wake_attack_intent, target_large_acid_slime_next_intent_from_roll,
         target_looter_direct_next_intent_after_turn, target_louse_next_intent_from_roll,
         target_maw_next_intent_from_roll, target_medium_acid_slime_next_intent_from_roll,
-        target_medium_or_large_spike_slime_next_intent_from_roll,
+        target_medium_or_large_spike_slime_next_intent_from_roll_with_profile,
         target_mugger_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
         target_orb_walker_next_intent_from_roll, target_reptomancer_next_intent_from_roll,
         target_repulsor_next_intent_from_roll, target_sentry_next_intent,
@@ -48,11 +48,12 @@ use crate::{
         ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
         CENTURION_ID, CHAMP_ID, CHOSEN_ID, DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID,
         GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
-        GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_TSUNDERE_ID, GREMLIN_WIZARD_ID, HEALER_ID,
-        HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID,
-        NEMESIS_ID, ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID,
-        REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID,
-        SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
+        GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID,
+        GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID,
+        LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID, ORB_WALKER_ID,
+        RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
+        SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIKE_SLIME_L_SPIT_DAMAGE,
         SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
     },
     ids::MonsterId,
@@ -571,19 +572,12 @@ fn run_monster_turn(state: &mut CombatState) {
             &relics,
             state.card_random_rng.as_mut(),
         );
-        let hits = match state.monsters[index].intent {
-            crate::MonsterIntent::AttackMultiple { hits, .. }
-            | crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. } => hits,
-            _ => 1,
-        };
+        let hits = effective_current_move_hits(intent, state.monsters[index].intent);
         if matches!(intent, crate::MonsterIntent::Ritual { .. }) {
             skip_ritual_tick.push(actor_id);
         }
-        let heal_self = matches!(
-            state.monsters[index].intent,
-            crate::MonsterIntent::AttackHealSelf { .. }
-        )
-        .then_some(state.monsters[index].id);
+        let heal_self =
+            matches!(intent, crate::MonsterIntent::AttackHealSelf { .. }).then_some(actor_id);
         let burn_to_discard_and_draw = match intent {
             crate::MonsterIntent::AddBurnToDiscardAndDraw { count, .. } => count,
             _ => 0,
@@ -603,6 +597,9 @@ fn run_monster_turn(state: &mut CombatState) {
                 heal_self_thorns,
                 burn_to_discard_and_draw,
             );
+        }
+        if let crate::MonsterIntent::AttackAddSlimedToDiscard { count, .. } = intent {
+            add_cards_to_discard(&mut state.piles, SLIMED_ID, count);
         }
         if state.monsters[index].alive
             && state.monsters[index].content_id == NEMESIS_ID
@@ -704,6 +701,25 @@ fn apply_monster_pending_effects(
             state.card_random_rng.as_mut(),
         );
         add_cards_to_discard(&mut state.piles, BURN_ID, burn_to_discard_and_draw);
+    }
+}
+
+fn effective_current_move_hits(
+    original: crate::MonsterIntent,
+    after_effects: crate::MonsterIntent,
+) -> i32 {
+    match (original, after_effects) {
+        (
+            crate::MonsterIntent::AttackMultiple { .. },
+            crate::MonsterIntent::AttackMultiple { hits, .. },
+        )
+        | (
+            crate::MonsterIntent::AttackMultipleUpgradeBurns { .. },
+            crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. },
+        ) => hits,
+        (crate::MonsterIntent::AttackMultiple { hits, .. }, _)
+        | (crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. }, _) => hits,
+        _ => 1,
     }
 }
 
@@ -968,6 +984,11 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 record_target_move(monster);
                 continue;
             }
+            if matches!(monster.content_id, GREMLIN_WARRIOR_ID | GREMLIN_THIEF_ID) {
+                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension);
+                record_target_move(monster);
+                continue;
+            }
             if monster.content_id == GREMLIN_TSUNDERE_ID {
                 let mut source_branch = monster.clone();
                 source_branch.moves_executed = if living_monster_count > 1 { 0 } else { 1 };
@@ -1191,8 +1212,8 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 && spike_slime_uses_medium_or_large_move_table(monster)
             {
                 if let Some(roll) = roll {
-                    target_medium_or_large_spike_slime_next_intent_from_roll(
-                        monster.hp,
+                    target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+                        spike_slime_uses_large_move_table(monster),
                         &monster.move_history,
                         roll,
                         state.ascension,
@@ -1445,6 +1466,14 @@ fn spike_slime_uses_medium_or_large_move_table(monster: &crate::MonsterState) ->
         )
 }
 
+fn spike_slime_uses_large_move_table(monster: &crate::MonsterState) -> bool {
+    monster.max_hp > crate::content::monsters::SPIKE_SLIME_M_A7_HP_RANGE.max
+        || matches!(
+            monster.rolled_attack_damage,
+            Some(damage) if damage >= SPIKE_SLIME_L_SPIT_DAMAGE
+        )
+}
+
 fn apply_shield_gremlin_random_block(
     monsters: &mut [crate::MonsterState],
     source_id: MonsterId,
@@ -1504,11 +1533,54 @@ mod tests {
         target_spheric_guardian_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
         transient_attack_damage, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0, BYRD_A0, CENTURION_A0,
         DAGGER_A0, DAGGER_ID, DARKLING_A0, EXPLODER_A0, GIANT_HEAD_A0, GIANT_HEAD_ID,
-        GREMLIN_NOB_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WIZARD_A0, HEALER_A0, LAGAVULIN_A0, LOOTER_A0,
-        LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
-        SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
+        GREMLIN_NOB_A0, GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0,
+        GREMLIN_WIZARD_A0, HEALER_A0, LAGAVULIN_A0, LOOTER_A0, LOOTER_ID, MAW_A0, MAW_ID,
+        MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0, SPHERIC_GUARDIAN_A0,
+        SPHERIC_GUARDIAN_ID, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
     };
-    use crate::CardId;
+    use crate::{CardId, CardInstance, Relic};
+
+    #[test]
+    fn multi_hit_thorns_keeps_first_damage_hit_when_attacker_dies() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 5;
+        state.player.block = 0;
+        state.player.powers.thorns = 3;
+        state.monsters = vec![monster_state_for_ascension(
+            &GREMLIN_NOB_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+        state.monsters[0].hp = 3;
+        state.monsters[0].intent = crate::MonsterIntent::AttackMultiple { damage: 4, hits: 6 };
+
+        run_monster_turn(&mut state);
+
+        assert_eq!(state.player.hp, 1);
+        assert!(!state.monsters[0].alive);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AttackMultiple { damage: 4, hits: 1 }
+        );
+    }
+
+    #[test]
+    fn current_move_hits_ignore_next_intent_for_single_hit_cleanup() {
+        assert_eq!(
+            effective_current_move_hits(
+                crate::MonsterIntent::Attack { damage: 9 },
+                crate::MonsterIntent::AttackMultiple { damage: 8, hits: 2 }
+            ),
+            1
+        );
+        assert_eq!(
+            effective_current_move_hits(
+                crate::MonsterIntent::AttackMultiple { damage: 4, hits: 6 },
+                crate::MonsterIntent::AttackMultiple { damage: 4, hits: 1 }
+            ),
+            1
+        );
+    }
 
     #[test]
     fn magnetism_generated_card_overflows_full_hand_to_discard() {
@@ -1554,6 +1626,46 @@ mod tests {
         assert_eq!(next.piles.hand.len(), 1);
         assert_eq!(next.piles.hand[0].content_id, SLIMED_ID);
         assert!(next.piles.discard_pile.is_empty());
+    }
+
+    #[test]
+    fn centennial_puzzle_draws_before_attack_generated_slimed_enters_discard() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::CentennialPuzzle];
+        state.relic_counters.centennial_puzzle_triggers = 0;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.discard_pile = (2..=9)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.shuffle_rng = Some(StsRng::new(123));
+        state.monsters = vec![monster_state_for_ascension(
+            &crate::content::monsters::ACID_SLIME_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+        state.monsters[0].intent = crate::MonsterIntent::AttackAddSlimedToDiscard {
+            damage: 1,
+            count: 1,
+        };
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(next.relic_counters.centennial_puzzle_triggers, 1);
+        assert_eq!(next.piles.hand.len(), 8);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, SLIMED_ID);
+        assert!(!next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == SLIMED_ID));
+        assert!(!next
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == SLIMED_ID));
     }
 
     #[test]
@@ -1860,6 +1972,35 @@ mod tests {
             0
         );
         assert_eq!(state.monsters[0].move_history, vec![2, 2, 1]);
+    }
+
+    #[test]
+    fn gremlin_warrior_and_thief_direct_set_next_move_after_turn_without_ai_rng() {
+        for definition in [&GREMLIN_WARRIOR_A0, &GREMLIN_THIEF_A0] {
+            let actor_id = MonsterId::new(1);
+            let mut state = CombatState::initial_fixture();
+            state.monsters = vec![monster_state_for_ascension(definition, actor_id, 0)];
+            state.monsters[0].move_history = vec![1];
+            state.monster_rng = Some(StsRng::new(123));
+
+            prepare_next_intent_for_actor(&mut state, actor_id);
+
+            assert_eq!(
+                state
+                    .monster_rng
+                    .as_ref()
+                    .expect("test installs monster rng")
+                    .counter(),
+                0,
+                "{} should use SetMoveAction after its turn",
+                definition.name
+            );
+            assert_eq!(state.monsters[0].move_history, vec![1, 1]);
+            assert!(matches!(
+                state.monsters[0].intent,
+                crate::MonsterIntent::Attack { .. }
+            ));
+        }
     }
 
     #[test]

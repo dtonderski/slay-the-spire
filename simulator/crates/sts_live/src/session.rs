@@ -226,9 +226,9 @@ where
                 return Err(err);
             }
         };
-        let sync_manual_plan = {
+        let advance_manual_plan = {
             let session = self.session_mut(session_id)?;
-            let sync_manual_plan =
+            let advance_manual_plan =
                 !matches!(session.automation.state, AutomationState::SendingAction);
             session.trace_writer.append(&TraceRecord::Action {
                 sequence: state.sequence.saturating_sub(1),
@@ -236,10 +236,10 @@ where
             })?;
             append_bridge_response_and_state(session, "send_action", &state)?;
             session.latest_state = Some(state);
-            sync_manual_plan
+            advance_manual_plan
         };
-        if sync_manual_plan {
-            self.sync_automation_plan_after_action(session_id, &action, true)?;
+        if advance_manual_plan {
+            self.advance_automation_plan_after_action(session_id, &action, true)?;
         }
         if refresh_fidelity {
             self.refresh_fidelity(session_id)
@@ -447,7 +447,7 @@ where
             return Ok(blocked);
         }
 
-        self.sync_automation_plan_after_action(session_id, &action, false)?;
+        self.advance_automation_plan_after_action(session_id, &action, false)?;
         let session = self.session_mut(session_id)?;
         session.automation.executed_actions.push(planned);
         session.automation.state = AutomationState::Done;
@@ -460,7 +460,7 @@ where
 
     pub fn automation_step(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
         self.automation_resume_if_idle_or_done(session_id)?;
-        self.set_automation_state(session_id, AutomationState::WaitingForObservedState)?;
+        self.set_automation_state(session_id, AutomationState::WaitingForLiveState)?;
         self.request_state(session_id)?;
         let planned = self.automation_plan(session_id)?;
         if planned.automation.state != AutomationState::ReadyToSend {
@@ -523,7 +523,7 @@ where
             return Ok((self.session(session_id)?.snapshot(), false));
         }
 
-        self.set_automation_state(session_id, AutomationState::WaitingForObservedState)?;
+        self.set_automation_state(session_id, AutomationState::WaitingForLiveState)?;
         let refreshed = self.request_state_with_fidelity(session_id, false)?;
         if refreshed
             .latest_state
@@ -769,7 +769,7 @@ where
         Ok(())
     }
 
-    fn sync_automation_plan_after_action(
+    fn advance_automation_plan_after_action(
         &mut self,
         session_id: &SessionId,
         sent_action: &crate::model::LegalAction,

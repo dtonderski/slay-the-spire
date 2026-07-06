@@ -434,7 +434,7 @@ function automationNeedsFastRefresh(automation: AutomationJobSnapshot): boolean 
     "waiting_for_fidelity",
     "ready_to_send",
     "sending_action",
-    "waiting_for_observed_state",
+    "waiting_for_live_state",
     "verifying_transition"
   ].includes(automation.state);
 }

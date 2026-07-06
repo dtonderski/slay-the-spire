@@ -10,6 +10,7 @@ use crate::{
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
     },
+    content::monsters::DARKLING_ID,
     content::reward_pool::{
         ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
     },
@@ -33,7 +34,7 @@ use crate::{
         RunRngStream, DEFAULT_EVENT_ROOM_MONSTER_CHANCE, DEFAULT_EVENT_ROOM_SHOP_CHANCE,
         DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
     },
-    CombatAction, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
+    CombatAction, MonsterState, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
 /// Source-backed combat reward categories from target `createCombatReward` variants.
@@ -919,6 +920,7 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
 
     run.phase = RunPhase::Reward;
     run.combat = None;
+    run.boss_chest_opened = true;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
         gold_offer: 0,
@@ -1074,9 +1076,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     let all_monsters_escaped = run
         .combat
         .as_ref()
-        .map(|combat| {
-            !combat.monsters.is_empty() && combat.monsters.iter().all(|monster| monster.escaped)
-        })
+        .map(|combat| suppress_gold_for_all_escaped_monsters(&combat.monsters))
         .unwrap_or(false);
     let gold_offer = if all_monsters_escaped {
         0
@@ -1131,6 +1131,13 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     if pending_card_reward_count == 1 {
         roll_pending_card_reward_choices(run);
     }
+}
+
+fn suppress_gold_for_all_escaped_monsters(monsters: &[MonsterState]) -> bool {
+    !monsters.is_empty()
+        && monsters
+            .iter()
+            .all(|monster| monster.escaped && monster.content_id != DARKLING_ID)
 }
 
 pub fn enter_reward_screen(run: &mut RunState) {
@@ -1254,6 +1261,7 @@ fn enter_boss_reward_chest(run: &mut RunState) {
     run.combat = None;
     run.reward = None;
     run.treasure_room = None;
+    run.boss_chest_opened = false;
     run.current_floor += 1;
     run.reinit_room_rngs_for_floor();
 }
@@ -1290,6 +1298,7 @@ fn enter_next_act_map(run: &mut RunState) {
     run.reward = None;
     run.combat = None;
     run.treasure_room = None;
+    run.boss_chest_opened = false;
     run.current_room_override = None;
     run.normal_combat_count = 0;
     run.elite_combat_count = 0;
@@ -1439,6 +1448,9 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     next.player_max_hp = next_combat.player.max_hp;
     if next.relics.contains(&Relic::IncenseBurner) {
         next.incense_burner_counter = next_combat.relic_counters.incense_burner_counter;
+    }
+    if next.relics.contains(&Relic::PenNib) {
+        next.pen_nib_attacks_played = next_combat.relic_counters.pen_nib_attacks_played;
     }
 
     if next_combat.phase == CombatPhase::Won {
@@ -1662,7 +1674,10 @@ pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<
     }
     match action {
         RunAction::OpenChest => {
-            if run.current_room_kind() == Some(RoomKind::Boss) && run.treasure_room.is_none() {
+            if run.current_room_kind() == Some(RoomKind::Boss)
+                && run.treasure_room.is_none()
+                && !run.boss_chest_opened
+            {
                 return Ok(());
             }
             if run.treasure_room.is_some() {
@@ -1672,7 +1687,10 @@ pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<
             }
         }
         RunAction::Proceed => {
-            if run.current_room_kind() == Some(RoomKind::Boss) && run.reward.is_none() {
+            if run.current_room_kind() == Some(RoomKind::Boss)
+                && run.reward.is_none()
+                && run.boss_chest_opened
+            {
                 Ok(())
             } else {
                 Err(SimError::IllegalAction("cannot proceed from treasure"))
@@ -1913,4 +1931,212 @@ fn advance_pending_relic_offer(run: &mut RunState) {
     } else {
         relic_key_offer
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        content::cards::{
+            FIRE_BREATHING_ID, HEADBUTT_ID, METALLICIZE_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+            SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID,
+        },
+        content::monsters::DARKLING_ID,
+        run::{
+            neow::{generate_neow_colorless_reward, NeowRewardType},
+            RunState,
+        },
+        CardId, CardInstance, CombatAction, CombatState, MonsterId, Relic, RelicKey, RoomKind,
+    };
+
+    fn reward_choice_ids(run: &RunState) -> Vec<ContentId> {
+        run.reward
+            .as_ref()
+            .expect("reward screen")
+            .choices
+            .iter()
+            .map(|choice| choice.content_id)
+            .collect()
+    }
+
+    #[test]
+    fn test_seed_colorless_neow_carries_card_rng_through_first_two_combat_rewards() {
+        let numeric_seed = 1_218_623_i64;
+        let neow_reward =
+            generate_neow_colorless_reward(numeric_seed, NeowRewardType::RandomColorless);
+
+        let mut run = RunState::placeholder_seeded_ironclad(numeric_seed as u64, 0);
+        run.card_rng_counter = neow_reward.card_rng_counter;
+        run.gain_deck_card(SWIFT_STRIKE_ID);
+        run.current_act = 1;
+        run.current_room_override = Some(RoomKind::Combat);
+
+        enter_normal_combat_reward_screen(&mut run);
+        assert_eq!(
+            reward_choice_ids(&run),
+            vec![FIRE_BREATHING_ID, SPOT_WEAKNESS_ID, HEADBUTT_ID]
+        );
+
+        run.gain_deck_card(SPOT_WEAKNESS_ID);
+        run.current_room_override = Some(RoomKind::Combat);
+        enter_normal_combat_reward_screen(&mut run);
+        assert_eq!(
+            reward_choice_ids(&run),
+            vec![THUNDERCLAP_ID, WARCRY_ID, METALLICIZE_ID]
+        );
+    }
+
+    #[test]
+    fn close_card_reward_preserves_choices_for_reopen() {
+        let mut run = RunState::placeholder_seeded_ironclad(1_260_350_191_924, 0);
+        run.current_room_override = Some(RoomKind::Combat);
+        enter_normal_combat_reward_screen(&mut run);
+
+        let opened = apply_run_action(&run, RunAction::OpenCardReward).expect("card reward opens");
+        let original = reward_choice_ids(&opened);
+        let opened_card_rng_counter = opened.card_rng_counter;
+        assert!(opened.reward.as_ref().expect("reward").card_reward_active);
+
+        let closed =
+            apply_run_action(&opened, RunAction::CloseCardReward).expect("card reward closes");
+        assert!(!closed.reward.as_ref().expect("reward").card_reward_active);
+        assert_eq!(reward_choice_ids(&closed), original);
+        assert_eq!(closed.card_rng_counter, opened_card_rng_counter);
+
+        let reopened =
+            apply_run_action(&closed, RunAction::OpenCardReward).expect("card reward reopens");
+        assert!(reopened.reward.as_ref().expect("reward").card_reward_active);
+        assert_eq!(reward_choice_ids(&reopened), original);
+        assert_eq!(reopened.card_rng_counter, opened_card_rng_counter);
+    }
+
+    #[test]
+    fn test_seed_scrap_ooze_then_big_fish_event_relics() {
+        let numeric_seed = 1_218_623_i64;
+        let mut run = RunState::map_fixture();
+        run.relic_rng_seed = numeric_seed as u64;
+        run.relics = vec![Relic::BurningBlood];
+        run.current_act = 1;
+
+        run.current_floor = 3;
+        let act = i32::from(run.current_act);
+        let scrap_ooze_relic = roll_event_relic_reward(&mut run, act);
+        assert_eq!(scrap_ooze_relic, RelicKey::DreamCatcher);
+        run.gain_relic_key(scrap_ooze_relic);
+
+        run.current_floor = 4;
+        let act = i32::from(run.current_act);
+        let event_relic = roll_event_relic_reward(&mut run, act);
+        assert_eq!(event_relic, RelicKey::ToxicEgg);
+    }
+
+    #[test]
+    fn pen_nib_counter_persists_between_run_and_combat() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![Relic::PenNib];
+        run.pen_nib_attacks_played = 9;
+
+        let mut combat = CombatState::initial_fixture();
+        combat.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        combat.relics = run.relics.clone();
+        combat.relic_counters.pen_nib_attacks_played = run.pen_nib_attacks_played;
+        run.combat = Some(combat);
+
+        let next = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("strike plays");
+
+        assert_eq!(next.pen_nib_attacks_played, 0);
+        assert_eq!(
+            next.combat
+                .as_ref()
+                .expect("combat remains active")
+                .relic_counters
+                .pen_nib_attacks_played,
+            0
+        );
+    }
+
+    #[test]
+    fn half_dead_darklings_still_allow_combat_gold_reward() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+
+        let mut combat = CombatState::initial_fixture();
+        for monster in &mut combat.monsters {
+            monster.content_id = DARKLING_ID;
+            monster.hp = 0;
+            monster.alive = false;
+            monster.escaped = true;
+        }
+        run.combat = Some(combat);
+
+        enter_normal_combat_reward_screen(&mut run);
+
+        assert!(
+            run.reward.as_ref().expect("reward screen").gold_offer > 0,
+            "Darkling half-dead markers are not escaped-monster gold suppression"
+        );
+    }
+
+    #[test]
+    fn boss_relic_chest_cannot_be_opened_after_boss_relic_pick() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(RoomKind::Boss);
+        run.current_floor = 17;
+        run.current_act = 1;
+        run.relic_rng_seed = 1_218_623;
+        run.relics = vec![Relic::BurningBlood];
+
+        assert!(validate_treasure_action(&run, RunAction::OpenChest).is_ok());
+        assert!(validate_treasure_action(&run, RunAction::Proceed).is_err());
+
+        let opened = apply_run_action(&run, RunAction::OpenChest).expect("boss chest opens");
+        assert!(opened.boss_chest_opened);
+        assert_eq!(opened.phase, RunPhase::Reward);
+        assert!(!opened
+            .reward
+            .as_ref()
+            .expect("boss relic reward")
+            .boss_relic_choices
+            .is_empty());
+
+        let picked = apply_run_action(&opened, RunAction::ChooseBossRelicReward { index: 0 })
+            .expect("boss relic can be picked");
+        assert!(picked.boss_chest_opened);
+        assert_eq!(picked.phase, RunPhase::Treasure);
+        assert!(picked.reward.is_none());
+        assert!(validate_treasure_action(&picked, RunAction::OpenChest).is_err());
+        assert!(validate_treasure_action(&picked, RunAction::Proceed).is_ok());
+    }
+
+    #[test]
+    fn upgraded_starter_relic_keeps_starter_relic_slot() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![
+            Relic::BurningBlood,
+            Relic::CentennialPuzzle,
+            Relic::OddlySmoothStone,
+        ];
+
+        run.gain_relic(Relic::BlackBlood);
+
+        assert_eq!(
+            run.relics,
+            vec![
+                Relic::BlackBlood,
+                Relic::CentennialPuzzle,
+                Relic::OddlySmoothStone
+            ]
+        );
+    }
 }

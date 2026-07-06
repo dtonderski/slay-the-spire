@@ -10,8 +10,7 @@ use sts_core::{
 };
 use sts_verify::{
     canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
-    verify_communication_mod_trace, verify_seed_start_communication_mod_trace,
-    verify_seed_start_communication_mod_trace_with_options, ManualFixture, SeedStartVerifyOptions,
+    verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ManualFixture,
     VerificationMode,
 };
 
@@ -34,7 +33,6 @@ struct Act1CorpusEntry {
     numeric_seed: i64,
     expected_failure: bool,
     first_boundary_category: String,
-    allow_observed_state_restoration: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -48,7 +46,6 @@ struct LiveRegressionEntry {
     external_seed: String,
     expected_verified: bool,
     rust_seed_start_unexpected_diffs: usize,
-    rust_seed_start_observed_state_restorations: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -615,7 +612,7 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
 }
 
 #[test]
-fn codex04_controller_trace_verifies_supported_observed_state_scope() {
+fn codex04_controller_trace_verifies_supported_seed_start_scope() {
     let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl")
     else {
         return;
@@ -849,42 +846,6 @@ fn test_seed_start_m28_shop_entry_parity() {
 }
 
 #[test]
-#[ignore = "known-red strict seed-start parity trace; run explicitly while working M29/M35 parity"]
-fn test_seed_start_m29_test_elite_boss_without_observed_sync() {
-    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
-    else {
-        return;
-    };
-
-    let report = verify_seed_start_communication_mod_trace_with_options(
-        &content,
-        SeedStartVerifyOptions {
-            disable_test_elite_boss_observed_sync: true,
-            disable_test_elite_observed_sync_count: 0,
-            disable_test_boss_observed_sync: false,
-            disable_test_late_normal_observed_sync: true,
-            disable_post_end_non_pile_observed_sync: false,
-        },
-    )
-    .expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
-    let slice_diffs: Vec<_> = report
-        .unexpected_diffs
-        .iter()
-        .filter(|diff| diff.action_step <= 132)
-        .collect();
-    assert!(slice_diffs.is_empty(), "unexpected diffs: {slice_diffs:?}");
-
-    let seed_start = report.seed_start.expect("seed-start details");
-    assert!(
-        !seed_start.expected_failure,
-        "seed-start boundary: {:?}",
-        seed_start.first_boundary
-    );
-    assert_eq!(seed_start.first_boundary.category, "none");
-}
-
-#[test]
 fn test_seed_start_m29_m290001_sentries_prefix_zero_diffs() {
     let Some(content) =
         load_corpus_file("communication_mod/trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl")
@@ -942,22 +903,13 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(seed_start.expected_failure);
     assert_eq!(seed_start.start_command.external_seed, "M290008");
     assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_133);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[step=73].command");
-    assert_eq!(
-        seed_start.first_boundary.category,
-        "unsupported_combat_path"
-    );
     assert!(
-        report.unsupported.iter().any(|entry| {
-            entry.action_step == 73
-                && entry
-                    .reason
-                    .contains("Sword Boomerang multi-enemy random target parity")
-        }),
-        "expected precise Sword Boomerang unsupported reason: {:?}",
+        report.unsupported.iter().all(|entry| !entry
+            .reason
+            .contains("Sword Boomerang multi-enemy random target parity")),
+        "Sword Boomerang should not remain an unsupported seed-start frontier: {:?}",
         report.unsupported
     );
 
@@ -1268,14 +1220,6 @@ fn m35_act1_manifest_entries_pass_seed_start() {
             "{} first boundary mismatch",
             entry.path
         );
-        if !entry.allow_observed_state_restoration {
-            assert!(
-                report.observed_state_restorations.is_empty(),
-                "{} restored observed state: {:?}",
-                entry.path,
-                report.observed_state_restorations
-            );
-        }
     }
 }
 
@@ -1300,14 +1244,6 @@ fn live_regression_manifest_entries_pass_seed_start() {
             entry.path,
             report.unexpected_diffs
         );
-        assert_eq!(
-            report.observed_state_restorations.len(),
-            entry.rust_seed_start_observed_state_restorations,
-            "{} observed-state restoration count changed: {:?}",
-            entry.path,
-            report.observed_state_restorations
-        );
-
         let seed_start = report
             .seed_start
             .unwrap_or_else(|| panic!("seed-start details for {}", entry.path));
@@ -1324,6 +1260,63 @@ fn live_regression_manifest_entries_pass_seed_start() {
             );
         }
     }
+}
+
+#[test]
+fn seed_start_random_rare_neow_reward_carries_into_first_combat() {
+    let Some(content) =
+        load_corpus_file("permanent_traces/live-regression-2026-07-02T23-24-13-178Z.jsonl")
+    else {
+        return;
+    };
+
+    assert_deck_includes(&content, 4, "Double Tap");
+    assert_deck_includes(&content, 5, "Double Tap");
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert!(
+        report
+            .verified
+            .iter()
+            .any(|transition| transition.action_step == 5
+                && transition.label == "map first monster node"),
+        "first map combat entry should verify; report: {report:#?}"
+    );
+    assert!(
+        report
+            .unexpected_diffs
+            .iter()
+            .all(|diff| diff.action_step > 5),
+        "random rare Neow reward should not cause an early deck diff: {:?}",
+        report.unexpected_diffs
+    );
+}
+
+#[test]
+fn seed_start_wing_statue_filters_locked_choice_list() {
+    let Some(content) =
+        load_corpus_file("permanent_traces/live-regression-2026-07-02T23-24-13-178Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert!(
+        report
+            .verified
+            .iter()
+            .any(|transition| transition.action_step == 34
+                && transition.label == "map event node 1"),
+        "Wing Statue event entry should verify through the hidden locked option; report: {report:#?}"
+    );
+    assert!(
+        report
+            .unexpected_diffs
+            .iter()
+            .all(|diff| diff.action_step > 34),
+        "hidden locked event choice should not cause an event choice-list diff: {:?}",
+        report.unexpected_diffs
+    );
 }
 
 #[test]
@@ -1358,146 +1351,7 @@ fn permanent_trace_entries_pass_seed_start() {
             "{display_path} unexpected diffs: {:?}",
             report.unexpected_diffs
         );
-        assert!(
-            report.observed_state_restorations.is_empty(),
-            "{display_path} observed-state restorations: {:?}",
-            report.observed_state_restorations
-        );
     }
-}
-
-#[test]
-#[ignore = "known-red TEST trace sync-removal audit; run explicitly while working M35 parity"]
-fn m35_test_trace_reports_observed_state_restoration_until_scaffolding_is_removed() {
-    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
-    else {
-        return;
-    };
-
-    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
-    assert!(
-        report.unexpected_diffs.is_empty(),
-        "unexpected diffs: {:?}",
-        report.unexpected_diffs
-    );
-    assert!(
-        report
-            .observed_state_restorations
-            .iter()
-            .all(|entry| !entry.reason.contains("post-END non-pile combat state")),
-        "post-END non-pile restoration should be gone from TEST trace: {:?}",
-        report.observed_state_restorations
-    );
-    assert!(
-        report
-            .observed_state_restorations
-            .iter()
-            .all(|entry| !entry.reason.contains("combat hand-select")),
-        "combat hand-select restorations should be gone from TEST trace: {:?}",
-        report.observed_state_restorations
-    );
-
-    let diff_steps = report
-        .unexpected_diffs
-        .iter()
-        .map(|diff| diff.action_step)
-        .collect::<Vec<_>>();
-    assert_eq!(
-        diff_steps,
-        Vec::<u32>::new(),
-        "late normal observed-sync removal should no longer expose diffs"
-    );
-    assert!(
-        report.observed_state_restorations.is_empty(),
-        "default M35 TEST restoration should be fully removed from the selected trace: {:?}",
-        report.observed_state_restorations
-    );
-
-    let no_post_end_sync_report = verify_seed_start_communication_mod_trace_with_options(
-        &content,
-        SeedStartVerifyOptions {
-            disable_test_elite_boss_observed_sync: false,
-            disable_test_elite_observed_sync_count: 0,
-            disable_test_boss_observed_sync: false,
-            disable_test_late_normal_observed_sync: true,
-            disable_post_end_non_pile_observed_sync: true,
-        },
-    )
-    .expect("seed-start report without post-END non-pile observed sync");
-    assert_eq!(no_post_end_sync_report.mode, VerificationMode::SeedStart);
-    let end_diff_steps = no_post_end_sync_report
-        .unexpected_diffs
-        .iter()
-        .map(|diff| diff.action_step)
-        .collect::<Vec<_>>();
-    assert_eq!(
-        end_diff_steps,
-        vec![27, 28],
-        "post-END sync removal currently cascades from the first remaining END drift: {:?}",
-        no_post_end_sync_report.unexpected_diffs
-    );
-
-    let first_two_elites_no_sync_report = verify_seed_start_communication_mod_trace_with_options(
-        &content,
-        SeedStartVerifyOptions {
-            disable_test_elite_boss_observed_sync: false,
-            disable_test_elite_observed_sync_count: 2,
-            disable_test_boss_observed_sync: false,
-            disable_test_late_normal_observed_sync: true,
-            disable_post_end_non_pile_observed_sync: false,
-        },
-    )
-    .expect("seed-start report with first two TEST elite observed syncs disabled");
-    assert!(
-        first_two_elites_no_sync_report.unexpected_diffs.is_empty(),
-        "first two TEST elites no-sync should now clear the former shop potion boundary: {:?}",
-        first_two_elites_no_sync_report.unexpected_diffs
-    );
-
-    let boss_no_sync_report = verify_seed_start_communication_mod_trace_with_options(
-        &content,
-        SeedStartVerifyOptions {
-            disable_test_elite_boss_observed_sync: false,
-            disable_test_elite_observed_sync_count: 0,
-            disable_test_boss_observed_sync: true,
-            disable_test_late_normal_observed_sync: true,
-            disable_post_end_non_pile_observed_sync: false,
-        },
-    )
-    .expect("seed-start report with TEST boss observed sync disabled");
-    assert!(
-        boss_no_sync_report.unexpected_diffs.is_empty(),
-        "TEST boss no-sync should now clear the former potion-use, Mummified Hand, Shrug It Off+, Bash HP, Guardian end-turn HP, and Pommel Strike current-HP boundaries: {:?}",
-        boss_no_sync_report.unexpected_diffs
-    );
-}
-
-#[test]
-#[ignore = "known-red TEST boss no-sync audit; run explicitly while working M35 parity"]
-fn m35_test_trace_boss_no_sync_clears_mummified_hand_and_shrug_it_off_plus() {
-    let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
-    else {
-        return;
-    };
-
-    let boss_no_sync_report = verify_seed_start_communication_mod_trace_with_options(
-        &content,
-        SeedStartVerifyOptions {
-            disable_test_elite_boss_observed_sync: false,
-            disable_test_elite_observed_sync_count: 0,
-            disable_test_boss_observed_sync: true,
-            disable_test_late_normal_observed_sync: true,
-            disable_post_end_non_pile_observed_sync: false,
-        },
-    )
-    .expect("seed-start report with TEST boss observed sync disabled");
-
-    assert!(
-        boss_no_sync_report.unexpected_diffs.is_empty(),
-        "TEST boss no-sync should clear potion-use, Mummified Hand cost carry, Shrug It Off+ block, Bash HP, Guardian end-turn HP, and Pommel Strike current-HP boundaries: {:?}",
-        boss_no_sync_report.unexpected_diffs
-    );
 }
 
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {

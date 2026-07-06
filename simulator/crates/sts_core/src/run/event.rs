@@ -2,9 +2,9 @@ use crate::{
     card::{CardRarity, CardType},
     combat::initialize_combat_piles_with_relics,
     content::cards::{
-        get_card_definition, upgrade_card_instance, upgrade_content_id, APPARITION_ID, BITE_ID,
-        DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID, JAX_ID, PAIN_ID, REGRET_ID, RITUAL_DAGGER_ID,
-        SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+        get_card_definition, is_curse_content_id, upgrade_card_instance, upgrade_content_id,
+        APPARITION_ID, BITE_ID, DECAY_ID, DEFEND_R_ID, DOUBT_ID, INJURY_ID, JAX_ID, PAIN_ID,
+        REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::{
         monsters::{
@@ -585,15 +585,13 @@ const ACT1_EVENTS: [Event; 11] = [
     Event::ShiningLight,
 ];
 
-const ACT1_SHRINES: [Event; 8] = [
-    Event::AccursedBlacksmith,
+const ACT1_SHRINES: [Event; 6] = [
     Event::MatchAndKeep,
     Event::GoldenShrine,
     Event::Transmorgrifier,
     Event::Purifier,
     Event::UpgradeShrine,
     Event::WheelOfChange,
-    Event::FaceTrader,
 ];
 
 pub const ACT2_EVENTS: [Event; 13] = [
@@ -612,33 +610,53 @@ pub const ACT2_EVENTS: [Event; 13] = [
     Event::Vampires,
 ];
 
-pub const ACT2_SHRINES: [Event; 8] = [
-    Event::AccursedBlacksmith,
+pub const ACT2_SHRINES: [Event; 6] = [
     Event::MatchAndKeep,
     Event::WheelOfChange,
     Event::GoldenShrine,
     Event::Transmorgrifier,
     Event::Purifier,
     Event::UpgradeShrine,
-    Event::FaceTrader,
 ];
 
 pub const ACT3_EVENTS: [Event; 1] = [Event::Lab];
 
-pub const ACT3_SHRINES: [Event; 7] = [
-    Event::AccursedBlacksmith,
+pub const ACT3_SHRINES: [Event; 6] = [
     Event::MatchAndKeep,
     Event::WheelOfChange,
     Event::GoldenShrine,
     Event::Transmorgrifier,
     Event::Purifier,
     Event::UpgradeShrine,
+];
+
+const SPECIAL_ONE_TIME_EVENTS_PREFIX: [Event; 9] = [
+    Event::AccursedBlacksmith,
+    Event::BonfireElementals,
+    Event::Designer,
+    Event::Duplicator,
+    Event::FaceTrader,
+    Event::FountainOfCleansing,
+    Event::KnowingSkull,
+    Event::Lab,
+    Event::Nloth,
+];
+
+const SPECIAL_ONE_TIME_EVENTS_SUFFIX: [Event; 4] = [
+    Event::SecretPortal,
+    Event::TheJoust,
+    Event::WeMeetAgain,
+    Event::TheWomanInBlue,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     Neow,
     AccursedBlacksmith,
+    BonfireElementals,
+    Designer,
+    Duplicator,
+    FountainOfCleansing,
     GoldenShrine,
     BigFish,
     TheCleric,
@@ -652,6 +670,12 @@ pub enum Event {
     ScrapOoze,
     ShiningLight,
     FaceTrader,
+    Nloth,
+    NoteForYourself,
+    SecretPortal,
+    TheJoust,
+    WeMeetAgain,
+    TheWomanInBlue,
     Transmorgrifier,
     Purifier,
     UpgradeShrine,
@@ -916,6 +940,19 @@ fn initialize_act3_event_pools(run: &mut RunState) {
     run.act3_shrine_list = ACT3_SHRINES.to_vec();
 }
 
+fn initialize_special_one_time_event_pool(run: &mut RunState) {
+    if run.special_one_time_events_initialized {
+        return;
+    }
+    run.special_one_time_event_list = SPECIAL_ONE_TIME_EVENTS_PREFIX.to_vec();
+    if note_for_yourself_is_available(run) {
+        run.special_one_time_event_list.push(Event::NoteForYourself);
+    }
+    run.special_one_time_event_list
+        .extend(SPECIAL_ONE_TIME_EVENTS_SUFFIX);
+    run.special_one_time_events_initialized = true;
+}
+
 fn event_lists_mut(run: &mut RunState) -> (&mut Vec<Event>, &mut Vec<Event>) {
     match run.current_act {
         2 => (&mut run.act2_event_list, &mut run.act2_shrine_list),
@@ -925,6 +962,7 @@ fn event_lists_mut(run: &mut RunState) -> (&mut Vec<Event>, &mut Vec<Event>) {
 }
 
 fn ensure_event_lists(run: &mut RunState) {
+    initialize_special_one_time_event_pool(run);
     match run.current_act {
         2 => initialize_act2_event_pools(run),
         3 => initialize_act3_event_pools(run),
@@ -938,14 +976,60 @@ fn pick_from_list(rng: &mut StsRng, list: &mut Vec<Event>) -> Event {
 }
 
 fn get_shrine(run: &mut RunState, rng: &mut StsRng) -> Event {
-    let (event_list, shrine_list) = event_lists_mut(run);
-    let mut candidates = shrine_list.clone();
+    let mut candidates = match run.current_act {
+        2 => run.act2_shrine_list.clone(),
+        3 => run.act3_shrine_list.clone(),
+        _ => run.act1_shrine_list.clone(),
+    };
+    candidates.extend(
+        run.special_one_time_event_list
+            .iter()
+            .copied()
+            .filter(|event| special_one_time_event_is_available(run, *event)),
+    );
     if candidates.is_empty() {
+        let (event_list, _) = event_lists_mut(run);
         return pick_from_list(rng, event_list);
     }
-    let event = pick_from_list(rng, &mut candidates);
-    *shrine_list = candidates;
+    let idx = rng.random_int((candidates.len() - 1) as i32) as usize;
+    let event = candidates[idx];
+    let (_, shrine_list) = event_lists_mut(run);
+    if let Some(index) = shrine_list.iter().position(|candidate| *candidate == event) {
+        shrine_list.remove(index);
+    }
+    if let Some(index) = run
+        .special_one_time_event_list
+        .iter()
+        .position(|candidate| *candidate == event)
+    {
+        run.special_one_time_event_list.remove(index);
+    }
     event
+}
+
+fn special_one_time_event_is_available(run: &RunState, event: Event) -> bool {
+    match event {
+        Event::Designer => run.current_act >= 2 && run.gold >= 75,
+        Event::Duplicator => run.current_act >= 2,
+        Event::FaceTrader => run.current_act == 1 || run.current_act == 2,
+        Event::FountainOfCleansing => deck_has_curse(&run.deck),
+        Event::KnowingSkull => run.current_act == 2 && run.player_hp > 12,
+        Event::Nloth => run.current_act == 2 && run.relics.len() + run.relic_keys.len() >= 2,
+        Event::SecretPortal => false,
+        Event::TheJoust => run.current_act == 2 && run.gold >= 50,
+        Event::TheWomanInBlue => run.gold >= 50,
+        _ => true,
+    }
+}
+
+fn deck_has_curse(deck: &[CardInstance]) -> bool {
+    deck.iter().any(|card| is_curse_content_id(card.content_id))
+}
+
+fn note_for_yourself_is_available(run: &RunState) -> bool {
+    // Target enables NoteForYourself unconditionally at A0. A1-A14 also depends
+    // on local profile unlock prefs, which seed-start replay does not model.
+    run.ascension == 0
 }
 
 fn get_event(run: &mut RunState, rng: &mut StsRng) -> Event {
@@ -1050,6 +1134,7 @@ fn wing_statue_choices(stage: u32, can_attack: bool) -> Vec<EventChoice> {
     match stage {
         0 if can_attack => labeled_choices(&["Pray", "Destroy", "Leave"]),
         0 => labeled_choices(&["Pray", "Locked", "Leave"]),
+        1 => labeled_choices(&["Continue"]),
         _ => labeled_choices(&["Leave"]),
     }
 }
@@ -1544,7 +1629,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.event = None;
             }
             1 if choice_index == 0 => {
-                next.gain_deck_card(INJURY_ID);
+                // Target source uses ShowCardAndObtainEffect for the curse; the
+                // card reaches the deck when that visual effect resolves.
+                next.queue_pending_obtain_card(INJURY_ID);
                 next.event = Some(EventScreen {
                     event: Event::GoldenIdol,
                     choices: golden_idol_choices(2, next.player_max_hp, next.ascension),
@@ -1574,6 +1661,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             2 if choice_index == 0 => {
+                next.flush_pending_obtain_cards();
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -1848,7 +1936,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let act = i32::from(next.current_act);
                 let key = super::reward::roll_event_relic_reward(&mut next, act);
                 next.gain_relic_key(key);
-                next.gain_deck_card(REGRET_ID);
+                // Target source uses ShowCardAndObtainEffect for the curse; the
+                // relic is obtained immediately, but the card reaches the deck
+                // when that visual effect resolves.
+                next.queue_pending_obtain_card(REGRET_ID);
                 next.event = Some(EventScreen {
                     event: Event::BigFish,
                     choices: big_fish_choices(1),
@@ -1857,6 +1948,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
+                next.flush_pending_obtain_cards();
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -2579,4 +2671,114 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
     run.phase = RunPhase::Combat;
     run.event = None;
     run.combat = Some(run.init_combat_consuming_relics(combat));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wing_statue_pray_shows_continue_before_remove_grid() {
+        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::WingStatue,
+            choices: wing_statue_choices(0, false),
+            stage: 0,
+            event_data: 0,
+        });
+
+        let after_pray = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("pray choice applies");
+        let choices = after_pray
+            .event
+            .as_ref()
+            .expect("Wing Statue remains open after Pray")
+            .choices
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(choices, vec!["Continue"]);
+
+        let after_continue =
+            apply_event_action(&after_pray, EventAction::Choose { choice_index: 0 })
+                .expect("continue choice applies");
+        assert!(
+            after_continue.card_grid.is_some(),
+            "Continue after Pray should open the remove-card grid"
+        );
+    }
+
+    #[test]
+    fn big_fish_box_queues_regret_until_obtain_effect_resolves() {
+        let mut run = RunState::placeholder_seeded_ironclad(1_260_350_191_924, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 1;
+        run.current_floor = 5;
+        run.event = Some(EventScreen {
+            event: Event::BigFish,
+            choices: big_fish_choices(0),
+            stage: 0,
+            event_data: 0,
+        });
+
+        let after_box = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("Big Fish box choice applies");
+        let regret_count = after_box
+            .deck
+            .iter()
+            .filter(|card| card.content_id == REGRET_ID)
+            .count();
+        assert_eq!(regret_count, 0);
+        assert_eq!(after_box.pending_obtain_cards, vec![REGRET_ID]);
+        assert!(after_box.relics.len() + after_box.relic_keys.len() > run.relics.len());
+
+        let after_leave = apply_event_action(&after_box, EventAction::Choose { choice_index: 0 })
+            .expect("Big Fish leave applies");
+        let final_regret_count = after_leave
+            .deck
+            .iter()
+            .filter(|card| card.content_id == REGRET_ID)
+            .count();
+        assert_eq!(final_regret_count, 1);
+        assert!(after_leave.pending_obtain_cards.is_empty());
+    }
+
+    #[test]
+    fn golden_idol_queues_injury_until_obtain_effect_resolves() {
+        let mut run = RunState::placeholder_seeded_ironclad(1_435_099_163_226, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 1;
+        run.event = Some(EventScreen {
+            event: Event::GoldenIdol,
+            choices: golden_idol_choices(0, run.player_max_hp, run.ascension),
+            stage: 0,
+            event_data: 0,
+        });
+
+        let after_take = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Golden Idol take choice applies");
+        assert!(has_relic_key(&after_take, RelicKey::GoldenIdol));
+
+        let after_outrun = apply_event_action(&after_take, EventAction::Choose { choice_index: 0 })
+            .expect("Golden Idol outrun choice applies");
+        assert!(!after_outrun
+            .deck
+            .iter()
+            .any(|card| card.content_id == INJURY_ID));
+        assert_eq!(after_outrun.pending_obtain_cards, vec![INJURY_ID]);
+
+        let after_leave =
+            apply_event_action(&after_outrun, EventAction::Choose { choice_index: 0 })
+                .expect("Golden Idol leave applies");
+        assert_eq!(
+            after_leave
+                .deck
+                .iter()
+                .filter(|card| card.content_id == INJURY_ID)
+                .count(),
+            1
+        );
+        assert!(after_leave.pending_obtain_cards.is_empty());
+    }
 }

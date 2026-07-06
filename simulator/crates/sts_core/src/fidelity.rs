@@ -1,8 +1,8 @@
 //! Vocabulary for simulator fidelity boundaries.
 //!
 //! These labels keep hard-coded behavior honest. Some constants and branches are
-//! source-backed target-game behavior; others are compatibility fixtures or
-//! verifier-only trace scaffolding. New code should choose the narrowest label
+//! source-backed target-game behavior; others are compatibility fixtures.
+//! New code should choose the narrowest label
 //! that describes its evidence instead of using an ambiguous "fixed" or
 //! "fallback" name.
 
@@ -16,6 +16,4 @@ pub enum FidelityCategory {
     Placeholder,
     /// Behavior pinned to a known captured branch rather than general RNG.
     CapturedBranch,
-    /// Verification-only observed-state sync or trace repair scaffolding.
-    VerifierOnly,
 }

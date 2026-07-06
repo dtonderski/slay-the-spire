@@ -69,6 +69,7 @@ pub const DUAL_WIELD_PLUS_ID: ContentId = ContentId::new(41);
 pub const SEARING_BLOW_ID: ContentId = ContentId::new(42);
 pub const SEARING_BLOW_PLUS_ID: ContentId = ContentId::new(43);
 pub const DRAMATIC_ENTRANCE_ID: ContentId = ContentId::new(44);
+pub const DRAMATIC_ENTRANCE_PLUS_ID: ContentId = ContentId::new(10_044);
 pub const SWIFT_STRIKE_ID: ContentId = ContentId::new(45);
 pub const SWIFT_STRIKE_PLUS_ID: ContentId = ContentId::new(46);
 pub const BITE_ID: ContentId = ContentId::new(47);
@@ -1662,6 +1663,27 @@ pub const DRAMATIC_ENTRANCE: CardDefinition = CardDefinition {
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: true,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const DRAMATIC_ENTRANCE_PLUS: CardDefinition = CardDefinition {
+    id: DRAMATIC_ENTRANCE_PLUS_ID,
+    key: "Dramatic Entrance+",
+    name: "Dramatic Entrance+",
+    cost: 0,
+    card_type: CardType::Attack,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(12),
         block: None,
         vulnerable: None,
     },
@@ -4214,7 +4236,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub const ALL_CARDS: [CardDefinition; 243] = [
+pub const ALL_CARDS: [CardDefinition; 244] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -4310,6 +4332,7 @@ pub const ALL_CARDS: [CardDefinition; 243] = [
     SEARING_BLOW,
     SEARING_BLOW_PLUS,
     DRAMATIC_ENTRANCE,
+    DRAMATIC_ENTRANCE_PLUS,
     BANDAGE_UP,
     BANDAGE_UP_PLUS,
     APOTHEOSIS,
@@ -4702,7 +4725,9 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
         }
         id if id == REAPER_ID || id == REAPER_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
         id if id == EXHUME_ID || id == EXHUME_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == DRAMATIC_ENTRANCE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
+        id if id == DRAMATIC_ENTRANCE_ID || id == DRAMATIC_ENTRANCE_PLUS_ID => {
+            Some((CardType::Attack, CardRarity::Uncommon))
+        }
         id if id == APOTHEOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == APOTHEOSIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
         id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
@@ -4786,6 +4811,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         THUNDERCLAP_ID => Some(THUNDERCLAP_PLUS_ID),
         CLOTHESLINE_ID => Some(CLOTHESLINE_PLUS_ID),
         WILD_STRIKE_ID => Some(WILD_STRIKE_PLUS_ID),
+        DRAMATIC_ENTRANCE_ID => Some(DRAMATIC_ENTRANCE_PLUS_ID),
         HEAVY_BLADE_ID => Some(HEAVY_BLADE_PLUS_ID),
         PERFECTED_STRIKE_ID => Some(PERFECTED_STRIKE_PLUS_ID),
         POWER_THROUGH_ID => Some(POWER_THROUGH_PLUS_ID),
@@ -4823,6 +4849,7 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
         CLEAVE_ID => Some(CLEAVE_PLUS_ID),
         TWIN_STRIKE_ID => Some(TWIN_STRIKE_PLUS_ID),
         SHRUG_IT_OFF_ID => Some(SHRUG_IT_OFF_PLUS_ID),
+        TRUE_GRIT_ID => Some(TRUE_GRIT_PLUS_ID),
         POMMEL_STRIKE_ID => Some(POMMEL_STRIKE_PLUS_ID),
         SWORD_BOOMERANG_ID => Some(SWORD_BOOMERANG_PLUS_ID),
         UPPERCUT_ID => Some(UPPERCUT_PLUS_ID),
@@ -4945,4 +4972,14 @@ pub fn upgrade_card_instance(card: CardInstance) -> Option<CardInstance> {
                 + 1;
     }
     Some(upgraded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upgrade_content_id_covers_true_grit() {
+        assert_eq!(upgrade_content_id(TRUE_GRIT_ID), Some(TRUE_GRIT_PLUS_ID));
+    }
 }

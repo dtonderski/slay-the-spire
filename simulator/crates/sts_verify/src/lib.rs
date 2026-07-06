@@ -29,12 +29,11 @@ pub use seed::{
     STS_SEED_ALPHABET,
 };
 pub use sim_real::{
-    run_state_from_observed_combat_message, run_state_from_observed_message,
     verify_communication_mod_trace, verify_communication_mod_trace_with_mode,
     verify_seed_start_communication_mod_trace,
-    verify_seed_start_communication_mod_trace_with_options, ObservedStateRestoration, RngBoundary,
-    SeedStartBoundary, SeedStartReport, SeedStartVerifyOptions, SimRealError, SimRealReport,
-    StartRunCommand, UnexpectedDiff, UnsupportedTransition, VerificationMode, VerifiedTransition,
+    verify_seed_start_communication_mod_trace_with_options, RngBoundary, SeedStartBoundary,
+    SeedStartReport, SeedStartVerifyOptions, SimRealError, SimRealReport, StartRunCommand,
+    UnexpectedDiff, UnsupportedTransition, VerificationMode, VerifiedTransition,
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,

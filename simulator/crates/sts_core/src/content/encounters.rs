@@ -104,6 +104,7 @@ pub fn target_exordium_act_one_boss(seed: i64) -> String {
 #[must_use]
 pub fn target_city_act_two_boss(seed: i64) -> String {
     let mut rng = StsRng::new(seed);
+    advance_exordium_content_generation_rng(&mut rng);
     let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2);
     append_city_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
     let _elite_encounters = generate_city_elite_encounters_with_rng(&mut rng, 10);
@@ -418,4 +419,17 @@ fn roll_monster_info<'a>(entries: &'a [(&'a str, f32)], roll: f32) -> &'a str {
         }
     }
     "ERROR"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::target_city_act_two_boss;
+
+    #[test]
+    fn city_boss_shuffle_advances_past_exordium_content_generation() {
+        // AbstractDungeon constructs each act with the same monsterRng stream:
+        // generateMonsters(), then initializeBoss(). Act 2 boss projection must
+        // therefore advance past Act 1's generated encounters and boss shuffle.
+        assert_eq!(target_city_act_two_boss(1_435_099_163_226), "Automaton");
+    }
 }

@@ -85,7 +85,7 @@ const SPIKE_SLIME_L_FRAIL: i32 = 2;
 const SPIKE_SLIME_L_A17_FRAIL: i32 = 3;
 const SPIKE_SLIME_S_SPIT_DAMAGE: i32 = 5;
 const SPIKE_SLIME_M_SPIT_DAMAGE: i32 = 8;
-const SPIKE_SLIME_L_SPIT_DAMAGE: i32 = 16;
+pub(crate) const SPIKE_SLIME_L_SPIT_DAMAGE: i32 = 16;
 
 pub(crate) const ACID_SLIME_S_TACKLE_DAMAGE: i32 = 3;
 pub(crate) const ACID_SLIME_ATTACK_DAMAGE: i32 = 7;
@@ -2833,6 +2833,13 @@ pub fn target_monster_hp_range_for_content_id(
                 BRONZE_ORB_A0_HP_RANGE
             }
         }
+        BRONZE_AUTOMATON_ID => {
+            if ascension >= 9 {
+                MonsterHpRange::new(320, 320)
+            } else {
+                MonsterHpRange::new(300, 300)
+            }
+        }
         _ => return None,
     };
     Some(range)
@@ -3120,14 +3127,12 @@ pub fn target_encounter_spawn_for_key(
         "Red Slaver" => {
             let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
             let max_hp = target_slaver_hp_range(ascension).roll(&mut hp_rng);
-            let mut spawn = target_combat_entry_spawn("SlaverRed", max_hp, neow_lament, Vec::new());
-            spawn.intent = "Attack";
-            spawn.rolled_attack_damage = Some(if ascension >= 2 {
-                SLAVER_RED_A2_STAB_DAMAGE
-            } else {
-                SLAVER_RED_STAB_DAMAGE
-            });
-            vec![spawn]
+            vec![target_combat_entry_spawn(
+                "SlaverRed",
+                max_hp,
+                neow_lament,
+                Vec::new(),
+            )]
         }
         "Gremlin Gang" => target_gremlin_gang_spawn_states(seed, floor_num, ascension, neow_lament),
         "Lots of Slimes" => {
@@ -3549,7 +3554,7 @@ pub fn content_id_from_game_monster_id(game_id: &str) -> ContentId {
         "GremlinFat" | "Gremlin Fat" => GREMLIN_FAT_ID,
         "GremlinTsundere" | "Gremlin Tsundere" => GREMLIN_TSUNDERE_ID,
         "GremlinWizard" | "Gremlin Wizard" => GREMLIN_WIZARD_ID,
-        "BronzeAutomaton" | "Bronze Automaton" => BRONZE_AUTOMATON_ID,
+        "Automaton" | "BronzeAutomaton" | "Bronze Automaton" => BRONZE_AUTOMATON_ID,
         "BronzeOrb" | "Bronze Orb" | "Orb" => BRONZE_ORB_ID,
         "TheCollector" | "The Collector" | "Collector" => THE_COLLECTOR_ID,
         "TorchHead" | "Torch Head" => TORCH_HEAD_ID,
@@ -7167,9 +7172,7 @@ fn orb_walker_claw_damage(ascension: u8) -> i32 {
 #[must_use]
 fn orb_walker_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
     match moves_executed {
-        0 => MonsterIntent::Attack {
-            damage: orb_walker_laser_damage(ascension),
-        },
+        0 => orb_walker_laser_intent(ascension),
         _ => MonsterIntent::Attack {
             damage: orb_walker_claw_damage(ascension),
         },
@@ -7503,13 +7506,24 @@ pub fn apply_gremlin_leader_rally_target(
         return;
     }
 
+    let mut planned = Vec::new();
+    let mut reserved_slots = Vec::new();
+    let mut next_id = monsters
+        .iter()
+        .map(|monster| monster.id.get())
+        .max()
+        .unwrap_or(0)
+        + 1;
+
     for _ in 0..count {
-        if gremlin_leader_live_minion_count(monsters) >= 3 {
+        if gremlin_leader_live_minion_count(monsters) + planned.len() as i32 >= 3 {
             break;
         }
-        let Some(slot) = gremlin_leader_first_available_slot(monsters) else {
+        let Some(slot) = gremlin_leader_first_available_slot_excluding(monsters, &reserved_slots)
+        else {
             break;
         };
+        reserved_slots.push(slot);
         let name = target_random_gremlin_name(ai_rng);
         let Some(definition) = get_monster_definition(content_id_from_game_monster_id(name)) else {
             continue;
@@ -7519,24 +7533,26 @@ pub fn apply_gremlin_leader_rally_target(
             .unwrap_or_else(|| {
                 monster_state_for_ascension(definition, MonsterId::new(0), ascension).hp
             });
-        let next_id = monsters
-            .iter()
-            .map(|monster| monster.id.get())
-            .max()
-            .unwrap_or(0)
-            + 1;
         let mut monster =
             monster_state_for_ascension(definition, MonsterId::new(next_id), ascension);
+        next_id += 1;
         monster.hp = max_hp;
         monster.powers.minion = 1;
         if monster.content_id == GREMLIN_WARRIOR_ID {
             monster.powers.anger = gremlin_warrior_anger(ascension);
         }
         monster.gremlin_leader_slot = Some(slot as u8);
+        planned.push((slot, monster));
+    }
+
+    for (_, monster) in &mut planned {
         let roll = ai_rng.random_int(99);
         monster.intent = gremlin_leader_minion_intent(monster.content_id, 0, ascension);
         let _ = roll;
-        record_target_move(&mut monster);
+        record_target_move(monster);
+    }
+
+    for (slot, monster) in planned {
         monsters.insert(gremlin_leader_summon_insert_index(monsters, slot), monster);
     }
 }
@@ -7931,8 +7947,8 @@ pub fn apply_slime_boss_split(
     });
     if let Some(rng) = rng.as_deref_mut() {
         let roll = rng.random_int(99);
-        spike.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-            spike.hp,
+        spike.intent = target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+            true,
             &spike.move_history,
             roll,
             ascension,
@@ -7975,8 +7991,14 @@ fn gremlin_leader_representative_summon_index(monsters: &[MonsterState]) -> usiz
         .unwrap_or(monsters.len())
 }
 
-fn gremlin_leader_first_available_slot(monsters: &[MonsterState]) -> Option<usize> {
+fn gremlin_leader_first_available_slot_excluding(
+    monsters: &[MonsterState],
+    reserved_slots: &[usize],
+) -> Option<usize> {
     (0..3).find(|slot| {
+        if reserved_slots.contains(slot) {
+            return false;
+        }
         !monsters.iter().any(|monster| {
             monster.alive
                 && is_gremlin_leader_minion_content_id(monster.content_id)
@@ -8290,19 +8312,30 @@ pub fn target_medium_or_large_spike_slime_next_intent_from_roll(
     roll: i32,
     ascension: u8,
 ) -> MonsterIntent {
-    let damage = if hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
+    target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+        hp > SPIKE_SLIME_M_A7_HP_RANGE.max,
+        move_history,
+        roll,
+        ascension,
+    )
+}
+
+#[must_use]
+pub(crate) fn target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+    large: bool,
+    move_history: &[u8],
+    roll: i32,
+    ascension: u8,
+) -> MonsterIntent {
+    let damage = if large {
         SPIKE_SLIME_L_SPIT_DAMAGE
     } else {
         SPIKE_SLIME_M_SPIT_DAMAGE
     };
-    let count = if hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
-        2
-    } else {
-        1
-    };
+    let count = if large { 2 } else { 1 };
     let attack = MonsterIntent::AttackAddSlimedToDiscard { damage, count };
     let debuff = MonsterIntent::ApplyPlayerFrailAndWeak {
-        frail: spike_slime_frail_amount(hp, ascension),
+        frail: spike_slime_frail_amount_for_profile(large, ascension),
         weak: 0,
     };
 
@@ -8332,7 +8365,11 @@ pub fn target_medium_or_large_spike_slime_next_intent_from_roll(
 }
 
 fn spike_slime_frail_amount(hp: i32, ascension: u8) -> i32 {
-    if hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
+    spike_slime_frail_amount_for_profile(hp > SPIKE_SLIME_M_A7_HP_RANGE.max, ascension)
+}
+
+fn spike_slime_frail_amount_for_profile(large: bool, ascension: u8) -> i32 {
+    if large {
         if ascension >= 17 {
             SPIKE_SLIME_L_A17_FRAIL
         } else {
@@ -9267,13 +9304,10 @@ pub fn apply_monster_intent_with_card_rng(
         | MonsterIntent::EncourageGremlins { .. }
         | MonsterIntent::SummonCollectorTorchHeads { .. }
         | MonsterIntent::SummonGremlins { .. } => (0, 0),
-        MonsterIntent::AttackAddSlimedToDiscard { damage, count } => {
-            add_cards_to_discard(piles, SLIMED_ID, count);
-            (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
-                1,
-            )
-        }
+        MonsterIntent::AttackAddSlimedToDiscard { damage, .. } => (
+            monster_damage_to_player(player_before, monster, scale_damage(damage)),
+            1,
+        ),
         MonsterIntent::AddSlimedToDiscard { count } => {
             add_cards_to_discard(piles, SLIMED_ID, count);
             (0, 0)
@@ -9392,8 +9426,7 @@ pub fn apply_monster_intent_with_card_rng(
         }
     };
     if total_thorns > 0 && thorns_hits > 0 && !thorns_already_applied {
-        let hp_damage = deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
-        guardian_on_hp_damage(monster, hp_damage);
+        deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
     }
     if monster.alive && block_after_thorns > 0 {
         monster.block += block_after_thorns;
@@ -9422,9 +9455,7 @@ fn apply_multi_hit_thorns(monster: &mut MonsterState, total_thorns: i32, hits: i
             break;
         }
         effective_hits += 1;
-        let hp_damage =
-            crate::combat::damage::deal_unmodified_damage_to_monster(monster, total_thorns);
-        guardian_on_hp_damage(monster, hp_damage);
+        crate::combat::damage::deal_unmodified_damage_to_monster(monster, total_thorns);
     }
     effective_hits
 }
@@ -9910,6 +9941,37 @@ mod tests {
     }
 
     #[test]
+    fn slime_boss_split_spike_child_keeps_large_profile_after_low_split_hp() {
+        let boss_id = MonsterId::new(1);
+        let mut boss = monster_state(&SLIME_BOSS_A0, boss_id);
+        boss.hp = 54;
+        boss.max_hp = 140;
+        let mut monsters = vec![boss];
+        let seed = (0..100)
+            .find(|seed| {
+                let mut rng = StsRng::new(*seed);
+                rng.random_int(99) < 30
+            })
+            .expect("test seed range should include a Spike Slime Spit roll");
+        let mut rng = StsRng::new(seed);
+
+        apply_slime_boss_split(&mut monsters, boss_id, Some(&mut rng), 0);
+
+        let spike = monsters
+            .iter()
+            .find(|monster| monster.alive && monster.content_id == SPIKE_SLIME_ID)
+            .expect("Slime Boss split should spawn a Spike Slime child");
+        assert_eq!((spike.hp, spike.max_hp), (54, 54));
+        assert_eq!(
+            spike.intent,
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: SPIKE_SLIME_L_SPIT_DAMAGE,
+                count: 2
+            }
+        );
+    }
+
+    #[test]
     fn bronze_automaton_orb_spawn_consumes_source_hp_and_ai_rolls() {
         let automaton_id = MonsterId::new(7);
         let mut monsters = vec![monster_state(&BRONZE_AUTOMATON_A0, automaton_id)];
@@ -9949,6 +10011,26 @@ mod tests {
         assert_eq!(monsters[2].move_history.len(), 1);
         assert_eq!(monsters[0].powers.minion, 1);
         assert_eq!(monsters[2].powers.minion, 1);
+    }
+
+    #[test]
+    fn manual01_floor33_bronze_automaton_advances_hp_before_orb_spawn() {
+        let automaton_id = MonsterId::new(1);
+        let mut monsters = vec![monster_state(&BRONZE_AUTOMATON_A0, automaton_id)];
+        let mut hp_rng = StsRng::new(1_435_099_163_226 + 33);
+        let mut ai_rng = StsRng::new(1_435_099_163_226 + 33);
+
+        MonsterHpRange::new(300, 300).roll(&mut hp_rng);
+        apply_bronze_automaton_orb_spawn(
+            &mut monsters,
+            automaton_id,
+            Some(&mut ai_rng),
+            Some(&mut hp_rng),
+            0,
+        );
+
+        assert_eq!((monsters[0].hp, monsters[0].max_hp), (53, 53));
+        assert_eq!((monsters[2].hp, monsters[2].max_hp), (52, 52));
     }
 
     #[test]
@@ -10008,6 +10090,18 @@ mod tests {
             target_move_byte(BRONZE_AUTOMATON_ID, MonsterIntent::Stun),
             Some(3)
         );
+    }
+
+    #[test]
+    fn orb_walker_laser_intent_adds_burn_to_discard_and_draw() {
+        let laser = MonsterIntent::AddBurnToDiscardAndDraw {
+            damage: ORB_WALKER_LASER_DAMAGE,
+            count: 1,
+        };
+
+        assert_eq!(orb_walker_intent(0, 0), laser);
+        assert_eq!(target_orb_walker_next_intent_from_roll(&[2], 40, 0), laser);
+        assert_eq!(target_move_byte(ORB_WALKER_ID, laser), Some(1));
     }
 
     #[test]

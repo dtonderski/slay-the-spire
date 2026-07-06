@@ -36,7 +36,7 @@ fn checker_does_not_report_checkpoint_specific_error_for_non_start_trace() {
 }
 
 #[test]
-fn checker_waits_for_action_before_claiming_replay_ok() {
+fn checker_requires_seed_start_before_claiming_replay_ok() {
     let path = temp_trace_path("wait");
     let mut writer = TraceWriter::create_new(&path).unwrap();
     writer
@@ -52,7 +52,7 @@ fn checker_waits_for_action_before_claiming_replay_ok() {
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
     assert_eq!(status.kind, FidelityKind::Unknown);
-    assert!(status.message.unwrap().contains("waiting"));
+    assert!(status.message.unwrap().contains("strict seed-start replay"));
     fs::remove_file(path).ok();
 }
 
@@ -82,7 +82,7 @@ fn checker_waits_for_verifiable_transition_before_claiming_replay_ok() {
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
     assert_eq!(status.kind, FidelityKind::Unknown);
-    assert!(status.message.unwrap().contains("recorded live action"));
+    assert!(status.message.unwrap().contains("strict seed-start replay"));
     fs::remove_file(path).ok();
 }
 
@@ -177,11 +177,11 @@ fn checker_treats_operator_abandon_as_intentional_trace_end() {
         .unwrap();
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
-    assert_eq!(status.kind, FidelityKind::Ok);
-    assert_eq!(
-        status.message.as_deref(),
-        Some("observed-state replay matched supported transitions")
-    );
+    assert_eq!(status.kind, FidelityKind::Unknown);
+    assert!(status
+        .message
+        .as_deref()
+        .is_some_and(|message| message.contains("strict seed-start replay")));
     assert!(status.compact_diff.is_empty());
     fs::remove_file(path).ok();
 }
@@ -217,7 +217,7 @@ fn checker_marks_supported_observed_trace_ok() {
         .unwrap();
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
-    assert_eq!(status.kind, FidelityKind::Ok);
+    assert_eq!(status.kind, FidelityKind::Unknown);
     fs::remove_file(path).ok();
 }
 
@@ -284,7 +284,7 @@ fn checker_ignores_start_before_first_state_when_waiting_for_seed_boundary() {
 }
 
 #[test]
-fn checker_does_not_surface_neow_choose_as_observed_state_unsupported() {
+fn checker_requires_seed_start_for_neow_choose_without_run_config() {
     let path = temp_trace_path("neow-choose-unsupported");
     let mut writer = TraceWriter::create_new(&path).unwrap();
     writer
@@ -320,7 +320,7 @@ fn checker_does_not_surface_neow_choose_as_observed_state_unsupported() {
 }
 
 #[test]
-fn checker_does_not_surface_shop_entry_as_observed_state_unsupported() {
+fn checker_requires_seed_start_for_shop_entry_without_run_config() {
     let path = temp_trace_path("shop-entry-unsupported");
     let mut writer = TraceWriter::create_new(&path).unwrap();
     writer
@@ -359,7 +359,7 @@ fn checker_does_not_surface_shop_entry_as_observed_state_unsupported() {
 }
 
 #[test]
-fn checker_does_not_surface_shop_grid_confirm_or_leave_as_observed_state_unsupported() {
+fn checker_requires_seed_start_for_shop_grid_without_run_config() {
     let path = temp_trace_path("shop-grid-unsupported");
     let mut writer = TraceWriter::create_new(&path).unwrap();
     writer

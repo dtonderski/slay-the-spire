@@ -25,9 +25,6 @@ fn seed_start_status(report: &sts_verify::SimRealReport) -> FidelityStatus {
     if !report.unexpected_diffs.is_empty() {
         return unexpected_diff_status(report);
     }
-    if !report.observed_state_restorations.is_empty() {
-        return observed_state_restoration_status(report);
-    }
     if seed_start.expected_failure {
         if seed_start
             .first_boundary
@@ -75,28 +72,13 @@ pub(super) fn unexpected_diff_status(report: &sts_verify::SimRealReport) -> Fide
     }
 }
 
-pub(super) fn observed_state_restoration_status(
-    report: &sts_verify::SimRealReport,
-) -> FidelityStatus {
-    let restoration = &report.observed_state_restorations[0];
-    FidelityStatus {
-        kind: FidelityKind::Lost,
-        first_divergent_step: Some(restoration.action_step as u64),
-        compact_diff: vec![restoration.reason.clone()],
-        message: Some(format!(
-            "simulator replay restored from observed state after {} at step {}",
-            restoration.command, restoration.action_step
-        )),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{observed_state_restoration_status, seed_start_status, unexpected_diff_status};
+    use super::{seed_start_status, unexpected_diff_status};
     use crate::model::FidelityKind;
     use sts_verify::{
-        ObservedStateRestoration, SeedStartBoundary, SeedStartReport, SimRealReport,
-        StartRunCommand, UnexpectedDiff, VerificationMode,
+        SeedStartBoundary, SeedStartReport, SimRealReport, StartRunCommand, UnexpectedDiff,
+        VerificationMode,
     };
 
     #[test]
@@ -109,42 +91,17 @@ mod tests {
         };
 
         let status = unexpected_diff_status(&SimRealReport {
-            mode: VerificationMode::ObservedState,
+            mode: VerificationMode::SeedStart,
             total_actions: 1,
             verified: Vec::new(),
             unsupported: Vec::new(),
             unexpected_diffs: vec![diff],
-            observed_state_restorations: Vec::new(),
             seed_start: None,
         });
 
         assert_eq!(status.kind, FidelityKind::Lost);
         assert_eq!(status.first_divergent_step, Some(81));
         assert!(!status.compact_diff.is_empty());
-    }
-
-    #[test]
-    fn observed_state_restoration_is_strict_live_fidelity_loss() {
-        let status = observed_state_restoration_status(&SimRealReport {
-            mode: VerificationMode::ObservedState,
-            total_actions: 1,
-            verified: Vec::new(),
-            unsupported: Vec::new(),
-            unexpected_diffs: Vec::new(),
-            observed_state_restorations: vec![ObservedStateRestoration {
-                action_step: 151,
-                command: "END".to_owned(),
-                reason: "post-END non-pile combat state restored from observed state".to_owned(),
-            }],
-            seed_start: None,
-        });
-
-        assert_eq!(status.kind, FidelityKind::Lost);
-        assert_eq!(status.first_divergent_step, Some(151));
-        assert!(status
-            .message
-            .unwrap()
-            .contains("restored from observed state"));
     }
 
     #[test]
@@ -160,7 +117,6 @@ mod tests {
                 label: "card reward".to_owned(),
                 diffs: vec!["choices[0]: \"battle trance\" != \"body slam\"".to_owned()],
             }],
-            observed_state_restorations: Vec::new(),
             seed_start: Some(SeedStartReport {
                 start_command: StartRunCommand {
                     action_step: 1,

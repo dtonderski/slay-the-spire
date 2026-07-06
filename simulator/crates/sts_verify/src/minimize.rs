@@ -1,4 +1,4 @@
-//! Build prefix traces that reproduce the first seed-start or observed-state divergence.
+//! Build prefix traces that reproduce the first strict seed-start divergence.
 
 use crate::{
     import_communication_mod_trace, verify_communication_mod_trace_with_mode, SimRealReport,

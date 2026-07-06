@@ -112,7 +112,7 @@ pub enum AutomationState {
     WaitingForFidelity,
     ReadyToSend,
     SendingAction,
-    WaitingForObservedState,
+    WaitingForLiveState,
     VerifyingTransition,
     Paused,
     Blocked,

@@ -20,23 +20,24 @@ use crate::{
         CARNAGE_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
         CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
         DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID,
-        DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID,
-        ENTRENCH_ID, ENTRENCH_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FINESSE_ID,
-        FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
-        FLEX_ID, FLEX_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID,
-        HEMOKINESIS_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID,
-        IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID,
-        MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID,
-        PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID,
-        PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID,
-        RAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID,
-        RITUAL_DAGGER_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
-        SECRET_WEAPON_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID,
-        SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
+        DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID,
+        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID, EXHUME_ID,
+        EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID,
+        FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, HEAVY_BLADE_ID,
+        HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
+        IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
+        MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
+        OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
+        PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
+        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID,
+        SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
+        SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
+        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID,
+        WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
@@ -2062,7 +2063,7 @@ fn apply_play_top_draw_card(
                 },
             });
         }
-        CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID => {
+        CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID | DRAMATIC_ENTRANCE_PLUS_ID => {
             follow_ups.push(InternalAction::DealDamageAll {
                 source: card_id,
                 amount: definition.values.damage.unwrap_or(0),
@@ -3133,13 +3134,9 @@ pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> 
         let source_card_id = exhaust_select
             .source_card_id
             .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
-        return state
-            .piles
-            .hand
-            .iter()
-            .enumerate()
-            .filter(|(_, card)| card.id != source_card_id)
-            .map(|(index, _)| index)
+        return exhaust_select_visible_hand_indices(state)
+            .into_iter()
+            .filter(|index| state.piles.hand[*index].id != source_card_id)
             .nth(ui_index)
             .ok_or(SimError::IllegalAction("exhaust select index out of range"));
     }
@@ -3157,10 +3154,24 @@ pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> 
             .nth(ui_index)
             .ok_or(SimError::IllegalAction("exhaust select index out of range"));
     }
-    if ui_index >= state.piles.hand.len() {
-        return Err(SimError::IllegalAction("exhaust select index out of range"));
-    }
-    Ok(ui_index)
+    exhaust_select_visible_hand_indices(state)
+        .into_iter()
+        .nth(ui_index)
+        .ok_or(SimError::IllegalAction("exhaust select index out of range"))
+}
+
+fn exhaust_select_visible_hand_indices(state: &CombatState) -> Vec<usize> {
+    let Some(exhaust_select) = state.exhaust_select.as_ref() else {
+        return Vec::new();
+    };
+    state
+        .piles
+        .hand
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !exhaust_select.selected_hand_indices.contains(index))
+        .map(|(index, _)| index)
+        .collect()
 }
 
 pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
@@ -3685,5 +3696,53 @@ mod tests {
 
         assert_eq!(next.piles.hand.len(), 2);
         assert_eq!(next.piles.draw_pile.len(), 2);
+    }
+
+    #[test]
+    fn exhaust_multi_select_indexes_skip_hidden_selected_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), WOUND_ID),
+            CardInstance::new(CardId::new(3), BLOOD_FOR_BLOOD_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), DAZED_ID),
+            CardInstance::new(CardId::new(6), DAZED_ID),
+            CardInstance::new(CardId::new(7), ANGER_PLUS_ID),
+            CardInstance::new(CardId::new(8), WOUND_ID),
+        ];
+
+        open_exhaust_select(&mut state).expect("open exhaust select");
+        choose_exhaust_select(&mut state, 0).expect("select first visible card");
+        choose_exhaust_select(&mut state, 4).expect("select second visible Dazed");
+        choose_exhaust_select(&mut state, 3).expect("select remaining visible Dazed");
+
+        assert_eq!(
+            state
+                .exhaust_select
+                .as_ref()
+                .expect("exhaust select")
+                .selected_hand_indices,
+            vec![0, 5, 4]
+        );
+
+        confirm_exhaust_select(&mut state).expect("confirm exhaust select");
+
+        let hand_ids = state
+            .piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            hand_ids,
+            vec![
+                WOUND_ID,
+                BLOOD_FOR_BLOOD_ID,
+                STRIKE_R_ID,
+                ANGER_PLUS_ID,
+                WOUND_ID
+            ]
+        );
     }
 }

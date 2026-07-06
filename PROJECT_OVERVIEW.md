@@ -173,7 +173,7 @@ A fair agent must act only from information a player could see or infer from
 public history. Two candidate approaches for fair combat search are:
 
 - particle search over hidden states feasible given the visible history
-- latent-state search anchored by predictions of real outcomes such as HP,
+- latent-state search constrained by predictions of real outcomes such as HP,
   enemy intent, hand damage, hand block, and other public quantities
 
 The project currently expects little guaranteed transfer from omniscient combat

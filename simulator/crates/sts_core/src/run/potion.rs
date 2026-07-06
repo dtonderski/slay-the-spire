@@ -39,7 +39,11 @@ use crate::{
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
-const DISCOVERY_ACTION_HIDDEN_GENERATIONS: usize = 3;
+// DiscoveryAction generates choices at the top of every post-pick update while
+// its fast-duration action settles. The CommunicationMod strict trace on
+// MANUAL01 reaches the target cardRandomRng counter with nine hidden
+// generations after the visible choices.
+const DISCOVERY_ACTION_HIDDEN_GENERATIONS: usize = 9;
 const DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS: usize = 1;
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {

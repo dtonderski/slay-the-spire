@@ -523,6 +523,7 @@ pub fn fixed_shop_screen(next_card_id: u64) -> ShopScreen {
 pub fn enter_shop_room(run: &mut RunState) {
     run.phase = RunPhase::Shop;
     run.shop = None;
+    run.shop_merchant_open = false;
     run.card_grid = None;
     if run.relics.contains(&Relic::MealTicket) {
         run.player_hp = (run.player_hp + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp);
@@ -531,11 +532,14 @@ pub fn enter_shop_room(run: &mut RunState) {
 
 pub fn open_shop_merchant(run: &mut RunState) {
     run.phase = RunPhase::Shop;
-    run.shop = Some(if run.merchant_rng_seed == 0 {
-        legacy_fixed_shop_screen(run.next_card_instance_id())
-    } else {
-        generate_shop_screen(run)
-    });
+    if run.shop.is_none() {
+        run.shop = Some(if run.merchant_rng_seed == 0 {
+            legacy_fixed_shop_screen(run.next_card_instance_id())
+        } else {
+            generate_shop_screen(run)
+        });
+    }
+    run.shop_merchant_open = true;
 }
 
 pub fn enter_shop_screen(run: &mut RunState) {
@@ -543,12 +547,13 @@ pub fn enter_shop_screen(run: &mut RunState) {
 }
 
 pub fn leave_shop_merchant(run: &mut RunState) {
-    run.shop = None;
+    run.shop_merchant_open = false;
     run.card_grid = None;
 }
 
 pub fn leave_shop_room(run: &mut RunState) {
     run.shop = None;
+    run.shop_merchant_open = false;
     run.card_grid = None;
     run.phase = RunPhase::Idle;
 }
@@ -585,8 +590,12 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
         return Vec::new();
     }
 
-    let Some(shop) = run.shop.as_ref() else {
+    if !run.shop_merchant_open {
         return vec![RunAction::EnterShop];
+    }
+
+    let Some(shop) = run.shop.as_ref() else {
+        return Vec::new();
     };
 
     let mut actions = Vec::new();
@@ -627,9 +636,16 @@ pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> 
     }
 
     match action {
-        RunAction::EnterShop if run.shop.is_none() && run.card_grid.is_none() => Ok(()),
-        RunAction::LeaveShop if run.shop.is_some() && run.card_grid.is_none() => Ok(()),
+        RunAction::EnterShop if !run.shop_merchant_open && run.card_grid.is_none() => Ok(()),
+        RunAction::LeaveShop
+            if run.shop_merchant_open && run.shop.is_some() && run.card_grid.is_none() =>
+        {
+            Ok(())
+        }
         RunAction::OpenShopRemove => {
+            if !run.shop_merchant_open {
+                return Err(SimError::IllegalAction("shop merchant is not open"));
+            }
             let shop = run
                 .shop
                 .as_ref()
@@ -781,5 +797,45 @@ pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimR
         Some(ShopPick::BuyRelic(slot)) => Ok(RunAction::BuyShopRelic { slot: *slot }),
         Some(ShopPick::BuyPotion(slot)) => Ok(RunAction::BuyShopPotion { slot: *slot }),
         None => Err(SimError::IllegalAction("shop choice out of range")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::cards::ANGER_ID;
+
+    #[test]
+    fn leaving_merchant_preserves_inventory_until_shop_room_exit() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.gold = 999;
+
+        let opened = apply_shop_action(&run, RunAction::EnterShop).expect("shop opens");
+        assert!(opened.shop_merchant_open);
+        assert_eq!(
+            opened.shop.as_ref().unwrap().cards[0].card.content_id,
+            ANGER_ID
+        );
+
+        let closed = apply_shop_action(&opened, RunAction::LeaveShop).expect("merchant closes");
+        assert!(!closed.shop_merchant_open);
+        assert_eq!(
+            closed.shop.as_ref().unwrap().cards[0].card.content_id,
+            ANGER_ID
+        );
+        assert_eq!(legal_shop_actions(&closed), vec![RunAction::EnterShop]);
+
+        let reopened = apply_shop_action(&closed, RunAction::EnterShop).expect("merchant reopens");
+        assert!(reopened.shop_merchant_open);
+        assert_eq!(
+            reopened.shop.as_ref().unwrap().cards[0].card.content_id,
+            opened.shop.as_ref().unwrap().cards[0].card.content_id
+        );
+
+        let mut left_room = reopened;
+        leave_shop_room(&mut left_room);
+        assert!(left_room.shop.is_none());
+        assert!(!left_room.shop_merchant_open);
     }
 }

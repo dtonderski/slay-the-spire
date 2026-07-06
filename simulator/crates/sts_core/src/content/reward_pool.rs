@@ -59,10 +59,6 @@ pub fn random_normal_curse(rng: &mut StsRng) -> ContentId {
 /// because reward RNG indexes into the full target pool before the player can choose a card.
 pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
     RewardCardEntry {
-        content_id: IMMOLATE_ID,
-        rarity: CardRarity::Rare,
-    },
-    RewardCardEntry {
         content_id: ANGER_ID,
         rarity: CardRarity::Common,
     },
@@ -285,6 +281,10 @@ pub const IRONCLAD_REWARD_ENTRIES: &[RewardCardEntry] = &[
     RewardCardEntry {
         content_id: EVOLVE_ID,
         rarity: CardRarity::Uncommon,
+    },
+    RewardCardEntry {
+        content_id: IMMOLATE_ID,
+        rarity: CardRarity::Rare,
     },
     RewardCardEntry {
         content_id: OFFERING_ID,

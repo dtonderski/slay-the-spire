@@ -251,7 +251,7 @@ fn recovers_existing_sessions_from_trace_root() {
 }
 
 #[test]
-fn recovery_rehydrates_stale_shop_actions_from_raw_summary() {
+fn recovery_recomputes_stale_shop_actions_from_raw_summary() {
     let root = temp_dir("recover-shop-actions");
     fs::create_dir_all(&root).unwrap();
     let trace_path = root.join("session-1.jsonl");
