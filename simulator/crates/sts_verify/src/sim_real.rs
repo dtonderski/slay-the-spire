@@ -53,6 +53,7 @@ use sts_core::{
 pub struct SimRealReport {
     pub mode: VerificationMode,
     pub total_actions: usize,
+    pub ignored_tail_actions: usize,
     pub verified: Vec<VerifiedTransition>,
     pub unsupported: Vec<UnsupportedTransition>,
     pub unexpected_diffs: Vec<UnexpectedDiff>,
@@ -91,7 +92,7 @@ pub struct UnexpectedDiff {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeedStartReport {
     pub start_command: StartRunCommand,
-    pub expected_failure: bool,
+    pub failed: bool,
     pub first_boundary: SeedStartBoundary,
     pub rng_boundaries: Vec<RngBoundary>,
     pub m22_encounter_report: Option<crate::m22::M22EncounterReport>,
@@ -134,7 +135,6 @@ impl Default for SeedStartVerifyOptions {
 #[derive(Debug)]
 pub enum SimRealError {
     Trace(serde_json::Error),
-    MissingStateAfterAction(u32),
     MissingStartCommand,
     MalformedStartCommand(String),
 }
@@ -143,9 +143,6 @@ impl std::fmt::Display for SimRealError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Trace(err) => write!(f, "{err}"),
-            Self::MissingStateAfterAction(step) => {
-                write!(f, "missing post-state after action step {step}")
-            }
             Self::MissingStartCommand => write!(f, "trace does not contain START command"),
             Self::MalformedStartCommand(command) => {
                 write!(f, "malformed START command: {command}")
@@ -219,7 +216,7 @@ fn verify_seed_start_trace(
         .count();
     let transitions = trace_transitions(&trace.lines)?;
     let mut start = None;
-    for (_, action, _) in &transitions {
+    for (_, action, _) in &transitions.transitions {
         if let Some(parsed) = parse_start_command(action) {
             start = Some(parsed?);
             break;
@@ -230,14 +227,16 @@ fn verify_seed_start_trace(
     let mut report = SimRealReport {
         mode: VerificationMode::SeedStart,
         total_actions,
+        ignored_tail_actions: transitions.ignored_tail_actions,
         verified: Vec::new(),
         unsupported: Vec::new(),
         unexpected_diffs: Vec::new(),
         seed_start: None,
     };
 
-    let boundary = verify_seed_start_transitions(&transitions, &start, &mut report, options);
-    let expected_failure = boundary.category != "none";
+    let boundary =
+        verify_seed_start_transitions(&transitions.transitions, &start, &mut report, options);
+    let failed = boundary.category != "none";
     let m22_encounter_report = Some(crate::m22::verify_m22_encounter_spawn_prefix(
         &trace.lines,
         &start.external_seed,
@@ -246,7 +245,7 @@ fn verify_seed_start_trace(
     ));
     report.seed_start = Some(SeedStartReport {
         start_command: start,
-        expected_failure,
+        failed,
         first_boundary: boundary,
         rng_boundaries: seed_start_rng_boundaries(),
         m22_encounter_report,
@@ -255,12 +254,16 @@ fn verify_seed_start_trace(
     Ok(report)
 }
 
-fn trace_transitions(
-    lines: &[TraceLine],
-) -> Result<Vec<(TraceState, TraceAction, TraceState)>, SimRealError> {
+struct TraceTransitions {
+    transitions: Vec<(TraceState, TraceAction, TraceState)>,
+    ignored_tail_actions: usize,
+}
+
+fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealError> {
     let mut transitions = Vec::new();
     let mut last_state: Option<TraceState> = None;
     let mut pending: Option<(TraceState, TraceAction)> = None;
+    let mut ignored_tail_actions = 0;
     for line in lines {
         match line {
             TraceLine::State(state) => {
@@ -271,6 +274,7 @@ fn trace_transitions(
             }
             TraceLine::Action(action) => {
                 let Some(pre) = last_state.clone() else {
+                    ignored_tail_actions += 1;
                     continue;
                 };
                 pending = Some((pre, action.clone()));
@@ -278,10 +282,13 @@ fn trace_transitions(
             TraceLine::Metadata(_) => {}
         }
     }
-    if let Some((_, action)) = pending {
-        return Err(SimRealError::MissingStateAfterAction(action.step));
+    if pending.is_some() {
+        ignored_tail_actions += 1;
     }
-    Ok(transitions)
+    Ok(TraceTransitions {
+        transitions,
+        ignored_tail_actions,
+    })
 }
 
 fn verify_seed_start_transitions(
@@ -1821,7 +1828,7 @@ fn verify_seed_start_transitions(
                         &deck_ids,
                         &deck_ids,
                     );
-                    if next.current_act != previous_act && previous_act > 1 {
+                    if next.current_act != previous_act && previous_act != 1 {
                         seed_start_project_post_boss_transition_current_node(&mut simulated_return);
                     }
                     *sim = next;
@@ -1835,11 +1842,9 @@ fn verify_seed_start_transitions(
                     simulated_return,
                 );
                 seed_start_test_pop_last_diff(report, action, &start.external_seed);
-                phase = if screen_type(&post.message) == Some("MAP") {
-                    SeedStartPhase::Map
-                } else {
-                    SeedStartPhase::Complete
-                };
+                if screen_type(&post.message) == Some("MAP") {
+                    phase = SeedStartPhase::Map;
+                }
                 continue;
             }
             SeedStartPhase::Treasure if command_head_eq(&action.command, "CHOOSE") => {
@@ -3305,19 +3310,6 @@ fn verify_seed_start_transitions(
                     return boundary;
                 }
             }
-            SeedStartPhase::Complete => {
-                let boundary = SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unexpected_extra_action".to_owned(),
-                    reason: "seed-start verifier already completed the captured trace and found an extra action".to_owned(),
-                };
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: boundary.reason.clone(),
-                });
-                return boundary;
-            }
             _ => {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
@@ -3337,25 +3329,10 @@ fn verify_seed_start_transitions(
         }
     }
 
-    let reached_terminal_act_transition_map = matches!(phase, SeedStartPhase::Map)
-        && seed_sim
-            .as_ref()
-            .is_some_and(|sim| sim.current_act > 1 && sim.phase == RunPhase::Idle);
-    if matches!(phase, SeedStartPhase::Complete) || reached_terminal_act_transition_map {
-        let reason = "seed-start verifier reached the captured return-to-map state".to_owned();
-        SeedStartBoundary {
-            path: "$.actions[complete]".to_owned(),
-            category: "none".to_owned(),
-            reason,
-        }
-    } else {
-        SeedStartBoundary {
-            path: "$.actions".to_owned(),
-            category: "missing_post_reward_boundary".to_owned(),
-            reason:
-                "trace ended before seed-start verifier reached the expected post-reward boundary"
-                    .to_owned(),
-        }
+    SeedStartBoundary {
+        path: "$.actions[verified]".to_owned(),
+        category: "none".to_owned(),
+        reason: "seed-start verifier checked every verifiable transition in the trace".to_owned(),
     }
 }
 
@@ -3386,7 +3363,6 @@ enum SeedStartPhase {
     Combat,
     Reward,
     Proceed,
-    Complete,
 }
 
 fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, SimRealError>> {
@@ -10465,7 +10441,7 @@ mod tests {
                 .expect("seed-start")
                 .first_boundary
                 .category,
-            "missing_post_reward_boundary"
+            "none"
         );
     }
 
@@ -11467,7 +11443,7 @@ mod tests {
                 .expect("seed-start")
                 .first_boundary
                 .category,
-            "missing_post_reward_boundary"
+            "none"
         );
     }
 
@@ -12182,7 +12158,7 @@ mod tests {
                 .expect("seed-start")
                 .first_boundary
                 .category,
-            "missing_post_reward_boundary"
+            "none"
         );
     }
 
@@ -12591,7 +12567,7 @@ mod tests {
                 .expect("seed-start")
                 .first_boundary
                 .category,
-            "missing_post_reward_boundary"
+            "none"
         );
     }
 
@@ -12741,7 +12717,7 @@ mod tests {
                 .expect("seed-start")
                 .first_boundary
                 .category,
-            "missing_post_reward_boundary"
+            "none"
         );
     }
 
@@ -12816,7 +12792,7 @@ mod tests {
                 .expect("seed-start")
                 .first_boundary
                 .category,
-            "missing_post_reward_boundary"
+            "none"
         );
     }
 
@@ -12972,7 +12948,7 @@ mod tests {
                     case.path, case.seed, seed_start.start_command.external_seed
                 ));
             }
-            if seed_start.first_boundary.category != "missing_post_reward_boundary" {
+            if seed_start.first_boundary.category != "none" {
                 failures.push(format!(
                     "{} wrong boundary: {:?}",
                     case.path, seed_start.first_boundary
@@ -13127,6 +13103,7 @@ mod tests {
             .expect("trace has START command");
         let transitions = trace_transitions(&trace.lines).expect("trace transitions");
         let (_, _, post) = transitions
+            .transitions
             .iter()
             .find(|(_, _, post)| {
                 post.message

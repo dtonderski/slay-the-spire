@@ -105,7 +105,7 @@ fn locate_first_failure(report: &SimRealReport) -> Option<LocatedFailure> {
     }
 
     let seed_start = report.seed_start.as_ref()?;
-    if !seed_start.expected_failure {
+    if !seed_start.failed {
         return None;
     }
 
@@ -280,10 +280,7 @@ mod tests {
             verify_communication_mod_trace_with_mode(&content, VerificationMode::SeedStart)
                 .expect("report");
         if full_report.unexpected_diffs.is_empty()
-            && !full_report
-                .seed_start
-                .as_ref()
-                .is_some_and(|s| s.expected_failure)
+            && !full_report.seed_start.as_ref().is_some_and(|s| s.failed)
         {
             return;
         }

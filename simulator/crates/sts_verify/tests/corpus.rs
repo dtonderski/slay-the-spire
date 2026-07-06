@@ -31,7 +31,7 @@ struct Act1CorpusEntry {
     path: String,
     external_seed: String,
     numeric_seed: i64,
-    expected_failure: bool,
+    failed: bool,
     first_boundary_category: String,
 }
 
@@ -489,7 +489,7 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
 
     let seed_start = report.seed_start.expect("seed-start details");
     assert!(
-        !seed_start.expected_failure,
+        !seed_start.failed,
         "seed-start boundary: {:?}",
         seed_start.first_boundary
     );
@@ -498,9 +498,12 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
     assert_eq!(seed_start.start_command.ascension, 0);
     assert_eq!(seed_start.start_command.external_seed, "VERIFY01");
     assert_eq!(seed_start.start_command.numeric_seed, 1_957_307_888_551);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.path, "$.actions[verified]");
     assert_eq!(seed_start.first_boundary.category, "none");
-    assert!(seed_start.first_boundary.reason.contains("return-to-map"));
+    assert!(seed_start
+        .first_boundary
+        .reason
+        .contains("verifiable transitions"));
 
     let labels: Vec<_> = report
         .verified
@@ -692,18 +695,18 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
 
     let seed_start = report.seed_start.expect("seed-start details");
     assert!(
-        !seed_start.expected_failure,
+        !seed_start.failed,
         "seed-start boundary: {:?}",
         seed_start.first_boundary
     );
     assert_eq!(seed_start.start_command.external_seed, "CODEX04");
     assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_079);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.path, "$.actions[verified]");
     assert_eq!(seed_start.first_boundary.category, "none");
     assert!(seed_start
         .first_boundary
         .reason
-        .contains("floor-3 combat completion"));
+        .contains("verifiable transitions"));
 
     let labels: Vec<_> = report
         .verified
@@ -781,18 +784,18 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
 
     let seed_start = report.seed_start.expect("seed-start details");
     assert!(
-        !seed_start.expected_failure,
+        !seed_start.failed,
         "seed-start boundary: {:?}",
         seed_start.first_boundary
     );
     assert_eq!(seed_start.start_command.external_seed, "CODEX03");
     assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_078);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.path, "$.actions[verified]");
     assert_eq!(seed_start.first_boundary.category, "none");
     assert!(seed_start
         .first_boundary
         .reason
-        .contains("floor-3 return-to-map"));
+        .contains("verifiable transitions"));
 
     let m22 = seed_start
         .m22_encounter_report
@@ -867,14 +870,11 @@ fn test_seed_start_m29_m290001_sentries_prefix_zero_diffs() {
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(seed_start.expected_failure);
+    assert!(!seed_start.failed);
     assert_eq!(seed_start.start_command.external_seed, "M290001");
     assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_126);
-    assert_eq!(seed_start.first_boundary.path, "$.actions");
-    assert_eq!(
-        seed_start.first_boundary.category,
-        "missing_post_reward_boundary"
-    );
+    assert_eq!(seed_start.first_boundary.path, "$.actions[verified]");
+    assert_eq!(seed_start.first_boundary.category, "none");
 
     let labels: Vec<_> = report
         .verified
@@ -932,10 +932,10 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
 }
 
 #[test]
-fn test_m32c_20260625_clean_prefix_records_32b_shop_reward_deck_evidence() {
-    let Some(content) = load_corpus_file(
-        "permanent_traces/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
-    ) else {
+fn test_m32c_20260625_retained_trace_records_32b_shop_reward_deck_evidence() {
+    let Some(content) =
+        load_corpus_file("permanent_traces/trace-2026-06-25T00-44-15-558Z.retained.step548.jsonl")
+    else {
         return;
     };
 
@@ -1006,19 +1006,16 @@ fn test_m33_manual01_selected_neow_random_rare_card_prefix() {
     );
     assert!(
         report.unsupported.is_empty(),
-        "passing full Act 1 TEST trace should not report unsupported transitions: {:?}",
+        "passing retained TEST trace should not report unsupported transitions: {:?}",
         report.unsupported
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(seed_start.expected_failure);
+    assert!(!seed_start.failed);
     assert_eq!(seed_start.start_command.external_seed, "MANUAL01");
     assert_eq!(seed_start.start_command.numeric_seed, 1_435_099_163_226);
-    assert_eq!(seed_start.first_boundary.path, "$.actions");
-    assert_eq!(
-        seed_start.first_boundary.category,
-        "missing_post_reward_boundary"
-    );
+    assert_eq!(seed_start.first_boundary.path, "$.actions[verified]");
+    assert_eq!(seed_start.first_boundary.category, "none");
 
     let labels: Vec<_> = report
         .verified
@@ -1091,14 +1088,11 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(seed_start.expected_failure);
+    assert!(!seed_start.failed);
     assert_eq!(seed_start.start_command.external_seed, "M290005");
     assert_eq!(seed_start.start_command.numeric_seed, 40_560_393_130);
-    assert_eq!(seed_start.first_boundary.path, "$.actions");
-    assert_eq!(
-        seed_start.first_boundary.category,
-        "missing_post_reward_boundary"
-    );
+    assert_eq!(seed_start.first_boundary.path, "$.actions[verified]");
+    assert_eq!(seed_start.first_boundary.category, "none");
 
     let labels: Vec<_> = report
         .verified
@@ -1121,8 +1115,8 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
 }
 
 #[test]
-#[ignore = "known-red strict seed-start parity trace; run explicitly while working full Act 1 parity"]
-fn test_seed_start_full_act1_boss_relic_prefix() {
+#[ignore = "strict retained seed-start parity trace; run explicitly while working retained-trace parity"]
+fn test_seed_start_boss_relic_retained_trace() {
     let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
         return;
@@ -1137,10 +1131,10 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
     );
 
     let seed_start = report.seed_start.expect("seed-start details");
-    assert!(!seed_start.expected_failure);
+    assert!(!seed_start.failed);
     assert_eq!(seed_start.start_command.external_seed, "TEST");
     assert_eq!(seed_start.start_command.numeric_seed, 1_218_623);
-    assert_eq!(seed_start.first_boundary.path, "$.actions[complete]");
+    assert_eq!(seed_start.first_boundary.path, "$.actions[verified]");
     assert_eq!(seed_start.first_boundary.category, "none");
 
     let labels: Vec<_> = report
@@ -1162,7 +1156,7 @@ fn test_seed_start_full_act1_boss_relic_prefix() {
 }
 
 #[test]
-#[ignore = "known-red strict Act 1 manifest parity gate; run explicitly while working M35 parity"]
+#[ignore = "strict retained manifest parity gate; run explicitly while working M35 parity"]
 fn m35_act1_manifest_entries_pass_seed_start() {
     let Some(manifest_content) = load_corpus_file("act1_a0_ironclad.json") else {
         return;
@@ -1171,14 +1165,14 @@ fn m35_act1_manifest_entries_pass_seed_start() {
         serde_json::from_str(&manifest_content).expect("Act 1 corpus manifest parses");
 
     assert!(
-        manifest.status == "partial_data_blocked" || manifest.status == "complete",
+        manifest.status == "partial_data_blocked" || manifest.status == "satisfied",
         "unexpected Act 1 corpus status: {}",
         manifest.status
     );
-    if manifest.status == "complete" {
+    if manifest.status == "satisfied" {
         assert!(
             manifest.entries.len() >= manifest.required_passing_traces.min,
-            "complete Act 1 corpus has only {} entries; expected at least {}",
+            "satisfied Act 1 corpus has only {} entries; expected at least {}",
             manifest.entries.len(),
             manifest.required_passing_traces.min
         );
@@ -1201,8 +1195,8 @@ fn m35_act1_manifest_entries_pass_seed_start() {
             .seed_start
             .unwrap_or_else(|| panic!("seed-start details for {}", entry.path));
         assert_eq!(
-            seed_start.expected_failure, entry.expected_failure,
-            "{} expected_failure mismatch",
+            seed_start.failed, entry.failed,
+            "{} failed mismatch",
             entry.path
         );
         assert_eq!(

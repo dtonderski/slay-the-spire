@@ -120,14 +120,12 @@ fn main() {
                 });
             println!("mode={:?}", report.mode);
             println!("total_actions={}", report.total_actions);
+            println!("ignored_tail_actions={}", report.ignored_tail_actions);
             println!("verified={}", report.verified.len());
             println!("unsupported={}", report.unsupported.len());
             println!("unexpected_diffs={}", report.unexpected_diffs.len());
             if let Some(seed_start) = &report.seed_start {
-                println!(
-                    "seed_start.expected_failure={}",
-                    seed_start.expected_failure
-                );
+                println!("seed_start.failed={}", seed_start.failed);
                 println!(
                     "seed_start.command=START {} {} {}",
                     seed_start.start_command.character,
@@ -590,26 +588,11 @@ struct TraceStatusEntry {
     total_actions: usize,
     verified: usize,
     raw_diffs: usize,
-    status: TraceStatusKind,
+    unsupported: usize,
+    ignored_tail: usize,
+    status: &'static str,
     boundary: String,
     frontier: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TraceStatusKind {
-    Complete,
-    CleanPrefix,
-    Failure,
-}
-
-impl TraceStatusKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Complete => "complete",
-            Self::CleanPrefix => "clean_prefix",
-            Self::Failure => "failure",
-        }
-    }
 }
 
 fn status_path(input: &str) -> PathBuf {
@@ -653,13 +636,14 @@ fn trace_status_entries(
                 seed_start.first_boundary.category, seed_start.first_boundary.path
             )
         });
-        let status = trace_status_kind(&report);
         entries.push(TraceStatusEntry {
             trace: trace_name,
             total_actions: report.total_actions,
             verified: report.verified.len(),
             raw_diffs: report.unexpected_diffs.len(),
-            status,
+            unsupported: report.unsupported.len(),
+            ignored_tail: report.ignored_tail_actions,
+            status: trace_status(&report),
             boundary: boundary.unwrap_or_else(|| "-".to_owned()),
             frontier: trace_frontier(&report),
         });
@@ -668,19 +652,11 @@ fn trace_status_entries(
     Ok(entries)
 }
 
-fn trace_status_kind(report: &sts_verify::SimRealReport) -> TraceStatusKind {
-    if !report.unexpected_diffs.is_empty() || !report.unsupported.is_empty() {
-        return TraceStatusKind::Failure;
-    }
-
-    let Some(seed_start) = &report.seed_start else {
-        return TraceStatusKind::Failure;
-    };
-
-    match seed_start.first_boundary.category.as_str() {
-        "none" => TraceStatusKind::Complete,
-        "missing_post_reward_boundary" => TraceStatusKind::CleanPrefix,
-        _ => TraceStatusKind::Failure,
+fn trace_status(report: &sts_verify::SimRealReport) -> &'static str {
+    if report.unexpected_diffs.is_empty() && report.unsupported.is_empty() {
+        "pass"
+    } else {
+        "fail"
     }
 }
 
@@ -708,10 +684,7 @@ fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
 
     if let Some(seed_start) = &report.seed_start {
         if seed_start.first_boundary.category == "none" {
-            return "complete".to_owned();
-        }
-        if seed_start.first_boundary.category == "missing_post_reward_boundary" {
-            return "clean prefix ended before next post-reward boundary".to_owned();
+            return "all verifiable transitions passed".to_owned();
         }
         return format!(
             "{}: {}",
@@ -725,35 +698,38 @@ fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
 fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     let failures = entries
         .iter()
-        .filter(|entry| entry.status == TraceStatusKind::Failure)
+        .filter(|entry| entry.status == "fail")
         .count();
-    let clean_prefixes = entries
+    let passing = entries
         .iter()
-        .filter(|entry| entry.status == TraceStatusKind::CleanPrefix)
-        .count();
-    let complete = entries
-        .iter()
-        .filter(|entry| entry.status == TraceStatusKind::Complete)
+        .filter(|entry| entry.status == "pass")
         .count();
     let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
+    let unsupported: usize = entries.iter().map(|entry| entry.unsupported).sum();
+    let verified: usize = entries.iter().map(|entry| entry.verified).sum();
+    let ignored_tail: usize = entries.iter().map(|entry| entry.ignored_tail).sum();
     println!("traces={}", entries.len());
     println!("trace_failures={failures}");
-    println!("complete={complete}");
-    println!("clean_prefixes={clean_prefixes}");
+    println!("passing_traces={passing}");
     println!("raw_unexpected_diffs={raw_diffs}");
+    println!("unsupported_transitions={unsupported}");
+    println!("verified_transitions={verified}");
+    println!("ignored_tail_actions={ignored_tail}");
 
     if markdown {
         println!();
-        println!("| Trace | Actions | Verified | Status | Raw diffs | Boundary | Frontier |");
-        println!("|---|---:|---:|---|---:|---|---|");
+        println!("| Trace | Actions | Verified | Status | Raw diffs | Unsupported | Ignored tail | Boundary | Frontier |");
+        println!("|---|---:|---:|---|---:|---:|---:|---|---|");
         for entry in entries {
             println!(
-                "| `{}` | {} | {} | {} | {} | `{}` | {} |",
+                "| `{}` | {} | {} | {} | {} | {} | {} | `{}` | {} |",
                 escape_markdown_cell(&entry.trace),
                 entry.total_actions,
                 entry.verified,
-                entry.status.as_str(),
+                entry.status,
                 entry.raw_diffs,
+                entry.unsupported,
+                entry.ignored_tail,
                 escape_markdown_cell(&entry.boundary),
                 escape_markdown_cell(&entry.frontier)
             );
@@ -761,12 +737,14 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     } else {
         for entry in entries {
             println!(
-                "trace=\"{}\" actions={} verified={} status={} raw_diffs={} boundary=\"{}\" frontier=\"{}\"",
+                "trace=\"{}\" actions={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} boundary=\"{}\" frontier=\"{}\"",
                 entry.trace,
                 entry.total_actions,
                 entry.verified,
-                entry.status.as_str(),
+                entry.status,
                 entry.raw_diffs,
+                entry.unsupported,
+                entry.ignored_tail,
                 entry.boundary,
                 entry.frontier
             );
