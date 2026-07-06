@@ -940,18 +940,18 @@ fn test_m32c_20260625_clean_prefix_records_32b_shop_reward_deck_evidence() {
     };
 
     let trace = sts_verify::import_communication_mod_trace(&content).expect("prefix imports");
-    assert_eq!(raw_trace_count(&content, "action"), 548);
-    assert_eq!(raw_trace_count(&content, "state"), 533);
+    assert_eq!(raw_trace_count(&content, "action"), 541);
+    assert_eq!(raw_trace_count(&content, "state"), 526);
     assert_eq!(raw_trace_count(&content, "error"), 16);
     assert!(trace.lines.iter().all(|line| match line {
-        sts_verify::TraceLine::State(state) => state.step <= 548,
-        sts_verify::TraceLine::Action(action) => action.step <= 548,
+        sts_verify::TraceLine::State(state) => state.step <= 541,
+        sts_verify::TraceLine::Action(action) => action.step <= 541,
         sts_verify::TraceLine::Metadata(_) => true,
     }));
 
-    let last = state_message_at_step(&content, 548).expect("step 548 state");
+    let last = state_message_at_step(&content, 541).expect("step 541 state");
     assert_eq!(game_i64(&last, "floor"), Some(37));
-    assert_eq!(game_str(&last, "screen_type"), Some("MAP"));
+    assert_eq!(game_str(&last, "screen_type"), Some("SHOP_SCREEN"));
 
     assert_screen_cards_include(&content, 21, &["Discovery", "Secret Technique"]);
     assert_screen_cards_include(&content, 43, &["Sword Boomerang"]);
@@ -959,7 +959,7 @@ fn test_m32c_20260625_clean_prefix_records_32b_shop_reward_deck_evidence() {
     assert_deck_includes(&content, 46, "Sword Boomerang");
     assert_screen_cards_include(&content, 227, &["Forethought", "Chrysalis"]);
     assert_screen_cards_include(&content, 541, &["Panache+"]);
-    assert_deck_includes(&content, 548, "Sword Boomerang");
+    assert_deck_includes(&content, 541, "Sword Boomerang");
 }
 
 #[test]

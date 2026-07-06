@@ -21,11 +21,11 @@
   "blocked_candidates": [
     {
       "path": "permanent_traces/trace-2026-06-25T00-44-15-558Z.clean-prefix.step548.jsonl",
-      "reason": "Structurally reaches beyond Act 1, but seed-start currently diverges at map generation and the raw trace has manual/bridge contamination notes."
+      "reason": "Structurally reaches beyond Act 1, but this retained corpus file is now a clean prefix that ends before the former stale shop purchase snapshot."
     },
     {
       "path": "communication_mod/trace-2026-06-23T07-42-06-085Z.best-run.jsonl",
-      "reason": "Reaches Act 1 boss combat, but does not reach boss reward and currently stops at an unsupported Sword Boomerang random-target boundary."
+      "reason": "Reaches Act 1 boss combat, but does not reach boss reward; useful prefix coverage, not a full Act 1 passing trace."
     },
     {
       "path": "communication_mod/trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl",
