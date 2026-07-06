@@ -590,9 +590,26 @@ struct TraceStatusEntry {
     total_actions: usize,
     verified: usize,
     raw_diffs: usize,
-    remaining_failures: usize,
+    status: TraceStatusKind,
     boundary: String,
     frontier: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TraceStatusKind {
+    Complete,
+    CleanPrefix,
+    Failure,
+}
+
+impl TraceStatusKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::CleanPrefix => "clean_prefix",
+            Self::Failure => "failure",
+        }
+    }
 }
 
 fn status_path(input: &str) -> PathBuf {
@@ -636,24 +653,35 @@ fn trace_status_entries(
                 seed_start.first_boundary.category, seed_start.first_boundary.path
             )
         });
-        let complete = report.unexpected_diffs.is_empty()
-            && report
-                .seed_start
-                .as_ref()
-                .map(|seed_start| seed_start.first_boundary.category == "none")
-                .unwrap_or(false);
+        let status = trace_status_kind(&report);
         entries.push(TraceStatusEntry {
             trace: trace_name,
             total_actions: report.total_actions,
             verified: report.verified.len(),
             raw_diffs: report.unexpected_diffs.len(),
-            remaining_failures: usize::from(!complete),
+            status,
             boundary: boundary.unwrap_or_else(|| "-".to_owned()),
             frontier: trace_frontier(&report),
         });
     }
 
     Ok(entries)
+}
+
+fn trace_status_kind(report: &sts_verify::SimRealReport) -> TraceStatusKind {
+    if !report.unexpected_diffs.is_empty() || !report.unsupported.is_empty() {
+        return TraceStatusKind::Failure;
+    }
+
+    let Some(seed_start) = &report.seed_start else {
+        return TraceStatusKind::Failure;
+    };
+
+    match seed_start.first_boundary.category.as_str() {
+        "none" => TraceStatusKind::Complete,
+        "missing_post_reward_boundary" => TraceStatusKind::CleanPrefix,
+        _ => TraceStatusKind::Failure,
+    }
 }
 
 fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
@@ -682,6 +710,9 @@ fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
         if seed_start.first_boundary.category == "none" {
             return "complete".to_owned();
         }
+        if seed_start.first_boundary.category == "missing_post_reward_boundary" {
+            return "clean prefix ended before next post-reward boundary".to_owned();
+        }
         return format!(
             "{}: {}",
             seed_start.first_boundary.category, seed_start.first_boundary.reason
@@ -692,29 +723,36 @@ fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
 }
 
 fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
-    let remaining = entries
+    let failures = entries
         .iter()
-        .filter(|entry| entry.remaining_failures > 0)
+        .filter(|entry| entry.status == TraceStatusKind::Failure)
+        .count();
+    let clean_prefixes = entries
+        .iter()
+        .filter(|entry| entry.status == TraceStatusKind::CleanPrefix)
+        .count();
+    let complete = entries
+        .iter()
+        .filter(|entry| entry.status == TraceStatusKind::Complete)
         .count();
     let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
     println!("traces={}", entries.len());
-    println!("remaining_trace_failures={remaining}");
-    println!("complete={}", entries.len().saturating_sub(remaining));
+    println!("trace_failures={failures}");
+    println!("complete={complete}");
+    println!("clean_prefixes={clean_prefixes}");
     println!("raw_unexpected_diffs={raw_diffs}");
 
     if markdown {
         println!();
-        println!(
-            "| Trace | Actions | Verified | Remaining failures | Raw diffs | Boundary | Frontier |"
-        );
-        println!("|---|---:|---:|---:|---:|---|---|");
+        println!("| Trace | Actions | Verified | Status | Raw diffs | Boundary | Frontier |");
+        println!("|---|---:|---:|---|---:|---|---|");
         for entry in entries {
             println!(
                 "| `{}` | {} | {} | {} | {} | `{}` | {} |",
                 escape_markdown_cell(&entry.trace),
                 entry.total_actions,
                 entry.verified,
-                entry.remaining_failures,
+                entry.status.as_str(),
                 entry.raw_diffs,
                 escape_markdown_cell(&entry.boundary),
                 escape_markdown_cell(&entry.frontier)
@@ -723,11 +761,11 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     } else {
         for entry in entries {
             println!(
-                "trace=\"{}\" actions={} verified={} remaining_failures={} raw_diffs={} boundary=\"{}\" frontier=\"{}\"",
+                "trace=\"{}\" actions={} verified={} status={} raw_diffs={} boundary=\"{}\" frontier=\"{}\"",
                 entry.trace,
                 entry.total_actions,
                 entry.verified,
-                entry.remaining_failures,
+                entry.status.as_str(),
                 entry.raw_diffs,
                 entry.boundary,
                 entry.frontier
