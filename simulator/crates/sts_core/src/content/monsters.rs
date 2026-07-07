@@ -8072,16 +8072,40 @@ fn gremlin_leader_first_available_slot_excluding(
         if reserved_slots.contains(slot) {
             return false;
         }
-        !monsters.iter().any(|monster| {
-            monster.alive
-                && is_gremlin_leader_minion_content_id(monster.content_id)
-                && monster.gremlin_leader_slot == Some(*slot as u8)
-        })
+        gremlin_leader_current_slot_occupant(monsters, *slot)
+            .map(|monster| !monster.alive)
+            .unwrap_or(true)
+    })
+}
+
+fn gremlin_leader_current_slot_occupant(
+    monsters: &[MonsterState],
+    slot: usize,
+) -> Option<&MonsterState> {
+    let leader_index = gremlin_leader_representative_summon_index(monsters);
+    monsters.iter().take(leader_index).rev().find(|monster| {
+        is_gremlin_leader_minion_content_id(monster.content_id)
+            && monster.gremlin_leader_slot == Some(slot as u8)
     })
 }
 
 fn gremlin_leader_summon_insert_index(monsters: &[MonsterState], slot: usize) -> usize {
     let leader_index = gremlin_leader_representative_summon_index(monsters);
+    if slot == 0 {
+        let leading_slot_zero_corpses = monsters
+            .iter()
+            .take(leader_index)
+            .take_while(|monster| {
+                !monster.alive
+                    && is_gremlin_leader_minion_content_id(monster.content_id)
+                    && monster.gremlin_leader_slot == Some(0)
+            })
+            .count();
+        if leading_slot_zero_corpses >= 3 {
+            return 2;
+        }
+    }
+
     let new_x = gremlin_leader_slot_draw_x(slot);
     monsters
         .iter()
@@ -10686,6 +10710,66 @@ mod tests {
         assert_eq!(slot_three.powers.minion, 1);
         assert_eq!(slot_two.move_history, vec![1]);
         assert_eq!(slot_three.move_history, vec![1]);
+    }
+
+    #[test]
+    fn gremlin_leader_rally_uses_latest_slot_occupant_for_availability() {
+        let mut old_slot_zero = monster_state(&GREMLIN_WIZARD_A0, MonsterId::new(1));
+        old_slot_zero.gremlin_leader_slot = Some(0);
+        let mut slot_one = monster_state(&GREMLIN_THIEF_A0, MonsterId::new(2));
+        slot_one.gremlin_leader_slot = Some(1);
+        let leader = monster_state(&GREMLIN_LEADER_A0, MonsterId::new(3));
+        let mut monsters = vec![old_slot_zero, slot_one, leader];
+
+        assert_eq!(
+            gremlin_leader_first_available_slot_excluding(&monsters, &[]),
+            Some(2)
+        );
+
+        let mut newer_slot_zero = monster_state(&GREMLIN_WARRIOR_A0, MonsterId::new(4));
+        newer_slot_zero.gremlin_leader_slot = Some(0);
+        newer_slot_zero.hp = 0;
+        newer_slot_zero.alive = false;
+        monsters.insert(2, newer_slot_zero);
+
+        assert_eq!(
+            gremlin_leader_first_available_slot_excluding(&monsters, &[]),
+            Some(0)
+        );
+        assert_eq!(
+            gremlin_leader_first_available_slot_excluding(&monsters, &[0]),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn gremlin_leader_late_slot_zero_summon_follows_first_two_slot_zero_corpses() {
+        let mut first_slot_zero = monster_state(&GREMLIN_WIZARD_A0, MonsterId::new(1));
+        first_slot_zero.gremlin_leader_slot = Some(0);
+        first_slot_zero.hp = 0;
+        first_slot_zero.alive = false;
+        let mut second_slot_zero = monster_state(&GREMLIN_WIZARD_A0, MonsterId::new(2));
+        second_slot_zero.gremlin_leader_slot = Some(0);
+        second_slot_zero.hp = 0;
+        second_slot_zero.alive = false;
+        let mut third_slot_zero = monster_state(&GREMLIN_THIEF_A0, MonsterId::new(3));
+        third_slot_zero.gremlin_leader_slot = Some(0);
+        third_slot_zero.hp = 0;
+        third_slot_zero.alive = false;
+        let mut slot_one = monster_state(&GREMLIN_WARRIOR_A0, MonsterId::new(4));
+        slot_one.gremlin_leader_slot = Some(1);
+        slot_one.hp = 0;
+        slot_one.alive = false;
+        let leader = monster_state(&GREMLIN_LEADER_A0, MonsterId::new(5));
+        let monsters = vec![
+            first_slot_zero,
+            second_slot_zero,
+            third_slot_zero,
+            slot_one,
+            leader,
+        ];
+
+        assert_eq!(gremlin_leader_summon_insert_index(&monsters, 0), 2);
     }
 
     #[test]

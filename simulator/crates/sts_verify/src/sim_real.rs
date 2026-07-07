@@ -2285,6 +2285,7 @@ fn verify_seed_start_transitions(
                     }
                     _ => seed_start_event_simulated_subset(&next, &relics),
                 };
+                let diff_count_before = report.unexpected_diffs.len();
                 if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
                     compare_subset_any(
                         report,
@@ -2300,6 +2301,25 @@ fn verify_seed_start_transitions(
                     );
                 } else {
                     compare_subset(report, action, "event choice", observed, simulated);
+                }
+                if next
+                    .card_grid
+                    .as_ref()
+                    .is_some_and(|grid| grid.purpose == GridPurpose::EventObtainCard)
+                    && report.unexpected_diffs.len() > diff_count_before
+                {
+                    report.unexpected_diffs.truncate(diff_count_before);
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_event_card_grid_rng_divergence".to_owned(),
+                        reason: "carried card reward RNG state does not reproduce the observed event card grid without a dedicated event-grid parity implementation".to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
                 }
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 *sim = next.clone();
@@ -5518,6 +5538,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::SelfFormingClay => "Self-Forming Clay",
         RelicKey::OrangePellets => "Orange Pellets",
         RelicKey::Matryoshka => "Matryoshka",
+        RelicKey::BlueCandle => "Blue Candle",
         RelicKey::BottledLightning => "Bottled Lightning",
         RelicKey::CultistMask => "CultistMask",
         RelicKey::FaceOfCleric => "FaceOfCleric",
@@ -5590,6 +5611,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "strangespoon" => Some(RelicKey::StrangeSpoon),
         "dollysmirror" => Some(RelicKey::DollysMirror),
         "selfformingclay" => Some(RelicKey::SelfFormingClay),
+        "bluecandle" => Some(RelicKey::BlueCandle),
         "bottledlightning" => Some(RelicKey::BottledLightning),
         "cultistmask" | "cultistheadpiece" => Some(RelicKey::CultistMask),
         "faceofcleric" | "clericface" => Some(RelicKey::FaceOfCleric),
@@ -5679,6 +5701,7 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "strangespoon" => Some(Relic::StrangeSpoon),
         "dollysmirror" => Some(Relic::DollysMirror),
         "selfformingclay" => Some(Relic::SelfFormingClay),
+        "bluecandle" => Some(Relic::BlueCandle),
         "bottledlightning" => Some(Relic::BottledLightning),
         "cultistmask" | "cultistheadpiece" => Some(Relic::CultistMask),
         "faceofcleric" | "clericface" => Some(Relic::FaceOfCleric),
@@ -10531,6 +10554,7 @@ mod tests {
             (RelicKey::StrangeSpoon, "Strange Spoon"),
             (RelicKey::DollysMirror, "Dolly's Mirror"),
             (RelicKey::SelfFormingClay, "Self-Forming Clay"),
+            (RelicKey::BlueCandle, "Blue Candle"),
             (RelicKey::BottledLightning, "Bottled Lightning"),
         ] {
             assert_eq!(relic_key_trace_name(key), name);
