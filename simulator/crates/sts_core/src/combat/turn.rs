@@ -13,7 +13,7 @@ use crate::{
         piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
     },
     combat::{CombatPhase, CombatState},
-    content::cards::{BURN_ID, SLIMED_ID, WOUND_ID},
+    content::cards::{BURN_ID, DAZED_ID, SLIMED_ID, WOUND_ID},
     content::monsters::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
         apply_gremlin_leader_encourage, apply_gremlin_leader_rally_representative,
@@ -137,6 +137,13 @@ pub fn start_player_turn(state: &mut CombatState) {
     state.player.temp_rage_block = 0;
     state.player.powers.panache_cards_played = 0;
     state.double_tap_pending = 0;
+    for monster in state
+        .monsters
+        .iter_mut()
+        .filter(|monster| monster.content_id == GIANT_HEAD_ID)
+    {
+        monster.powers.slow = 0;
+    }
     if state.player.no_block_turns > 0 {
         state.player.no_block_turns -= 1;
     }
@@ -185,6 +192,9 @@ pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {
             apply_end_of_monster_turn_powers(monster);
             if monster.content_id == BYRD_ID && monster.powers.flight > 0 {
                 monster.powers.flight = target_byrd_flight_amount(state.ascension);
+            }
+            if monster.content_id == GIANT_HEAD_ID {
+                monster.powers.slow = 0;
             }
             if monster.temp_strength_down > 0 {
                 monster.powers.strength += monster.temp_strength_down;
@@ -424,7 +434,7 @@ fn run_monster_turn(state: &mut CombatState) {
                     state.card_random_rng.as_mut(),
                 );
                 let painful_stabs = state.monsters[index].powers.painful_stabs;
-                apply_monster_pending_effects(state, damage, 1, painful_stabs, None, 0, 0);
+                apply_monster_pending_effects(state, damage, 1, painful_stabs, None, 0, 0, 0);
                 record_target_move(&mut state.monsters[index]);
                 state.monsters[index].intent = target_byrd_go_airborne_intent();
                 record_target_move(&mut state.monsters[index]);
@@ -582,7 +592,15 @@ fn run_monster_turn(state: &mut CombatState) {
             crate::MonsterIntent::AddBurnToDiscardAndDraw { count, .. } => count,
             _ => 0,
         };
-        if damage > 0 || burn_to_discard_and_draw > 0 {
+        let dazed_to_discard = match intent {
+            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { count, .. } => count,
+            _ => 0,
+        };
+        let weak = match intent {
+            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { weak, .. } => weak,
+            _ => 0,
+        };
+        if damage > 0 || burn_to_discard_and_draw > 0 || weak > 0 {
             let heal_self_thorns = if heal_self.is_some() {
                 (state.player.powers.thorns + state.player.temp_thorns) * hits.max(1)
             } else {
@@ -596,10 +614,14 @@ fn run_monster_turn(state: &mut CombatState) {
                 heal_self,
                 heal_self_thorns,
                 burn_to_discard_and_draw,
+                weak,
             );
         }
         if let crate::MonsterIntent::AttackAddSlimedToDiscard { count, .. } = intent {
             add_cards_to_discard(&mut state.piles, SLIMED_ID, count);
+        }
+        if dazed_to_discard > 0 {
+            add_cards_to_discard(&mut state.piles, DAZED_ID, dazed_to_discard);
         }
         if state.monsters[index].alive
             && state.monsters[index].content_id == NEMESIS_ID
@@ -673,6 +695,7 @@ fn apply_monster_pending_effects(
     heal_self: Option<MonsterId>,
     heal_self_thorns: i32,
     burn_to_discard_and_draw: i32,
+    weak: i32,
 ) {
     let mut total_hp_damage = 0;
     let hit_count = hits.max(1);
@@ -690,6 +713,9 @@ fn apply_monster_pending_effects(
     }
     if state.player.hp <= 0 {
         return;
+    }
+    if weak > 0 {
+        crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak);
     }
     apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage);
     apply_attack_heal_self_thorns_after_heal(state, heal_self, heal_self_thorns);
@@ -714,10 +740,20 @@ fn effective_current_move_hits(
             crate::MonsterIntent::AttackMultiple { hits, .. },
         )
         | (
+            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { .. },
+            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { hits, .. },
+        )
+        | (
+            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { .. },
+            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { hits, .. },
+        )
+        | (
             crate::MonsterIntent::AttackMultipleUpgradeBurns { .. },
             crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. },
         ) => hits,
         (crate::MonsterIntent::AttackMultiple { hits, .. }, _)
+        | (crate::MonsterIntent::AttackMultipleApplyPlayerWeak { hits, .. }, _)
+        | (crate::MonsterIntent::AttackMultipleAddDazedToDiscard { hits, .. }, _)
         | (crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. }, _) => hits,
         _ => 1,
     }
@@ -1740,9 +1776,10 @@ mod tests {
         assert_eq!(deca.moves_executed, 2);
         assert_eq!(
             deca.intent,
-            crate::MonsterIntent::AttackMultiple {
+            crate::MonsterIntent::AttackMultipleAddDazedToDiscard {
                 damage: 12,
-                hits: 2
+                hits: 2,
+                count: 2
             }
         );
     }

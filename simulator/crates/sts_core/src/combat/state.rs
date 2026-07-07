@@ -390,6 +390,16 @@ pub enum MonsterIntent {
         hits: i32,
         count: i32,
     },
+    AttackMultipleApplyPlayerWeak {
+        damage: i32,
+        hits: i32,
+        weak: i32,
+    },
+    AttackMultipleAddDazedToDiscard {
+        damage: i32,
+        hits: i32,
+        count: i32,
+    },
     AttackMultiple {
         damage: i32,
         hits: i32,

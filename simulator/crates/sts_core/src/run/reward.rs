@@ -4,7 +4,7 @@ use crate::{
         apply_combat_action_with_events, finish_monster_turn_after_player_revival,
         start_player_turn, CombatPhase,
     },
-    content::cards::{upgrade_content_id, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
+    content::cards::{upgrade_card_instance, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
     },
@@ -833,7 +833,7 @@ pub fn target_potion_reward_offer(
     }
 }
 
-fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
+pub(crate) fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
     run.ensure_ironclad_relic_pools();
     let context = run.relic_spawn_context(run.current_floor, false);
     let pools = run.relic_pools.as_mut().expect("relic pools initialized");
@@ -1038,8 +1038,8 @@ fn consume_reward_card_upgrade_rolls(
 
         let upgrades = rng.random_float() < upgraded_chance;
         if upgrades {
-            if let Some(upgraded) = upgrade_content_id(choice.content_id) {
-                choice.content_id = upgraded;
+            if let Some(upgraded) = upgrade_card_instance(*choice) {
+                *choice = upgraded;
             }
         }
     }
@@ -1366,14 +1366,20 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         0
     };
     let key = roll_relic_reward(run, tier);
-    let (relic_offer, relic_key_offer) = split_relic_offer(key);
-    let (pending_relic_offer, pending_relic_key_offer) =
+    let (mut relic_offer, mut relic_key_offer) = split_relic_offer(key);
+    let (mut pending_relic_offer, mut pending_relic_key_offer) =
         if run.relics.contains(&Relic::Matryoshka) && run.matryoshka_chests_opened < 2 {
             run.matryoshka_chests_opened += 1;
             roll_bonus_relic_offer(run)
         } else {
             (None, None)
         };
+    if pending_relic_offer.is_some_and(is_bottled_relic_offer)
+        || pending_relic_key_offer.is_some_and(is_bottled_relic_key_offer)
+    {
+        std::mem::swap(&mut relic_offer, &mut pending_relic_offer);
+        std::mem::swap(&mut relic_key_offer, &mut pending_relic_key_offer);
+    }
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -1392,6 +1398,20 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         card_reward_pending: false,
         pending_card_reward_count: 0,
     });
+}
+
+fn is_bottled_relic_offer(relic: Relic) -> bool {
+    matches!(
+        relic,
+        Relic::BottledFlame | Relic::BottledLightning | Relic::BottledTornado
+    )
+}
+
+fn is_bottled_relic_key_offer(key: RelicKey) -> bool {
+    matches!(
+        key,
+        RelicKey::BottledFlame | RelicKey::BottledLightning | RelicKey::BottledTornado
+    )
 }
 
 fn apply_cursed_key_chest_curse(run: &mut RunState) {
@@ -1811,7 +1831,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             } else if let Some(key) = relic_key_offer {
                 next.gain_relic_key(key);
             }
-            advance_pending_relic_offer(&mut next);
+            if next.phase == RunPhase::Reward && next.card_grid.is_none() {
+                advance_pending_relic_offer(&mut next);
+            }
         }
         RunAction::ChooseBossRelicReward { index } => {
             let key = {
@@ -1906,7 +1928,7 @@ fn return_to_event_if_reward_empty(run: &mut RunState) {
     run.reward = None;
 }
 
-fn advance_pending_relic_offer(run: &mut RunState) {
+pub(crate) fn advance_pending_relic_offer(run: &mut RunState) {
     let Some(reward) = run.reward.as_mut() else {
         return;
     };

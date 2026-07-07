@@ -64,8 +64,15 @@ pub fn open_rest_smith_grid(run: &mut RunState) {
 }
 
 pub fn open_shop_remove_grid(run: &mut RunState) {
+    let cards = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|card| !card.bottled)
+        .collect::<Vec<_>>();
+
     run.card_grid = Some(CardGridScreen {
-        cards: run.deck.clone(),
+        cards,
         purpose: GridPurpose::ShopRemove,
         selected: None,
         selected_indices: Vec::new(),
@@ -534,6 +541,10 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                 }
             }
             next.card_grid = None;
+            if reward_sequence_has_remaining_choices(&next) {
+                super::reward::advance_pending_relic_offer(&mut next);
+                next.phase = RunPhase::Reward;
+            }
         }
         GridPurpose::DollysMirror => {
             let card = selected_grid_card(grid)?;
@@ -566,6 +577,24 @@ fn selected_grid_card(grid: &CardGridScreen) -> SimResult<CardInstance> {
         .get(selected)
         .copied()
         .ok_or(SimError::IllegalAction("grid index out of range"))
+}
+
+fn reward_sequence_has_remaining_choices(run: &RunState) -> bool {
+    run.reward.as_ref().is_some_and(|reward| {
+        reward.gold_offer > 0
+            || reward.stolen_gold_offer > 0
+            || reward.potion_offer.is_some()
+            || reward.relic_offer.is_some()
+            || reward.relic_key_offer.is_some()
+            || reward.pending_relic_offer.is_some()
+            || reward.pending_relic_key_offer.is_some()
+            || !reward.queued_relic_key_offers.is_empty()
+            || !reward.boss_relic_choices.is_empty()
+            || reward.card_reward_active
+            || reward.card_reward_pending
+            || reward.pending_card_reward_count() > 0
+            || !reward.choices.is_empty()
+    })
 }
 
 fn upgrade_deck_card(run: &mut RunState, card: CardInstance) -> SimResult<()> {

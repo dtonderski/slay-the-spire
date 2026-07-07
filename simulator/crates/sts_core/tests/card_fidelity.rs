@@ -3449,11 +3449,7 @@ fn havoc_panache_plus_grants_fourteen_damage_power() {
     assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
-    assert_eq!(next.piles.exhaust_pile.len(), 1);
-    assert_eq!(
-        next.piles.exhaust_pile[0].content_id,
-        cards::PANACHE_PLUS_ID
-    );
+    assert!(next.piles.exhaust_pile.is_empty());
 }
 
 #[test]
@@ -3482,11 +3478,7 @@ fn havoc_sadistic_nature_plus_grants_seven_damage_power() {
     assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
-    assert_eq!(next.piles.exhaust_pile.len(), 1);
-    assert_eq!(
-        next.piles.exhaust_pile[0].content_id,
-        cards::SADISTIC_NATURE_PLUS_ID
-    );
+    assert!(next.piles.exhaust_pile.is_empty());
 }
 
 #[test]

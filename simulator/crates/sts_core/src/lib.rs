@@ -86,11 +86,12 @@ pub use run::{
     source_backed_card_reward_choices, target_card_reward_choices, target_elite_relic_tier,
     target_normal_combat_gold, target_potion_reward_offer, target_random_combat_potion,
     target_random_potion, target_relic_tier, validate_event_action, validate_potion_action,
-    validate_rest_action, validate_shop_action, Act1Boss, CardGridScreen, CombatRewardKind, Event,
-    EventChoice, EventScreen, GeneratedNeowOption, GridPurpose, NeowBossSwapReward, NeowCardReward,
-    NeowColorlessReward, NeowDrawback, NeowPotionReward, NeowRelicReward, NeowRewardType,
-    NeowTransformReward, RewardScreen, RunAction, RunPhase, RunState, ShopCardSlot, ShopPick,
-    ShopPotionSlot, ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT,
-    REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
+    validate_rest_action, validate_shop_action, Act1Boss, Act3Boss, CardGridScreen,
+    CombatRewardKind, Event, EventChoice, EventScreen, GeneratedNeowOption, GridPurpose,
+    NeowBossSwapReward, NeowCardReward, NeowColorlessReward, NeowDrawback, NeowPotionReward,
+    NeowRelicReward, NeowRewardType, NeowTransformReward, RewardScreen, RunAction, RunPhase,
+    RunState, ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen,
+    GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE,
+    SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
 };
 pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};

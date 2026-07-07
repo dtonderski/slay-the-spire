@@ -2119,7 +2119,9 @@ fn target_jaw_worm_horde_spawn(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let floor_seed = seed + i64::from(floor_num);
+    let mut hp_rng = StsRng::new(floor_seed);
+    let mut ai_rng = StsRng::new(floor_seed);
     let hp_range = if ascension >= 7 {
         JAW_WORM_A7_HP_RANGE
     } else {
@@ -2127,7 +2129,7 @@ fn target_jaw_worm_horde_spawn(
     };
 
     let mut spawns = Vec::with_capacity(3);
-    for index in 0..3 {
+    for _ in 0..3 {
         let max_hp = hp_range.roll(&mut hp_rng);
         let mut spawn = target_combat_entry_spawn(
             "Jaw Worm",
@@ -2139,11 +2141,15 @@ fn target_jaw_worm_horde_spawn(
             }],
         );
         spawn.block = JAW_WORM_HORDE_STARTING_BLOCK;
-        if index == 1 {
-            spawn.intent = "StrengthAndBlock";
-        } else {
+        let roll = ai_rng.random_int(99);
+        if roll < 25 {
             spawn.intent = "Attack";
             spawn.rolled_attack_damage = Some(JAW_WORM_CHOMP_DAMAGE);
+        } else if roll < 55 {
+            spawn.intent = "AttackAndBlock";
+            spawn.rolled_attack_damage = Some(JAW_WORM_THRASH_DAMAGE);
+        } else {
+            spawn.intent = "StrengthAndBlock";
         }
         spawns.push(spawn);
     }
@@ -3875,7 +3881,7 @@ pub fn donu_deca_boss_monsters_for_ascension(ascension: u8) -> Vec<MonsterState>
     let mut deca = monster_state_for_ascension(&DECA_A0, MonsterId::new(1), ascension);
     let mut donu = monster_state_for_ascension(&DONU_A0, MonsterId::new(2), ascension);
     let max_hp = if ascension >= 9 { 265 } else { 250 };
-    let artifact = if ascension >= 19 { 3 } else { 2 };
+    let artifact = if ascension >= 19 { 3 } else { 0 };
     deca.hp = max_hp;
     deca.max_hp = max_hp;
     deca.powers.artifact = artifact;
@@ -6047,7 +6053,8 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
     }
     if content_id == DECA_ID {
         return match intent {
-            MonsterIntent::AttackMultiple { .. } => Some(0),
+            MonsterIntent::AttackMultiple { .. }
+            | MonsterIntent::AttackMultipleAddDazedToDiscard { .. } => Some(0),
             MonsterIntent::Block { .. } => Some(2),
             _ => None,
         };
@@ -6469,7 +6476,7 @@ fn reptomancer_spawn_intent(ascension: u8) -> MonsterIntent {
 }
 
 fn reptomancer_snake_strike_intent(ascension: u8) -> MonsterIntent {
-    MonsterIntent::AttackMultiple {
+    MonsterIntent::AttackMultipleApplyPlayerWeak {
         damage: asc_damage(
             ascension,
             REPTOMANCER_SNAKE_STRIKE_DAMAGE,
@@ -6477,6 +6484,7 @@ fn reptomancer_snake_strike_intent(ascension: u8) -> MonsterIntent {
             3,
         ),
         hits: REPTOMANCER_SNAKE_STRIKE_HITS,
+        weak: 1,
     }
 }
 
@@ -6813,9 +6821,10 @@ fn public_backlog_monster_intent(
             },
         },
         DECA_ID => match moves_executed % 2 {
-            0 => MonsterIntent::AttackMultiple {
+            0 => MonsterIntent::AttackMultipleAddDazedToDiscard {
                 damage: asc_damage(ascension, DECA_BEAM_DAMAGE, DECA_A4_BEAM_DAMAGE, 4),
                 hits: DECA_BEAM_HITS,
+                count: 2,
             },
             _ => MonsterIntent::Block {
                 block: DECA_PROTECTION_BLOCK,
@@ -7619,11 +7628,16 @@ pub fn apply_collector_spawn_torch_heads(
     let replacing_dead_torch_heads = monsters
         .iter()
         .any(|monster| monster.content_id == TORCH_HEAD_ID && !monster.alive);
+    let initial_collector_summon = !replacing_dead_torch_heads && count == 2 && ascension < 9;
     let mut hp_values = (0..count)
         .map(|_| {
             hp_rng.as_deref_mut().map_or(TORCH_HEAD_A0.hp, |rng| {
-                let _constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(rng);
-                range.roll(rng)
+                let constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(rng);
+                if initial_collector_summon {
+                    constructor_hp
+                } else {
+                    range.roll(rng)
+                }
             })
         })
         .collect::<Vec<_>>();
@@ -7785,15 +7799,11 @@ pub fn apply_reptomancer_dagger_spawn(
 }
 
 fn reptomancer_dagger_insert_index(monsters: &[MonsterState], slot: u8) -> usize {
-    let reptomancer_index = monsters
+    let slot_key = reptomancer_position_key_for_slot(slot);
+    monsters
         .iter()
-        .position(|monster| monster.content_id == REPTOMANCER_ID)
-        .unwrap_or(monsters.len());
-    if slot == 1 || slot == 3 {
-        reptomancer_index
-    } else {
-        reptomancer_index.saturating_add(1).min(monsters.len())
-    }
+        .position(|monster| reptomancer_position_key(monster) >= slot_key)
+        .unwrap_or(monsters.len())
 }
 
 #[must_use]
@@ -7802,6 +7812,35 @@ fn reptomancer_hp_range(ascension: u8) -> MonsterHpRange {
         REPTOMANCER_A8_HP_RANGE
     } else {
         REPTOMANCER_A0_HP_RANGE
+    }
+}
+
+pub fn advance_reptomancer_monster_hp_rng_for_entry(rng: &mut StsRng, ascension: u8) {
+    DAGGER_HP_RANGE.roll(rng);
+    REPTOMANCER_A0_HP_RANGE.roll(rng);
+    reptomancer_hp_range(ascension).roll(rng);
+    DAGGER_HP_RANGE.roll(rng);
+}
+
+fn reptomancer_position_key(monster: &MonsterState) -> u8 {
+    if monster.content_id == REPTOMANCER_ID {
+        return 2;
+    }
+    if monster.content_id == DAGGER_ID {
+        if let Some(slot) = monster.gremlin_leader_slot {
+            return reptomancer_position_key_for_slot(slot);
+        }
+    }
+    2
+}
+
+fn reptomancer_position_key_for_slot(slot: u8) -> u8 {
+    match slot {
+        3 => 0,
+        1 => 1,
+        2 => 3,
+        0 => 4,
+        _ => 2,
     }
 }
 
@@ -9449,6 +9488,34 @@ pub fn apply_monster_intent_with_card_rng(
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
             (hit_damage * effective_hits, effective_hits)
         }
+        MonsterIntent::AttackMultipleApplyPlayerWeak { damage, hits, weak } => {
+            let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
+            let effective_hits =
+                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
+            monster.intent = MonsterIntent::AttackMultipleApplyPlayerWeak {
+                damage,
+                hits: effective_hits,
+                weak,
+            };
+            thorns_already_applied = total_thorns > 0 && effective_hits > 0;
+            (hit_damage * effective_hits, effective_hits)
+        }
+        MonsterIntent::AttackMultipleAddDazedToDiscard {
+            damage,
+            hits,
+            count,
+        } => {
+            let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
+            let effective_hits =
+                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
+            monster.intent = MonsterIntent::AttackMultipleAddDazedToDiscard {
+                damage,
+                hits: effective_hits,
+                count,
+            };
+            thorns_already_applied = total_thorns > 0 && effective_hits > 0;
+            (hit_damage * effective_hits, effective_hits)
+        }
         MonsterIntent::GuardianCloseUp { sharp_hide } => {
             monster.powers.spikes = sharp_hide;
             (0, 0)
@@ -9731,16 +9798,18 @@ mod tests {
         );
         assert_eq!(
             target_reptomancer_next_intent_from_roll(&[2], 32, true, None, 3),
-            MonsterIntent::AttackMultiple {
+            MonsterIntent::AttackMultipleApplyPlayerWeak {
                 damage: REPTOMANCER_A3_SNAKE_STRIKE_DAMAGE,
                 hits: REPTOMANCER_SNAKE_STRIKE_HITS,
+                weak: 1,
             }
         );
         assert_eq!(
             target_reptomancer_next_intent_from_roll(&[1], 50, false, None, 3),
-            MonsterIntent::AttackMultiple {
+            MonsterIntent::AttackMultipleApplyPlayerWeak {
                 damage: REPTOMANCER_A3_SNAKE_STRIKE_DAMAGE,
                 hits: REPTOMANCER_SNAKE_STRIKE_HITS,
+                weak: 1,
             }
         );
         assert_eq!(
@@ -10685,9 +10754,10 @@ mod tests {
         let donu_opening = prepare_monster_intent_for_ascension(&monsters[1], 19);
         assert_eq!(
             deca_opening,
-            MonsterIntent::AttackMultiple {
+            MonsterIntent::AttackMultipleAddDazedToDiscard {
                 damage: DECA_A4_BEAM_DAMAGE,
                 hits: DECA_BEAM_HITS,
+                count: 2,
             }
         );
         assert_eq!(

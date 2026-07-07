@@ -166,6 +166,7 @@ pub fn deal_damage_info_to_monster_with_result(
         player,
         temp_strength,
         monster.powers.vulnerable,
+        monster.powers.slow.saturating_sub(1),
         relics,
     );
     deal_attack_damage_to_monster(monster, relics, amount)
@@ -176,6 +177,7 @@ fn calculate_player_attack_damage(
     player: PlayerPowers,
     temp_strength: i32,
     target_vulnerable: i32,
+    target_slow: i32,
     relics: &[Relic],
 ) -> i32 {
     let mut amount = (base + player.strength + temp_strength).max(0) as f64;
@@ -188,6 +190,9 @@ fn calculate_player_attack_damage(
         } else {
             1.5
         };
+    }
+    if target_slow > 0 {
+        amount *= 1.0 + f64::from(target_slow) * 0.1;
     }
     amount.floor().max(0.0) as i32
 }

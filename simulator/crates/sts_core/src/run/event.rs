@@ -11,13 +11,13 @@ use crate::{
             monster_state_for_ascension, record_target_move,
             target_monster_hp_range_for_content_id, MonsterDefinition, BANDIT_BEAR_A0,
             BANDIT_LEADER_A0, BANDIT_POINTY_A0, GREMLIN_NOB_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
-            TASKMASTER_A0,
+            SLIME_BOSS_A0, TASKMASTER_A0,
         },
         shop_pool::random_colorless_from_pool,
     },
     ids::ContentId,
     potion::Potion,
-    relic::{Relic, RelicKey},
+    relic::{Relic, RelicKey, RelicTier},
     rng::{JavaRng, StsRng},
     run::{
         grid::{
@@ -621,7 +621,15 @@ pub const ACT2_SHRINES: [Event; 6] = [
     Event::UpgradeShrine,
 ];
 
-pub const ACT3_EVENTS: [Event; 1] = [Event::Lab];
+pub const ACT3_EVENTS: [Event; 7] = [
+    Event::Falling,
+    Event::MindBloom,
+    Event::MoaiHead,
+    Event::MysteriousSphere,
+    Event::SensoryStone,
+    Event::TombOfLordRedMask,
+    Event::WindingHalls,
+];
 
 pub const ACT3_SHRINES: [Event; 6] = [
     Event::MatchAndKeep,
@@ -698,6 +706,13 @@ pub enum Event {
     TheMausoleum,
     Vampires,
     Lab,
+    Falling,
+    MindBloom,
+    MoaiHead,
+    MysteriousSphere,
+    SensoryStone,
+    TombOfLordRedMask,
+    WindingHalls,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -877,6 +892,25 @@ fn we_meet_again_event_data_for_potion_slot(slot: Option<usize>) -> u32 {
 
 fn we_meet_again_potion_slot_from_event_data(event_data: u32) -> Option<usize> {
     (event_data != WE_MEET_AGAIN_NO_POTION_SLOT).then_some(event_data as usize)
+}
+
+fn tomb_of_lord_red_mask_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
+    if stage > 0 {
+        return labeled_choices(&["Leave"]);
+    }
+
+    if has_relic_key(run, RelicKey::RedMask) {
+        labeled_choices(&["Wear mask", "Leave"])
+    } else {
+        vec![
+            EventChoice {
+                label: format!("Offer: {} Gold", run.gold),
+            },
+            EventChoice {
+                label: "Leave".to_owned(),
+            },
+        ]
+    }
 }
 
 fn labeled_choices(labels: &[&str]) -> Vec<EventChoice> {
@@ -1101,6 +1135,10 @@ fn get_event(run: &mut RunState, rng: &mut StsRng) -> Event {
 fn event_is_available(run: &RunState, event: Event) -> bool {
     match event {
         Event::DeadAdventurer | Event::HypnotizingColoredMushrooms => run.current_floor > 6,
+        Event::MoaiHead => {
+            has_relic_key(run, RelicKey::GoldenIdol)
+                || (run.player_hp as f32 / run.player_max_hp as f32) <= 0.5
+        }
         Event::TheCleric => run.gold >= 35,
         Event::Beggar => run.gold >= BEGGAR_GOLD_COST,
         Event::Colosseum => current_floor_in_act(run) > 7,
@@ -1341,8 +1379,16 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::Colosseum => make_event_screen(event, colosseum_choices(0), 0),
         Event::DrugDealer => make_event_screen(event, drug_dealer_choices(0, false), 0),
         Event::Lab => make_event_screen(event, labeled_choices(&["Search"]), 0),
+        Event::TombOfLordRedMask => {
+            make_event_screen(event, labeled_choices(&["Offer", "Leave"]), 0)
+        }
         Event::WheelOfChange => make_event_screen(event, wheel_of_change_choices(0, 0), 0),
         Event::WeMeetAgain => make_event_screen(event, we_meet_again_choices(0, None), 0),
+        Event::MindBloom => make_event_screen(
+            event,
+            labeled_choices(&["I am War", "I am Awake", "I am Healthy"]),
+            0,
+        ),
         _ => make_event_screen(
             event,
             vec![EventChoice {
@@ -1368,6 +1414,9 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
             wing_statue_choices(0, has_wing_statue_attack_card(run)),
             0,
         ),
+        Event::TombOfLordRedMask => {
+            make_event_screen(event, tomb_of_lord_red_mask_choices(run, 0), 0)
+        }
         _ => event_screen(event),
     }
 }
@@ -2740,6 +2789,32 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 card_reward_pending: false,
                 pending_card_reward_count: 0,
             });
+        }
+        Event::TombOfLordRedMask if screen.stage == 0 && choice_index == 0 => {
+            if has_relic_key(&next, RelicKey::RedMask) {
+                next.gain_gold(222);
+            } else {
+                next.gold = 0;
+                next.gain_relic_key(RelicKey::RedMask);
+            }
+            next.event = Some(make_event_screen(
+                Event::TombOfLordRedMask,
+                tomb_of_lord_red_mask_choices(&next, 1),
+                1,
+            ));
+        }
+        Event::TombOfLordRedMask
+            if (screen.stage == 0 && choice_index == 1)
+                || (screen.stage == 1 && choice_index == 0) =>
+        {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        Event::MindBloom if screen.stage == 0 && choice_index == 0 => {
+            next.pending_event_combat_gold_offer = 50;
+            next.pending_event_combat_relic_key_offer =
+                Some(super::reward::roll_relic_reward(&mut next, RelicTier::Rare));
+            enter_event_combat(&mut next, &[&SLIME_BOSS_A0]);
         }
         _ if choice_index == 0 => {
             next.phase = RunPhase::Idle;
