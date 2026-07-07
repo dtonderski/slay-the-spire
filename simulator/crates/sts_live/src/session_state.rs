@@ -5,6 +5,15 @@ use crate::{
     },
     trace_writer::TraceWriter,
 };
+use sts_core::RunState;
+
+#[derive(Clone)]
+pub(super) struct FidelityCache {
+    pub(super) trace_len: u64,
+    pub(super) status: FidelityStatus,
+    pub(super) sim_run_state: Option<RunState>,
+    pub(super) reusable_after_append: bool,
+}
 
 pub(super) struct SessionData {
     pub(super) id: SessionId,
@@ -14,6 +23,7 @@ pub(super) struct SessionData {
     pub(super) run_config: Option<RunConfig>,
     pub(super) latest_state: Option<LiveState>,
     pub(super) fidelity: FidelityStatus,
+    pub(super) fidelity_cache: Option<FidelityCache>,
     pub(super) blocked: Option<BlockedState>,
     pub(super) automation: AutomationJobSnapshot,
 }

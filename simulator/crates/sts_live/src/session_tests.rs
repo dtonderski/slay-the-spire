@@ -9,7 +9,14 @@ use crate::{
     session::SessionStore,
 };
 use serde_json::json;
-use std::{cell::Cell, fs, path::PathBuf, time::SystemTime};
+use std::{
+    cell::Cell,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::PathBuf,
+    rc::Rc,
+    time::SystemTime,
+};
 
 #[test]
 fn start_run_creates_recording_session_and_trace() {
@@ -141,6 +148,89 @@ fn fidelity_loss_after_action_stays_visible_without_blocking_manual_collection()
         .unwrap();
     assert_eq!(continued.fidelity.kind, FidelityKind::Lost);
     assert!(continued.blocked.is_none());
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn refresh_fidelity_reuses_cached_result_when_trace_is_unchanged() {
+    let root = temp_dir("fidelity-cache-unchanged");
+    let calls = Rc::new(Cell::new(0));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        CountingBoundaryFidelity::new(calls.clone()),
+        &root,
+    );
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+    let calls_after_start = calls.get();
+
+    store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn refresh_fidelity_reuses_unsupported_boundary_cache_after_trace_append() {
+    let root = temp_dir("fidelity-cache-append");
+    let calls = Rc::new(Cell::new(0));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        CountingBoundaryFidelity::new(calls.clone()),
+        &root,
+    );
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+    let calls_after_start = calls.get();
+
+    let boundary = store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(boundary.fidelity.kind, FidelityKind::Unknown);
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    append_trace_record(
+        &snapshot.trace_path,
+        &TraceRecord::Automation {
+            sequence: 999,
+            event: "test-noop".to_owned(),
+            details: json!({}),
+        },
+    );
+    let refreshed = store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(refreshed.fidelity.kind, FidelityKind::Unknown);
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    append_trace_record(
+        &snapshot.trace_path,
+        &TraceRecord::Error {
+            sequence: 1000,
+            reason_code: "fidelity_lost".to_owned(),
+            message: "tail fidelity lost".to_owned(),
+        },
+    );
+    let lost = store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(lost.fidelity.kind, FidelityKind::Lost);
+    assert_eq!(lost.fidelity.message.as_deref(), Some("tail fidelity lost"));
+    assert_eq!(calls.get(), calls_after_start + 1);
 
     fs::remove_dir_all(root).ok();
 }
@@ -517,12 +607,42 @@ fn write_metadata_trace(root: &std::path::Path, session_id: &str) {
     .unwrap();
 }
 
+fn append_trace_record(path: &str, record: &TraceRecord) {
+    let mut file = OpenOptions::new().append(true).open(path).unwrap();
+    writeln!(file, "{}", serde_json::to_string(record).unwrap()).unwrap();
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!("sts-live-session-{name}-{nonce}"))
+}
+
+struct CountingBoundaryFidelity {
+    calls: Rc<Cell<u32>>,
+}
+
+impl CountingBoundaryFidelity {
+    fn new(calls: Rc<Cell<u32>>) -> Self {
+        Self { calls }
+    }
+}
+
+impl FidelityChecker for CountingBoundaryFidelity {
+    fn check_trace(&self, _path: &std::path::Path) -> LiveResult<FidelityStatus> {
+        self.calls.set(self.calls.get() + 1);
+        Ok(FidelityStatus {
+            kind: FidelityKind::Unknown,
+            first_divergent_step: None,
+            compact_diff: vec!["unsupported verifier boundary".to_owned()],
+            message: Some(
+                "seed-start replay reached boundary unsupported_event_card_grid_rng_divergence: test"
+                    .to_owned(),
+            ),
+        })
+    }
 }
 
 #[derive(Default)]
