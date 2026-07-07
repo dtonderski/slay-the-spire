@@ -70,6 +70,42 @@ interface BlockedState {
   message: string;
 }
 
+interface SlayTheDataRunSummary {
+  id: number;
+  seed_played?: string | null;
+  ascension_level?: number | null;
+  floor_reached?: number | null;
+  victory: boolean;
+  path_length?: number | null;
+  card_choice_count?: number | null;
+  event_choice_count?: number | null;
+  shop_purchase_count?: number | null;
+  potion_usage_count?: number | null;
+  neow_bonus?: string | null;
+  neow_cost?: string | null;
+  guided_score: number;
+  materialized: boolean;
+}
+
+interface SlayTheDataAdvisorStep {
+  floor: number;
+  ordinal: number;
+  status: string;
+  code: string;
+  message: string;
+  command?: string | null;
+  action_id?: string | null;
+  action_label?: string | null;
+}
+
+interface SlayTheDataSessionSnapshot {
+  attached_run?: SlayTheDataRunSummary | null;
+  advisor?: SlayTheDataAdvisorStep | null;
+  next_step_index: number;
+  blocked?: BlockedState | null;
+  last_message?: string | null;
+}
+
 interface SessionSnapshot {
   session_id: string;
   bridge_id: string;
@@ -80,6 +116,7 @@ interface SessionSnapshot {
   fidelity: FidelityStatus;
   blocked?: BlockedState | null;
   automation: AutomationJobSnapshot;
+  slaythedata: SlayTheDataSessionSnapshot;
 }
 
 type AutomationPolicy = "fake_play_first_card" | "greedy_search" | "beam_search";
@@ -142,6 +179,10 @@ interface ErrorPayload {
   };
 }
 
+interface SlayTheDataSearchResponse {
+  runs: SlayTheDataRunSummary[];
+}
+
 type ActionGroupKey =
   | "card"
   | "discard"
@@ -167,6 +208,8 @@ let pendingCommand: PendingCommand | null = null;
 let pendingCommandTimer: number | null = null;
 let renderedActionsKey: string | null = null;
 let renderedAutomationSummaryKey: string | null = null;
+let slayTheDataBusy = false;
+let lastSlayTheDataRuns: SlayTheDataRunSummary[] | null = null;
 const BRIDGE_REFRESH_MS = 1000;
 const SESSION_REFRESH_MS = 2000;
 const ACTIVE_SESSION_REFRESH_MS = 150;
@@ -338,6 +381,10 @@ function renderSession(session: SessionSnapshot): void {
   renderCommandStatus();
   renderActions(session.latest_state?.legal_actions || []);
   renderAutomation(session);
+  renderSlayTheData(session);
+  if (lastSlayTheDataRuns) {
+    renderSlayTheDataResults(lastSlayTheDataRuns);
+  }
   syncBridgeControls();
   scheduleActiveSessionRefresh(session);
   refreshSessions().catch(console.error);
@@ -403,6 +450,7 @@ function renderPendingCommandState(): void {
   renderActions(currentSession?.latest_state?.legal_actions || []);
   if (currentSession) {
     renderAutomation(currentSession);
+    renderSlayTheData(currentSession);
   }
 }
 
@@ -675,6 +723,56 @@ function renderAutomation(session: SessionSnapshot): void {
   byId<HTMLButtonElement>("automation-pause").disabled = !canAutomate;
   byId<HTMLButtonElement>("automation-cancel").disabled = !canAutomate;
   renderAutomationSummary(automation);
+}
+
+function renderSlayTheData(session: SessionSnapshot): void {
+  const state = session.slaythedata || defaultSlayTheData();
+  const canGuide = Boolean(session.latest_state && session.lifecycle !== "ended" && state.attached_run);
+  const pending = isCommandPending() || slayTheDataBusy;
+  const hasAdvisor = Boolean(state.advisor);
+  byId<HTMLButtonElement>("slaythedata-send-next").disabled =
+    !canGuide || pending || Boolean(state.blocked) || !hasAdvisor;
+  byId<HTMLButtonElement>("slaythedata-auto-play").disabled =
+    !canGuide || pending || Boolean(state.blocked) || !hasAdvisor;
+  byId<HTMLButtonElement>("slaythedata-search").disabled = pending;
+
+  const advisor = byId<HTMLDivElement>("slaythedata-advisor");
+  advisor.replaceChildren();
+  if (state.attached_run) {
+    const run = document.createElement("div");
+    run.textContent = `Run ${state.attached_run.id} | seed ${state.attached_run.seed_played || "-"} | floor ${state.attached_run.floor_reached ?? "-"} | ${state.attached_run.victory ? "win" : "loss"}`;
+    advisor.appendChild(run);
+  }
+  if (state.blocked) {
+    const blocked = document.createElement("div");
+    blocked.className = "automation-blocked";
+    blocked.textContent = `${state.blocked.reason_code}: ${state.blocked.message}`;
+    advisor.appendChild(blocked);
+  }
+  if (state.advisor) {
+    const code = document.createElement("div");
+    code.className = "advisor-code";
+    code.textContent = `${state.advisor.status} ${state.advisor.code}`;
+    const message = document.createElement("div");
+    message.textContent = state.advisor.action_label
+      ? `${state.advisor.message} -> ${state.advisor.action_label}`
+      : state.advisor.message;
+    advisor.append(code, message);
+  } else if (!state.attached_run) {
+    advisor.textContent = "No advisor";
+  } else if (!state.blocked) {
+    advisor.textContent = state.last_message || "No remaining non-combat guidance";
+  }
+}
+
+function defaultSlayTheData(): SlayTheDataSessionSnapshot {
+  return {
+    attached_run: null,
+    advisor: null,
+    next_step_index: 0,
+    blocked: null,
+    last_message: null
+  };
 }
 
 function renderAutomationSummary(automation: AutomationJobSnapshot): void {
@@ -1088,6 +1186,90 @@ async function automationAutoPlay(): Promise<void> {
   ));
 }
 
+function slayTheDataFilters(): Record<string, unknown> {
+  const outcome = byId<HTMLSelectElement>("slaythedata-outcome").value;
+  return {
+    character: "IRONCLAD",
+    ascension: Number(byId<HTMLInputElement>("slaythedata-ascension").value),
+    min_floor_reached: Number(byId<HTMLInputElement>("slaythedata-min-floor").value),
+    victory: outcome === "any" ? null : outcome === "win",
+    limit: Number(byId<HTMLInputElement>("slaythedata-limit").value),
+    require_supported: true
+  };
+}
+
+async function searchSlayTheData(): Promise<void> {
+  const response = await api<SlayTheDataSearchResponse>("/slaythedata/search", {
+    method: "POST",
+    body: JSON.stringify(slayTheDataFilters())
+  });
+  lastSlayTheDataRuns = response.runs;
+  renderSlayTheDataResults(response.runs);
+}
+
+function renderSlayTheDataResults(runs: SlayTheDataRunSummary[]): void {
+  const container = byId<HTMLDivElement>("slaythedata-results");
+  container.replaceChildren();
+  if (runs.length === 0) {
+    container.textContent = "No matching runs";
+    return;
+  }
+  for (const runSummary of runs) {
+    const row = document.createElement("div");
+    row.className = "slaythedata-run";
+    const label = document.createElement("div");
+    label.textContent = `#${runSummary.id} ${runSummary.seed_played || "-"} | A${runSummary.ascension_level ?? "-"} | floor ${runSummary.floor_reached ?? "-"} | ${runSummary.victory ? "win" : "loss"} | ${runSummary.materialized ? "ready" : "not materialized"}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Attach";
+    button.disabled = slayTheDataBusy || !currentSession || !runSummary.materialized;
+    button.title = runSummary.materialized
+      ? "Attach this materialized run"
+      : "Run must be exported into run_materialized_json before attach";
+    button.addEventListener("click", () => {
+      runSlayTheDataTask(async () => {
+        if (!currentSession) throw new Error("No session selected");
+        renderSession(await api<SessionSnapshot>(
+          `/sessions/${currentSession.session_id}/slaythedata/attach`,
+          { method: "POST", body: JSON.stringify({ run_id: runSummary.id }) }
+        ));
+      });
+    });
+    row.append(label, button);
+    container.appendChild(row);
+  }
+}
+
+async function slayTheDataCommand(command: "send-next" | "auto-play"): Promise<void> {
+  if (!currentSession) return;
+  renderSession(await api<SessionSnapshot>(
+    `/sessions/${currentSession.session_id}/slaythedata/${command}`,
+    { method: "POST", body: "{}" }
+  ));
+}
+
+async function runSlayTheDataTask(task: () => Promise<void>): Promise<void> {
+  if (slayTheDataBusy) return;
+  slayTheDataBusy = true;
+  if (currentSession) {
+    renderSlayTheData(currentSession);
+  }
+  if (lastSlayTheDataRuns) {
+    renderSlayTheDataResults(lastSlayTheDataRuns);
+  }
+  try {
+    await task();
+  } finally {
+    slayTheDataBusy = false;
+    if (currentSession) {
+      renderSlayTheData(currentSession);
+    }
+    if (lastSlayTheDataRuns) {
+      renderSlayTheDataResults(lastSlayTheDataRuns);
+    }
+  }
+}
+
 async function cancelAutomation(): Promise<void> {
   await automationControlCommand("cancel");
 }
@@ -1114,12 +1296,17 @@ function clearSession(): void {
     "automation-auto-play",
     "automation-pause",
     "automation-resume",
-    "automation-cancel"
+    "automation-cancel",
+    "slaythedata-send-next",
+    "slaythedata-auto-play"
   ]) {
     byId<HTMLButtonElement>(id).disabled = true;
   }
   byId<HTMLDivElement>("automation-potions").replaceChildren();
   byId<HTMLDivElement>("automation-summary").textContent = "No plan";
+  lastSlayTheDataRuns = null;
+  byId<HTMLDivElement>("slaythedata-results").textContent = "No run selected";
+  byId<HTMLDivElement>("slaythedata-advisor").textContent = "No advisor";
   renderCommandStatus();
   renderActions([]);
 }
@@ -1179,6 +1366,9 @@ byId<HTMLButtonElement>("automation-pause").addEventListener("click", () => {
 });
 byId<HTMLButtonElement>("automation-resume").addEventListener("click", () => run(() => automationCommand("resume")));
 byId<HTMLButtonElement>("automation-cancel").addEventListener("click", () => run(cancelAutomation));
+byId<HTMLButtonElement>("slaythedata-search").addEventListener("click", () => run(() => runSlayTheDataTask(searchSlayTheData)));
+byId<HTMLButtonElement>("slaythedata-send-next").addEventListener("click", () => run(() => runSlayTheDataTask(() => slayTheDataCommand("send-next"))));
+byId<HTMLButtonElement>("slaythedata-auto-play").addEventListener("click", () => run(() => runSlayTheDataTask(() => slayTheDataCommand("auto-play"))));
 byId<HTMLSelectElement>("bridge").addEventListener("change", syncBridgeControls);
 byId<HTMLSelectElement>("automation-policy").addEventListener("change", rememberAutomationDraft);
 for (const id of ["automation-depth", "automation-width", "automation-limit"]) {

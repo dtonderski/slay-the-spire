@@ -7,7 +7,9 @@ use crate::{
         SessionId, SessionLifecycle, TraceRecord,
     },
     session::SessionStore,
+    slaythedata::SlayTheDataIndex,
 };
+use rusqlite::Connection;
 use serde_json::json;
 use std::{cell::Cell, fs, path::PathBuf, time::SystemTime};
 
@@ -494,6 +496,197 @@ fn abandon_then_start_creates_two_start_rooted_traces() {
     fs::remove_dir_all(root).ok();
 }
 
+#[test]
+fn slaythedata_attach_advises_and_sends_next_non_combat_action() {
+    let root = temp_dir("slaythedata-send-next");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+
+    let attached = store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+
+    let advisor = attached.slaythedata.advisor.as_ref().expect("advisor");
+    assert_eq!(attached.slaythedata.attached_run.as_ref().unwrap().id, 7);
+    assert_eq!(advisor.code, "legal_neow_talk");
+    assert_eq!(advisor.command.as_deref(), Some("CHOOSE 0"));
+    assert_eq!(advisor.action_id.as_ref().unwrap().0, "talk");
+
+    let sent = store.slaythedata_send_next(&snapshot.session_id).unwrap();
+
+    assert_eq!(sent.latest_state.as_ref().unwrap().phase, LivePhase::Combat);
+    assert_eq!(sent.slaythedata.next_step_index, 1);
+    assert!(sent.slaythedata.blocked.is_none());
+    let trace = fs::read_to_string(sent.trace_path).unwrap();
+    assert!(trace.contains("\"type\":\"slay_the_data\""));
+    assert!(trace.contains("\"event\":\"send_action\""));
+    assert!(trace.contains("\"event\":\"sent_action\""));
+    assert!(trace.contains("\"id\":\"talk\""));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_blocks_guided_send_when_fidelity_is_not_ok() {
+    let root = temp_dir("slaythedata-fidelity-block");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        TraceFidelityChecker,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+
+    let blocked = store.slaythedata_send_next(&snapshot.session_id).unwrap();
+
+    assert_eq!(
+        blocked.slaythedata.blocked.as_ref().unwrap().reason_code,
+        "slaythedata_fidelity_not_ok"
+    );
+    assert_eq!(
+        blocked.latest_state.as_ref().unwrap().phase,
+        LivePhase::Neow
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_blocks_same_command_on_wrong_live_phase_and_stays_blocked() {
+    let root = temp_dir("slaythedata-wrong-phase");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(PendingCommandBridge::default(), AlwaysOkFidelity, &root)
+        .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+
+    let attached = store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+    assert_eq!(
+        attached
+            .slaythedata
+            .advisor
+            .as_ref()
+            .unwrap()
+            .command
+            .as_deref(),
+        Some("CHOOSE 0")
+    );
+    assert!(attached
+        .slaythedata
+        .advisor
+        .as_ref()
+        .unwrap()
+        .action_id
+        .is_none());
+
+    let blocked = store.slaythedata_send_next(&snapshot.session_id).unwrap();
+    assert_eq!(
+        blocked.slaythedata.blocked.as_ref().unwrap().reason_code,
+        "slaythedata_action_mismatch"
+    );
+    assert_eq!(
+        blocked.latest_state.as_ref().unwrap().phase,
+        LivePhase::Reward
+    );
+
+    let still_blocked = store.slaythedata_send_next(&snapshot.session_id).unwrap();
+    assert_eq!(still_blocked.slaythedata.next_step_index, 0);
+    assert_eq!(
+        still_blocked
+            .slaythedata
+            .blocked
+            .as_ref()
+            .unwrap()
+            .reason_code,
+        "slaythedata_action_mismatch"
+    );
+    let trace = fs::read_to_string(still_blocked.trace_path).unwrap();
+    assert_eq!(trace.matches("\"event\":\"blocked\"").count(), 1);
+    assert!(!trace.contains("\"event\":\"sent_action\""));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_bridge_send_failure_records_slaythedata_block() {
+    let root = temp_dir("slaythedata-bridge-failure");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+    store
+        .kill_bridge(&BridgeId("fake-bridge-1".to_owned()))
+        .unwrap();
+
+    let blocked = store.slaythedata_send_next(&snapshot.session_id).unwrap();
+
+    assert_eq!(blocked.lifecycle, SessionLifecycle::Blocked);
+    assert_eq!(
+        blocked.slaythedata.blocked.as_ref().unwrap().reason_code,
+        "slaythedata_send_failed"
+    );
+    let trace = fs::read_to_string(blocked.trace_path).unwrap();
+    assert!(trace.contains("\"event\":\"send_action\""));
+    assert!(trace.contains("\"event\":\"blocked\""));
+    assert!(trace.contains("slaythedata_send_failed"));
+    fs::remove_dir_all(root).ok();
+}
+
 fn fake_store(root: &std::path::Path) -> SessionStore<FakeBridgeManager, TraceFidelityChecker> {
     SessionStore::new(
         FakeBridgeManager::with_default_bridge(),
@@ -548,6 +741,81 @@ impl FidelityChecker for FlipToLostFidelity {
 
 struct PendingCommandBridge {
     state: LiveState,
+}
+
+struct AlwaysOkFidelity;
+
+impl FidelityChecker for AlwaysOkFidelity {
+    fn check_trace(&self, _path: &std::path::Path) -> LiveResult<FidelityStatus> {
+        Ok(FidelityStatus {
+            kind: FidelityKind::Ok,
+            first_divergent_step: None,
+            compact_diff: Vec::new(),
+            message: None,
+        })
+    }
+}
+
+fn write_slaythedata_db(path: &std::path::Path, raw_run_json: String) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE runs (
+            id INTEGER PRIMARY KEY,
+            character_chosen TEXT,
+            ascension_level INTEGER,
+            floor_reached INTEGER,
+            is_daily INTEGER,
+            is_endless INTEGER,
+            is_trial INTEGER,
+            unsupported_any INTEGER,
+            seed_played TEXT,
+            victory INTEGER,
+            path_length INTEGER,
+            card_choice_count INTEGER,
+            event_choice_count INTEGER,
+            shop_purchase_count INTEGER,
+            potion_usage_count INTEGER,
+            neow_bonus TEXT,
+            neow_cost TEXT
+        );
+        CREATE TABLE chunk_runs (run_id INTEGER PRIMARY KEY);
+        CREATE TABLE run_materialized_json (
+            run_id INTEGER PRIMARY KEY,
+            raw_event_json TEXT NOT NULL
+        );
+        "#,
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO runs VALUES (7, 'IRONCLAD', 0, 1, 0, 0, 0, 0, 'CODEX04', 0, 1, 0, 0, 0, 0, 'TEN_PERCENT_HP_BONUS', 'NONE')",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO chunk_runs VALUES (7)", [])
+        .unwrap();
+    conn.execute(
+        "INSERT INTO run_materialized_json VALUES (7, ?)",
+        [&raw_run_json],
+    )
+    .unwrap();
+}
+
+fn slaythedata_raw_run_json(seed: &str) -> String {
+    json!({
+        "character_chosen": "IRONCLAD",
+        "ascension_level": 0,
+        "seed_played": seed,
+        "build_version": "2022-12-18",
+        "neow_bonus": "TEN_PERCENT_HP_BONUS",
+        "neow_cost": "NONE",
+        "path_taken": [],
+        "path_per_floor": [],
+        "floor_reached": 1,
+        "victory": false
+    })
+    .to_string()
 }
 
 impl Default for PendingCommandBridge {

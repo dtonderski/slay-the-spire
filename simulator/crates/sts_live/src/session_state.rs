@@ -3,6 +3,7 @@ use crate::{
         AutomationJobSnapshot, BlockedState, BridgeId, FidelityKind, FidelityStatus, LiveState,
         RunConfig, SessionId, SessionLifecycle, SessionSnapshot, TraceRecord,
     },
+    slaythedata::AttachedSlayTheDataRun,
     trace_writer::TraceWriter,
 };
 
@@ -16,6 +17,7 @@ pub(super) struct SessionData {
     pub(super) fidelity: FidelityStatus,
     pub(super) blocked: Option<BlockedState>,
     pub(super) automation: AutomationJobSnapshot,
+    pub(super) slaythedata: Option<AttachedSlayTheDataRun>,
 }
 
 impl SessionData {
@@ -30,6 +32,11 @@ impl SessionData {
             fidelity: self.fidelity.clone(),
             blocked: self.blocked.clone(),
             automation: self.automation.clone(),
+            slaythedata: self
+                .slaythedata
+                .as_ref()
+                .map(|run| run.snapshot(self.latest_state.as_ref()))
+                .unwrap_or_default(),
         }
     }
 }

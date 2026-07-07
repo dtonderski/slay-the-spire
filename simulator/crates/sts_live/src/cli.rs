@@ -3,7 +3,7 @@ use crate::{
     fidelity::FidelityChecker,
     model::{
         AutomationConfig, AutomationPolicy, BridgeId, Character, LiveError, LiveResult, RunConfig,
-        RunSeed, SessionId,
+        RunSeed, SessionId, SlayTheDataSearchFilters,
     },
     session::SessionStore,
 };
@@ -61,6 +61,25 @@ where
                 &crate::model::ActionId(action_id.clone()),
             )?)?)
         }
+        [area, command, rest @ ..] if area == "slaythedata" && command == "search" => {
+            let filters = parse_slaythedata_filters(rest)?;
+            Ok(json!({"runs": store.search_slaythedata_runs(filters)?}))
+        }
+        [area, command, session_id, run_id] if area == "slaythedata" && command == "attach" => {
+            let run_id = run_id
+                .parse()
+                .map_err(|err| LiveError::InvalidAction(format!("invalid run id: {err}")))?;
+            Ok(serde_json::to_value(store.attach_slaythedata_run(
+                &SessionId(session_id.clone()),
+                run_id,
+            )?)?)
+        }
+        [area, command, session_id] if area == "slaythedata" && command == "send-next" => Ok(
+            serde_json::to_value(store.slaythedata_send_next(&SessionId(session_id.clone()))?)?,
+        ),
+        [area, command, session_id] if area == "slaythedata" && command == "auto-play" => Ok(
+            serde_json::to_value(store.slaythedata_auto_play(&SessionId(session_id.clone()))?)?,
+        ),
         [area, command, session_id] if area == "automation" && command == "status" => Ok(
             serde_json::to_value(store.automation_status(&SessionId(session_id.clone()))?)?,
         ),
@@ -207,6 +226,71 @@ fn parse_automation_config(args: &[String]) -> LiveResult<AutomationConfig> {
     Ok(config)
 }
 
+fn parse_slaythedata_filters(args: &[String]) -> LiveResult<SlayTheDataSearchFilters> {
+    let mut filters = SlayTheDataSearchFilters {
+        character: "IRONCLAD".to_owned(),
+        ascension: Some(0),
+        min_floor_reached: 1,
+        max_floor_reached: None,
+        victory: None,
+        seed_played: None,
+        limit: 50,
+        require_supported: true,
+    };
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--character" => {
+                index += 1;
+                filters.character = required(args, index, "--character")?.to_ascii_uppercase();
+            }
+            "--ascension" => {
+                index += 1;
+                filters.ascension = Some(required(args, index, "--ascension")?.parse().map_err(
+                    |err| LiveError::InvalidAction(format!("invalid --ascension: {err}")),
+                )?);
+            }
+            "--any-ascension" => {
+                filters.ascension = None;
+            }
+            "--min-floor" | "--min-floor-reached" => {
+                index += 1;
+                filters.min_floor_reached =
+                    required(args, index, "--min-floor")?
+                        .parse()
+                        .map_err(|err| {
+                            LiveError::InvalidAction(format!("invalid --min-floor: {err}"))
+                        })?;
+            }
+            "--max-floor" | "--max-floor-reached" => {
+                index += 1;
+                filters.max_floor_reached = Some(
+                    required(args, index, "--max-floor")?
+                        .parse()
+                        .map_err(|err| {
+                            LiveError::InvalidAction(format!("invalid --max-floor: {err}"))
+                        })?,
+                );
+            }
+            "--victory" => filters.victory = Some(true),
+            "--loss" | "--defeat" => filters.victory = Some(false),
+            "--any-outcome" => filters.victory = None,
+            "--seed" => {
+                index += 1;
+                filters.seed_played = Some(required(args, index, "--seed")?.to_owned());
+            }
+            "--limit" => {
+                index += 1;
+                filters.limit = parse_usize(required(args, index, "--limit")?, "--limit")?;
+            }
+            "--include-unsupported" => filters.require_supported = false,
+            other => return Err(LiveError::InvalidAction(format!("unknown flag {other}"))),
+        }
+        index += 1;
+    }
+    Ok(filters)
+}
+
 fn parse_automation_policy(value: &str) -> LiveResult<AutomationPolicy> {
     match value {
         "fake-play-first-card" | "fake_play_first_card" => Ok(AutomationPolicy::FakePlayFirstCard),
@@ -245,13 +329,14 @@ fn required<'a>(args: &'a [String], index: usize, flag: &str) -> LiveResult<&'a 
 }
 
 fn usage() -> String {
-    "usage: live-trace bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace fidelity status SESSION; live-trace trace path SESSION".to_owned()
+    "usage: live-trace bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|attach SESSION RUN_ID|send-next SESSION|auto-play SESSION; live-trace fidelity status SESSION; live-trace trace path SESSION".to_owned()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{bridge::FakeBridgeManager, fidelity::TraceFidelityChecker};
+    use rusqlite::Connection;
     use std::{fs, time::SystemTime};
 
     #[test]
@@ -348,6 +433,38 @@ mod tests {
         fs::remove_dir_all(root).ok();
     }
 
+    #[test]
+    fn cli_searches_slaythedata_index_with_filters() {
+        let root = temp_dir("cli-slaythedata-search");
+        fs::create_dir_all(&root).unwrap();
+        let db = root.join("slaythedata.sqlite3");
+        write_slaythedata_locator_db(&db);
+        let mut store = fake_store(&root).with_slaythedata_index(crate::SlayTheDataIndex::new(&db));
+
+        let result = run_cli(
+            &mut store,
+            strings([
+                "slaythedata",
+                "search",
+                "--ascension",
+                "0",
+                "--min-floor",
+                "20",
+                "--victory",
+                "--limit",
+                "5",
+            ]),
+        )
+        .unwrap();
+
+        let runs = result["runs"].as_array().unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0]["id"], 11);
+        assert_eq!(runs[0]["victory"], true);
+        assert_eq!(runs[0]["materialized"], false);
+        fs::remove_dir_all(root).ok();
+    }
+
     fn fake_store(root: &std::path::Path) -> SessionStore<FakeBridgeManager, TraceFidelityChecker> {
         SessionStore::new(
             FakeBridgeManager::with_default_bridge(),
@@ -366,5 +483,48 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("sts-live-cli-{name}-{nonce}"))
+    }
+
+    fn write_slaythedata_locator_db(path: &std::path::Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE runs (
+                id INTEGER PRIMARY KEY,
+                character_chosen TEXT,
+                ascension_level INTEGER,
+                floor_reached INTEGER,
+                is_daily INTEGER,
+                is_endless INTEGER,
+                is_trial INTEGER,
+                unsupported_any INTEGER,
+                seed_played TEXT,
+                victory INTEGER,
+                path_length INTEGER,
+                card_choice_count INTEGER,
+                event_choice_count INTEGER,
+                shop_purchase_count INTEGER,
+                potion_usage_count INTEGER,
+                neow_bonus TEXT,
+                neow_cost TEXT
+            );
+            CREATE TABLE chunk_runs (run_id INTEGER PRIMARY KEY);
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO runs VALUES (11, 'IRONCLAD', 0, 50, 0, 0, 0, 0, 'WIN', 1, 50, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO runs VALUES (12, 'IRONCLAD', 0, 19, 0, 0, 0, 0, 'EARLY', 1, 19, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO chunk_runs VALUES (11)", [])
+            .unwrap();
+        conn.execute("INSERT INTO chunk_runs VALUES (12)", [])
+            .unwrap();
     }
 }

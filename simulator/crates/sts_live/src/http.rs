@@ -2,7 +2,10 @@ use crate::{
     bridge::BridgeManager,
     error_payload::error_payload,
     fidelity::FidelityChecker,
-    model::{ActionId, AutomationConfig, BridgeId, LiveError, LiveResult, RunConfig, SessionId},
+    model::{
+        ActionId, AutomationConfig, BridgeId, LiveError, LiveResult, RunConfig, SessionId,
+        SlayTheDataSearchFilters,
+    },
     session::SessionStore,
 };
 use serde_json::{json, Value};
@@ -59,6 +62,10 @@ where
 
         match (method, parts.as_slice()) {
             ("GET", ["bridges"]) => Ok(json!({"bridges": store.list_bridges()?})),
+            ("POST", ["slaythedata", "search"]) => {
+                let request: SlayTheDataSearchFilters = serde_json::from_str(body)?;
+                Ok(json!({"runs": store.search_slaythedata_runs(request)?}))
+            }
             ("POST", ["bridges", "kill-all"]) => Ok(json!({"killed": store.kill_all_bridges()?})),
             ("POST", ["bridges", bridge_id, "kill"]) => {
                 store.kill_bridge(&BridgeId((*bridge_id).to_owned()))?;
@@ -88,6 +95,23 @@ where
                 Ok(serde_json::to_value(store.send_action(
                     &SessionId((*session_id).to_owned()),
                     &ActionId((*action_id).to_owned()),
+                )?)?)
+            }
+            ("POST", ["sessions", session_id, "slaythedata", "attach"]) => {
+                let request: SlayTheDataAttachRequest = serde_json::from_str(body)?;
+                Ok(serde_json::to_value(store.attach_slaythedata_run(
+                    &SessionId((*session_id).to_owned()),
+                    request.run_id,
+                )?)?)
+            }
+            ("POST", ["sessions", session_id, "slaythedata", "send-next"]) => {
+                Ok(serde_json::to_value(store.slaythedata_send_next(
+                    &SessionId((*session_id).to_owned()),
+                )?)?)
+            }
+            ("POST", ["sessions", session_id, "slaythedata", "auto-play"]) => {
+                Ok(serde_json::to_value(store.slaythedata_auto_play(
+                    &SessionId((*session_id).to_owned()),
                 )?)?)
             }
             ("GET", ["sessions", session_id, "automation"]) => Ok(serde_json::to_value(
@@ -189,6 +213,11 @@ fn run_auto_play_job<B, F>(
 struct StartRequest {
     bridge_id: String,
     config: RunConfig,
+}
+
+#[derive(serde::Deserialize)]
+struct SlayTheDataAttachRequest {
+    run_id: i64,
 }
 
 pub const UI_INDEX_HTML: &str = include_str!("../ui/index.html");
@@ -369,6 +398,7 @@ fn http_response(status: u16, content_type: &str, body: &str) -> String {
 mod tests {
     use super::*;
     use crate::{bridge::FakeBridgeManager, fidelity::TraceFidelityChecker};
+    use rusqlite::Connection;
     use std::{
         fs,
         io::{Read, Write},
@@ -511,6 +541,36 @@ mod tests {
     }
 
     #[test]
+    fn http_api_searches_slaythedata_index() {
+        let root = temp_dir("http-slaythedata-search");
+        fs::create_dir_all(&root).unwrap();
+        let db = root.join("slaythedata.sqlite3");
+        write_slaythedata_locator_db(&db);
+        let app = LiveHttpApp::new(
+            SessionStore::new(
+                FakeBridgeManager::with_default_bridge(),
+                TraceFidelityChecker,
+                &root,
+            )
+            .with_slaythedata_index(crate::SlayTheDataIndex::new(&db)),
+        );
+
+        let response = app
+            .handle(
+                "POST",
+                "/slaythedata/search",
+                r#"{"character":"IRONCLAD","ascension":0,"min_floor_reached":20,"victory":false,"limit":10,"require_supported":true}"#,
+            )
+            .unwrap();
+
+        assert_eq!(response["runs"].as_array().unwrap().len(), 1);
+        assert_eq!(response["runs"][0]["id"], 21);
+        assert_eq!(response["runs"][0]["victory"], false);
+        assert_eq!(response["runs"][0]["materialized"], true);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn http_e2e_serves_one_request() {
         let root = temp_dir("http-e2e");
         let app = LiveHttpApp::new(SessionStore::new(
@@ -569,6 +629,55 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("sts-live-http-{name}-{nonce}"))
+    }
+
+    fn write_slaythedata_locator_db(path: &std::path::Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE runs (
+                id INTEGER PRIMARY KEY,
+                character_chosen TEXT,
+                ascension_level INTEGER,
+                floor_reached INTEGER,
+                is_daily INTEGER,
+                is_endless INTEGER,
+                is_trial INTEGER,
+                unsupported_any INTEGER,
+                seed_played TEXT,
+                victory INTEGER,
+                path_length INTEGER,
+                card_choice_count INTEGER,
+                event_choice_count INTEGER,
+                shop_purchase_count INTEGER,
+                potion_usage_count INTEGER,
+                neow_bonus TEXT,
+                neow_cost TEXT
+            );
+            CREATE TABLE chunk_runs (run_id INTEGER PRIMARY KEY);
+            CREATE TABLE run_materialized_json (
+                run_id INTEGER PRIMARY KEY,
+                raw_event_json TEXT NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO runs VALUES (21, 'IRONCLAD', 0, 35, 0, 0, 0, 0, 'LOSS', 0, 35, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO runs VALUES (22, 'IRONCLAD', 0, 35, 0, 0, 0, 0, 'WIN', 1, 35, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO chunk_runs VALUES (21)", [])
+            .unwrap();
+        conn.execute("INSERT INTO chunk_runs VALUES (22)", [])
+            .unwrap();
+        conn.execute("INSERT INTO run_materialized_json VALUES (21, '{}')", [])
+            .unwrap();
     }
 
     struct CountingFidelity {

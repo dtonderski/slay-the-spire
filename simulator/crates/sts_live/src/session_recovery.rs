@@ -47,6 +47,7 @@ where
         fidelity,
         blocked: recovered.blocked,
         automation: AutomationJobSnapshot::default(),
+        slaythedata: None,
     })
 }
 

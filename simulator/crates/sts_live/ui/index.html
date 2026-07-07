@@ -110,6 +110,38 @@
           </div>
           <div id="automation-summary" class="automation-summary">No plan</div>
         </article>
+        <article class="slaythedata-card">
+          <h2>SlayTheData</h2>
+          <div class="slaythedata-search-grid">
+            <label>
+              Ascension
+              <input id="slaythedata-ascension" type="number" min="0" max="20" value="0">
+            </label>
+            <label>
+              Min floor
+              <input id="slaythedata-min-floor" type="number" min="1" max="57" value="1">
+            </label>
+            <label>
+              Outcome
+              <select id="slaythedata-outcome">
+                <option value="any">Any</option>
+                <option value="win">Win</option>
+                <option value="loss">Loss</option>
+              </select>
+            </label>
+            <label>
+              Limit
+              <input id="slaythedata-limit" type="number" min="1" max="100" value="25">
+            </label>
+          </div>
+          <div class="slaythedata-buttons-row">
+            <button id="slaythedata-search">Search</button>
+            <button id="slaythedata-send-next" disabled>Send next</button>
+            <button id="slaythedata-auto-play" disabled>Auto-play</button>
+          </div>
+          <div id="slaythedata-results" class="slaythedata-results">No run selected</div>
+          <div id="slaythedata-advisor" class="slaythedata-advisor">No advisor</div>
+        </article>
         <article class="health-card">
           <h2>Session Health</h2>
           <dl>

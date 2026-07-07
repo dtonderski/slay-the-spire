@@ -33,6 +33,15 @@ fn static_ui_exposes_stage_1_manual_controls() {
         "automation-resume",
         "automation-cancel",
         "automation-summary",
+        "slaythedata-ascension",
+        "slaythedata-min-floor",
+        "slaythedata-outcome",
+        "slaythedata-limit",
+        "slaythedata-search",
+        "slaythedata-send-next",
+        "slaythedata-auto-play",
+        "slaythedata-results",
+        "slaythedata-advisor",
         "actions",
         "command-status",
         "session-alert",
@@ -57,6 +66,7 @@ fn static_ui_exposes_stage_1_manual_controls() {
         "Running Game",
         "Bridge Manager",
         "Combat Agent",
+        "SlayTheData",
         "Session Health",
     ] {
         assert!(UI_INDEX_HTML.contains(text), "missing UI text {text:?}");
@@ -75,9 +85,7 @@ fn static_ui_exposes_stage_1_manual_controls() {
     assert!(UI_STYLES_CSS.contains(".empty-state"));
     assert!(UI_STYLES_CSS.contains(".command-status"));
     assert!(UI_STYLES_CSS.contains(".fidelity-chip"));
-    assert!(UI_STYLES_CSS.contains(
-        "grid-template-columns: minmax(540px, 1fr) minmax(360px, 430px) minmax(330px, 400px)"
-    ));
+    assert!(UI_STYLES_CSS.contains("minmax(500px, 1fr) minmax(330px, 390px)"));
     assert!(UI_INDEX_HTML.contains("class=\"workspace\""));
     assert!(UI_INDEX_HTML.contains("class=\"health-card\""));
 }
@@ -113,6 +121,14 @@ fn static_ui_sends_backend_action_ids() {
     assert!(UI_MAIN_TS.contains("automationCommand(\"run-one\")"));
     assert!(UI_MAIN_TS.contains("automationAutoPlay"));
     assert!(UI_MAIN_TS.contains("/automation/auto-play"));
+    assert!(UI_MAIN_TS.contains("/slaythedata/search"));
+    assert!(UI_MAIN_TS.contains("/slaythedata/attach"));
+    assert!(UI_MAIN_TS.contains("/slaythedata/${command}"));
+    assert!(UI_MAIN_TS.contains("renderSlayTheData"));
+    assert!(UI_MAIN_TS.contains("renderSlayTheDataResults"));
+    assert!(UI_MAIN_TS.contains("SlayTheDataSessionSnapshot"));
+    assert!(UI_MAIN_TS.contains("not materialized"));
+    assert!(UI_MAIN_TS.contains("runSummary.materialized"));
     assert!(UI_MAIN_TS.contains("automationControlCommand(\"cancel\")"));
     assert!(UI_MAIN_TS.contains("planned-action"));
     assert!(UI_MAIN_TS.contains("allowed_potion_slots"));
@@ -168,6 +184,9 @@ fn static_ui_exposes_stage_2_combat_agent_controls() {
     assert!(UI_INDEX_HTML.contains("Beam search"));
     assert!(UI_INDEX_HTML.contains("Greedy search"));
     assert!(UI_INDEX_HTML.contains("Fake first card"));
+    assert!(UI_STYLES_CSS.contains(".slaythedata-card"));
+    assert!(UI_STYLES_CSS.contains(".slaythedata-results"));
+    assert!(UI_STYLES_CSS.contains(".slaythedata-advisor"));
 }
 
 #[test]

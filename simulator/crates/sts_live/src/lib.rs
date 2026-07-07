@@ -17,6 +17,7 @@ mod session_blocking;
 mod session_recovery;
 mod session_response;
 mod session_state;
+pub mod slaythedata;
 pub mod trace_writer;
 
 #[cfg(test)]
@@ -35,4 +36,5 @@ pub use communication::{CommunicationBridgeConfig, CommunicationModBridgeManager
 pub use fidelity::{FidelityChecker, TraceFidelityChecker};
 pub use model::*;
 pub use session::SessionStore;
+pub use slaythedata::{SlayTheDataIndex, DEFAULT_SLAYTHEDATA_DB};
 pub use trace_writer::{TraceRecovery, TraceWriter};

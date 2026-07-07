@@ -4,14 +4,16 @@ use crate::{
     fidelity::FidelityChecker,
     model::{
         ActionId, AutomationConfig, AutomationJobSnapshot, AutomationState, BlockedState, BridgeId,
-        FidelityKind, FidelityStatus, LiveError, LiveResult, RunConfig, SessionId,
-        SessionLifecycle, SessionSnapshot, TraceRecord,
+        FidelityKind, FidelityStatus, LiveError, LivePhase, LiveResult, RunConfig, SessionId,
+        SessionLifecycle, SessionSnapshot, SlayTheDataRunSummary, SlayTheDataSearchFilters,
+        TraceRecord,
     },
     operator_actions::{request_state_action, start_run_action},
     session_blocking::record_blocked,
     session_recovery,
     session_response::append_bridge_response_and_state,
     session_state::{lifecycle_for_fidelity, metadata_record, SessionData},
+    slaythedata::{AttachedSlayTheDataRun, SlayTheDataIndex},
     trace_writer::TraceWriter,
 };
 use serde_json::json;
@@ -23,6 +25,7 @@ use std::{
 pub struct SessionStore<B, F> {
     bridge: B,
     fidelity: F,
+    slaythedata_index: SlayTheDataIndex,
     trace_root: PathBuf,
     sessions: HashMap<SessionId, SessionData>,
     next_session: u64,
@@ -37,10 +40,16 @@ where
         Self {
             bridge,
             fidelity,
+            slaythedata_index: SlayTheDataIndex::default_local(),
             trace_root: trace_root.as_ref().to_path_buf(),
             sessions: HashMap::new(),
             next_session: 1,
         }
+    }
+
+    pub fn with_slaythedata_index(mut self, index: SlayTheDataIndex) -> Self {
+        self.slaythedata_index = index;
+        self
     }
 
     pub fn list_bridges(&self) -> LiveResult<Vec<crate::model::BridgeStatus>> {
@@ -180,7 +189,7 @@ where
         session_id: &SessionId,
         action_id: &ActionId,
     ) -> LiveResult<SessionSnapshot> {
-        self.send_action_with_fidelity(session_id, action_id, false)
+        self.send_action_with_fidelity(session_id, action_id, false, true)
     }
 
     fn send_action_with_fidelity(
@@ -188,6 +197,7 @@ where
         session_id: &SessionId,
         action_id: &ActionId,
         refresh_fidelity: bool,
+        advance_manual_plan_after_success: bool,
     ) -> LiveResult<SessionSnapshot> {
         let action = {
             let session = self.session_mut(session_id)?;
@@ -236,7 +246,7 @@ where
             })?;
             append_bridge_response_and_state(session, "send_action", &state)?;
             session.latest_state = Some(state);
-            advance_manual_plan
+            advance_manual_plan && advance_manual_plan_after_success
         };
         if advance_manual_plan {
             self.advance_automation_plan_after_action(session_id, &action, true)?;
@@ -259,6 +269,149 @@ where
             .as_ref()
             .map(|state| state.legal_actions.clone())
             .unwrap_or_default())
+    }
+
+    pub fn search_slaythedata_runs(
+        &self,
+        filters: SlayTheDataSearchFilters,
+    ) -> LiveResult<Vec<SlayTheDataRunSummary>> {
+        self.slaythedata_index.search(&filters)
+    }
+
+    pub fn attach_slaythedata_run(
+        &mut self,
+        session_id: &SessionId,
+        run_id: i64,
+    ) -> LiveResult<SessionSnapshot> {
+        self.session(session_id)?;
+        let (summary, raw_run_json) = self.slaythedata_index.load_materialized_run(run_id)?;
+        let attached = AttachedSlayTheDataRun::from_raw(summary, &raw_run_json)?;
+        let details = json!({
+            "run": attached.summary,
+            "preflight_steps": attached.report.steps.len(),
+            "route_fully_checked": attached.report.route_fully_checked,
+            "diagnostics": attached.report.diagnostics,
+        });
+        let session = self.session_mut(session_id)?;
+        session.slaythedata = Some(attached);
+        let snapshot = session.snapshot();
+        self.append_slaythedata_trace(session_id, "attach_run", details)?;
+        Ok(snapshot)
+    }
+
+    pub fn slaythedata_send_next(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        if self
+            .session(session_id)?
+            .slaythedata
+            .as_ref()
+            .and_then(|attached| attached.blocked.as_ref())
+            .is_some()
+        {
+            return Ok(self.session(session_id)?.snapshot());
+        }
+        self.refresh_fidelity(session_id)?;
+        if self.session(session_id)?.fidelity.kind != FidelityKind::Ok {
+            return self.block_slaythedata(
+                session_id,
+                "slaythedata_fidelity_not_ok",
+                "SlayTheData guided action requires fidelity ok before sending",
+            );
+        }
+        let state = self
+            .session(session_id)?
+            .latest_state
+            .clone()
+            .ok_or_else(|| {
+                LiveError::Blocked("SlayTheData guidance needs a live state".to_owned())
+            })?;
+        if state.phase == LivePhase::Combat {
+            let session = self.session_mut(session_id)?;
+            if let Some(attached) = session.slaythedata.as_mut() {
+                attached.last_message =
+                    Some("SlayTheData guidance paused in combat; use the combat agent".to_owned());
+            }
+            return Ok(session.snapshot());
+        }
+        let (step_index, action) = {
+            let session = self.session_mut(session_id)?;
+            let Some(attached) = session.slaythedata.as_mut() else {
+                return Err(LiveError::Blocked(
+                    "no SlayTheData run is attached to this session".to_owned(),
+                ));
+            };
+            match attached.ready_action(&state) {
+                Ok((index, action)) => (index, action),
+                Err(blocked) => {
+                    attached.mark_blocked(blocked.clone());
+                    let snapshot = session.snapshot();
+                    self.append_slaythedata_trace(
+                        session_id,
+                        "blocked",
+                        json!(snapshot.slaythedata),
+                    )?;
+                    return Ok(snapshot);
+                }
+            }
+        };
+
+        let action_id = action.id.clone();
+        self.append_slaythedata_trace(
+            session_id,
+            "send_action",
+            json!({"step_index": step_index, "action": action}),
+        )?;
+        if let Err(error) = self.send_action_with_fidelity(session_id, &action_id, false, false) {
+            let message = error.to_string();
+            return self.block_slaythedata(session_id, "slaythedata_send_failed", &message);
+        }
+        self.refresh_fidelity(session_id)?;
+        if self.session(session_id)?.fidelity.kind != FidelityKind::Ok {
+            return self.block_slaythedata(
+                session_id,
+                "slaythedata_transition_not_ok",
+                "SlayTheData guided transition did not verify with fidelity ok",
+            );
+        }
+        let session = self.session_mut(session_id)?;
+        if let Some(attached) = session.slaythedata.as_mut() {
+            attached.mark_sent(step_index);
+        }
+        let snapshot = session.snapshot();
+        self.append_slaythedata_trace(session_id, "sent_action", json!(snapshot.slaythedata))?;
+        Ok(snapshot)
+    }
+
+    pub fn slaythedata_auto_play(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
+        let limit = 50;
+        for _ in 0..limit {
+            let before = self.session(session_id)?.snapshot();
+            if before
+                .latest_state
+                .as_ref()
+                .is_some_and(|state| state.phase == LivePhase::Combat)
+            {
+                return Ok(before);
+            }
+            let after = self.slaythedata_send_next(session_id)?;
+            if after.slaythedata.blocked.is_some()
+                || after
+                    .latest_state
+                    .as_ref()
+                    .is_some_and(|state| state.phase == LivePhase::Combat)
+                || after
+                    .slaythedata
+                    .advisor
+                    .as_ref()
+                    .is_none_or(|advisor| advisor.action_id.is_none())
+            {
+                return Ok(after);
+            }
+        }
+        self.block_slaythedata(
+            session_id,
+            "slaythedata_auto_action_limit",
+            "SlayTheData guided auto-play reached its action limit",
+        )
     }
 
     pub fn automation_status(&self, session_id: &SessionId) -> LiveResult<AutomationJobSnapshot> {
@@ -423,7 +576,7 @@ where
 
         self.set_automation_state(session_id, AutomationState::SendingAction)?;
         let action_id = planned.action_id.clone();
-        let result = self.send_action_with_fidelity(session_id, &action_id, false);
+        let result = self.send_action_with_fidelity(session_id, &action_id, false, true);
         if let Err(err) = result {
             if let Ok(session) = self.session_mut(session_id) {
                 session.automation.state = AutomationState::Failed;
@@ -690,6 +843,7 @@ where
             fidelity: FidelityStatus::unknown(),
             blocked: None,
             automation: AutomationJobSnapshot::default(),
+            slaythedata: None,
         })
     }
 
@@ -782,6 +936,46 @@ where
             details,
         })?;
         Ok(())
+    }
+
+    fn append_slaythedata_trace(
+        &mut self,
+        session_id: &SessionId,
+        event: &str,
+        details: serde_json::Value,
+    ) -> LiveResult<()> {
+        let sequence = self
+            .session(session_id)?
+            .latest_state
+            .as_ref()
+            .map(|state| state.sequence)
+            .unwrap_or_default();
+        let session = self.session_mut(session_id)?;
+        session.trace_writer.append(&TraceRecord::SlayTheData {
+            sequence,
+            event: event.to_owned(),
+            details,
+        })?;
+        Ok(())
+    }
+
+    fn block_slaythedata(
+        &mut self,
+        session_id: &SessionId,
+        reason_code: &str,
+        message: &str,
+    ) -> LiveResult<SessionSnapshot> {
+        let session = self.session_mut(session_id)?;
+        let blocked = BlockedState {
+            reason_code: reason_code.to_owned(),
+            message: message.to_owned(),
+        };
+        if let Some(attached) = session.slaythedata.as_mut() {
+            attached.mark_blocked(blocked);
+        }
+        let snapshot = session.snapshot();
+        self.append_slaythedata_trace(session_id, "blocked", json!(snapshot.slaythedata))?;
+        Ok(snapshot)
     }
 
     fn advance_automation_plan_after_action(

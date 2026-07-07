@@ -224,7 +224,7 @@ input:focus-visible {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(540px, 1fr) minmax(360px, 430px) minmax(330px, 400px);
+  grid-template-columns: minmax(500px, 1fr) minmax(330px, 390px) minmax(330px, 390px) minmax(310px, 370px);
   gap: 10px;
   margin-top: 10px;
   align-items: start;
@@ -333,10 +333,51 @@ article {
   color: #ffd9d9;
 }
 
-.automation-card {
+.automation-card,
+.slaythedata-card {
   display: grid;
   align-content: start;
   gap: 8px;
+}
+
+.slaythedata-search-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.slaythedata-buttons-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.slaythedata-results,
+.slaythedata-advisor {
+  display: grid;
+  gap: 6px;
+  min-height: 44px;
+  border-top: 1px solid #28333f;
+  color: #d9e4ee;
+  font-size: 12px;
+  line-height: 1.35;
+  padding-top: 8px;
+}
+
+.slaythedata-run {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 6px;
+  align-items: center;
+}
+
+.slaythedata-run button {
+  min-height: 28px;
+}
+
+.slaythedata-advisor .advisor-code {
+  color: #aebbc8;
+  font-weight: 700;
 }
 
 .automation-config-row {
@@ -609,6 +650,8 @@ pre {
   .bridge-row,
   .automation-config-row,
   .automation-buttons-row,
+  .slaythedata-search-grid,
+  .slaythedata-buttons-row,
   .action-group {
     grid-template-columns: 1fr;
   }

@@ -209,6 +209,81 @@ impl Default for AutomationConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlayTheDataSearchFilters {
+    #[serde(default = "default_slaythedata_character")]
+    pub character: String,
+    #[serde(default)]
+    pub ascension: Option<u8>,
+    #[serde(default = "default_slaythedata_min_floor")]
+    pub min_floor_reached: u32,
+    #[serde(default)]
+    pub max_floor_reached: Option<u32>,
+    #[serde(default)]
+    pub victory: Option<bool>,
+    #[serde(default)]
+    pub seed_played: Option<String>,
+    #[serde(default = "default_slaythedata_limit")]
+    pub limit: usize,
+    #[serde(default = "default_true")]
+    pub require_supported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlayTheDataRunSummary {
+    pub id: i64,
+    pub seed_played: Option<String>,
+    pub ascension_level: Option<u8>,
+    pub floor_reached: Option<u32>,
+    pub victory: bool,
+    pub path_length: Option<u32>,
+    pub card_choice_count: Option<u32>,
+    pub event_choice_count: Option<u32>,
+    pub shop_purchase_count: Option<u32>,
+    pub potion_usage_count: Option<u32>,
+    pub neow_bonus: Option<String>,
+    pub neow_cost: Option<String>,
+    pub guided_score: i64,
+    pub materialized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlayTheDataAdvisorStep {
+    pub floor: u32,
+    pub ordinal: usize,
+    pub status: String,
+    pub code: String,
+    pub message: String,
+    pub command: Option<String>,
+    pub action_id: Option<ActionId>,
+    pub action_label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SlayTheDataSessionSnapshot {
+    pub attached_run: Option<SlayTheDataRunSummary>,
+    pub advisor: Option<SlayTheDataAdvisorStep>,
+    pub next_step_index: usize,
+    pub blocked: Option<BlockedState>,
+    pub last_message: Option<String>,
+}
+
+fn default_slaythedata_character() -> String {
+    "IRONCLAD".to_owned()
+}
+
+fn default_slaythedata_min_floor() -> u32 {
+    1
+}
+
+fn default_slaythedata_limit() -> usize {
+    50
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FidelityKind {
     Unknown,
@@ -265,6 +340,7 @@ pub struct SessionSnapshot {
     pub fidelity: FidelityStatus,
     pub blocked: Option<BlockedState>,
     pub automation: AutomationJobSnapshot,
+    pub slaythedata: SlayTheDataSessionSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -295,6 +371,11 @@ pub enum TraceRecord {
         message: String,
     },
     Automation {
+        sequence: u64,
+        event: String,
+        details: Value,
+    },
+    SlayTheData {
         sequence: u64,
         event: String,
         details: Value,
