@@ -5423,6 +5423,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::BagOfMarbles => "Bag of Marbles",
         RelicKey::BagOfPreparation => "Bag of Preparation",
         RelicKey::BurningBlood => "Burning Blood",
+        RelicKey::BloodVial => "Blood Vial",
         RelicKey::DreamCatcher => "Dream Catcher",
         RelicKey::ToxicEgg => "Toxic Egg",
         RelicKey::FrozenEgg => "Frozen Egg",
@@ -5518,6 +5519,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "bagofmarbles" => Some(RelicKey::BagOfMarbles),
         "bagofpreparation" => Some(RelicKey::BagOfPreparation),
         "burningblood" => Some(RelicKey::BurningBlood),
+        "bloodvial" => Some(RelicKey::BloodVial),
         "dreamcatcher" => Some(RelicKey::DreamCatcher),
         "toxicegg" => Some(RelicKey::ToxicEgg),
         "frozenegg" | "frozenegg2" => Some(RelicKey::FrozenEgg),
@@ -5605,6 +5607,7 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "bagofmarbles" => Some(Relic::BagOfMarbles),
         "bagofpreparation" => Some(Relic::BagOfPreparation),
         "burningblood" => Some(Relic::BurningBlood),
+        "bloodvial" => Some(Relic::BloodVial),
         "dreamcatcher" => Some(Relic::DreamCatcher),
         "toxicegg" => Some(Relic::ToxicEgg),
         "frozenegg" | "frozenegg2" => Some(Relic::FrozenEgg),
@@ -6142,7 +6145,7 @@ fn seed_start_simulated_combat_subset(
         "ascension": run.ascension,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": run.gold,
-        "current_hp": run.player_hp,
+        "current_hp": combat.player.hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
         "relic_ids": relic_ids_for_simulated_subset(run, &[]),
@@ -10473,6 +10476,7 @@ mod tests {
             (RelicKey::Akabeko, "Akabeko"),
             (RelicKey::BagOfMarbles, "Bag of Marbles"),
             (RelicKey::BagOfPreparation, "Bag of Preparation"),
+            (RelicKey::BloodVial, "Blood Vial"),
             (RelicKey::DeadBranch, "Dead Branch"),
             (RelicKey::GremlinHorn, "Gremlin Horn"),
             (RelicKey::IceCream, "Ice Cream"),
@@ -10510,6 +10514,26 @@ mod tests {
                 Some(key)
             );
         }
+    }
+
+    #[test]
+    fn combat_subset_reports_start_of_combat_relic_healed_hp() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 34;
+        run.player_max_hp = 86;
+        run.relics = vec![Relic::BurningBlood, Relic::BloodVial];
+        run.combat = Some(run.init_combat(CombatState::initial_fixture()));
+
+        let message = json!({
+            "game_state": {
+                "floor": 8,
+                "screen_type": "NONE"
+            }
+        });
+        let subset = seed_start_simulated_combat_subset(&run, &message, false);
+
+        assert_eq!(subset["current_hp"], json!(36));
+        assert_eq!(subset["combat_player_hp"], json!(36));
     }
 
     #[test]
