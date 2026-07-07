@@ -322,6 +322,7 @@ fn apply_internal_action(
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
+            follow_ups.extend(apply_copied_card_play_triggers(state));
             Ok(follow_ups)
         }
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
@@ -1308,6 +1309,19 @@ fn apply_hand_card_play_triggers(
         .hand
         .iter()
         .filter(|card| card.id != played_card_id && card.content_id == PAIN_ID)
+        .map(|card| InternalAction::LoseHp {
+            amount: 1,
+            source: HpLossSource::Card(card.id),
+        })
+        .collect()
+}
+
+fn apply_copied_card_play_triggers(state: &CombatState) -> Vec<InternalAction> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.content_id == PAIN_ID)
         .map(|card| InternalAction::LoseHp {
             amount: 1,
             source: HpLossSource::Card(card.id),
