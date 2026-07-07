@@ -1880,8 +1880,7 @@ fn apply_play_top_draw_card(
     apply_enrage_on_card_type(state, definition.card_type);
     apply_rage_on_card_type(state, definition.card_type);
 
-    let mut follow_ups = crate::relic::apply_on_card_play_relics(state, definition.card_type);
-    follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
+    let mut follow_ups = Vec::new();
     match definition.id {
         STRIKE_R_ID
         | STRIKE_R_PLUS_ID
@@ -2391,6 +2390,12 @@ fn apply_play_top_draw_card(
     } else if !card.combat_only {
         state.piles.discard_pile.push(card);
     }
+
+    follow_ups.extend(crate::relic::apply_on_card_play_relics(
+        state,
+        definition.card_type,
+    ));
+    follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
 
     Ok(follow_ups)
 }

@@ -15,7 +15,7 @@ use sts_core::{
         monsters::{monster_state, FIXED_SIMPLE_MONSTER},
     },
     legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
-    MonsterIntent, RunPhase, RunState, StsRng,
+    MonsterIntent, Relic, RunPhase, RunState, StsRng,
 };
 
 #[test]
@@ -3803,6 +3803,39 @@ fn havoc_reckless_charge_plus_adds_generated_dazed_and_exhausts() {
     assert_eq!(
         next.piles.exhaust_pile[0].content_id,
         cards::RECKLESS_CHARGE_PLUS_ID
+    );
+}
+
+#[test]
+fn havoc_played_attack_resolves_damage_before_shuriken_strength() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.powers.strength = 2;
+    state.relics.push(Relic::Shuriken);
+    state.relic_counters.shuriken_attacks_this_turn = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_PLUS_ID)];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), cards::POMMEL_STRIKE_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Havoc+ should play top-deck Pommel Strike");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 11);
+    assert_eq!(next.player.powers.strength, 3);
+    assert_eq!(next.relic_counters.shuriken_attacks_this_turn, 0);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::POMMEL_STRIKE_ID
     );
 }
 
