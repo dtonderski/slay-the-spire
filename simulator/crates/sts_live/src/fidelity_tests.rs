@@ -124,7 +124,12 @@ fn checker_uses_seed_start_for_complete_start_traces() {
         .unwrap();
 
     let status = TraceFidelityChecker.check_trace(&path).unwrap();
-    assert_eq!(status.kind, FidelityKind::Ok);
+    assert_eq!(
+        status.kind,
+        FidelityKind::Ok,
+        "unexpected fidelity status: {:?}",
+        status
+    );
     assert!(status.message.unwrap().contains("matched"));
     assert!(status.compact_diff.is_empty());
     fs::remove_file(path).ok();
@@ -201,7 +206,12 @@ fn checker_returns_simulator_state_for_supported_live_trace() {
     let (status, sim_run_state) = TraceFidelityChecker
         .check_trace_with_sim_state(&path)
         .unwrap();
-    assert_eq!(status.kind, FidelityKind::Ok);
+    assert_eq!(
+        status.kind,
+        FidelityKind::Ok,
+        "unexpected fidelity status: {:?}",
+        status
+    );
     let sim_run_state = sim_run_state.expect("strict replay should return simulator run state");
     assert!(
         matches!(

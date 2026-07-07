@@ -584,6 +584,10 @@ function renderActions(actions: LegalAction[]): void {
               { method: "POST", body: "{}" }
             );
             renderSession(session);
+            void refreshFidelityForRenderedState(
+              session.session_id,
+              session.latest_state?.sequence ?? null
+            ).catch(console.error);
           } catch (error) {
             clearPendingCommand();
             renderPendingCommandState();
@@ -970,6 +974,21 @@ async function refreshCurrentSession(): Promise<void> {
   const session = await api<SessionSnapshot>(`/sessions/${sessionId}`);
   if (currentSession?.session_id === sessionId) {
     renderSession(session);
+  }
+}
+
+async function refreshFidelityForRenderedState(
+  sessionId: string,
+  sourceSequence: number | null
+): Promise<void> {
+  const session = await api<SessionSnapshot["fidelity"]>(`/sessions/${sessionId}/fidelity`);
+  if (
+    currentSession?.session_id === sessionId &&
+    (sourceSequence === null || (currentSession.latest_state?.sequence ?? null) === sourceSequence)
+  ) {
+    currentSession.fidelity = session;
+    currentSession.lifecycle = session.kind === "ok" ? "fidelity_ok" : session.kind === "lost" ? "fidelity_lost" : currentSession.lifecycle;
+    renderSession(currentSession);
   }
 }
 

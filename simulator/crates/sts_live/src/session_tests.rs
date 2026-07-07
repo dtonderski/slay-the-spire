@@ -119,10 +119,14 @@ fn fidelity_loss_after_action_stays_visible_without_blocking_manual_collection()
         )
         .unwrap();
 
-    let lost = store
+    let updated = store
         .send_action(&snapshot.session_id, &ActionId("talk".to_owned()))
         .unwrap();
 
+    assert_eq!(updated.lifecycle, SessionLifecycle::Recording);
+    assert_ne!(updated.fidelity.kind, FidelityKind::Lost);
+
+    let lost = store.refresh_fidelity(&snapshot.session_id).unwrap();
     assert_eq!(lost.lifecycle, SessionLifecycle::FidelityLost);
     assert_eq!(lost.fidelity.kind, FidelityKind::Lost);
     assert!(lost.blocked.is_none());
