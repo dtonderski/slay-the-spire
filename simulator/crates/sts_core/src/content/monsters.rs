@@ -7869,7 +7869,9 @@ pub fn apply_large_acid_slime_split(
     let mut left = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id));
     let mut right = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id + 1));
     left.hp = split_hp;
+    left.max_hp = split_hp;
     right.hp = split_hp;
+    right.max_hp = split_hp;
     if let Some(rng) = rng.as_deref_mut() {
         let left_roll = rng.random_int(99);
         left.intent = target_medium_acid_slime_next_intent_from_roll(
@@ -10111,6 +10113,26 @@ mod tests {
         assert!(children
             .iter()
             .all(|monster| (monster.hp, monster.max_hp) == (20, 20)));
+    }
+
+    #[test]
+    fn large_acid_slime_split_children_use_current_hp_as_max_hp() {
+        let parent_id = MonsterId::new(1);
+        let mut parent = monster_state(&ACID_SLIME_A0, parent_id);
+        parent.hp = 17;
+        parent.max_hp = ACID_SLIME_L_A7_HP_RANGE.max;
+        let mut monsters = vec![parent];
+
+        apply_large_acid_slime_split(&mut monsters, parent_id, None, 0);
+
+        let children = monsters
+            .iter()
+            .filter(|monster| monster.alive && monster.content_id == ACID_SLIME_ID)
+            .collect::<Vec<_>>();
+        assert_eq!(children.len(), 2);
+        assert!(children
+            .iter()
+            .all(|monster| (monster.hp, monster.max_hp) == (17, 17)));
     }
 
     #[test]
